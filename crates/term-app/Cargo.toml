@@ -1,0 +1,42 @@
+[package]
+name = "term-app"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 无前端的应用层（R12 从 app/src/app/ 抽出）：动作、reducer、视图状态、菜单树、
+# 能力面、选区与查找的**判定**都在这里，一行 UI 代码也没有。
+#
+# 依赖表就是 B1 / ADR-0016 的判据，而且**只有 term-core 一个**：
+# - 没有 egui / eframe（B1）；
+# - 没有 term-runtime——这一层**拿不到 PTY**，所以「界面层偷偷起进程」这种错误
+#   在编译期就不成立；任何无窗口消费者（`--headless --exec`、将来的 API 层）
+#   也因此可以直接复用它；
+# - 也没有 term-import。2026-11-13（P0-2）之前它是 D6 首次启动引导引进来的：
+#   引导要把 `~/.ssh/config` 的文本变成「探测到的主机」。但 term-import 带
+#   `std::fs` / `dirs` / `current_exe()`，一旦进来，「副作用只能以 `Effect`
+#   返回」就从**编译器强制**降级成自律。现在解析适配（`ImportedSession` →
+#   `DetectedHost`）留在投影层 `apps/desktop/src/ui/overlays/onboarding.rs`，
+#   本层只保留 `OnboardingState` / `Step` / `DetectedHost` 这些纯状态类型。
+#
+# 该边界由 `scripts/verify.sh` 4d 的精确白名单守着（依赖表出现 term-core 以外的
+# 任何 crate 即判红），不再是「靠 grep 关键字猜」。
+[dependencies]
+term-core = { path = "../term-core" }
+
+[features]
+default = []
+# 已实现、已测试，但**没有生产读者**的模块（structure / trigger / trigger_regex，
+# 2026-11-12 移出 tmux_layout 后剩 800 余行生产代码 + 数条单测）。
+#
+# 2026-11-12 审查实测：这些模块路径与 crate 根的再导出符号，在 `apps/` 与其余
+# `crates/` 里的外部引用**全为 0**。留在默认编译面上时，`cargo test` 的绿色是
+# 在为无人调用的代码担保，而本 crate 的规矩是「没有读者的字段不是预留，是
+# 第二步的假接口」。
+#
+# 所以用 feature 把「已接线」与「已实现但未接线」分开：默认不编译不跑，
+# `--features planned` 时全部回来。`verify.sh` 第 1 项会编一次防烂。
+#
+# `tmux_layout` 于 2026-11-12 提回默认面：B2 Step 9 双向闭环测试直接引用它
+# （`apps/desktop/tests/docker_tmux.rs`），有了真读者便不再属于「无人调用」。
+planned = []
