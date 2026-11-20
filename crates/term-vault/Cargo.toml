@@ -1,0 +1,21 @@
+[package]
+name = "term-vault"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 凭据保险库（R13-a）：主密码 → Argon2id → XChaCha20-Poly1305 加密的条目文件。
+#
+# 这一层**同步、无运行时、无 IO**：加密解密是纯函数式的字节变换，读写文件由
+# 调用方（term-runtime / apps/*）负责。依赖表里没有 tokio、没有 UI、没有 term-core
+# ——它是叶子 crate，谁都能用，也包括将来的 CLI。
+#
+# 选型：Argon2id 64 MiB / t=3 / p=4、XChaCha20-Poly1305、header 进 AAD。
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+rand = "0.8"
+zeroize = { version = "1", features = ["derive"] }
+base64 = "0.22"

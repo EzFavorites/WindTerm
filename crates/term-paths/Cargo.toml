@@ -1,0 +1,13 @@
+[package]
+name = "term-paths"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 「我们的文件放在哪」——全仓库唯一知道这件事的地方。
+#
+# 只有一个依赖 `dirs`，没有别的。这个 crate 存在的理由写在 `src/lib.rs`：
+# 它必须比 `term-profile`（持久化）与 `term-io`（会话线程）**都低**，
+# 否则「日志写到 profile 目录」会逼着会话层依赖持久化层。
+[dependencies]
+dirs = "5.0"

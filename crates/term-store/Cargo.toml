@@ -1,0 +1,29 @@
+[package]
+name = "term-store"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# SQLite 会话库（R13-b，ADR-0017 §分期 b；R13-b2 起是产品里唯一的会话存储）。
+#
+# 解决什么问题：原来的 `user.sessions` 是一个明文 JSON 文件——不可查询、整写整读
+# （每次保存都重写全文件，崩在写一半就是全丢）、也没有给「密码按引用存」
+# 留位置。这一层把会话放进 SQLite：单文件、事务、可查询，并给凭据留了
+# `vault_entry_id` 列——密码只存保险库条目的引用，**永远不存密码本身**。
+#
+# 选型参照 wt-store（同为 Apache-2.0）：`rusqlite` bundled。bundled 意味着
+# 首次构建要编一段 C（20–40 s，ADR-0017 已把这个代价写明）；换来的是
+# 不依赖系统里有没有 libsqlite3，产物在 macOS / Linux / Windows 上一致。
+#
+# 边界（4d 守着）：**纯同步、无运行时、无 UI**。依赖表里没有 tokio、
+# 没有 egui、没有 term-runtime——它是纯语义层（term-core）下面的一块存储。
+[dependencies]
+term-core = { path = "../term-core" }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+# 「库里没有明文密码字节」的判据要一个真文件（含 -wal）：临时目录由 tempfile 提供，
+# 不碰真实用户配置（与 term-profile::persist 的测试同一条规矩）。
+tempfile = "3"

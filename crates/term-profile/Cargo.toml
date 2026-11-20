@@ -1,0 +1,21 @@
+[package]
+name = "term-profile"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 用户档案层：配置目录里的东西怎么读、怎么写。
+#
+# 依赖表就是边界（`scripts/verify.sh` 第 4d 项复核）：
+# - 有 `term-store`（会话库）、`serde`（JSON 文件）、`term-paths`（路径）；
+# - **没有** portable-pty / nix / tokio / 任何 UI 框架。
+#   这一层不该能起线程、开伪终端，也不该被 `ui/` 直接依赖。
+[dependencies]
+term-core = { path = "../term-core" }
+term-paths = { path = "../term-paths" }
+term-store = { path = "../term-store" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+# D1：触发器规则（`term_core::trigger::Rule`）直接落盘进 `prefs.json`。
+# 规则类型下沉到 `term-core`，本 crate 只依赖 `term-core`，不反向依赖
+# `term-app`（应用层）——守住 ADR-0014 的分层（见 `scripts/verify.sh` 第 4d 项）。
