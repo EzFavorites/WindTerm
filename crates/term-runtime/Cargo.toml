@@ -1,0 +1,22 @@
+[package]
+name = "term-runtime"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# **兼容门面**（2026-11-12 底层收敛）。实现已经全部搬走：
+# - `term-io`（会话线程 / 伪终端 / 串口 / 日志 / 本地目录）
+# - `term-profile`（用户档案 / 布局 / 偏好 / 快捷栏 / 搜索表）
+# - `term-paths`（profile 目录规则）
+# - `term-import`（外部配置导入，C4）
+# 本 crate 只保留同名模块的再导出，让 `apps/desktop/src/ui/**` 的 91 处
+# `term_runtime::` 引用继续解析。**新代码不要依赖这里。**
+#
+# C4 之后本 crate **没有任何实现**，只剩 `pub use`。因此依赖表里不再有
+# portable-pty / nix / serde / dirs / term-core / term-store——它连自己的
+# 源代码都不需要它们了。
+[dependencies]
+term-io = { path = "../term-io" }
+term-profile = { path = "../term-profile" }
+term-import = { path = "../term-import" }
+term-paths = { path = "../term-paths" }

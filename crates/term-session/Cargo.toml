@@ -1,0 +1,19 @@
+[package]
+name = "term-session"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 会话控制面（ADR-0019）：唯一的会话所有者库。协议无关——只认
+# `term_core::session_runtime::Session` 抽象，不出现 SSH/SFTP/隧道等
+# 协议专有概念（协议 crate 经 `TermChannel` 接缝注入，见 `open_with_channel`）。
+# 依赖方向顺着单向纪律：本 crate → term-io → term-core。
+# 控制面要真起会话，所以直接依赖 **term-io 本体**（supervisor / spawn）；
+# `TermChannel` 的更底一层在 `term_core::channel`，与传输层共用同一个类型。
+# 刻意**不**依赖 `term-runtime`：那只是给 `apps/desktop/src` 旧路径留的兼容门面，
+# 1.0 后要删；控制面反向绑上去等于给删除工作加一道反向锁。
+# 零 `.await`、不声明 tokio（ADR-0017 笼子）：所有异步都藏在后端
+# crate 的后台线程里，控制面只做同步外观与句柄轮询。
+[dependencies]
+term-core = { path = "../term-core" }
+term-io = { path = "../term-io" }
