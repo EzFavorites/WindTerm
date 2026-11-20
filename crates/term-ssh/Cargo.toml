@@ -1,0 +1,35 @@
+[package]
+name = "term-ssh"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# SSH 连接层（R13-d）：russh 0.65 + tokio。
+#
+# **这是仓库里唯一允许出现异步运行时的地方**（ADR-0017 §决策 2）。
+# 对外一律同步：调用方拿到的是 `SshChannel`，`drain/write/resize/poll/close`
+# 与 term-runtime 的 `TermChannel` 同形（并且真的 `impl` 了它），
+# 所以 `Supervisor` 的 run 循环一行不用改。
+# 异步只活在这个 crate 内部的一条专用线程里（`Runtime::new_current_thread`）。
+#
+# russh 的 feature 选择：用 ring 后端（aws-lc-rs 在 Windows 上要 NASM，
+# 在 macOS 上要多编一个 C 库），带 flate2（压缩）与 rsa（老服务器常见）。
+[dependencies]
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+# 日志只用于「配置允许但运行时做不到」的几处（agent 转发桥接失败）：
+# 那些失败回给谁都不合适（不在这条连接的握手里），但**绝不能**静默。
+log = "0.4"
+# 只为了两件事：实现 `TermChannel`（让 Supervisor 直接收这个通道），
+# 以及把 `SshError` 转成 `SpawnError`（应用层只认识后者）。
+# 2026-11-12 底层收敛：这两个类型都在 `term_core::channel`，所以这里只依赖 core。
+# 此前依赖 term-runtime 是一次**反向层次**——传输层为了一个 trait 与一个枚举，
+# 被迫拖进 portable-pty / nix / dirs / rusqlite 一整串副作用依赖，
+# 于是「SSH 能连」在编译期被绑在「本机能开伪终端」上。
+term-core = { path = "../term-core" }
+
+# 测试用的 SSH 密钥改为**运行时生成**，不再把私钥入库
+# （避免公开仓库被 GitHub 密钥扫描拦截）。ssh-key 是 russh 的传递依赖，
+# 此处锁定为本机已缓存的版本，仅用于测试。
+[dev-dependencies]
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "getrandom", "encryption"] }
