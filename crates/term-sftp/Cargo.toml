@@ -1,0 +1,39 @@
+[package]
+name = "term-sftp"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# SFTP 文件浏览（R13-f，ADR-0017 §分期 f）。
+#
+# 骑在 R13-d 的连接层上：`term_ssh::Authenticated` 给出「已认证、还没开会话」的
+# 连接，这里在它上面开一条会话通道、请求 `sftp` 子系统。
+#
+# 为什么不并进 `term-ssh`：连接层负责「连上、认证、主机密钥」，SFTP 负责
+# 「列目录、传文件」。前者的失败 = 这台机器连不上；后者的失败 = 这一个目录列不出来，
+# 终端照常能用。两个生命周期放一个 crate 里，迟早有人在那里加 `if sftp.is_none()`
+# 之类的分支。
+#
+# 边界（ADR-0017 §决策 2 的笼子，R13-f 起第三处）：tokio 只许出现在
+# `term-ssh` / `term-tunnel` / `term-sftp`；对外一律同步——UI 拿到的是
+# `SftpHandle`，发请求、每帧收事件，源码里零 `.await`。
+[dependencies]
+term-ssh = { path = "../term-ssh" }
+# 新建文件 / 目录的默认权限（`config::DEFAULT_FILE_MODE` / `DEFAULT_DIR_MODE`）。
+# `term-core` 是最底层的纯语义 crate（只依赖 vte / serde），IO 层依赖它方向正确；
+# 常量留在 core 是因为 New Session 的对话框也要显示同一对数——两处各写一份
+# 迟早分叉（一处改了另一处忘）。
+term-core = { path = "../term-core" }
+russh-sftp = "3.0.1"
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+
+[dev-dependencies]
+# 端到端要真起一个 SSH 服务端（与 term-ssh / term-tunnel 的 tests/e2e.rs 同一套做法）。
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros", "process"] }
+# 主机私钥在运行时生成，不入库（公开仓库不得含私钥材料）。
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "getrandom", "encryption"] }
+# 只在 e2e 里用：那条「两趟收敛」判据要把采回来的清单喂给 `sync::plan`，
+# 验证跑完一趟之后真能全 Skip。`term-xfer` 是零依赖零 IO 的纯决策层，
+# 作为 dev-dep 不会把任何东西带进本 crate 的发布依赖（也不破 tokio 笼子）。
+term-xfer = { path = "../term-xfer" }

@@ -1,0 +1,26 @@
+[package]
+name = "term-tunnel"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# SSH 隧道（R13-e，ADR-0017 §分期 e）：本地转发 / 远程转发 / SOCKS5。
+#
+# 骑在 R13-d 的连接层上：`term_ssh::Authenticated` 给出「已认证、还没开会话」的
+# 连接，这里在它上面反复开 `direct-tcpip` 通道、请求 `tcpip_forward`。
+# 不与 `term-ssh` 合并，是因为它们的失败方式完全不同：终端会话失败 = 标签页连不上；
+# 隧道失败 = 某个端口的转发断了，而应用其余部分照常。
+#
+# 边界（ADR-0017 §决策 2）：tokio 只许出现在 `term-ssh` 与 `term-tunnel`。
+# 本 crate 的 tokio 用量是「一条线程 + current_thread 运行时 + 若干任务」，
+# 对外**同步**：`Tunnel::start()` 阻塞到「监听都建好了」或「建不起来」为止。
+[dependencies]
+term-ssh = { path = "../term-ssh" }
+russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
+tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+
+[dev-dependencies]
+# 服务端用的是 [dependencies] 里的 russh，不需要额外的运行时门面；
+# 这里只缺一把「测试期临时生成」的主机私钥。私钥运行时生成、不入库
+# （公开仓库不得含私钥材料）。
+ssh-key = { version = "=0.7.0-rc.11", features = ["ed25519", "getrandom", "encryption"] }
