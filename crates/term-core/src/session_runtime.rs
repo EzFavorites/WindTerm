@@ -298,7 +298,7 @@ pub trait Session: Send {
     /// P（终端滚动条 / 悬停预览）：请求一份**预览用**的只读事实窗口。
     ///
     /// 与 [`request_range`](Session::request_range) 走**物理隔离**的第二通道
-    /// （ADR-0026）：内核本来就支持一轮吐多份 `Event::Screen`，瓶颈只在句柄
+    /// （ADR-0028）：内核本来就支持一轮吐多份 `Event::Screen`，瓶颈只在句柄
     /// 只有一个 `screen` 槽；这里把预览塞进独立的槽与变体，避免一帧内两份
     /// 事件只剩一份、真实视口退化成空白帧。结果从
     /// [`preview_window`](Session::preview_window) 取。

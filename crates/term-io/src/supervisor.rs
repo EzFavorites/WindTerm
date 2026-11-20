@@ -70,7 +70,7 @@ enum Command {
     RequestRange(ViewRange),
     /// P（终端滚动条 / 悬停预览）：请求一份**预览用**的事实窗口。
     ///
-    /// 与 `RequestRange` 走物理隔离的第二通道（ADR-0026）：各自的事件落进
+    /// 与 `RequestRange` 走物理隔离的第二通道（ADR-0028）：各自的事件落进
     /// 各自的槽（`screen` / `preview_screen`），一帧内两份窗口互不覆盖。
     /// 旧变体签名与语义一字不改。
     RequestPreview(ViewRange),
@@ -164,7 +164,7 @@ enum Event {
     /// P：按范围切出的**预览用**只读事实窗口（悬停滚动条时的历史快照）。
     ///
     /// 落进 `SupervisorHandle.preview_screen` 独立槽，与 `Screen` 物理隔离
-    /// （ADR-0026）。旧 `Screen` 变体一字不改。
+    /// （ADR-0028）。旧 `Screen` 变体一字不改。
     PreviewScreen(ScreenImage),
     Finished(String),
     /// R14-a：日志状态变化（开始 / 暂停 / 恢复 / 停止 / 失败）。
@@ -243,7 +243,7 @@ pub struct SupervisorHandle {
     /// P：最近一次**预览**范围请求的只读事实窗口（悬停滚动条时的历史快照）。
     ///
     /// 与 `screen` **物理隔离**：两个事件落进两个槽，一帧内同时到达也不会
-    /// 互相覆盖（ADR-0026 §3.3 的闪白屏失败模式在结构上不可能发生）。
+    /// 互相覆盖（ADR-0028 §3.3 的闪白屏失败模式在结构上不可能发生）。
     /// UI 只存不写。
     pub preview_screen: Option<ScreenImage>,
     pub status: SessionStatus,
@@ -322,7 +322,7 @@ impl SupervisorHandle {
     /// P：请求一份**预览用**的事实窗口（悬停滚动条时的历史快照）。
     ///
     /// 走独立的 `Command::RequestPreview` → `Event::PreviewScreen` 通道，与
-    /// `request_range` 物理隔离（ADR-0026）。不产生新事实，`version` 不变。
+    /// `request_range` 物理隔离（ADR-0028）。不产生新事实，`version` 不变。
     pub fn request_preview_range(&self, range: ViewRange) {
         self.send_cmd(Command::RequestPreview(range));
     }
@@ -937,7 +937,7 @@ fn run(
         let mut need_snapshot = false;
         let mut closed = false;
         let mut requested: Vec<ViewRange> = Vec::new();
-        // P：预览走物理隔离的第二通道（ADR-0026）。每轮重置，与 `requested` 平行。
+        // P：预览走物理隔离的第二通道（ADR-0028）。每轮重置，与 `requested` 平行。
         let mut preview_requested: Vec<ViewRange> = Vec::new();
         let mut active = false;
 
@@ -952,7 +952,7 @@ fn run(
             active = true;
             match cmd {
                 Command::RequestRange(r) => requested.push(r),
-                // P：预览请求进独立队列（ADR-0026）。
+                // P：预览请求进独立队列（ADR-0028）。
                 Command::RequestPreview(r) => preview_requested.push(r),
                 Command::Write(b) => ch.write(&b),
                 Command::Resize(c, r) => {
@@ -1247,7 +1247,7 @@ fn run(
             let _ = ev_tx.send(Event::Screen(vt.slice_view(version, r)));
         }
         // P：预览请求同样看到本轮最终状态，落进独立的 `PreviewScreen` 事件
-        // （ADR-0026）。事件再落到句柄的 `preview_screen` 槽，与 `Screen` 槽
+        // （ADR-0028）。事件再落到句柄的 `preview_screen` 槽，与 `Screen` 槽
         // 物理隔离，一帧内两份窗口互不覆盖。
         for r in preview_requested {
             let _ = ev_tx.send(Event::PreviewScreen(vt.slice_view(version, r)));
@@ -1405,7 +1405,7 @@ impl Session for SupervisedSession {
         self.handle.request_range(range);
     }
 
-    /// P：预览请求走独立通道（ADR-0026）。
+    /// P：预览请求走独立通道（ADR-0028）。
     fn request_preview_range(&self, range: ViewRange) {
         self.handle.request_preview_range(range);
     }
@@ -1414,7 +1414,7 @@ impl Session for SupervisedSession {
         self.handle.screen.clone()
     }
 
-    /// P：预览窗口从独立的 `preview_screen` 槽取（ADR-0026），与 `screen` 互不覆盖。
+    /// P：预览窗口从独立的 `preview_screen` 槽取（ADR-0028），与 `screen` 互不覆盖。
     fn preview_window(&self) -> Option<term_core::grid::ScreenImage> {
         self.handle.preview_screen.clone()
     }
@@ -2146,7 +2146,7 @@ mod tests {
 
     #[test]
     fn preview_range_uses_a_separate_slot_from_the_real_view() {
-        // P（ADR-0026）：真实视口与预览走物理隔离的两套事件 / 两个槽。
+        // P（ADR-0028）：真实视口与预览走物理隔离的两套事件 / 两个槽。
         // 同一 tick 内同时下发两段**不同**的请求，断言两者各自收对、互不覆盖——
         // 这正是方案 A / A′ 会闪白屏、方案 B 结构性排除的那一关。
         let mut h = start_mock(b"L1\r\nL2\r\nL3\r\nL4\r\nL5");

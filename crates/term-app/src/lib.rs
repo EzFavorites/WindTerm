@@ -109,7 +109,7 @@ pub mod viewport;
 // P：终端滚动条与悬停预览窗的纯几何层（零 egui、零 IO、可单测）。
 // 只做「数值 → 数值」换算：滑块 ↔ scroll_top 互算、hover ratio → 预览 ViewRange、
 // 预览框钳制。像素与绘制在投影层（`apps/desktop` 的 `pane_scrollbar.rs` /
-// `pane_preview.rs`），本模块一个像素常量都没有。配套 ADR-0026。
+// `pane_preview.rs`），本模块一个像素常量都没有。配套 ADR-0028。
 pub mod scrollbar;
 // 纯几何层的单测文件（`scrollbar_tests.rs`）放在 crate 根同级，避免 `scrollbar/`
 // 子目录；测试模块在此声明（设计稿 §6.1 列为配套文件）。

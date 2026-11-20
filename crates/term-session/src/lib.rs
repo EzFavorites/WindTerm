@@ -483,7 +483,7 @@ impl SessionPool {
     }
 
     /// P：请求一份预览用只读事实窗口（悬停滚动条时的历史快照）。第二通道，
-    /// 与 [`request_range`](SessionPool::request_range) 物理隔离（ADR-0026）。
+    /// 与 [`request_range`](SessionPool::request_range) 物理隔离（ADR-0028）。
     /// 结果从 [`preview_window`](SessionPool::preview_window) 取。
     pub fn request_preview_range(&self, id: SessionId, range: ViewRange) -> bool {
         self.with(id, |s| s.request_preview_range(range)).is_some()

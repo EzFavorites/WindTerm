@@ -222,7 +222,7 @@ impl Tab {
         if let Some(window) = self.pool.screen_window(id) {
             self.screen = Some(window);
         }
-        // P：预览窗口从独立通道取，与 `screen` 物理隔离（ADR-0026）。
+        // P：预览窗口从独立通道取，与 `screen` 物理隔离（ADR-0028）。
         // 不在这里做「没拿到就清空」：断开会话时预览槽保留上一帧即可，避免闪动。
         if let Some(window) = self.pool.preview_window(id) {
             self.preview_screen = Some(window);
@@ -406,7 +406,7 @@ impl Tab {
     }
 
     /// P：请求一份预览用事实窗口（悬停滚动条时的历史快照）。第二通道，
-    /// 与 [`request_range`](Tab::request_range) 物理隔离（ADR-0026）。
+    /// 与 [`request_range`](Tab::request_range) 物理隔离（ADR-0028）。
     pub(in crate::ui) fn request_preview_range(&self, range: ViewRange) {
         if let Some(id) = self.session {
             self.pool.request_preview_range(id, range);

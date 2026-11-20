@@ -62,11 +62,11 @@ pub struct Tab {
     /// 两边同一套类型，「拿绝对行号跟视口行比」这种错装配不进去。
     pub(in crate::ui) last_request: Option<(term_core::coords::ViewRange, u64)>,
     /// P：预览用事实窗口槽（悬停滚动条时的历史快照），与 `screen` **物理隔离**
-    /// （ADR-0026）。绝不与 `screen` / `view` / `last_request` 共用：否则一帧内
+    /// （ADR-0028）。绝不与 `screen` / `view` / `last_request` 共用：否则一帧内
     /// 两份 `Event::Screen` 只剩一份，真实视口会退化成空白帧。
     pub(in crate::ui) preview_screen: Option<ScreenImage>,
     /// P：预览请求的去重键（range + version），与 `last_request` **并列、独立判据**
-    /// （ADR-0026）。不跟着 `last_request` 的复位点（goto / fold）走——预览是
+    /// （ADR-0028）。不跟着 `last_request` 的复位点（goto / fold）走——预览是
     /// 临时 chrome，它有自己的 staleness 生命周期。
     pub(in crate::ui) preview_last_request: Option<(term_core::coords::ViewRange, u64)>,
     /// R13-f：这条会话连接时用过的凭据（内存里，不落盘）。

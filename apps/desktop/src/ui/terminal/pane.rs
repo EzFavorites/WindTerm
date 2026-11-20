@@ -321,7 +321,7 @@ impl TerminalWindow {
                 // §5.3 去重：与 `ensure_view` 同款判据（`range` 不等或 `version` 变→
                 // 重发），避免每帧上行一份不变的预览请求（浪费预览通道）。
                 // `preview_last_request` 是独立键，不随 goto / fold 的 `last_request`
-                // 复位走（ADR-0026）。
+                // 复位走（ADR-0028）。
                 let version = tab.snapshot.version;
                 let stale = match &tab.preview_last_request {
                     Some((prev, v)) => prev != &range || *v != version,
