@@ -836,7 +836,7 @@ fn start(
     if let Err(e) = std::thread::Builder::new()
         .name(format!("zterm-supervisor-{id}"))
         .spawn(move || {
-            // L1（`docs/design-specs/O-crash-hardening.md` §3b①）：**会话级 panic
+            // L1（`docs/design/10-crash-hardening.md`）：**会话级 panic
             // 隔离**。这一层是「10 个会话里 1 个炸了不该全陪葬」的唯一防线：
             // 线程体在 `catch_unwind` 里跑，panic 被吞在本线程，其余会话的监管者
             // 线程与 UI 主循环都不受影响。

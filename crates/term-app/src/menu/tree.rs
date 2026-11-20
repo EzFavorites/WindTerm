@@ -310,7 +310,7 @@ pub fn menus() -> Vec<Menu> {
                 // W2 起这九条**已接线**（不再是灰显占位）：集合模型在
                 // `selection.rs` 的 `Selections`，落地在 `apply_cmd`。
                 // 语义按终端侧定，不照抄原程序的文本编辑器模型——见
-                // `docs/gap-front-back-2026-11-09.md` §2.1 的对照表。
+                // `docs/design/03-selection-find-scrollback.md` 的选区语义定义。
                 Item::Separator,
                 Item::Action {
                     label: "Activate Next Selection",

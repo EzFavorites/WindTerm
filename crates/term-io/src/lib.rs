@@ -52,7 +52,7 @@ pub mod telnet_channel;
 
 /// 把 `catch_unwind` 的 payload 变成一句人读得懂的话。
 ///
-/// 崩溃防护（`docs/design-specs/O-crash-hardening.md` L1）在两处 `catch_unwind`：
+/// 崩溃防护（`docs/design/10-crash-hardening.md` L1）在两处 `catch_unwind`：
 /// 会话监管者线程（本 crate）与界面单帧（`apps/desktop`）。两边都要把 payload 翻成
 /// 文本给用户看，所以这份实现放在这里给两边共用——**不要**再抄第二份。
 ///

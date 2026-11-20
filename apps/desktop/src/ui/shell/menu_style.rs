@@ -38,7 +38,7 @@ pub(in crate::ui) const SHORTCUT_GRAY: u32 = 0xA8A8A8;
 // ── 勾选栏（2026-11-08 新加，`Item::Check` 的绘制） ──
 //
 // 尺寸与取色来自 `01-menu-bar/mode/01-mode-menu.png`（放大 3× 逐像素量，
-// 结论写进 `docs/visual-golden.md` §7.23）：弹层左内边到框左缘 8、
+// 结论写进 `docs/design/13-ui-shell.md`）：弹层左内边到框左缘 8、
 // 方框 14×14、框右缘到文字 8 → 整栏 30。
 //
 // 2026-11-11 收紧：30 的占位太宽——勾选框与文字之间约 12px 空隙，且把每行的

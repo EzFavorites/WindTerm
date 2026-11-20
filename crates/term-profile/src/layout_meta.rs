@@ -1,4 +1,4 @@
-//! L3（`docs/design-specs/O-crash-hardening.md` §3d / §3e）：`layout.json` 的
+//! L3（`docs/design/10-crash-hardening.md`）：`layout.json` 的
 //! **落盘元信息**——最近一次写盘的时间与上一次的退出形态。
 //!
 //! # 为什么它们不进 `SavedLayout`

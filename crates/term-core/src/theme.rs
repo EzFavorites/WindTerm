@@ -517,7 +517,7 @@ pub const SESSION_TREE: SessionTreePalette = SessionTreePalette {
 
 /// 终端 margin（左侧边栏）的取色板。
 ///
-/// 全部取自 2026-11-07 的 3.x 终端截图逐像素取样（`docs/visual-golden.md` §7.11），
+/// 取自视觉基线里边栏的取色口径（`docs/design/11-theme-and-visual-baseline.md`），
 /// **不是**从 16 色 ANSI 调色板推的：边栏是外壳的一部分，用户换配色方案时
 /// 它不该跟着变——否则行号会和输出文字撞色。
 pub struct MarginPalette {

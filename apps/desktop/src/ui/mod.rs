@@ -133,7 +133,7 @@ pub struct TerminalWindow {
     ///
     /// `Layout` 树只管「窗格怎么切分」，会话归属在这里——`draw_node` 渲染前经
     /// `pane_groups[pane].active` 解析出 `SessionId` 再交给终端绘制，
-    /// 窗格里切标签只改 `active`，不动布局树（详见 `docs/adr-0026-per-pane-tab-groups.md`）。
+    /// 窗格里切标签只改 `active`，不动布局树（详见 `docs/design/04-tabs-split-layout.md`）。
     /// 与 `groups: Vec<String>`（会话分组名）无关：那个字段早已被占用，故另起一名。
     pane_groups: HashMap<PaneId, PaneGroup>,
     /// The terminal's palette.

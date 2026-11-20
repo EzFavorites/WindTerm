@@ -325,7 +325,7 @@ impl eframe::App for WindTermApp {
         // Sysmon 展开面板的采样线程只起一次：top / vm_stat 在 ui/ 之外跑，
         // 面板只读纯值快照（B2；夹具模式下也起线程，但面板不展开、不影响基线）。
         sysmon_sample::ensure_started();
-        // L1（`docs/design-specs/O-crash-hardening.md` §3b②）：**界面单帧 panic
+        // L1（`docs/design/10-crash-hardening.md`）：**界面单帧 panic
         // 不带走进程**。egui 主循环里一次 `unwrap` 炸掉，在此之前是「窗口直接消失，
         // 十条会话连同未保存的输出一起没」。现在它只丢这一帧。
         //

@@ -7,7 +7,7 @@
 //! **安全降级**是这里最重要的语义：控制模式不是一直开着的。遇到不是 `%`
 //! 开头的行、或不认识的指令，一律 `Passthrough` 原样交给普通终端渲染，
 //! 而不是「吞掉」——用户不会因为解析失败就看不到 shell 的输出。
-//! `docs/06-roadmap.md §2 M3` 的「detach / 解析失败均能安全降级」由此落地。
+//! `docs/design/08-tmux-integration.md` 的「未知指令与解析失败一律降级」由此落地。
 
 /// 一条控制模式事件。`data` 里的 tmux 八进制转义已还原成原始字节。
 #[derive(Clone, Debug, PartialEq, Eq)]

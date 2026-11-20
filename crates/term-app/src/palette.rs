@@ -15,7 +15,7 @@
 //! 两种范围有真实差别，不是两个同义开关：
 //! - `Command`：只列已接线命令，选中即可执行；
 //! - `Anything`：列**全部**菜单项，未接线的也展示（标成不可执行），
-//!   让用户一屏看清「有什么 / 还缺什么」——这正是 `docs/menu-backlog.md`
+//!   让用户一屏看清「有什么 / 还缺什么」——这正是 `docs/design/12-capability-surface-and-menus.md`
 //!   里说「114 项菜单不必靠翻菜单」的那件事。
 
 use crate::capability;

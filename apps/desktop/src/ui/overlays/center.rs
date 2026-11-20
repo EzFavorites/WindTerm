@@ -8,7 +8,7 @@
 //! 这样绘制期间只持有 `&TerminalWindow`，不会和状态借用打架；唯一需要改
 //! `ViewState` 的专注模式走 `Action::Shell(ToggleFocusMode)` 回 reducer。
 //!
-//! 页面与 v0.1 范围的对应关系见 `docs/R14-f-v01-scope.md`。
+//! 页面与 v0.1 范围的对应关系见 `docs/design/13-ui-shell.md`。
 
 use crate::ui::harness::AnchoredWindow;
 use crate::ui::*;

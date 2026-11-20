@@ -10,7 +10,7 @@
 //!   `ViewState` 的专注模式走 `dispatch_action` 回到 `shell` 的 reducer。
 //!
 //! 页面内容见 `apps/desktop/src/ui/center.rs`；v0.1 范围依据
-//! `docs/05-feature-scope.md` §1 P0 与 `docs/06-roadmap.md` M0–M3。
+//! `docs/design/14-scope-and-requirements.md` 的 P0 范围与版本阶段。
 
 pub use crate::vocab::CenterPage;
 

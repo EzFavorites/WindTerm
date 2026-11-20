@@ -10,7 +10,7 @@
 //!
 //! bin 模式无 `ScreenImage` 事实窗口，首版不画预览（见 design §5.5）。
 //!
-//! 关联设计稿：`docs/design-specs/P-terminal-scrollbar.md` §5.4 / §5.6 / §7.3。
+//! 关联设计稿：`docs/design/03-selection-find-scrollback.md`。
 
 use super::margin::{self, MarginMetrics};
 use super::view::{self, LineCache};

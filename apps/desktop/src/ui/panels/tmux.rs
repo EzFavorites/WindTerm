@@ -4,7 +4,7 @@
 //! attach / detach / 双向同步的闭环**没有真机验收**。这里落地的是
 //! `term_app::tmux` 的解析器与本地布局映射、安全降级路径，以及一个能
 //! 查看解析结果 / 下发反向控制命令的面板——不是把「已 attach」假装成事实。
-//! 详见 `docs/R15-v01-exit.md §6`。
+//! 详见 `docs/design/08-tmux-integration.md`。
 
 use crate::ui::harness::AnchoredWindow;
 use crate::ui::*;

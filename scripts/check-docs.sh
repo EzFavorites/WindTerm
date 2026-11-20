@@ -95,13 +95,13 @@ apps=$(ls -d apps/*/ 2>/dev/null | wc -l | tr -d ' ')
 
 # 能力矩阵的任务条目数（`| 数字 |` 开头的行）。数字本身不重要，重要的是它别被删空——
 # 这张表是「用户视角」的唯一口径，删掉就等于没人再看这个维度。
-matrix_tasks=$(grep -cE '^\| [0-9]+ \|' docs/capability-matrix.md 2>/dev/null || echo 0)
+matrix_tasks=$(grep -cE '^\| [0-9]+ \|' docs/design/12-capability-surface-and-menus.md 2>/dev/null || echo 0)
 
 # 与原程序的功能对齐度条目数（同样是「别被删空」的意思）
-parity_items=$(grep -cE '^\| [0-9]+ \|' docs/parity.md 2>/dev/null || echo 0)
+parity_items=$(grep -cE '^\| [0-9]+ \|' docs/design/14-scope-and-requirements.md 2>/dev/null || echo 0)
 
 # 菜单未完成清单的明细行数（必须等于「菜单总数 - 已接线」）
-menu_backlog_rows=$(grep -cE '^\| `[A-Za-z]+\.[A-Za-z0-9]+` \|' docs/menu-backlog.md 2>/dev/null || echo 0)
+menu_backlog_rows=$(grep -cE '^\| `[A-Za-z]+\.[A-Za-z0-9]+` \|' docs/design/12-capability-surface-and-menus.md 2>/dev/null || echo 0)
 
 actual="tests_core=$tests_core
 tests_paths=$tests_paths

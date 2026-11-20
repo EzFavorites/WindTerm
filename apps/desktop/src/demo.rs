@@ -68,7 +68,7 @@ pub struct DemoSpec {
     pub bin: BinKind,
     /// hover 预览夹具：轨道归一化位置（0=轨道顶/历史最老，1=轨道底/贴底）。
     /// `Some(r)` = 冻结点亮预览框、并切一份历史快照进 `preview_screen`；
-    /// `None` = 不画预览（普通夹具）。详见 `docs/design-specs/P-terminal-scrollbar.md` §7.3。
+    /// `None` = 不画预览（普通夹具）。详见 `docs/design/03-selection-find-scrollback.md`。
     pub preview_hover: Option<f32>,
     /// `true` = 夹具额外派发 `TogglePanel(Sysmon)`，拍展开后的 `T/C/M` 读数条。
     /// 只描述「按了哪个按钮」，与 `margin` / `shell` 同一条「夹具不发状态」的路。

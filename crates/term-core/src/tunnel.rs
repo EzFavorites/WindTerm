@@ -22,7 +22,7 @@
 //! `check_bind` 明确拒绝 0 端口（「那会让系统挑一个，用户没法知道连哪」），
 //! 所以 [`validate`](TunnelProfile::validate) 也拒绝它——**在表单这一层就说清楚**，
 //! 而不是让用户点完 `Ok` 再看到一句来自 socket 层的抱怨。
-//! 要放开得先动 `term-tunnel` 的 bind 路径与端口回填，见 `docs/next-plan.md`。
+//! 要放开得先动 `term-tunnel` 的 bind 路径与端口回填，见 `docs/design/01-sessions-and-connection.md`。
 
 use serde::{Deserialize, Serialize};
 use std::fmt;

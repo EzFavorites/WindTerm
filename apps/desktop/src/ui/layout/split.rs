@@ -3,7 +3,7 @@
 //! 这是布局树的**最小可用形态**：内部节点只有左右 / 上下二等分，叶子挂一个
 //! 窗格身份（[`PaneId`]）。参考实现的 Split View / Split Group / Move Group 是多组
 //! 嵌套的完整布局系统，本批不假装做到那个程度（逐条语义见
-//! `docs/R14-d-goto-and-split.md`）——但六条命令都真的改变可见窗格，不是空转
+//! `docs/design/04-tabs-split-layout.md`）——但六条命令都真的改变可见窗格，不是空转
 //! 开关（R5）。
 //!
 //! **单叶子时走原来的渲染路径**：`draw()` 只有 `layout.is_single()` 为 false
@@ -18,7 +18,7 @@
 //! （一个 `PaneId`）对应 `TerminalWindow.pane_groups` 里的一个 [`PaneGroup`]，
 //! 记录该窗格里挂着哪些会话、当前显示哪一个。`Layout` 树只管「窗格怎么切分」，
 //! 会话集合与活动态由 `pane_groups` 持有——这是「每 pane 一组 tab」的物理承载
-//! （详见 `docs/adr-0026-per-pane-tab-groups.md` §1）。
+//! （详见 `docs/design/04-tabs-split-layout.md`）。
 
 use crate::ui::*;
 use eframe::egui;

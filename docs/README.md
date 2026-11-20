@@ -11,6 +11,14 @@ WindTerm 是一个用 Rust + egui 写的跨平台终端模拟器。本目录是�
 | [security.md](security.md) | 凭据保险库、主机密钥校验、网络面 |
 | [scripting.md](scripting.md) | Rhai 脚本 API 与 JSON-RPC 桥 |
 
+## 设计文档
+
+按模块组织的设计文档在 [`design/README.md`](design/README.md)：会话与连接、终端核心、
+选区查找与回滚、标签分屏与布局、文件传输、凭据安全、脚本与自动化、tmux、导入与引导、
+崩溃防护、主题与视觉基线、能力面与菜单、窗口壳、范围与需求。
+
+源码注释里的 `docs/design/<篇目>.md` 指向这些文档。
+
 ## 代码地图
 
 ```

@@ -11,7 +11,7 @@
 //! 这些条目**全部是 `Planned`**：`Action::parse` 对它们一律返回 `None`，
 //! 所以 UI 画成置灰、悬停给「Not wired (placeholder)」。W2 交付的是
 //! 「点开子菜单不再只有一条横线」，不是「这些命令已经能用」——
-//! 后者按 D1 逐波接成真功能，列入 C1 的清零清单与 `docs/menu-backlog.md`。
+//! 后者按 D1 逐波接成真功能，列入 C1 的清零清单与 `docs/design/12-capability-surface-and-menus.md`。
 //! 本文件末尾的断言会钉住「一条都没偷偷接线」；将来接上一条，
 //! 就把那条从 `EXPECTED_PLANNED` 里划掉，不许删断言。
 //!
@@ -520,7 +520,7 @@ mod tests {
     /// `ids.len()` 相等，于是「结构对齐」与「能力接线」在这 68 条上不再有差集。
     /// 第 9 条折叠命令 `Text.MarginFold` 同样不在表里（它在 View 顶层）。
     /// 名单必须显式：再接一条就得在这里加一行，同时改 `capability.rs` 的三个
-    /// 数字与 `docs/menu-backlog.md`——这条断言是「结构对齐」与「能力接线」的分界，
+    /// 数字与 `docs/design/12-capability-surface-and-menus.md`——这条断言是「结构对齐」与「能力接线」的分界，
     /// 不许删掉或改成「无所谓」。
     #[test]
     fn the_new_rows_are_unique_and_none_is_fake_wired() {
@@ -639,7 +639,7 @@ mod tests {
                 crate::capability::is_implemented(id),
                 wired.contains(id),
                 "{id}：接线状态与这份名单不一致——新接一条请同时改这里、\
-                 `capability.rs` 的三个数字与 `docs/menu-backlog.md`"
+                 `capability.rs` 的三个数字与 `docs/design/12-capability-surface-and-menus.md`"
             );
         }
     }

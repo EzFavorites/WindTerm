@@ -1,4 +1,4 @@
-//! D8-3：脚本编辑器窗口（`docs/task-plan.md` 的 D8 第三步）。
+//! D8-3：脚本编辑器窗口（`docs/design/07-scripting-and-automation.md` 的 D8 第三步）。
 //!
 //! 三件事，各占一段：
 //!

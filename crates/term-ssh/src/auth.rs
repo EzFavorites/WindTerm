@@ -104,7 +104,7 @@ async fn authenticate_one(
 /// keyboard-interactive：服务端可以问任意多轮，`answers` 按提示顺序回答。
 /// 答案不够就补空串（服务端会拒绝，但不会卡在这里等一个永远不来的输入）。
 /// 真机握手未在本机验收（没有跑交互式认证的 SSH 服务端），见
-/// `docs/R15-v01-exit.md §6`；这里落地的是 russh 的真实调用链与语义。
+/// `docs/design/01-sessions-and-connection.md`；这里落地的是 russh 的真实调用链与语义。
 async fn authenticate_interactive(
     handle: &mut client::Handle<HostKeyHandler>,
     opts: &SshOptions,

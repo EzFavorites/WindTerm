@@ -119,7 +119,7 @@ pub enum Event {
     ///
     /// `kept` 说明目标位置现在是什么：`true` = 分片留在原地（目标原本就存在，
     /// 那是用户既有数据），`false` = 本次造出来的分片已删。为什么取消也分两种，
-    /// 见 `docs/05-feature-scope.md` §2.1 与 [`crate::cancel::disposition`]。
+    /// 见 `docs/design/05-files-and-transfer.md` 与 [`crate::cancel::disposition`]。
     ///
     /// 取消**不算失败**：UI 不该给它抽一条红条，队列也不该把它计入错误率。
     Cancelled { path: String, kept: bool },

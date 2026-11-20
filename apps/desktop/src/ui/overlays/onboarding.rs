@@ -1,4 +1,4 @@
-//! D6：首次启动引导的绘制层（`docs/10-prd.md:84-88` §3.1）。
+//! D6：首次启动引导的绘制层（`docs/design/09-session-import-and-onboarding.md`）。
 //!
 //! 两页：
 //!
@@ -346,7 +346,7 @@ fn parse_ssh_config(text: &str, source: &str) -> Vec<DetectedHost> {
 
 /// 解析 WindTerm `profiles/` 里一份导出的文本（JSON 或 INI，两种都认）。
 ///
-/// `docs/10-prd.md:84-88` §3.1 的另一半：WindTerm 自己的会话也要能预填进来，
+/// `docs/design/09-session-import-and-onboarding.md` 的另一半：WindTerm 自己的会话也要能预填进来，
 /// 走同一个适配器，所以 `source` 与 `label` 的语义与 ssh 那条完全一致。
 fn parse_windterm_profiles(text: &str, source: &str) -> Vec<DetectedHost> {
     adapt(parse_windterm(text), source)

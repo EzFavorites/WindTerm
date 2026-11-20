@@ -30,7 +30,7 @@
 //! 上一版这里自造了 `Network / Security / Files / Algorithms / Transfer` 五组
 //! 八个名字，用户指出「二级菜单列表怎么不一样，看对比图」——差的就是这张表。
 //!
-//! 一处与视觉基线的已知差异（记在 `docs/ui-alignment-audit.md`）：
+//! 一处与视觉基线的已知差异（记在 `docs/design/11-theme-and-visual-baseline.md`）：
 //!
 //! 1. **Shell 树无视觉基线**（`00-shell-tab.png` 拍成了主窗口），
 //!    沿用同一结构类推，属未核实。

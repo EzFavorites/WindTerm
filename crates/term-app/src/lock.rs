@@ -1,6 +1,6 @@
 //! 锁屏状态机（V1-3，E-LOCK）。
 //!
-//! `docs/gap-audit.md §6` 的结论：R5 反对的是「点了没反应」的空转开关，不是
+//! `docs/design/06-security-credentials.md` 的结论：R5 反对的是「点了没反应」的空转开关，不是
 //! 反对做锁屏。所以 `Window.LockScreen` 从 F 类置灰接成真实功能：
 //! 界面被一层遮罩盖住，解锁要重输 **Vault 主密码**（复用 `term-vault`，
 //! 没有第二套口令体系）。

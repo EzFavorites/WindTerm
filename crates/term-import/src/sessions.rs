@@ -1,14 +1,14 @@
 //! V1-1：外部会话导入的**纯解析层**。
 //!
 //! 这一层只做「文本 → 会话」，不碰文件系统（读哪个文件由投影层决定），
-//! 也**永远不读密码**：`docs/05-feature-scope.md §2.3` 把「密码不迁移」写成
+//! 也**永远不读密码**：`docs/design/09-session-import-and-onboarding.md` 把「密码不迁移」写成
 //! 产品底线——各家加密方案不公开，逆向解密既不合规也不可靠。导入只带
 //! 主机 / 端口 / 用户 / 分组 / 密钥路径 / 跳板链，首次连接让用户重输。
 //!
 //! 四种来源各有金样本单测，输入是固定文本，跑多少次结果都一样。
 //! 格式未知的 WindTerm `profiles/` 用「宽松解析」：同时认 JSON 与 INI 两种
 //! 常见序列化形态，其余行忽略而不是整份丢弃——这是刻意的取舍，写在
-//! `docs/R15-v01-exit.md §3`。
+//! `docs/design/09-session-import-and-onboarding.md`。
 
 use term_core::session::{Protocol, SessionConfig};
 

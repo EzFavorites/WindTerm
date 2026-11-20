@@ -1,4 +1,4 @@
-//! D6：预览窗（`docs/10-prd.md` 的「从 Filer 看一眼文件」）。
+//! D6：预览窗（`docs/design/05-files-and-transfer.md` 的「从 Filer 看一眼文件」）。
 //!
 //! 三件事，各占一段：
 //!

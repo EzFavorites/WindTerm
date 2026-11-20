@@ -1,6 +1,6 @@
 //! D6：首次启动引导的**纯逻辑**——零 `egui`、零 IO、零线程、零解析依赖。
 //!
-//! `docs/10-prd.md:84-88` §3.1 要求：首次启动时探测 `~/.ssh/config` 与 WindTerm 的
+//! `docs/design/09-session-import-and-onboarding.md` 要求：首次启动时探测 `~/.ssh/config` 与 WindTerm 的
 //! `profiles/`，把认出来的主机**预填**进会话树，点一条就走既有的 TOFU 信任流程。
 //! 这一层只回答两件事，一件比一件纯：
 //!

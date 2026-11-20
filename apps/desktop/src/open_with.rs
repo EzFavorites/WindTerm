@@ -2,7 +2,7 @@
 //!
 //! 这是「用默认编辑器打开远端文件」这条需求的最后一米：远端文件先经 SFTP
 //! 下载到临时目录（`temp_preview_path`），再由这里交给 `open` / `xdg-open` /
-//! `cmd /C start`。**不新造内建编辑器**——`docs/10-prd.md` 等四处已经裁定不做
+//! `cmd /C start`。**不新造内建编辑器**——`docs/design/14-scope-and-requirements.md` 等四处已经裁定不做
 //! WindEdit，本文件就是那个裁定的兑现方式。
 //!
 //! # 为什么在 `ui/` 之外

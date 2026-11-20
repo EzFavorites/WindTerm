@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """并排比对：我们的截图 vs WindTerm 原程序视觉基线。
 
-用法见 docs/visual-golden.md §5。设计要点：
+用法见 docs/design/11-theme-and-visual-baseline.md。设计要点：
 
 * 视觉基线**只读**，哈希写死在下面；被人改过就直接报错退出，防止「把标准
   往自己这边挪」——这正是过去只有回归基线时永远不像 WindTerm 的根因。
 * 数字只用来看**趋势**，不做 hard fail：视觉基线与我们的会话名、当前页本来
-  就不可能逐像素相同。结构是否达标由规格表（docs/visual-golden.md §4）
+  就不可能逐像素相同。结构是否达标由规格表（docs/design/11-theme-and-visual-baseline.md）
   逐项人工打勾。
 * 依赖仅 Pillow + numpy（本机已有），不进 Cargo 依赖树。
 """
@@ -43,7 +43,7 @@ def load_golden(name: str) -> Image.Image:
     if digest != expected:
         sys.exit(
             f"视觉基线被改动了！\n  {path}\n  期望 {expected}\n  实际 {digest}\n"
-            "L2 视觉基线只读，不允许重冻结（见 docs/visual-golden.md §2）。"
+            "L2 视觉基线只读，不允许重冻结（见 docs/design/11-theme-and-visual-baseline.md）。"
         )
     return Image.open(path).convert("RGB")
 
@@ -89,7 +89,7 @@ def main() -> None:
     print(f"  平均绝对色差 MAD        {m['mad']:7.2f} / 255   （越低越接近）")
     print(f"  亮度直方图 L1           {m['hist_l1']:7.4f} / 1     （明暗分布差）")
     print(f"  边缘密度 视觉基线/我们      {m['edge_golden']:7.2f} / {m['edge_ours']:7.2f}  （控件密度差）")
-    print("  注：数字只看趋势，结构判据见 docs/visual-golden.md §4")
+    print("  注：数字只看趋势，结构判据见 docs/design/11-theme-and-visual-baseline.md")
 
     # 并排：左视觉基线、右我们，各缩到同高
     H = 620

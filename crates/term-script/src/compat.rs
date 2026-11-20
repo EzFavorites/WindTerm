@@ -26,7 +26,7 @@
 //! # 不做语言对齐
 //!
 //! CRT 的 VBScript / Python 我们不支持，Rhai 是既定决策
-//! （`docs/research-scripting.md`）。门面提供的是**形状**，不是解释器。
+//! （`docs/design/07-scripting-and-automation.md`）。门面提供的是**形状**，不是解释器。
 
 use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Position};
 

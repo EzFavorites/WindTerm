@@ -178,7 +178,7 @@ const MOUSE_TRACKING_NOTE: &str = "Not wired: mouse report bytes do reach the PT
 ///   `Column markers` 走 `View.ToggleColumnMarker` → `MarksKnob::ColumnMarker`
 ///   （`parse.rs:97`，像素 `ui/terminal/marks_paint.rs:96` 的
 ///   `column_marker_col(image.cols)` 处画竖线，偏好 `view_column_marker`）。
-///   两条都记在 `docs/menu-backlog.md:572,574`。
+///   两条都记在 `docs/design/12-capability-surface-and-menus.md,574`。
 ///
 /// 按 I5：写清缺的是「把坐标系从一屏行改成一逻辑行 n 段」这一段，
 /// 而不是画几个能点却什么都不做的开关。

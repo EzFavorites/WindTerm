@@ -16,8 +16,8 @@
 //! 颜色 / 绘制 / 命中区全在 `apps/desktop` 的 `pane_scrollbar.rs` / `pane_preview.rs`，
 //! 本层一个像素常量都没有。
 //!
-//! 关联设计稿：`docs/design-specs/P-terminal-scrollbar.md` §5.2 / §7.1。
-//! 关联决策：`docs/adr-0026-scrollbar-preview-window.md`。
+//! 关联设计稿：`docs/design/03-selection-find-scrollback.md`。
+//! 关联决策：`docs/design/03-selection-find-scrollback.md`。
 
 use term_core::coords::ViewRange;
 

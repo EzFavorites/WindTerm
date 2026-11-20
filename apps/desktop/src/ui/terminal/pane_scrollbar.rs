@@ -7,7 +7,7 @@
 //! bin 模式首版不做滚动条（坐标来自 `RawLog.anchor` 而非 `Viewport`，见设计稿 §5.5
 //! 后续）；`pane.rs` 仅在 `!bin` 时调用本模块，避免半套 bin 映射污染 Text 路径。
 //!
-//! 关联设计稿：`docs/design-specs/P-terminal-scrollbar.md` §5.4 / §5.5 / §6.2。
+//! 关联设计稿：`docs/design/03-selection-find-scrollback.md`。
 
 use crate::ui::*;
 use term_app::scrollbar::{scroll_top_of, thumb_of, Track};

@@ -116,6 +116,9 @@ bash scripts/package-release.sh aarch64-apple-darwin 1.0.0 \
   verification, and the network surface.
 - [`docs/scripting.md`](docs/scripting.md) — the Rhai API and the JSON-RPC
   bridge.
+- [`docs/design/README.md`](docs/design/README.md) — per-module design
+  documents: sessions and connection, terminal core, files and transfer,
+  scripting, UI shell, and the scope baseline.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to run the gates before sending a
   patch.
 
