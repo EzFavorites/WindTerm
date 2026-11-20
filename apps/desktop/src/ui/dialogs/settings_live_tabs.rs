@@ -70,7 +70,7 @@ const TABS_NOTE: &str = "Activation after closing, double-click and text elision
 
 /// 一行真下拉：**标签在控件上方**，控件占满整行。
 ///
-/// 视觉基线  的前三行是这个排布（标签太长，挤在一行里下拉只剩
+/// 视觉基线 `视觉基线` 的前三行是这个排布（标签太长，挤在一行里下拉只剩
 /// 两百出头，`Activate the previously selected tab` 会被截断）。第 4/5 行与
 /// `Mouse Actions` 那三行的标签短，视觉基线是**同一行**「标签 + 控件」——
 /// 由 [`inline_combo`] / [`dead_inline`] 画。
@@ -85,13 +85,13 @@ fn live_combo(
     ui.label(label);
     egui::ComboBox::from_id_salt(id)
         .selected_text(items[*selected])
-        .width(ui.available_width)
+        .width(ui.available_width())
         // `width` 是下限；不锁 wrap 模式时长文案会把固定宽度的对话框顶宽，
         // 页脚 `Close` 就被裁成只剩一个字母（Tabs 页实测）。
         .wrap_mode(egui::TextWrapMode::Truncate)
         .show_ui(ui, |ui| {
-            for (i, name) in items.iter.enumerate {
-                if ui.selectable_label(i == *selected, *name).clicked {
+            for (i, name) in items.iter().enumerate() {
+                if ui.selectable_label(i == *selected, *name).clicked() {
                     *selected = i;
                     changed = true;
                 }
@@ -100,7 +100,7 @@ fn live_combo(
     changed
 }
 
-/// 一行「左对齐标签 + 通栏下拉」（视觉基线`Tab text elide mode:` /
+/// 一行「左对齐标签 + 通栏下拉」（视觉基线 `Tab text elide mode:` /
 /// `Mouse Actions` 三行的排布）。
 fn inline_combo(
     ui: &mut egui::Ui,
@@ -115,11 +115,11 @@ fn inline_combo(
         field_label(ui, label, col);
         egui::ComboBox::from_id_salt(id)
             .selected_text(items[*selected])
-            .width(ui.available_width)
+            .width(ui.available_width())
             .wrap_mode(egui::TextWrapMode::Truncate)
             .show_ui(ui, |ui| {
-                for (i, name) in items.iter.enumerate {
-                    if ui.selectable_label(i == *selected, *name).clicked {
+                for (i, name) in items.iter().enumerate() {
+                    if ui.selectable_label(i == *selected, *name).clicked() {
                         *selected = i;
                         changed = true;
                     }
@@ -132,24 +132,24 @@ fn inline_combo(
 /// 灰显的堆叠下拉：标签完整、控件占满整行、说明理由挂在 hover 上。
 fn dead_combo(ui: &mut egui::Ui, label: &str, value: &str, note: &str) {
     ui.label(label);
-    let mut shown = value.to_string;
+    let mut shown = value.to_string();
     ui.add_enabled(
         false,
-        egui::TextEdit::singleline(&mut shown).desired_width(ui.available_width),
+        egui::TextEdit::singleline(&mut shown).desired_width(ui.available_width()),
     )
     .on_disabled_hover_text(note);
 }
 
-/// 灰显的**同一行**「标签 + 控件」：视觉基线`Middle click:` / `Right click:`
+/// 灰显的**同一行**「标签 + 控件」：视觉基线 `Middle click:` / `Right click:`
 /// 与 `Tab thumbnail radio:` 都是这个排布。
 fn dead_inline(ui: &mut egui::Ui, label: &str, value: &str, col: f32, note: &str) {
     ui.horizontal(|ui| {
         field_label(ui, label, col);
-        let mut shown = value.to_string;
+        let mut shown = value.to_string();
         field_box(ui, |ui| {
             ui.add_enabled(
                 false,
-                egui::TextEdit::singleline(&mut shown).desired_width(ui.available_width),
+                egui::TextEdit::singleline(&mut shown).desired_width(ui.available_width()),
             )
             .on_disabled_hover_text(note);
         });
@@ -164,11 +164,11 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut changed = false;
 
     ui.add_space(6.0);
-    // 视觉基线：内容区第一个字是组标题 `Tab Features`，没有页级灰标题。
+    // 视觉基线 `视觉基线`：内容区第一个字是组标题 `Tab Features`，没有页级灰标题。
     group_box(ui, Some("Tab Features"), |ui| {
         // 堆叠排布一行的高度翻倍；行距必须收紧，否则八行把固定高度的对话框
         // 顶大，页脚 Close 会压在最后一行上（实测）。
-        ui.spacing_mut.item_spacing.y = 0.0;
+        ui.spacing_mut().item_spacing.y = 0.0;
         changed |= live_combo(
             ui,
             "prefs_tab_activate",
@@ -206,7 +206,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(2.0);
     let mouse_col = label_col(ui, &["Double click:", "Middle click:", "Right click:"]);
     group_box(ui, Some("Mouse Actions"), |ui| {
-        ui.spacing_mut.item_spacing.y = 4.0;
+        ui.spacing_mut().item_spacing.y = 4.0;
         changed |= inline_combo(
             ui,
             "prefs_tab_double_click",
@@ -240,12 +240,12 @@ mod tests {
     use term_runtime::prefs::TAB_ELIDE_MODES;
 
     #[test]
-    fn the_label_tables_match_the_values_prefs_accepts {
+    fn the_label_tables_match_the_values_prefs_accepts() {
         // 下拉里有几档，`Prefs` 就必须认几档——多一档会被夹回 0（点了没反应），
         // 少一档则是「存得进去、页面显示不出来」。
-        assert_eq!(ACTIVATE_MODES.len, TAB_ACTIVATE_MODES);
-        assert_eq!(DOUBLE_CLICK_ACTIONS.len, TAB_DOUBLE_CLICK_ACTIONS);
-        assert_eq!(ELIDE_MODES.len, TAB_ELIDE_MODES);
+        assert_eq!(ACTIVATE_MODES.len(), TAB_ACTIVATE_MODES);
+        assert_eq!(DOUBLE_CLICK_ACTIONS.len(), TAB_DOUBLE_CLICK_ACTIONS);
+        assert_eq!(ELIDE_MODES.len(), TAB_ELIDE_MODES);
         // 0 档都必须是「现状」的措辞：默认值不会被用户选过，但会显示出来。
         assert_eq!(DOUBLE_CLICK_ACTIONS[0], "No action");
         assert_eq!(ELIDE_MODES[0], "None");
@@ -253,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn the_page_note_names_every_dead_row_and_why {
+    fn the_page_note_names_every_dead_row_and_why() {
         // 五行灰显缺的是五种不同的东西，页底要能逐个对上；
         // 一句「尚未实现」对下一个人没有信息量。
         for needle in ["delay timer", "width algorithm", "subsystem", "action set"] {

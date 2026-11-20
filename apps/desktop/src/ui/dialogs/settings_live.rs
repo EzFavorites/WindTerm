@@ -45,18 +45,18 @@ const LABEL_W: f32 = 110.0;
 ///
 /// # 「文件读不出来」时这一串动作不会丢掉用户那份
 ///
-/// 这条路里 `load` 的 `None` 被 `unwrap_or_default` 收成了出厂值，看起来
+/// 这条路里 `load()` 的 `None` 被 `unwrap_or_default()` 收成了出厂值，看起来
 /// 下一步就要把磁盘上的原文件覆盖掉。**兜底在 `prefs::save` 里，不在这里**：
 /// 它在覆盖前会先看一眼旧文件读不读得出来，读不出来就逐字节另存成
 /// `prefs.json.bad-<时间戳>` 再写（连备份都做不到时这次就不写）。
 ///
 /// 为什么不在这一处修：写 `prefs.json` 的入口有十几处（本文件的五页、
 /// `settings.rs`、确认弹窗、日志设置页、搜索页…），每一处都写了同样的
-/// `load.unwrap_or_default`；只在其中一处加保护，等于把同一个缺陷留在了
+/// `load().unwrap_or_default()`；只在其中一处加保护，等于把同一个缺陷留在了
 /// 其它十几条路上。所以保护放在唯一的写口 `prefs::save`，这一层保持
 /// 「我只管改自己那几个字段」。
 pub(in crate::ui) fn save_prefs(edit: impl FnOnce(&mut term_runtime::prefs::Prefs)) {
-    let mut prefs = term_runtime::prefs::load.unwrap_or_default;
+    let mut prefs = term_runtime::prefs::load().unwrap_or_default();
     edit(&mut prefs);
     term_runtime::prefs::save(&prefs);
 }
@@ -71,7 +71,7 @@ pub(in crate::ui) fn save_prefs(edit: impl FnOnce(&mut term_runtime::prefs::Pref
 /// 而备份这件事发生在任何一页（写 prefs 的入口散在各页）。本文件这几页正是
 /// 真接线的那几页——用户丢了设置之后最可能回去重新点的地方。
 pub(in crate::ui) fn recovery_notice(ui: &mut egui::Ui) {
-    let Some(backup) = term_runtime::prefs::last_recovery else {
+    let Some(backup) = term_runtime::prefs::last_recovery() else {
         return;
     };
     ui.add_space(6.0);
@@ -81,15 +81,15 @@ pub(in crate::ui) fn recovery_notice(ui: &mut egui::Ui) {
                 .color(col(STAR_RED)),
         );
         ui.label(
-            egui::RichText::new(backup.display.to_string)
-                .weak
-                .small,
+            egui::RichText::new(backup.display().to_string())
+                .weak()
+                .small(),
         );
         if ui
             .add(egui::Button::new("Dismiss").min_size(egui::vec2(64.0, 20.0)))
-            .clicked
+            .clicked()
         {
-            term_runtime::prefs::clear_recovery;
+            term_runtime::prefs::clear_recovery();
         }
     });
 }
@@ -118,7 +118,7 @@ fn label_row(
 }
 
 /// 控件宽度：占满标签列右边的余量，但不许超过视觉基线的 ≈238。
-/// Application 页的 Session 1..4 标签按参考布局**左对齐**：
+/// Application 页的 Session 1..4 标签按参考布局**左对齐**（`视觉基线`）：
 /// 「Session n:」起点与单选按钮文字对齐，下拉框从标签列右缘开始占满剩余宽度。
 /// 与本文件其它页的右对齐标签不同，不能混用。
 fn left_label(ui: &mut egui::Ui, text: &str) {
@@ -126,13 +126,13 @@ fn left_label(ui: &mut egui::Ui, text: &str) {
         egui::vec2(104.0, 20.0),
         egui::Layout::left_to_right(egui::Align::Center),
         |ui| {
-            ui.add(egui::Label::new(text).truncate);
+            ui.add(egui::Label::new(text).truncate());
         },
     );
 }
 
 fn field_w(ui: &egui::Ui) -> f32 {
-    ui.available_width
+    ui.available_width()
 }
 
 fn col(hex: u32) -> egui::Color32 {
@@ -166,20 +166,20 @@ pub(in crate::ui) fn appearance(
     let mut current = window;
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线：`Application` 是**组标题**（画在框外上方），
+    // 视觉基线 `视觉基线`：`Application` 是**组标题**（画在框外上方），
     // 不是页级灰标题——框里直接就是 Language / Theme / Window opacity 三行。
     group_box(ui, Some(t(lang, "Application")), |ui| {
-        ui.spacing_mut.item_spacing.y = 8.0;
+        ui.spacing_mut().item_spacing.y = 8.0;
         // 标签列固定 140 并右对齐到同一条竖线（视觉基线里三行的冒号在同一直线上）；
         // 星号画在文字**左侧**，所以按 right_to_left 先放文字再放星。
         label_row(ui, t(lang, "Language"), "Language", true, |ui| {
             egui::ComboBox::from_id_salt("prefs_language")
-                .selected_text(lang.native_name)
+                .selected_text(lang.native_name())
                 .width(field_w(ui))
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
                     for l in Lang::ALL {
-                        if ui.selectable_label(l == lang, l.native_name).clicked {
+                        if ui.selectable_label(l == lang, l.native_name()).clicked() {
                             picked = Some(l);
                         }
                     }
@@ -215,7 +215,7 @@ pub(in crate::ui) fn appearance(
                 let toggle_w = 18.0;
                 if ui
                     .add_sized(egui::vec2((field - toggle_w - 4.0).max(40.0), 18.0), drag)
-                    .changed
+                    .changed()
                 {                    current.opacity = value;
                     opacity_edit = Some(current);
                 }
@@ -223,7 +223,7 @@ pub(in crate::ui) fn appearance(
                 if ui
                     .add_sized(egui::vec2(toggle_w, 18.0), egui::Checkbox::new(&mut transparent, ""))
                     .on_hover_text("Transparent window — let the OS window background show through")
-                    .changed
+                    .changed()
                 {
                     current.transparent = transparent;
                     opacity_edit = Some(current);
@@ -250,15 +250,15 @@ pub(in crate::ui) fn filer(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut on = win.filer.show_hidden;
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线：内容区第一个字就是组标题 `Features`，
+    // 视觉基线 `视觉基线`：内容区第一个字就是组标题 `Features`，
     // 没有页级灰标题（老实现多画一行 `Filer`，整页因此整体下移 26 点）。
     group_box(ui, Some("Features"), |ui| {
-        if ui.checkbox(&mut on, "Show hidden items").changed {
+        if ui.checkbox(&mut on, "Show hidden items").changed() {
             win.filer.show_hidden = on;
             // 先重列再落盘：列表与勾选态同一帧对上，写盘慢一点也看不出来。
-            win.reload_local_dir;
+            win.reload_local_dir();
             // load-modify-save：只动这一个位，语言 / 历史 / 搜索模板原样保留。
-            let mut prefs = term_runtime::prefs::load.unwrap_or_default;
+            let mut prefs = term_runtime::prefs::load().unwrap_or_default();
             prefs.filer_show_hidden = on;
             term_runtime::prefs::save(&prefs);
         }
@@ -272,7 +272,7 @@ const FILER_PAGE_NOTE: &str =
      SFTP listings come from the server, so remote entries are shown as sent.";
 
 /// 「刚清空过」提示在 egui 临时记忆里的键。
-fn cleared_id -> egui::Id {
+fn cleared_id() -> egui::Id {
     egui::Id::new("prefs_history_cleared")
 }
 
@@ -282,19 +282,19 @@ fn cleared_id -> egui::Id {
 /// 历史只留 0 天（实际出厂是 30 天）；而写回时又要写**具体值**、不能再写哨兵。
 /// 单测钉住 `0 → 30` 与 `45 → 45`（容量同一个道理）。
 pub(in crate::ui) fn shown_days(prefs: &term_runtime::prefs::Prefs) -> u64 {
-    prefs.history_ttl_days
+    prefs.history_ttl_days()
 }
 
 /// 页面显示的容量，语义同 [`shown_days`]：`0 → 10000`、显式值原样显示。
 pub(in crate::ui) fn shown_size(prefs: &term_runtime::prefs::Prefs) -> usize {
-    prefs.history_capacity
+    prefs.history_capacity()
 }
 
-/// `Terminal ▸ Command History`：视觉基线  的两个分组框。
+/// `Terminal ▸ Command History`：视觉基线 `视觉基线` 的两个分组框。
 ///
 /// 三个字段**都有读者**，所以这页不该灰显：`command_history_size` /
 /// `command_history_days` 建的是内存历史表（`construct.rs` 的
-/// `command_history_store`），`command_history_save` 决定退出时写不写盘
+/// `command_history_store()`），`command_history_save` 决定退出时写不写盘
 /// （`main.rs::on_exit`）。但三处读者原先都只在启动那一刻取一次值，数据表里
 /// 的控件改了也没用。现在改容量 / TTL 会当场 `reconfigure`（超限的旧条目同一帧
 /// 就掉），并把**具体值**写回 `prefs.json`。
@@ -306,7 +306,7 @@ pub(in crate::ui) fn shown_size(prefs: &term_runtime::prefs::Prefs) -> usize {
 /// 不动），给 `SettingsData` 加字段又要改窗口构造。所以停在这一页时读一次
 /// `prefs.json`——几百字节，且写回仍走 load-modify-save，不会覆盖别的字段。
 pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui) {
-    let prefs = term_runtime::prefs::load.unwrap_or_default;
+    let prefs = term_runtime::prefs::load().unwrap_or_default();
     let mut days = shown_days(&prefs);
     let mut size = shown_size(&prefs);
     let mut save = prefs.command_history_save;
@@ -317,7 +317,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
 
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线：内容区第一个字是 `Capacity`（组标题），
+    // 视觉基线 `视觉基线`：内容区第一个字是 `Capacity`（组标题），
     // 没有页级灰标题。标签列按本页最长的 `Saved command history:` 量，两个框里的
     // 控件左缘因此对齐（用户口径：同一页输入框宽度一致）。
     let col = label_col(ui, &[
@@ -336,8 +336,8 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
                 r = Some(ui.add(egui::DragValue::new(&mut days).range(1..=36_500).speed(1.0)));
             });
             if let Some(r) = r {
-                apply |= r.changed;
-                persist |= r.drag_stopped || (r.changed && !r.dragged);
+                apply |= r.changed();
+                persist |= r.drag_stopped() || (r.changed() && !r.dragged());
             }
         });
         ui.horizontal(|ui| {
@@ -351,8 +351,8 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
                 ));
             });
             if let Some(r) = r {
-                apply |= r.changed;
-                persist |= r.drag_stopped || (r.changed && !r.dragged);
+                apply |= r.changed();
+                persist |= r.drag_stopped() || (r.changed() && !r.dragged());
             }
         });
     });
@@ -362,19 +362,19 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     group_box(ui, Some("Storage"), |ui| {
         persist |= ui
             .checkbox(&mut save, "Save command history to disk")
-            .changed;
+            .changed();
         ui.horizontal(|ui| {
             field_label(ui, "Saved command history:", col);
             // Clear 与上面三个字段同宽：视觉基线里它是一个通栏按钮（文字居中）。
             if ui
                 .add_sized(
-                    egui::vec2(ui.available_width, 20.0),
+                    egui::vec2(ui.available_width(), 20.0),
                     egui::Button::new("Clear"),
                 )
-                .clicked
+                .clicked()
             {
-                cleared = Some(win.command_history.len);
-                win.command_history.clear;
+                cleared = Some(win.command_history.len());
+                win.command_history.clear();
             }
         });
     });
@@ -383,35 +383,35 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
         // 一次性提示放进 egui 的临时记忆：它不是设置值，是「刚才发生了什么」。
         // 记下时间戳让它在 4 秒后自己消失，免得一直挂着像某种状态。
         let now = ui.input(|i| i.time);
-        ui.data_mut(|d| d.insert_temp(cleared_id, (n, now)));
+        ui.data_mut(|d| d.insert_temp(cleared_id(), (n, now)));
     }
     // `Clear` 只动内存。若「保存历史」开着，退出时会把空表写回文件——这正是
     // 点 Clear 想要的结果（文件里也不该再留着旧命令）；关着则文件保持原样。
-    if let Some((n, at)) = ui.data(|d| d.get_temp::<(usize, f64)>(cleared_id)) {
+    if let Some((n, at)) = ui.data(|d| d.get_temp::<(usize, f64)>(cleared_id())) {
         let age = ui.input(|i| i.time) - at;
         if age < 4.0 {
             ui.label(
                 egui::RichText::new(format!("Cleared · {n} entries removed"))
-                    .weak
-                    .small,
+                    .weak()
+                    .small(),
             );
-            ui.ctx
+            ui.ctx()
                 .request_repaint_after(std::time::Duration::from_secs_f64(4.0 - age));
         } else {
-            ui.data_mut(|d| d.remove::<(usize, f64)>(cleared_id));
+            ui.data_mut(|d| d.remove::<(usize, f64)>(cleared_id()));
         }
     }
 
     if apply {
-        // 墙钟只在宿主读（`term-core` 零墙钟）：与 `main.rs` 那个 `now_secs`
+        // 墙钟只在宿主读（`term-core` 零墙钟）：与 `main.rs` 那个 `now_secs()`
         // 同一口径，core 只收注入值。
         win.command_history
-            .reconfigure(size, days, crate::now_secs);
+            .reconfigure(size, days, crate::now_secs());
     }
     if persist {
         // load-modify-save：只动这三个字段。整份重建会把语言 / 启动策略 /
         // 光标样式悄悄清掉。
-        let mut prefs = term_runtime::prefs::load.unwrap_or_default;
+        let mut prefs = term_runtime::prefs::load().unwrap_or_default();
         prefs.command_history_days = days;
         prefs.command_history_size = size;
         prefs.command_history_save = save;
@@ -426,7 +426,7 @@ pub(in crate::ui) struct SettingsChange {
     pub(in crate::ui) suppress: bool,
 }
 
-/// `Application` 页：视觉基线  的两个分组框。
+/// `Application` 页：视觉基线 `视觉基线` 的两个分组框。
 /// W1-a 之前这里六个控件全是 `add_enabled(false)`：样子像参考布局，点下去什么也
 /// 不发生。现在三档与四个下拉都绑 `win.startup`，真正决定下次启动摆回哪些
 /// 会话；填的是**会话库里的名字**，不是自由文本——填一个库里不存在的名字
@@ -439,9 +439,9 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
 
     // 闭包里画控件时不能同时可变借用整个 win：先把策略复制出来，画完再写回。
     // 会话名也先收成一份只读快照，ComboBox 的选项与策略互不牵连。
-    let before: StartupPolicy = win.startup.clone;
-    let mut startup = before.clone;
-    let names: Vec<String> = win.sessions.iter.map(|s| s.name.clone).collect;
+    let before: StartupPolicy = win.startup.clone();
+    let mut startup = before.clone();
+    let names: Vec<String> = win.sessions.iter().map(|s| s.name.clone()).collect();
 
     recovery_notice(ui);
     ui.add_space(6.0);
@@ -449,26 +449,26 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         // 视觉基线三档单选的行距约 49 物理像素；只靠默认 item_spacing 会挤到
         // 36，后续四个下拉跟着整体上移。按比对结果在第一、二档后各补 13 物理
         // 像素（7.5 逻辑点），最后一档不补，框底才不会被多余空白顶开。
-        for (i, mode) in StartupMode::ALL.iter.enumerate {
+        for (i, mode) in StartupMode::ALL.iter().enumerate() {
             if ui
-                .add(egui::RadioButton::new(startup.mode == *mode, mode.label))
-                .clicked
+                .add(egui::RadioButton::new(startup.mode == *mode, mode.label()))
+                .clicked()
             {
                 startup.mode = *mode;
             }
-            if i + 1 < StartupMode::ALL.len {
+            if i + 1 < StartupMode::ALL.len() {
                 ui.add_space(7.5);
             }
         }
         // 单选末行到 Session 1：视觉基线比默认值多约 22 物理像素（11 逻辑点）。
         ui.add_space(11.0);
         let enabled = startup.mode == StartupMode::SpecificSessions;
-        let slot_count = startup.specific.len;
-        for (i, slot) in startup.specific.iter_mut.enumerate {
-            let shown = if slot.is_empty {
-                "—".to_string
+        let slot_count = startup.specific.len();
+        for (i, slot) in startup.specific.iter_mut().enumerate() {
+            let shown = if slot.is_empty() {
+                "—".to_string()
             } else {
-                slot.clone
+                slot.clone()
             };
             ui.horizontal(|ui| {
                 left_label(ui, &format!("Session {}:", i + 1));
@@ -479,15 +479,15 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
                         // 140 标签 + 230 组合会超出右栏可用宽度，把窗口顶宽后
                         // `Close` 按钮就被裁在窗口外面。会话名可能很长，`width`
                         // 又只是下限，所以还要 Truncate 把文字锁在框内。
-                        .width(ui.available_width)
+                        .width(ui.available_width())
                         .wrap_mode(egui::TextWrapMode::Truncate)
                         .show_ui(ui, |ui| {
-                            if ui.selectable_label(slot.is_empty, "—").clicked {
-                                *slot = String::new;
+                            if ui.selectable_label(slot.is_empty(), "—").clicked() {
+                                *slot = String::new();
                             }
                             for name in &names {
-                                if ui.selectable_label(slot.as_str == name, name).clicked {
-                                    *slot = name.clone;
+                                if ui.selectable_label(slot.as_str() == name, name).clicked() {
+                                    *slot = name.clone();
                                 }
                             }
                         });
@@ -518,7 +518,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         let mut show_tab = !win.confirm.suppress_session;
         if ui
             .checkbox(&mut show_tab, "Show close tab confirmation dialog")
-            .changed
+            .changed()
         {
             win.confirm.suppress_session = !show_tab;
             suppress = true;
@@ -528,7 +528,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         let mut show_window = !win.confirm.suppress_window;
         if ui
             .checkbox(&mut show_window, "Show close window confirmation dialog")
-            .changed
+            .changed()
         {
             win.confirm.suppress_window = !show_window;
             suppress = true;
@@ -543,26 +543,26 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
 /// 视觉基线里标签的下划线只画在**访问键字母**下面（`Language` 的 `u`、
 /// `Theme` 的 `e`、`Window` 的 `W`），其余部分照常画。
 fn underlined_job(ui: &egui::Ui, shown: &str, acc_word: &str) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default;
-    let font = egui::TextStyle::Button.resolve(ui.style);
-    let color = ui.visuals.text_color;
+    let mut job = egui::text::LayoutJob::default();
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let color = ui.visuals().text_color();
     let plain = egui::TextFormat {
-        font_id: font.clone,
+        font_id: font.clone(),
         color,
-        ..Default::default
+        ..Default::default()
     };
     let marked = egui::TextFormat {
         font_id: font,
         color,
         underline: egui::Stroke::new(1.0, color),
-        ..Default::default
+        ..Default::default()
     };
-    let key = acc_word.chars.next.unwrap_or('A');
+    let key = acc_word.chars().next().unwrap_or('A');
     match shown.find(key) {
         Some(i) => {
-            job.append(&shown[..i], 0.0, plain.clone);
-            job.append(&key.to_string, 0.0, marked);
-            job.append(&shown[i + key.len_utf8..], 0.0, plain);
+            job.append(&shown[..i], 0.0, plain.clone());
+            job.append(&key.to_string(), 0.0, marked);
+            job.append(&shown[i + key.len_utf8()..], 0.0, plain);
         }
         None => job.append(shown, 0.0, plain),
     }
@@ -575,10 +575,10 @@ mod tests {
     use term_runtime::prefs::Prefs;
 
     #[test]
-    fn zero_sentinel_shows_the_factory_defaults {
+    fn zero_sentinel_shows_the_factory_defaults() {
         // 老文件 / 没设置过 → 两个字段都是 0。页面必须显示 30 / 10000，
         // 把 0 原样画出来会让用户以为历史当天就清空。
-        let prefs = Prefs::default;
+        let prefs = Prefs::default();
         assert_eq!(shown_days(&prefs), 30, "0 是哨兵，页面要显示出厂 30 天");
         assert_eq!(
             shown_size(&prefs),
@@ -588,13 +588,13 @@ mod tests {
     }
 
     #[test]
-    fn explicit_values_are_shown_as_written {
+    fn explicit_values_are_shown_as_written() {
         // 用户拖到 45 / 500 之后，页面显示的就是 45 / 500——不是被吞回哨兵，
         // 也不是被夹到出厂值。
         let prefs = Prefs {
             command_history_days: 45,
             command_history_size: 500,
-            ..Prefs::default
+            ..Prefs::default()
         };
         assert_eq!(shown_days(&prefs), 45);
         assert_eq!(shown_size(&prefs), 500);

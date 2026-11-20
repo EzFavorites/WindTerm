@@ -2,7 +2,7 @@
 //!
 //! # 这一页写的是「默认参数」，不是当前会话
 //!
-//! 两层模型（设计固定）：
+//! 两层模型（用户 定死）：
 //!
 //! | 层 | 存在哪 | 落盘 | 写入口 |
 //! |----|--------|------|--------|
@@ -108,10 +108,10 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
     let mut persist = false;
 
     ui.add_space(6.0);
-    // 视觉基线：内容区第一个字就是组标题 `Binary`（老实现
+    // 视觉基线 `视觉基线`：内容区第一个字就是组标题 `Binary`（老实现
     // 还多画了一行灰页标题，同一个词出现两次、整页下移 26 点）。
     group_box(ui, Some("Binary"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         // 顺序照视觉基线逐行对齐：base / columns / devision / grouped characters。
         // `devision` 夹在第二、四行之间，别按语义重排。
         let (a, b) = number_row(ui, BASE_LABEL, &mut base, 2..=16);
@@ -138,7 +138,7 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
     // 说明管的就是这件事，别把这一格排除在外：同一个设置页里五个同类参数有
     // 两套语义（四个等下次、一个当场变）正是这一版修掉的东西。
     let r = ui.checkbox(&mut zebra, "Alternate column background color");
-    if r.changed {
+    if r.changed() {
         touched = true;
         persist = true;
     }
@@ -180,13 +180,13 @@ fn number_row(
     ui.horizontal(|ui| {
         // 标签列宽固定，「右缘对齐」靠它；返回值只在单测里读，这里不看。
         let _ = label_cell(ui, label);
-        // 占满标签列之后的整段：视觉基线的数字框一路到框右
+        // 占满标签列之后的整段：视觉基线 `视觉基线` 的数字框一路到框右
         // 边（数字靠左、▲▼ 贴右缘），不是标签旁边一个小方框。
         field_box(ui, |ui| {
             let r = ui.add(egui::DragValue::new(value).range(range).speed(0.2));
-            changed |= r.changed;
+            changed |= r.changed();
             // 与 Font 页同一判据：拖动过程中不写盘，松手或键盘改完才写。
-            persist |= r.drag_stopped || (r.changed && !r.dragged);
+            persist |= r.drag_stopped() || (r.changed() && !r.dragged());
         });
     });
     (changed, persist)
@@ -204,19 +204,19 @@ fn number_row(
 /// 四行右缘 624.8 / 642.5 / 695.7 / 707.5，同一个逻辑列画成了四级台阶）。
 /// 要**占满**一列就得精确预留一块矩形，然后在这块矩形里自己画字。
 ///
-/// 返回值是 `rect.width`（预留出来的那块，不是 [`LABEL_W`] 常量本身）：
+/// 返回值是 `rect.width()`（预留出来的那块，不是 [`LABEL_W`] 常量本身）：
 /// 单测据此断言「四行都是同一列」。谁把它换回按内容收缩的 API，返回值立刻
 /// 变小，测试就红——只看图守不住这件事。
 fn label_cell(ui: &mut egui::Ui, text: &str) -> f32 {
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, LABEL_H), egui::Sense::hover);
-    ui.painter.text(
-        rect.left_center,
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(LABEL_W, LABEL_H), egui::Sense::hover());
+    ui.painter().text(
+        rect.left_center(),
         egui::Align2::LEFT_CENTER,
         text,
-        egui::TextStyle::Body.resolve(ui.style),
-        ui.visuals.text_color,
+        egui::TextStyle::Body.resolve(ui.style()),
+        ui.visuals().text_color(),
     );
-    rect.width
+    rect.width()
 }
 
 #[cfg(test)]
@@ -225,7 +225,7 @@ mod tests {
 
     /// 四条标签都得是视觉基线里的**全称**：截成 `…` 等于没写。
     #[test]
-    fn the_labels_are_the_full_reference_names {
+    fn the_labels_are_the_full_reference_names() {
         for label in [BASE_LABEL, COLUMNS_LABEL, DEVISION_LABEL, GROUPED_LABEL] {
             assert!(label.starts_with("Binary "), "{label} 少了前缀");
             assert!(label.ends_with(':'), "{label} 少了冒号");
@@ -248,7 +248,7 @@ mod tests {
     /// 页底那行必须点明「这页是默认值、当前会话在菜单」，否则改完眼前不变会被
     /// 当成坏掉。这是视觉基线没有、我们多加的一句。
     #[test]
-    fn the_note_separates_the_defaults_from_the_open_session {
+    fn the_note_separates_the_defaults_from_the_open_session() {
         assert!(DEFAULTS_NOTE.contains("defaults"), "要点明写的是默认值");
         assert!(
             DEFAULTS_NOTE.contains("new sessions"),
@@ -273,13 +273,13 @@ mod tests {
     ///
     /// `Context::run` 不需要窗口，所以它不弹任何东西、也不抢焦点。
     #[test]
-    fn the_four_number_boxes_share_one_right_edge {
+    fn the_four_number_boxes_share_one_right_edge() {
         let labels = [BASE_LABEL, COLUMNS_LABEL, DEVISION_LABEL, GROUPED_LABEL];
-        let ctx = egui::Context::default;
-        let mut widths: Vec<f32> = Vec::new;
-        let mut rights: Vec<f32> = Vec::new;
-        let _ = ctx.run(egui::RawInput::default, |ctx| {
-            egui::CentralPanel::default.show(ctx, |ui| {
+        let ctx = egui::Context::default();
+        let mut widths: Vec<f32> = Vec::new();
+        let mut rights: Vec<f32> = Vec::new();
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
                 // 一、标签格自己的宽度。
                 for label in labels {
                     ui.horizontal(|ui| {
@@ -292,24 +292,24 @@ mod tests {
                     let row = ui.horizontal(|ui| {
                         let _ = number_row(ui, label, &mut value, 1..=16);
                     });
-                    rights.push(row.response.rect.right);
+                    rights.push(row.response.rect.right());
                 }
             });
         });
 
-        assert_eq!(widths.len, 4, "四条标签都要画出来");
-        for (label, w) in labels.iter.zip(&widths) {
+        assert_eq!(widths.len(), 4, "四条标签都要画出来");
+        for (label, w) in labels.iter().zip(&widths) {
             assert_eq!(
                 *w, LABEL_W,
                 "{label} 的标签格占了 {w}px，不是 {LABEL_W}px —— 标签列不再是固定宽，右侧数字框会参差"
             );
         }
 
-        assert_eq!(rights.len, 4, "四行都要画出来");
+        assert_eq!(rights.len(), 4, "四行都要画出来");
         let first = rights[0];
-        for (label, right) in labels.iter.zip(&rights) {
+        for (label, right) in labels.iter().zip(&rights) {
             assert!(
-                (right - first).abs < 0.01,
+                (right - first).abs() < 0.01,
                 "{label} 那一行的数字框右缘在 {right}，第一行在 {first} —— 四行没有对齐"
             );
         }
@@ -324,18 +324,18 @@ mod tests {
     /// 「没有改动」这一半同时也是**不写盘**的闸：调用方只有拿到 `apply` 才会
     /// 写 prefs，而这一页每帧都跑，一帧误报就是每秒 60 次磁盘写。
     #[test]
-    fn the_page_draws_headlessly_and_reports_no_edit {
-        let ctx = egui::Context::default;
-        let cur = HexParams::default;
+    fn the_page_draws_headlessly_and_reports_no_edit() {
+        let ctx = egui::Context::default();
+        let cur = HexParams::default();
         let mut got: Option<BinaryEdit> = None;
-        let _ = ctx.run(egui::RawInput::default, |ctx| {
-            egui::CentralPanel::default.show(ctx, |ui| {
+        let _ = ctx.run(egui::RawInput::default(), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
                 got = Some(binary(ui, cur));
             });
         });
         let edit = got.expect("面板跑起来了");
-        assert_eq!(edit, BinaryEdit::default, "没人碰它，应该是空改动");
-        assert!(edit.apply.is_none, "没人碰它，不该报改动");
+        assert_eq!(edit, BinaryEdit::default(), "没人碰它，应该是空改动");
+        assert!(edit.apply.is_none(), "没人碰它，不该报改动");
         assert!(!edit.persist, "没人碰它，就不该写盘");
     }
 }

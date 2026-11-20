@@ -117,15 +117,15 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut hide_cursor = win.hide_cursor_typing;
     let mut changed = false;
 
-    // 视觉基线：内容区第一个字是组标题 `Features`，没有页级灰标题。
+    // 视觉基线 `视觉基线`：内容区第一个字是组标题 `Features`，没有页级灰标题。
     // 标签列按本页最长的 `Character spacing:` 量，三个框的控件左缘因此对齐。
     let col = label_col(ui, &["Line spacing:", "Character spacing:", "Zoom level:"]);
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         disabled(ui, Row::DisabledCheck("Activate multiple carets"), MULTI_CARET_NOTE, col);
         changed |= ui
             .checkbox(&mut alt_row, "Alternate line background color")
-            .changed;
+            .changed();
         disabled(
             ui,
             Row::DisabledCheck("Automatically copy selection"),
@@ -134,12 +134,12 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         );
         changed |= ui
             .checkbox(&mut hide_cursor, "Hide cursor when typing")
-            .changed;
+            .changed();
     });
 
     ui.add_space(6.0);
     group_box(ui, Some("Spacing"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         disabled(
             ui,
             Row::Combo { label: "Line spacing:", value: "Automatic" },
@@ -156,14 +156,14 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Zoom"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         // Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
         // `Font size` 同一个值），这里显示「相对出厂字号的档位」，出厂 = 0。
         // 改完当场 `fonts.set_size`（重装字形 + 重新量 cell），松手落 prefs。
         ui.horizontal(|ui| {
             field_label(ui, "Zoom level:", col);
-            let mut level = win.fonts.size - crate::fonts::TERMINAL_FONT_SIZE;
-            // 字段框占满整行（视觉基线的 Zoom 框从标签列一路到框右边）。
+            let mut level = win.fonts.size() - crate::fonts::TERMINAL_FONT_SIZE;
+            // 字段框占满整行（视觉基线 `视觉基线` 的 Zoom 框从标签列一路到框右边）。
             let mut changed = false;
             field_box(ui, |ui| {
                 changed = ui
@@ -173,7 +173,7 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                             .speed(1.0)
                             .suffix(" levels"),
                     )
-                    .changed;
+                    .changed();
             });
             if changed {
                 let size = crate::fonts::TERMINAL_FONT_SIZE + level;
@@ -206,16 +206,16 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 内容区从组标题开始，不另画页级灰标题（那份标题与左栏选中项重复）。
     let col = label_col(ui, &[]);
     group_box(ui, Some("Session"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         // 真勾选：判据在 `confirm::should_confirm_close`，三处关闭共用。
         // 写回是**同一帧**的 `win.confirm.multi_tabs`——门控读的就是那份缓存，
         // 所以勾完立刻生效，不是「下次启动」。
         let multi_toggled = ui
             .checkbox(&mut multi, "Confirm before closing multiple tabs")
-            .changed;
+            .changed();
         let focus_toggled = ui
             .checkbox(&mut focus_new, "Focus the new tab after opening")
-            .changed;
+            .changed();
         disabled(
             ui,
             Row::DisabledCheck("Reconnect automatically when the connection drops"),
@@ -236,7 +236,7 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Startup"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         disabled(
             ui,
             Row::DisabledCheck("Restore the previous session on launch"),
@@ -264,8 +264,8 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let col = label_col(ui, &[]);
 
     group_box(ui, Some("Toolbar"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
-        toggled = ui.checkbox(&mut show, "Show toolbar").changed;
+        ui.spacing_mut().item_spacing.y = 6.0;
+        toggled = ui.checkbox(&mut show, "Show toolbar").changed();
         disabled(
             ui,
             Row::DisabledCheck("Show address bar"),
@@ -276,7 +276,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Menu"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         disabled(
             ui,
             Row::DisabledCheck("Auto-hide the menu bar"),
@@ -298,7 +298,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_text_note_separates_the_live_rows_from_the_dead_ones {
+    fn the_text_note_separates_the_live_rows_from_the_dead_ones() {
         // 页底必须两件事都写：哪几行当场生效、哪几行没有字段可绑。
         assert!(TEXT_NOTE.contains("immediately"), "要写清哪些当场生效");
         assert!(TEXT_NOTE.contains("spacing"), "要点出仍然灰显的是哪几段");
@@ -306,20 +306,20 @@ mod tests {
     }
 
     #[test]
-    fn zoom_level_is_now_a_live_row_over_font_size {
+    fn zoom_level_is_now_a_live_row_over_font_size() {
         // Zoom level 不再是「没有字段」的灰行——它读写
         // `Prefs.font_size`，显示值与 Font 页的 Font size 是同一个底层值。
         // 页底不能再说 zoom「没有字段可绑」（否则是反向的谎）。
         assert!(!ZOOM_NOTE.contains("not stored"), "接真后不能再说缩放没存储");
         assert!(ZOOM_NOTE.contains("Font size"), "要说清它绑的是 Font 页字号字段");
         assert!(
-            TEXT_NOTE.find("zoom").unwrap < TEXT_NOTE.find("have no field").unwrap,
+            TEXT_NOTE.find("zoom").unwrap() < TEXT_NOTE.find("have no field").unwrap(),
             "zoom 要归到「当场生效」那一句，而不是「没有字段」那一句"
         );
     }
 
     #[test]
-    fn the_behaviour_page_points_restore_at_the_application_page {
+    fn the_behaviour_page_points_restore_at_the_application_page() {
         // 「恢复上次会话」已经实现了，只是不在这一页——不指过去，用户会以为没有。
         assert!(RESTORE_NOTE.contains("Application ▸ Startup"));
         // 自动重连缺的是「策略 + 事件钩子」，不能只说「未实现」。
@@ -327,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn the_behaviour_note_claims_both_live_switches_and_names_the_dead_one {
+    fn the_behaviour_note_claims_both_live_switches_and_names_the_dead_one() {
         // 两个勾选当场生效，页底必须说清；灰的那一行也要点名缺什么。
         assert!(BEHAVIOUR_NOTE.contains("immediately"), "要写清哪些当场生效");
         assert!(BEHAVIOUR_NOTE.contains("Auto-reconnect"), "灰行要逐行点名");
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn the_toolbar_page_says_the_switch_is_not_saved {
+    fn the_toolbar_page_says_the_switch_is_not_saved() {
         // 页脚按参考布局清空后，这条边界搬进**页内**说明
         // （`TOOLBAR_NOTE`），仍然对用户可见，不能只写在注释里。
         assert!(TOOLBAR_NOTE.contains("not saved"), "页内要写清不落盘");

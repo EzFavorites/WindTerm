@@ -16,7 +16,7 @@
 //! - `When I select text, copy it to clipboard` → `Prefs.copy_on_select`，
 //!   判据 `term_app::mouse::should_copy_on_select`，读者只有 `pane.rs` 里
 //!   选区文本每帧刷新那一处（开关 + 非空 + 指针没按着 + 是新选区）。
-//! - `Enable local mode`→ 活动标签的 `Tab.local_mode`
+//! - `Enable local mode`（）→ 活动标签的 `Tab.local_mode`
 //!   （`Window ▸ Local Mode` 同一位）。**它是这一页唯一不落盘的控件**：
 //!   勾的是「当前这条会话现在只读」，不是一条全局偏好——四个消费者
 //!   （`Tab::write` / `Tab::poll` / `terminal/pane.rs` / `terminal/view.rs`）
@@ -39,7 +39,7 @@ use term_app::shell::ShellAction;
 const LOCAL_MODE_NOTE: &str = "Read-only view of this session: no input, no auto-scroll, triggers \
      and scripts paused. Scrolling, selecting and copying still work. Per session, not saved.";
 
-/// 右键三档的文案，下标与 `RightClickAction::index` 一一对应。
+/// 右键三档的文案，下标与 `RightClickAction::index()` 一一对应。
 ///
 /// 第二、三档按参考页原文（`Paste text` / `Copy text if selected, otherwise
 /// paste text`）：第三档的文案就是它的判据，写短了（比如 `Copy or paste`）
@@ -71,18 +71,18 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut copy_on_select = win.copy_on_select;
     let mut mouse_changed = false;
 
-    // 视觉基线：内容区第一个字是组标题 `Features`，没有页级灰标题。
+    // 视觉基线 `视觉基线`：内容区第一个字是组标题 `Features`，没有页级灰标题。
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         // `Enable local mode` 从灰行接成真勾选。读的是**活动标签**的
         // 只读态（与菜单 `Window ▸ Local Mode` 同一位），点了走同一条命令通道——
         // 不在这一页里直接翻 `Tab.local_mode`，否则「设置页改的」与「菜单改的」
         // 会变成两条写路径，迟早一处漏了取消脚本、一处漏了提示。
-        let mut local = win.local_mode_on;
+        let mut local = win.local_mode_on();
         if ui
             .checkbox(&mut local, "Enable local mode")
             .on_hover_text(LOCAL_MODE_NOTE)
-            .changed
+            .changed()
         {
             win.dispatch_action(Action::Shell(ShellAction::ToggleLocalMode));
         }
@@ -90,23 +90,23 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Mouse Actions"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
-        // 视觉基线：`Right click:` 自己一行，组合框在它**下方**
+        ui.spacing_mut().item_spacing.y = 6.0;
+        // 视觉基线 07-terminal.png：`Right click:` 自己一行，组合框在它**下方**
         // 占满整行。generic 的 `draw_row` 是「标签 + 控件同一行」，这里按视觉基线
         // 单独画。三档文案见 `right_click_label`。
         ui.label("Right click:");
         let current = RightClickAction::from_index(right_click);
         egui::ComboBox::from_id_salt("terminal_right_click")
             .selected_text(right_click_label(current))
-            .width(ui.available_width)
+            .width(ui.available_width())
             .wrap_mode(egui::TextWrapMode::Truncate)
             .show_ui(ui, |ui| {
                 for action in RightClickAction::ALL {
                     if ui
                         .selectable_label(action == current, right_click_label(action))
-                        .clicked
+                        .clicked()
                     {
-                        right_click = action.index;
+                        right_click = action.index();
                         mouse_changed = true;
                     }
                 }
@@ -118,7 +118,7 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 "When I select text, copy it to clipboard",
             )
             .on_hover_text(COPY_ON_SELECT_NOTE)
-            .changed;
+            .changed();
     });
 
     if mouse_changed {
@@ -134,16 +134,16 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     let mut changed = false;
     group_box(ui, Some("Paste Dialog"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         ui.label("When pasting multiple lines:");
         changed |= ui
             .checkbox(&mut main, "Show paste dialog on the main screen")
             .on_hover_text(TERMINAL_NOTE)
-            .changed;
+            .changed();
         changed |= ui
             .checkbox(&mut alt, "Show paste dialog on the alternative screen")
             .on_hover_text(TERMINAL_NOTE)
-            .changed;
+            .changed();
     });
 
     if changed {
@@ -163,7 +163,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_page_note_keeps_the_paste_granularity_and_the_local_mode_scope {
+    fn the_page_note_keeps_the_paste_granularity_and_the_local_mode_scope() {
         // 底色：粘贴弹窗不看行数，这句不能丢（否则用户以为单行仍直通）。
         assert!(TERMINAL_NOTE.contains("not only"), "要写明不是只对多行生效");
         assert!(TERMINAL_NOTE.contains("apply immediately"));
@@ -182,7 +182,7 @@ mod tests {
     }
 
     #[test]
-    fn the_three_right_click_labels_match_the_reference_wording {
+    fn the_three_right_click_labels_match_the_reference_wording() {
         // 第三档的文案就是它的判据，不能缩写。
         assert_eq!(right_click_label(RightClickAction::Menu), "Show menu");
         assert_eq!(right_click_label(RightClickAction::Paste), "Paste text");
@@ -192,7 +192,7 @@ mod tests {
         );
         // 文案与下标同序：设置页按下标取档，取错档就等于改错行为。
         for action in RightClickAction::ALL {
-            assert_eq!(RightClickAction::from_index(action.index), action);
+            assert_eq!(RightClickAction::from_index(action.index()), action);
         }
     }
 }

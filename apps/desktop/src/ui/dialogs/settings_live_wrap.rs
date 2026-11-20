@@ -1,4 +1,4 @@
-//! `Wrap` 页：两项真控件 + 一列号输入框，
+//! `Wrap` 页：两项真控件 + 一列号输入框（），
 //! 另外两档与 Marker style 仍按数据表画成灰的。
 //!
 //! # 为什么这三项能真接
@@ -41,7 +41,7 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 标签列按本页最长的标签量（`Marker style:`），两个框里的控件左缘因此对齐。
     let col = label_col(ui, &["Wrap mode:", "Wrap column:", "Columns:", "Marker style:"]);
     group_box(ui, Some("Wrap"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         draw_row(
             ui,
             &Row::Combo { label: "Wrap mode:", value: "Wrap by character" },
@@ -60,23 +60,23 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     if ui
         .checkbox(&mut symbols, "Show wrap symbols")
         .on_hover_text("Marks continued lines at the wrap edge in the active tab.")
-        .changed
+        .changed()
     {}
 
     ui.add_space(6.0);
     group_box(ui, Some("Column Marker"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         ui.horizontal(|ui| {
             field_label(ui, "Columns:", col);
-            let mut text = if column == 0 { String::new } else { column.to_string };
+            let mut text = if column == 0 { String::new() } else { column.to_string() };
             let resp = ui.add_sized(
-                egui::vec2(ui.available_width, 20.0),
+                egui::vec2(ui.available_width(), 20.0),
                 egui::TextEdit::singleline(&mut text).hint_text("80, 100, 120, ..."),
             );
-            if resp.changed {
-                if text.trim.is_empty {
+            if resp.changed() {
+                if text.trim().is_empty() {
                     column = 0;
-                } else if let Ok(n) = text.trim.parse::<usize> {
+                } else if let Ok(n) = text.trim().parse::<usize>() {
                     column = n.clamp(8, 512);
                 }
             }
@@ -94,7 +94,7 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     if ui
         .checkbox(&mut markers_on, "Show column markers")
         .on_hover_text("Draws a vertical line at the configured column in the active tab.")
-        .changed
+        .changed()
     {
         column = if markers_on {
             if column == 0 { 80 } else { column }
@@ -122,7 +122,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn marker_column_off_is_zero_and_on_uses_the_factory_column {
+    fn marker_column_off_is_zero_and_on_uses_the_factory_column() {
         // 0 = 不画，与 `Prefs.view_column_marker` 的出厂哨兵一致；
         // 打开但没填列号时给 80，与 View 菜单 `ToggleColumnMarker` 同一列。
         let off = 0usize;
@@ -131,7 +131,7 @@ mod tests {
     }
 
     #[test]
-    fn the_page_note_separates_live_rows_from_the_two_dead_ones {
+    fn the_page_note_separates_live_rows_from_the_two_dead_ones() {
         assert!(WRAP_LIVE_NOTE.contains("apply"));
         assert!(WRAP_LIVE_NOTE.contains("Wrap mode / Wrap column"));
         assert!(WRAP_LIVE_NOTE.contains("Marker style"));

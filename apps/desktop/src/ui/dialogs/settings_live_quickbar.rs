@@ -28,23 +28,23 @@ pub(in crate::ui) fn quickbar(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 视觉基线里页首第一个字就是分组框标题 `Features`，不再另画页级标题
     //（老实现 `page_title("Quick Bar")` + 框内 `Features` 会多出一行）。
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         if ui
             .checkbox(&mut in_order, "Show group commands in order")
             .on_hover_text("Off shows the commands in the bar sorted alphabetically.")
-            .changed
+            .changed()
         {
             display.alphabetical = !in_order;
         }
         if ui
             .checkbox(&mut display.show_group_title, "Show group title")
             .on_hover_text("Shows the group name above its commands in the bottom bar.")
-            .changed
+            .changed()
         {}
         if ui
             .checkbox(&mut display.show_multiple_groups, "Show multiple groups")
             .on_hover_text("Off collapses the bottom bar to its first group.")
-            .changed
+            .changed()
         {}
     });
     if display == before {
@@ -64,8 +64,8 @@ mod tests {
     use term_profile::prefs::Prefs;
 
     #[test]
-    fn the_three_checkboxes_match_the_factory_preferences {
-        let d = Prefs::default.quick_bar_display;
+    fn the_three_checkboxes_match_the_factory_preferences() {
+        let d = Prefs::default().quick_bar_display();
         // 出厂：多组 + 组标题 + 配置顺序（不按字母序）。
         assert!(d.show_multiple_groups && d.show_group_title);
         assert!(!d.alphabetical, "in_order 复选框出厂必须是勾上的");

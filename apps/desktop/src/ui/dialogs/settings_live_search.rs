@@ -42,9 +42,9 @@ const SEARCH_NOTE: &str = "The query URL is stored and used by Text ▸ Search O
      removing or reordering engines would need a stored list, which does not exist yet.";
 
 pub(in crate::ui) fn search(ui: &mut egui::Ui) {
-    let mut prefs = prefs::load.unwrap_or_default;
+    let mut prefs = prefs::load().unwrap_or_default();
     // 空串 → 出厂模板：输入框里显示的永远是一条能直接用的 URL。
-    let mut url = prefs.search_url_template.to_string;
+    let mut url = prefs.search_url_template().to_string();
     let matched = search::engine_index_for(&url);
     let shown = matched.map(|i| SEARCH_ENGINES[i].name).unwrap_or(CUSTOM_ENGINE);
 
@@ -53,7 +53,7 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
     let mut picked: Option<usize> = None;
     let mut edited = false;
     let col = label_col(ui, &["Search engine:"]);
-    // 视觉基线顶端那行字是这一块的标题（不是页级灰标题）：
+    // 视觉基线 `视觉基线` 顶端那行字是这一块的标题（不是页级灰标题）：
     // 它下面直接就是引擎表。这里保留同一行字，框内是简化版的一行控件。
     group_box(ui, Some("Search Engines"), |ui| {
         ui.horizontal(|ui| {
@@ -62,13 +62,13 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
             // 右缘一路齐到框右边，不给自己留 230 的固定上限。
             egui::ComboBox::from_id_salt("prefs_search_engine")
                 .selected_text(shown)
-                .width(ui.available_width)
+                .width(ui.available_width())
                 // `width` 是下限；长 URL 模板名会按 Extend 模式把框撑开，
                 // 进而顶宽固定尺寸的对话框、裁掉页脚的 `Close`。
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
-                    for (i, engine) in SEARCH_ENGINES.iter.enumerate {
-                        if ui.selectable_label(matched == Some(i), engine.name).clicked {
+                    for (i, engine) in SEARCH_ENGINES.iter().enumerate() {
+                        if ui.selectable_label(matched == Some(i), engine.name).clicked() {
                             picked = Some(i);
                         }
                     }
@@ -83,15 +83,15 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
         edited = ui
             .add(
                 egui::TextEdit::singleline(&mut url)
-                    .desired_width(ui.available_width)
-                    .hint_text(search::default_url),
+                    .desired_width(ui.available_width())
+                    .hint_text(search::default_url()),
             )
-            .changed;
+            .changed();
     });
 
     // 下拉被真的改动 → 套用它的模板（理由见模块文档）。
     if let Some(i) = picked {
-        url = SEARCH_ENGINES[i].url.to_string;
+        url = SEARCH_ENGINES[i].url.to_string();
         edited = true;
     }
     if edited {
@@ -116,14 +116,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_page_note_says_what_is_still_missing {
+    fn the_page_note_says_what_is_still_missing() {
         // 页底那句必须点出「列表没有存储」——只说「未接线」等于没说。
         assert!(SEARCH_NOTE.contains("stored list"), "要写清自定义列表缺存储");
         assert!(SEARCH_NOTE.contains("Search Online"), "要指出 URL 的真实消费者");
     }
 
     #[test]
-    fn an_engine_template_is_recognized_but_a_hand_edit_is_custom {
+    fn an_engine_template_is_recognized_but_a_hand_edit_is_custom() {
         // 下拉的选中态来自这条判定：认错就会显示一个不属于当前 URL 的引擎名。
         assert_eq!(search::engine_index_for(SEARCH_ENGINES[1].url), Some(1));
         assert_eq!(

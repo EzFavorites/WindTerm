@@ -55,12 +55,12 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 就是分组框标题 `Highlight`，所以不再另画页级标题。
     let col = label_col(ui, &[]);
     group_box(ui, Some("Highlight"), |ui| {
-        ui.spacing_mut.item_spacing.y = 6.0;
+        ui.spacing_mut().item_spacing.y = 6.0;
         // 第一行真勾选：读活动标签当前值，勾完当场铺底色 + 落 prefs。
         if ui
             .checkbox(&mut on, "Highlight the caret line")
             .on_hover_text("Tints the line under the cursor in the active tab; also the default for new tabs.")
-            .changed
+            .changed()
         {
             win.set_marks(|m| MarksParams { caret_line: on, ..m });
             save_prefs(|prefs| prefs.text_highlight_caret_line = on);
@@ -73,12 +73,12 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ] {
             draw_row(ui, &Row::DisabledCheck(label), HIGHLIGHT_NOTE, col);
         }
-        // 第四行真勾选：窗口级副本当帧生效，同时落 prefs。
+        // 第四行真勾选（）：窗口级副本当帧生效，同时落 prefs。
         // 顺序照视觉基线，不因为「能点的要放前面」而重排——那是改设计稿。
         if ui
             .checkbox(&mut search, "Highlight the incremental search")
             .on_hover_text(SEARCH_HOVER)
-            .changed
+            .changed()
         {
             win.highlight_search = search;
             save_prefs(|prefs| prefs.text_highlight_search = search);
@@ -91,7 +91,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_caret_line_is_live_and_the_note_names_the_rest {
+    fn only_the_caret_line_is_live_and_the_note_names_the_rest() {
         // 第一行有读者（Prefs + MarksKnob + 渲染器）；页底必须逐行点名
         // 其余三行缺的是什么，不能退化成「尚未实现」。
         assert!(HIGHLIGHT_NOTE.contains("Caret line"), "要点明第一行是真控件");
@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[test]
-    fn the_search_row_is_no_longer_described_as_missing {
+    fn the_search_row_is_no_longer_described_as_missing() {
         // 这一行从「没有渲染器」变成真勾选。说明里若还留着
         // "incremental search" 作缺项，就是反着的谎（S4），而且是**我们刚
         // 亲手确认过渲染早就在画**的那一项。

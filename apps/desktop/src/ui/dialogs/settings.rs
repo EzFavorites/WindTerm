@@ -10,7 +10,7 @@
 //!
 //! 两处刻意为之的不同：
 //! - **改完立即生效**。文案没有缓存，`ViewState.lang` 每帧都读，不需要重启。
-//!   按参考布局  清理：页脚那句橙色的
+//!   按参考布局 `视觉基线` 清理：页脚那句橙色的
 //!   「什么时候生效」提示整条删掉——参考布局页脚只有右下角 `Close`，而我们的
 //!   长句被按钮压掉半截（用户反馈「糟乱」）。各页自己的说明仍在页内。
 //! - **落盘在 `prefs.json`**，与 `layout.json` 分开。
@@ -34,11 +34,11 @@
 //! - `Text ▸ Caret`（W6 + W7）：样式 / 周期 / 宽度三项全真，整页自带写回，
 //!   住在 `settings_live_caret`。三项都是**新会话初值**（`SessionConfig`），
 //!   改完只影响之后新建的标签，已经开着的会话不动。
-//! - `Text ▸ Font ▸ Font size`：真开关，DragValue 绑
+//! - `Text ▸ Font ▸ Font size`（）：真开关，DragValue 绑
 //!   `Prefs.font_size`，改完当场 `TerminalFonts::set_size`（重装字形 + 重新量
 //!   cell 盒），松手落盘；启动时由 `construct.rs` 在第一次 `install` 之前装上。
 //!   字族 / 字重仍灰显——缺的是字体选择器与字重安装（见 `settings_live_font`）。
-//! - `Tabs`：**部分真控件**。关闭后激活 / 双击动作 / 省略模式
+//! - `Tabs`（）：**部分真控件**。关闭后激活 / 双击动作 / 省略模式
 //!   三行有消费者（`tab_strip::close_tab`、`tab_bar` 的响应与标题绘制），
 //!   其余五行灰显并逐行写清缺什么（见 `settings_live_tabs`）。
 //! - `Terminal`（起**整页真控件**）。两个粘贴确认开关落
@@ -46,13 +46,13 @@
 //!   `GridSnapshot.alt`；右键三档与「选中即复制」落 `Prefs.right_click_action` /
 //!   `copy_on_select`；`Enable local mode` 勾的是活动标签的只读态
 //!   （见 `settings_live_terminal`）。
-//! - `Text` / `Behaviour` / `Toolbar / Menu`：**部分真控件**。
+//! - `Text` / `Behaviour` / `Toolbar / Menu`（）：**部分真控件**。
 //!   隔行底色、打字隐光标、新标签抢焦点三个勾真的改行为并落 prefs；工具行开关
 //!   真的收起那条面板（但**不落盘**，见 `settings_live_text`）。同一页里剩下的
 //!   行仍是灰显空框——理由写在每行的悬停与页底说明里。
-//! - `Text ▸ Zoom level`：真控件，与 Font 页的 `Font size` 同一个
+//! - `Text ▸ Zoom level`（）：真控件，与 Font 页的 `Font size` 同一个
 //!   `Prefs.font_size`，显示成相对出厂字号的档位，改完当场重装字形并落盘。
-//! - `Highlight`：`caret line` 与 `incremental search` 两行接真——
+//! - `Highlight`（）：`caret line` 与 `incremental search` 两行接真——
 //!   前者是 `Prefs.text_highlight_caret_line` + 活动标签 `Tab.marks` + 渲染器；
 //!   后者是 `Prefs.text_highlight_search`，那个效果本来就无条件在画，补的是**关掉
 //!   它的字段**（`ui/terminal/pane_overlays.rs` 的 F2 那段），不是补渲染。
@@ -69,7 +69,8 @@
 //!
 //! # 组件基线
 //!
-//! `dialog_settings.png` 与 24 张 `dialog_settings_<页>.png` 在 //! 这次清理后全量重冻结：默认页改 `Application`、去掉标题栏与橙色页脚、
+//! `dialog_settings.png` 与 24 张 `dialog_settings_<页>.png` 在 
+//! 这次清理后全量重冻结：默认页改 `Application`、去掉标题栏与橙色页脚、
 //! 左栏回收成 6 项 + 三个组头。
 
 use crate::ui::kit::window::{DialogId, DialogWindow};
@@ -93,7 +94,7 @@ use term_app::i18n::Lang;
 use term_app::shell::ShellAction;
 
 // 弹窗 602×568（尺寸在 `kit::spec::DialogId::Settings`）。
-// 视觉基线实测窗口外框物理 22..1225 × 22..1157
+// 视觉基线 `视觉基线` 实测窗口外框物理 22..1225 × 22..1157
 // ⇒ 逻辑 602×568；左栏导航物理 40..431 ⇒ 逻辑宽 196，右栏表单物理 458..1216。
 // 高度 572 是 从 500 加上来的：左栏当时涨到 22 行装不下，页脚被顶
 // 出窗口；收回 6 顶层页 + 三个组头后只剩 19 行（456），572 很宽裕，
@@ -109,7 +110,8 @@ const NAV_W: f32 = 200.0;
 /// 只在设置弹窗里卡死：其它弹窗各有自己的最小尺寸策略，别在通用层动。
 const CONTENT_W: f32 = 578.0;
 /// 右栏可用宽度：视觉基线分组框外框实测 `454..1207` 物理 ⇒ 376 逻辑（扣 1.5 描边）。
-/// 老值 365 会让框右边缩到 575，右边留出 17 逻辑点的空白——用户 /// 反馈的「留大段空白」有一半来自这里，不是输入框本身窄。
+/// 老值 365 会让框右边缩到 575，右边留出 17 逻辑点的空白——用户 
+/// 反馈的「留大段空白」有一半来自这里，不是输入框本身窄。
 const RIGHT_W: f32 = 374.0;
 /// 树行高。
 const ROW_H: f32 = 24.0;
@@ -121,7 +123,7 @@ const INDENT: f32 = 20.0;
 /// 页脚再留一行也够；这个数和 `kit::spec` 里的高度仍要一起动，否则又会出现
 /// 「页脚被顶出窗口」。
 const PAGE_H: f32 = 540.0;
-/// 组合框宽度（视觉基线≈230）。
+/// 组合框宽度（视觉基线 ≈230）。
 const COMBO_W: f32 = 238.0;
 /// 树选中行的灰块 / 悬停（视觉基线选中 = #3A3A3A 整行）。
 const TREE_SELECTED: u32 = 0x3A3A3A;
@@ -140,7 +142,7 @@ fn col(hex: u32) -> egui::Color32 {
 /// 右侧页面。顺序即左栏树的叶序；三个组头（Terminal/Text/Widgets）不是页。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum SettingsPage {
-    /// 参考布局打开 Preferences 就停在这一页（
+    /// 参考布局打开 Preferences 就停在这一页（`视觉基线`
     /// 里左栏高亮的是 Application）。
     #[default]
     Application,
@@ -149,20 +151,20 @@ pub(in crate::ui) enum SettingsPage {
     Search,
     Security,
     Tabs,
-    /// 组头 `Terminal ▾` 自己也是一页：视觉基线  点了它之后
+    /// 组头 `Terminal ▾` 自己也是一页：视觉基线 `视觉基线` 点了它之后
     /// 右侧有三个分组框。上一版把组头当纯折叠按钮，点了什么都不出。
     Terminal,
     AutoCompletion,
     CommandHistory,
     MouseTracking,
-    /// 同上，。
+    /// 同上，`视觉基线`。
     Text,
     Binary,
     Caret,
     Font,
     Highlight,
     Wrap,
-    /// 视觉基线 ：点组头是个**空页**（右侧一片空白）。
+    /// 视觉基线 `视觉基线`：点组头是个**空页**（右侧一片空白）。
     Widgets,
     Filer,
     QuickBar,
@@ -196,7 +198,7 @@ impl SettingsPage {
     ];
     const WIDGETS: [SettingsPage; 2] = [SettingsPage::Filer, SettingsPage::QuickBar];
 
-    /// **左栏可见的顶层叶**：参考布局  逐行数的
+    /// **左栏可见的顶层叶**：参考布局 `视觉基线` 逐行数的
     /// 六项，顺序不许动。用户反馈「混入了其他东西」指的就是后来
     /// 挂进这棵树的那五页；它们从树上去掉，但实现与逐页组件基线都保留。
     const NAV_TOP: [SettingsPage; 6] = [
@@ -272,18 +274,18 @@ impl SettingsPage {
         let mut out = [SettingsPage::Application; 24];
         let mut n = 0;
         let mut i = 0;
-        while i < SettingsPage::TOP.len {
+        while i < SettingsPage::TOP.len() {
             out[n] = SettingsPage::TOP[i];
             n += 1;
             i += 1;
         }
         let mut g = 0;
-        while g < SettingsPage::GROUPS.len {
+        while g < SettingsPage::GROUPS.len() {
             out[n] = SettingsPage::GROUPS[g];
             n += 1;
             let kids = CHILD_PAGES[g];
             let mut k = 0;
-            while k < kids.len {
+            while k < kids.len() {
                 out[n] = kids[k];
                 n += 1;
                 k += 1;
@@ -296,14 +298,14 @@ impl SettingsPage {
     /// 页在 `ALL` 里的下标（组件夹具的 `SettingsPage(i)` 用的就是它）。
     pub(in crate::ui) fn index(self) -> usize {
         Self::ALL
-            .iter
+            .iter()
             .position(|p| *p == self)
             .expect("SettingsPage::ALL 必须收录每一页")
     }
 
     /// `index` 的反函数；越界返回 `None`（夹具调用方自己决定回落哪一页）。
     pub(in crate::ui) fn from_index(i: usize) -> Option<Self> {
-        Self::ALL.get(i).copied
+        Self::ALL.get(i).copied()
     }
 
     /// 英文原文 = 词表的 key（见 `term_app::i18n`）。
@@ -355,9 +357,9 @@ pub(in crate::ui) struct SettingsData {
 
 /// 三个组头的子页（画树展开用）。
 const CHILD_PAGES: [&[SettingsPage]; 3] = [
-    SettingsPage::TERMINAL.as_slice,
-    SettingsPage::TEXT.as_slice,
-    SettingsPage::WIDGETS.as_slice,
+    SettingsPage::TERMINAL.as_slice(),
+    SettingsPage::TEXT.as_slice(),
+    SettingsPage::WIDGETS.as_slice(),
 ];
 
 impl TerminalWindow {
@@ -369,25 +371,25 @@ impl TerminalWindow {
         self.dispatch_action(Action::Shell(ShellAction::SetLanguage(lang)));
         // load-modify-save：抑制位等其余字段必须跟着保留，整份重建会把
         // 「不再提示」的用户选择悄悄清掉。
-        let mut prefs = term_runtime::prefs::load.unwrap_or_default;
-        prefs.language = lang.tag.to_string;
+        let mut prefs = term_runtime::prefs::load().unwrap_or_default();
+        prefs.language = lang.tag().to_string();
         term_runtime::prefs::save(&prefs);
     }
 
     pub(in crate::ui) fn draw_settings_dialog(&mut self, ctx: &egui::Context) {
         // 文案在进闭包之前取好：闭包会以 `&mut self` 捕获窗口，
-        // 里面再借 `self.tr` 就会撞借用检查。
+        // 里面再借 `self.tr()` 就会撞借用检查。
         let title = self.tr("Preferences");
         // 左栏只翻译 `NAV_TOP` 那六项；`TOP` 里剩下的五页没有树行。
-        let top = SettingsPage::NAV_TOP.map(|p| self.tr(p.key));
+        let top = SettingsPage::NAV_TOP.map(|p| self.tr(p.key()));
         let groups = ["Terminal", "Text", "Widgets"].map(|g| self.tr(g));
         let children: [&[&str]; 3] = [
-            &(SettingsPage::TERMINAL.map(|p| self.tr(p.key)))[..],
-            &(SettingsPage::TEXT.map(|p| self.tr(p.key)))[..],
-            &(SettingsPage::WIDGETS.map(|p| self.tr(p.key)))[..],
+            &(SettingsPage::TERMINAL.map(|p| self.tr(p.key())))[..],
+            &(SettingsPage::TEXT.map(|p| self.tr(p.key())))[..],
+            &(SettingsPage::WIDGETS.map(|p| self.tr(p.key())))[..],
         ];
         let close = self.tr("Close");
-        let current = self.lang;
+        let current = self.lang();
         let page = self.settings_page;
         let groups_open = self.settings.groups_open;
         // D5：Appearance 页的窗口透明度同样先按值取出来（WindowOpacity 是 Copy）。
@@ -395,17 +397,17 @@ impl TerminalWindow {
 
         let open = DialogWindow::new(DialogId::Settings, title)
         // 参考布局没有 `Preferences` 标题条和右上角 ×（用户对比图）。
-        // 关掉标题栏后 `.open` 不再产生关闭按钮，唯一的关闭入口是页脚 Close。
-        .without_title_bar
-        // 视觉基线实测：内容首行顶边在 dialog 内容区顶边
+        // 关掉标题栏后 `.open()` 不再产生关闭按钮，唯一的关闭入口是页脚 Close。
+        .without_title_bar()
+        // 视觉基线 `视觉基线` 实测：内容首行顶边在 dialog 内容区顶边
         // 下方约 16 逻辑像素。用 Frame 的 top margin 统一下移左右两栏，
         // 保持二者的相对布局不变（往 left/right 栏各塞 add_space 会让两栏错位）。
         .with_top_pad(16.0)
         .show_with_rect(ctx, |ui, win| {
-            // 字体统一：字号阶梯与字体族只在 kit/type_scale 定义，
+            // 字体统一（）：字号阶梯与字体族只在 kit/type_scale 定义，
             // 设置页直接用全局那套等宽 ladder。之前这里另写一遍 11/12/13 的
             // monospace 循环，改字号必须改两处，正是「看起来不统一」的来源。
-            crate::ui::kit::type_scale::install_text_styles(ui.style_mut);
+            crate::ui::kit::type_scale::install_text_styles(ui.style_mut());
             // 宽度也要钉死：`StableWindow` 的 `fixed_rect` 只保证「不小于」，
             // 内容更宽时窗口仍会被顶大，而页脚是按内层 ui 宽度右对齐的——
             // 结果就是「窗口长到 627、`Close` 画在 560 之外被裁掉」。
@@ -427,8 +429,8 @@ impl TerminalWindow {
                 // ── 左栏：分类树 ──
                 ui.vertical(|ui| {
                     ui.set_width(NAV_W);
-                    ui.spacing_mut.item_spacing.y = 0.0;
-                    for (i, p) in SettingsPage::NAV_TOP.into_iter.enumerate {
+                    ui.spacing_mut().item_spacing.y = 0.0;
+                    for (i, p) in SettingsPage::NAV_TOP.into_iter().enumerate() {
                         if tree_row(ui, NAV_W - 8.0, 0.0, top[i], p == page) {
                             picked_page = Some(p);
                         }
@@ -437,7 +439,7 @@ impl TerminalWindow {
                         let mark = if groups_open[gi] { "▼" } else { "▸" };
                         let row = format!("{mark} {}", groups[gi]);
                         let group_page = SettingsPage::GROUPS[gi];
-                        // 组头既是**页**也是折叠开关（视觉基线 ：
+                        // 组头既是**页**也是折叠开关（视觉基线 `视觉基线`：
                         // 选中 Terminal 组头时右侧有三个分组框）。第一次点＝选中
                         // 并展开；已经在这一页时再点才收起。
                         if tree_row(ui, NAV_W - 8.0, 0.0, &row, group_page == page) {
@@ -449,7 +451,7 @@ impl TerminalWindow {
                             }
                         }
                         if groups_open[gi] {
-                            for (ci, p) in CHILD_PAGES[gi].iter.enumerate {
+                            for (ci, p) in CHILD_PAGES[gi].iter().enumerate() {
                                 if tree_row(ui, NAV_W - 8.0, INDENT, children[gi][ci], *p == page) {
                                     picked_page = Some(*p);
                                 }
@@ -460,10 +462,10 @@ impl TerminalWindow {
                 // 分隔线：视觉基线是一条贴着导航右缘的**暗**竖线（#161616 左右），
                 // egui 默认 separator 是亮灰（实测 #303030），会显得突兀。
                 // 用 painter 画一条贯穿内容高度的暗线，视觉更贴参考。
-                let sep_x = ui.cursor.left;
-                let top = ui.cursor.top;
+                let sep_x = ui.cursor().left();
+                let top = ui.cursor().top();
                 let bottom = top + (PAGE_H - 34.0);
-                ui.painter.line_segment(
+                ui.painter().line_segment(
                     [egui::pos2(sep_x, top), egui::pos2(sep_x, bottom)],
                     egui::Stroke::new(1.0, col(0x1A1A1A)),
                 );
@@ -477,11 +479,11 @@ impl TerminalWindow {
                     ui.set_max_width(RIGHT_W);
                     // 高度也钉死：任何页内容再多也只在自己这块区域里滚动，
                     // 不许把固定尺寸的对话框顶高（否则页脚 Close 会压在内容上）。
-                    egui::ScrollArea::vertical
+                    egui::ScrollArea::vertical()
                         .max_height(PAGE_H - 34.0)
                         .auto_shrink([false, false])
                         .show(ui, |ui| {
-                    // 参考布局组合框填充是 #333（ 实测），不是全局
+                    // 参考布局组合框填充是 #333（01-application.png 实测），不是全局
                     // 暗底的 #212121。截图里落到 #323232 是窗口 alpha 的取整差，
                     // 不再追一档：再写 #343434 会跳到 #343434。egui 0.29 的
                     // ComboBox 填的是
@@ -489,17 +491,17 @@ impl TerminalWindow {
                     // 不是 `extreme_bg_color`。只在本对话框右栏临时改四态，出栏
                     // 即还原，避免把终端其它按钮的底色一起带亮。
                     let combo_fills = [
-                        ui.visuals.widgets.noninteractive.weak_bg_fill,
-                        ui.visuals.widgets.inactive.weak_bg_fill,
-                        ui.visuals.widgets.hovered.weak_bg_fill,
-                        ui.visuals.widgets.active.weak_bg_fill,
-                        ui.visuals.widgets.open.weak_bg_fill,
+                        ui.visuals().widgets.noninteractive.weak_bg_fill,
+                        ui.visuals().widgets.inactive.weak_bg_fill,
+                        ui.visuals().widgets.hovered.weak_bg_fill,
+                        ui.visuals().widgets.active.weak_bg_fill,
+                        ui.visuals().widgets.open.weak_bg_fill,
                     ];
-                    ui.visuals_mut.widgets.noninteractive.weak_bg_fill = col(0x333333);
-                    ui.visuals_mut.widgets.inactive.weak_bg_fill = col(0x333333);
-                    ui.visuals_mut.widgets.hovered.weak_bg_fill = col(0x333333);
-                    ui.visuals_mut.widgets.active.weak_bg_fill = col(0x333333);
-                    ui.visuals_mut.widgets.open.weak_bg_fill = col(0x333333);
+                    ui.visuals_mut().widgets.noninteractive.weak_bg_fill = col(0x333333);
+                    ui.visuals_mut().widgets.inactive.weak_bg_fill = col(0x333333);
+                    ui.visuals_mut().widgets.hovered.weak_bg_fill = col(0x333333);
+                    ui.visuals_mut().widgets.active.weak_bg_fill = col(0x333333);
+                    ui.visuals_mut().widgets.open.weak_bg_fill = col(0x333333);
                     match page {
                         // 有状态的页在 `settings_live.rs`；其余页走数据表。
                         SettingsPage::Appearance => {
@@ -598,11 +600,11 @@ impl TerminalWindow {
                             settings_pages_view::draw(ui, other, &self.shortcut_overrides)
                         }
                     }
-                    ui.visuals_mut.widgets.noninteractive.weak_bg_fill = combo_fills[0];
-                    ui.visuals_mut.widgets.inactive.weak_bg_fill = combo_fills[1];
-                    ui.visuals_mut.widgets.hovered.weak_bg_fill = combo_fills[2];
-                    ui.visuals_mut.widgets.active.weak_bg_fill = combo_fills[3];
-                    ui.visuals_mut.widgets.open.weak_bg_fill = combo_fills[4];
+                    ui.visuals_mut().widgets.noninteractive.weak_bg_fill = combo_fills[0];
+                    ui.visuals_mut().widgets.inactive.weak_bg_fill = combo_fills[1];
+                    ui.visuals_mut().widgets.hovered.weak_bg_fill = combo_fills[2];
+                    ui.visuals_mut().widgets.active.weak_bg_fill = combo_fills[3];
+                    ui.visuals_mut().widgets.open.weak_bg_fill = combo_fills[4];
                         });
                 });
             });
@@ -616,21 +618,21 @@ impl TerminalWindow {
             // 右 / 下内边距必须与 `DialogWindow` 的内容 clip 区一致（PAD=12），
             // 再小就会被裁掉；视觉基线的实际观感由按钮自身的描边补足。
             // 页脚 Close 用**窗口矩形**绝对定位，不跟随左栏/右栏的 top_pad 下移。
-            // 边距按视觉基线实测：蓝框右/下各距 dialog
+            // 边距按视觉基线 `视觉基线` 实测：蓝框右/下各距 dialog
             // 外框 18 物理像素 = 9 逻辑像素（外框 x20..1227/y20..1159，
             // 蓝框 x1050..1209/y1094..1141）。此前 pad=1 几乎贴在外框上。
             let pad = 9.0;
             let btn_w = 80.0;
             let btn_h = 24.0;
             let footer = egui::Rect::from_min_max(
-                egui::pos2(win.right - pad - btn_w, win.bottom - pad - btn_h),
-                egui::pos2(win.right - pad, win.bottom - pad),
+                egui::pos2(win.right() - pad - btn_w, win.bottom() - pad - btn_h),
+                egui::pos2(win.right() - pad, win.bottom() - pad),
             );
             super::dialog_chrome::place(ui, footer, |ui| {
                 // `add_sized` 而不是 `Button::min_size`：后者只给了按钮一个**最小**
                 // 尺寸，文字仍从矩形左内边距开始排，于是 80 宽的按钮里文字左 20、
                 // 右 78（实测）。`add_sized` 分配定宽矩形并让按钮居中，
-                // 与视觉基线一致（ 蓝框内文字左右各 45 物理像素）。
+                // 与视觉基线一致（`视觉基线` 蓝框内文字左右各 45 物理像素）。
                 if ui
                     .add_sized(
                         egui::vec2(btn_w, btn_h),
@@ -639,7 +641,7 @@ impl TerminalWindow {
                             .stroke(egui::Stroke::new(1.5, col(CLOSE_BLUE)))
                             .rounding(2.0),
                     )
-                    .clicked
+                    .clicked()
                 {
                     want_close = true;
                 }
@@ -661,14 +663,14 @@ impl TerminalWindow {
             if suppress_changed || startup_changed {
                 // 一次 load-modify-save 同时落两组字段：分开写会让后写那份
                 // 把先写的覆盖掉（两者共用 prefs.json）。其余字段原样保留。
-                let mut prefs = term_runtime::prefs::load.unwrap_or_default;
+                let mut prefs = term_runtime::prefs::load().unwrap_or_default();
                 if suppress_changed {
                     prefs.suppress_close_window = self.confirm.suppress_window;
                     prefs.suppress_close_session = self.confirm.suppress_session;
                 }
                 if startup_changed {
-                    prefs.startup_mode = self.startup.mode.tag.to_string;
-                    prefs.startup_sessions = self.startup.specific.clone;
+                    prefs.startup_mode = self.startup.mode.tag().to_string();
+                    prefs.startup_sessions = self.startup.specific.clone();
                 }
                 term_runtime::prefs::save(&prefs);
             }
@@ -689,20 +691,20 @@ impl TerminalWindow {
 /// 找到它的首字符加下划线；中文退化为划首字。颜色用 `PLACEHOLDER`，
 /// 置灰时随控件变暗。
 fn underlined_job(ui: &egui::Ui, shown: &str, acc_word: &str) -> egui::text::LayoutJob {
-    let font = egui::TextStyle::Body.resolve(ui.style);
+    let font = egui::TextStyle::Body.resolve(ui.style());
     let plain = egui::TextFormat::simple(font, egui::Color32::PLACEHOLDER);
-    let mut underlined = plain.clone;
+    let mut underlined = plain.clone();
     // 下划线颜色**必须烤死**：PLACEHOLDER 只在 galley 兜底色里回填，
     // 下划线在 layout 时就烘焙进网格，透明色画出来就是看不见。
-    underlined.underline = egui::Stroke::new(1.0, ui.visuals.text_color);
-    let mut job = egui::text::LayoutJob::default;
+    underlined.underline = egui::Stroke::new(1.0, ui.visuals().text_color());
+    let mut job = egui::text::LayoutJob::default();
     let pos = shown
-        .find(acc_word.chars.next.unwrap_or(' '))
+        .find(acc_word.chars().next().unwrap_or(' '))
         .unwrap_or(0);
     let pos = if shown.is_char_boundary(pos) { pos } else { 0 };
     let rest = &shown[pos..];
-    let acc = rest.chars.next.map(|c| c.len_utf8).unwrap_or(0);
-    job.append(&shown[..pos], 0.0, plain.clone);
+    let acc = rest.chars().next().map(|c| c.len_utf8()).unwrap_or(0);
+    job.append(&shown[..pos], 0.0, plain.clone());
     job.append(&rest[..acc], 0.0, underlined);
     job.append(&rest[acc..], 0.0, plain);
     job
@@ -712,22 +714,22 @@ fn underlined_job(ui: &egui::Ui, shown: &str, acc_word: &str) -> egui::text::Lay
 /// 返回是否被点。手绘而不是 `SelectableLabel`：后者只有文字宽，
 /// 高亮不满行。
 fn tree_row(ui: &mut egui::Ui, width: f32, indent: f32, label: &str, selected: bool) -> bool {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, ROW_H), egui::Sense::click);
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, ROW_H), egui::Sense::click());
     let painter = ui.painter_at(rect);
     if selected {
         painter.rect_filled(rect, 3.0, col(TREE_SELECTED));
-    } else if resp.hovered {
+    } else if resp.hovered() {
         painter.rect_filled(rect, 3.0, col(TREE_HOVER));
     }
-    let font = egui::TextStyle::Body.resolve(ui.style);
+    let font = egui::TextStyle::Body.resolve(ui.style());
     painter.text(
-        rect.left_center + egui::vec2(6.0 + indent, 0.0),
+        rect.left_center() + egui::vec2(6.0 + indent, 0.0),
         egui::Align2::LEFT_CENTER,
         label,
         font,
         col(0xE0E0E0),
     );
-    resp.clicked
+    resp.clicked()
 }
 
 #[cfg(test)]
@@ -736,15 +738,15 @@ mod tests {
 
     /// 用户 明确要求「设置默认打开应该是 application 页面才对」。
     #[test]
-    fn preferences_defaults_to_the_application_page {
-        assert_eq!(SettingsPage::default, SettingsPage::Application);
+    fn preferences_defaults_to_the_application_page() {
+        assert_eq!(SettingsPage::default(), SettingsPage::Application);
         assert_eq!(SettingsPage::from_index(0), Some(SettingsPage::Application));
     }
 
     /// 「混入了其他东西」的防回归：左栏顶层只有参考布局那六项，后补的五页
     /// 不许再挂回树上（它们仍有自己的入口 / 组件基线）。
     #[test]
-    fn the_nav_tree_has_only_the_six_original_top_level_pages {
+    fn the_nav_tree_has_only_the_six_original_top_level_pages() {
         assert_eq!(
             SettingsPage::NAV_TOP,
             [
@@ -771,8 +773,8 @@ mod tests {
     /// 组件基线按 `ALL` 的下标登记（24 张 PNG）。把隐藏页从 `ALL` 里删掉会让
     /// 那几张图的名字与页错位，所以「从树上隐藏」不等于「从注册表里删除」。
     #[test]
-    fn hidden_pages_keep_their_component_baseline_slots {
-        assert_eq!(SettingsPage::ALL.len, 24);
+    fn hidden_pages_keep_their_component_baseline_slots() {
+        assert_eq!(SettingsPage::ALL.len(), 24);
         for hidden in [
             SettingsPage::ShortcutKeys,
             SettingsPage::Behaviour,
