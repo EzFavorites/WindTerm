@@ -1,0 +1,69 @@
+{
+  "alt": false,
+  "clipboard_query": null,
+  "clipboard_request": null,
+  "cols": 40,
+  "cursor": [
+    9,
+    0
+  ],
+  "cursor_blink": false,
+  "cursor_shape": "block",
+  "cursor_visible": true,
+  "grid": [
+    {
+      "marks": [],
+      "r": 0,
+      "text": "line 7                                  "
+    },
+    {
+      "marks": [],
+      "r": 1,
+      "text": "line 8                                  "
+    },
+    {
+      "marks": [],
+      "r": 2,
+      "text": "line 9                                  "
+    },
+    {
+      "marks": [],
+      "r": 3,
+      "text": "line 10                                 "
+    },
+    {
+      "marks": [],
+      "r": 4,
+      "text": "line 11                                 "
+    },
+    {
+      "marks": [],
+      "r": 5,
+      "text": "line 12                                 "
+    },
+    {
+      "marks": [],
+      "r": 6,
+      "text": "line 13                                 "
+    },
+    {
+      "marks": [],
+      "r": 7,
+      "text": "line 14                                 "
+    },
+    {
+      "marks": [],
+      "r": 8,
+      "text": "line 15                                 "
+    },
+    {
+      "marks": [],
+      "r": 9,
+      "text": "                                        "
+    }
+  ],
+  "replies": "",
+  "rows": 10,
+  "scrollback": 6,
+  "title": ""
+}

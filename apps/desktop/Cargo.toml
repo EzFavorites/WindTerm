@@ -1,0 +1,109 @@
+[package]
+name = "term-desk"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 投影编译单元：只依赖 term-core + term-runtime + term-app + term-ssh 与 UI 框架。
+# R12 起应用层（动作 / reducer / 菜单 / 能力面）在 `term-app`，本 crate 只剩投影。
+[dependencies]
+term-core = { path = "../../crates/term-core" }
+term-runtime = { path = "../../crates/term-runtime" }
+# D6 预览窗的数据底座（`preview::read_head` / `sniff` / `head_text`）。直接依赖
+# 而不是经 `term-runtime` 门面：那个门面只再导出**旧路径**，它的模块文档明确
+# 写着「新代码请直接依赖上面对应的 crate」。`term-runtime` 没有 `preview` 这个
+# 再导出模块，为它加一个只为了让这里少写一个依赖，反而把门面续命了。
+term-io = { path = "../../crates/term-io" }
+# 启动期整理（旧配置迁移 + 原子写残留清理）要知道 profile 目录在哪。直接依赖它，
+# 不经 `term-runtime` 门面——与上面 `term-io` 同一条理由（ADR-0014：门面只许减）。
+term-paths = { path = "../../crates/term-paths" }
+# 偏好（`prefs::load` 读落盘值，`ui/app_state.rs` 要报语言）。同样直接依赖：
+# 门面里的 `term_runtime::prefs` 只是 `term_profile::prefs` 的再导出，走门面会让
+# `verify.sh` 4s（`term_runtime::` 引用只许减不许增，基线 148）凭空 +1。
+term-profile = { path = "../../crates/term-profile" }
+term-app = { path = "../../crates/term-app", features = ["planned"] }
+eframe = "0.29"
+egui = "0.29"
+epaint = "0.29"
+# 字体选择器：要读装在本机的字面（字族名 / 字重 / 是否等宽 + `.ttc` 里第几面）。
+# `ttf-parser` 早就躺在依赖图里（`epaint → ab_glyph → owned_ttf_parser → ttf-parser`
+# 0.25.1），这里只是把它提成直接依赖，不多编一行代码、也不改「零 C 依赖」。
+# 别自己写 `name` 表解析：那是有 200 行边界条件的二进制格式，写错了表现成
+# 「某个字装不上」，比装不上更难查。
+ttf-parser = "0.25"
+# D6 预览窗：PNG 之外还要认 JPEG / GIF / BMP / WebP。五个解码器都是纯 Rust
+# （jpeg-decoder / gif / image-webp），不拉任何系统库，也不改本 crate 的
+# 「零 C 依赖」现状。只看文件头判类型的是 `term_io::preview`，真正解像素只
+# 在预览窗打开的那一刻发生一次（`ui/overlays/preview.rs`）。
+image = { version = "0.24", default-features = false, features = [
+    "png",
+    "jpeg",
+    "gif",
+    "bmp",
+    "webp",
+] }
+serde_json = "1.0"
+dirs = "5.0"
+# **只有非 unix 分支用到**：`bridge/token.rs` 的 32 字节 token 在 unix 上读
+# `/dev/urandom`（零依赖），Windows 没有那个设备，改走 `getrandom`（后端是
+# `RtlGenRandom`）。写在普通 `[dependencies]` 而不是 `[target.'cfg(not(unix))']`
+# 是**故意的**：后者会在这里新开一个 target 段，而 `scripts/verify.sh` 4j 只放行
+# 段内唯一那个 `winit` 键（历史上 target 段写错位置把 13 条依赖吞成 macOS-only）。
+# 代价是 unix 构建多编一个已经躺在依赖图里的叶子 crate（0.2.17）。
+getrandom = "0.2"
+# R13-d2：原生 SSH 只有桌面端用（CLI 仍走系统 ssh / 无交互）。这是全仓唯一
+# 把 tokio **间接**带进 apps 的地方——直接依赖 tokio / russh 仍然禁止（verify 4k），
+# 本 crate 的源码里也一个 `.await` 都没有：`term_ssh::connect` 是同步的。
+term-ssh = { path = "../../crates/term-ssh" }
+# R13-e2：隧道跟着会话一起起（`Tunnel::start` 也是同步的，后台线程收在库里）。
+# 与 term-ssh 同一条理由：tokio 只经这两个依赖间接进来，源码里零 `.await`。
+term-tunnel = { path = "../../crates/term-tunnel" }
+# R13-f：文件面板（远端目录浏览）。同样只给句柄，`start_in_background` 是同步的。
+term-sftp = { path = "../../crates/term-sftp" }
+# R13-b2：保险库实例由 apps/* 持有（ADR-0017：解锁一次、本次运行可用）。
+# 它是纯同步的加密层，没有线程也没有文件句柄——文件读写仍在 term-runtime::persist。
+term-vault = { path = "../../crates/term-vault" }
+# ADR-0019 / ADR-0022：`desk serve` 把能力面暴露到 TCP，而 desk 是**唯一的会话
+# 所有者**（ADR-0019），所以这里第一次直接依赖控制面本身。两者都是纯同步的
+# （term-session 零 `.await`、term-bridge 只依赖 term-core），不破坏 tokio 笼子。
+term-session = { path = "../../crates/term-session" }
+# 桥接本体：只提供协议（`dispatch` / `serve_stdio` / `Surface`），不含会话实现。
+# 后端适配在 `src/bridge/surface.rs`——那正是「协议与宿主分离」的落点。
+term-bridge = { path = "../../crates/term-bridge" }
+# ADR-0019 腿 A：`desk script run <file>` 是脚本引擎的第一个消费者。它只依赖
+# term-core（Rhai + regex，零线程、零 tokio、零 `.await`），因此这里加它不会
+# 给 apps 带进任何异步面——4k 门禁仍然只需管住 term-ssh / term-tunnel / term-sftp。
+term-script = { path = "../../crates/term-script" }
+# 文件传输的协议内核（XMODEM / XMODEM-1K / YMODEM 状态机）。零 IO、零依赖，
+# 盘与线程都在 `src/xfer_run.rs` 这一侧——所以它不会给 apps 带进异步面，
+# 4k 门禁只需继续管住 term-ssh / term-tunnel / term-sftp。
+term-xfer = { path = "../../crates/term-xfer" }
+# ZMODEM 协议内核。与 `term-xfer` 同一条理由：纯逻辑、零 IO、只依赖 term-xfer
+# （事件类型共用），盘 / 线程 / 旁路仍然只在 `src/xfer_run.rs` 这一侧。
+# 它是 `Terminal.SendZModem` / `ReceiveZModem` 两条菜单的**真实读者**：
+# 驱动层四个引擎壳里的两个直接包它（见 `xfer_run.rs` 的 `Engine`）。
+term-zmodem = { path = "../../crates/term-zmodem" }
+
+# 截图不需要任何编译期特性：`apps/desktop/src/shot.rs` 走 egui 的运行时命令
+# （`ViewportCommand::Screenshot` → `Event::Screenshot`），它属于核心 API。
+# 早先这里开过 `eframe/__screenshot`，那是为了 eframe 自己的 `EFRAME_SCREENSHOT_TO`
+# 通道；那条通道读的是上一帧、且一次 pass 丢弃就能存出一张全透明图，
+# 已弃用（证据见 `shot.rs`）。不开它顺便少一层 image 0.25 / png 依赖。
+
+# 唯一一条**平台专属**依赖：截图运行（`--screenshot`）要把 macOS 的激活策略设成
+# `Prohibited`，让这个进程**根本不能成为前台应用**（也不出现 Dock 图标）。
+#
+# 为什么非得直接依赖：`eframe` 的 `NativeOptions.event_loop_builder` 钩子拿到的是
+# winit 的 `EventLoopBuilder`，而 `with_activation_policy` 是 winit 平台上扩展 trait
+# 上的方法，不 `use` 那个 trait 就调不到。版本必须与 eframe 0.29 内部用的一致
+# （0.30.x），否则 `EventLoopBuilder` 会是两个不同类型。
+#
+# 为什么只给 macOS：这条策略是 AppKit 的概念，别的平台没有等价物，也不需要——
+# 那份「不再抢前台」的保证就写在 `main.rs` 的 `cfg(target_os = "macos")` 里。
+#
+# **这一段必须留在文件最后**：TOML 的 `[target...]` 表头会把它之后的所有键都收进去。
+# 2026-11-09 它曾被插在 `eframe` 之后，于是 `egui` / `term-ssh` / `term-session` /
+# `term-xfer` 等 13 条依赖全部变成 macOS-only——宿主（macOS）编译照样通过，一点
+# 异常都看不出来，直到在 Linux 容器里跑测试才炸成 78 个 `unresolved import`。
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = "0.30"

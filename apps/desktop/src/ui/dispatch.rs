@@ -1,0 +1,80 @@
+//! 意图分发：把命令 ID / 强类型 `Action` 翻译成对 `ViewState` 的纯改，并把
+//! 产生的 `Effect` 落到各处副作用（见 `effects.rs`）。
+//!
+//! 从 `mod.rs` 拆出来是为了把「装配（draw 顺序 + 字段）」与「分发（Action →
+//! reduce → Effect）」两件事分开，让 `mod.rs` 回到 R9（≤ 500 行）的约束内。
+//! 本文件不持有字段、不画任何东西——只调用 `reduce` 与 `apply_effect`（后者在
+//! `effects.rs` 的同一类型 impl 上）。
+
+use eframe::egui;
+use term_app::action::{reduce, Action};
+
+use super::TerminalWindow;
+
+impl TerminalWindow {
+    /// R5：把 `full_screen` / `always_on_top` 落到窗口系统上。
+    ///
+    /// 只在值变化时发命令——`applied_window` 记「已经发过什么」。
+    /// 每帧无条件发同一个请求会让部分平台反复调整窗口（抖动），也让
+    /// S4 的「空闲 0 CPU」变成空话。
+    pub(super) fn sync_window_modes(&mut self, ctx: &egui::Context) {
+        if self.applied_window.full_screen != Some(self.view.full_screen) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(self.view.full_screen));
+            self.applied_window.full_screen = Some(self.view.full_screen);
+        }
+        if self.applied_window.always_on_top != Some(self.view.always_on_top) {
+            let level = if self.view.always_on_top {
+                egui::WindowLevel::AlwaysOnTop
+            } else {
+                egui::WindowLevel::Normal
+            };
+            ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(level));
+            self.applied_window.always_on_top = Some(self.view.always_on_top);
+        }
+    }
+
+    /// B4：命令 ID 在这里被翻译成 `Action`，之后全链路强类型。
+    ///
+    /// 未接线的 ID 解析为 `None`：菜单已把它画成置灰，这里再兜一层，
+    /// 任何来源的未知命令都不会被当成「执行成功但什么也没发生」。
+    pub(super) fn dispatch(&mut self, action_id: &str) {
+        // ADR-0027 §S6：`Script.RunFile:<路径>` 是映射键与按钮栏跑脚本的入口。
+        // 它**不是** `Action` 的变体——路径是任意串，做成枚举会让 `Action` 认识
+        // 文件系统。所以在这里先看一眼前缀（命令 ID 的字面量在 `script_run.rs`，
+        // 4e 门禁要求 `ui/` 下不出现 ID 字面量）。
+        if let Some(path) = crate::script_run::run_file_target(action_id) {
+            self.open_script_for_path(path);
+            return;
+        }
+        let Some(action) = Action::parse(action_id) else {
+            return;
+        };
+        self.dispatch_action(action);
+    }
+
+    /// 已经有 `Action` 的入口（对话框里的按钮）。
+    ///
+    /// 为什么不给按钮也传命令 ID：I5 要求命令 ID 只出现在 `menu.rs` 与各能力的
+    /// `parse()`。对话框按钮本来就持有强类型动作，绕回字符串只会多一层错配机会。
+    pub(super) fn dispatch_action(&mut self, action: Action) {
+        // D3：`Action::AddressBar` 是**纯投影层**的意图（打开地址栏浮层），
+        // 它在 `ViewState` 里没有对应的领域状态——地址栏开着还是关着是控件
+        // 状态，和 `find_input` / `palette_input` 同一层。所以这里消费掉它，
+        // 不往 `reduce` 里塞一个 reducer 管不了的变体。
+        //
+        // 这是唯一能拦住它的地方：命令 ID 在 `term_app::action::Action::parse`
+        // 里就已经落成强类型变体，投影层不该再有第二条字符串分支（I5 也查这条
+        // ——命令 ID 字面量出现在 ui/ 里会被 verify.sh 4e 判红）。
+        if matches!(action, Action::AddressBar) {
+            self.open_address_bar("", None);
+            return;
+        }
+        // F2：reducer 拿到的输入是「当前事实窗口」，与渲染同源——
+        // 菜单里点「查找下一个」和屏幕上看到的那一屏是同一个坐标系。
+        let window = self.tabs.get(self.active_slot()).map(|t| &t.view);
+        let effects = reduce(&mut self.view, action, window);
+        for effect in effects {
+            self.apply_effect(effect);
+        }
+    }
+}

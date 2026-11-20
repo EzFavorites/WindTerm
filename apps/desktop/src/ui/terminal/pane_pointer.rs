@@ -1,0 +1,146 @@
+//! 鼠标 → 选区的**全部**手势（F1 / F3 / F4），以及它需要的窗格几何。
+//!
+//! R9：2026-11-13 从 `pane.rs` 拆出。理由是 4j 的单文件 500 行上限——栅格可视化
+//! 那批接线往 `pane.rs` 里塞进了两处 `apply_cmd_with_blocks`（菜单条路径与
+//! Shift+方向键路径），把那个文件顶到 527 代码行。挑这一块搬是因为它本来就已经
+//! 是一个**自由函数**（`pointer_selection`）加一个只为它服务的几何结构体
+//! （`GridGeom`）——借用的拆法、Bin 的分叉点、五档手势的判定一行都没改。
+//!
+//! 上一条同因拆分是 `paste.rs`（ws-b1 把 `pane.rs` 顶到 518 时）。
+
+use crate::ui::*;
+
+/// 一个窗格的网格几何：原点、格子大小、本屏行数。
+///
+/// 三样总是一起算、一起用，分散成三个参数只会让调用点长到没人读
+/// （9 个参数也过不了 `clippy::too_many_arguments`）。
+///
+/// `Copy`：ws-wrap 起 `draw_tab` 把同一份几何**算一次**、给手势 / 正文 / 叠层
+/// 三处共用（三份各写字面量就是三处漂移点）。三个字段都是 `Copy`，派生出来
+/// 不会多一次分配，也没有任何语义变化。
+#[derive(Clone, Copy)]
+pub(super) struct GridGeom {
+    pub(super) start: egui::Pos2,
+    pub(super) cell: Vec2,
+    pub(super) rows: usize,
+    /// 本屏列数。右边界守卫用：鼠标落在右侧 15pt 滚动条命中区时，x 越界不能当成
+    /// 「最后一列」产生选区（设计稿 §3.4 / §5.5）。
+    pub(super) cols: usize,
+}
+
+/// 鼠标 → 选区的**全部**手势（F1 / F3 / F4）。
+///
+/// 抽成函数的理由不是「复用」，是**让 Bin 的分叉点只剩一个**：不抽的话
+/// `draw_terminal_area_for` 里要在八个分支上各贴一次 `if !bin`，
+/// 漏掉任何一处就是「切到 Bin 还能拖着选中一片网格坐标」。
+///
+/// 借用是拆开的：选区 / 视口 / 事实窗口各拿一个 `&mut` / `&`。整体借 `&mut Tab`
+/// 不成立——`image` 本身就是从 `tab.view` 借出来的。
+pub(super) fn pointer_selection(
+    selections: &mut Selections,
+    viewport: &mut Viewport,
+    history: i64,
+    resp: &egui::Response,
+    ui: &egui::Ui,
+    image: &ScreenImage,
+    geom: GridGeom,
+) {
+    let image_cols = image.cols.max(1);
+    // F1：鼠标 → 内容行列。行号用事实窗口的绝对行号，滚动不会让选区漂。
+    let to_pos = |p: egui::Pos2| -> Pos {
+        let row = ((p.y - geom.start.y) / geom.cell.y).floor().max(0.0) as usize;
+        let row = row.min(image.lines.len().saturating_sub(1));
+        // 右边界守卫：鼠标越过网格右缘（落在右侧 15pt 滚动条命中区）时，列号不参与——
+        // 退到「最后一列之后」（哨兵 `image_cols`），避免被下面的 `.min` 钳成「最后一列」
+        // 而误产生选区（设计稿 §3.4 / §5.5）。滚动条 widget 已注册在 content `resp` 之上
+        // 会抢走按下事件，这里是兜底，二者不冲突。
+        let right_edge = geom.start.x + (geom.cols as f32) * geom.cell.x;
+        let col = if p.x > right_edge {
+            image_cols
+        } else {
+            ((p.x - geom.start.x) / geom.cell.x).floor().max(0.0) as usize
+        };
+        // 绝对行从**这一行本身**取（`lines[i].row`），不是算出来的：折叠后窗口
+        // 里的行号不连续，`窗口首行 + 鼠标行` 会落到相邻行上，选区就漂了。
+        // `row` 上面已钳进 `lines` 的范围，正常必中；兜底分支只为不 panic，退回
+        // 窗口首行（空窗口的退化情形，原本也是这个值）。
+        let content_row = image
+            .lines
+            .get(row)
+            .map_or_else(|| image.view_range().start().get(), |l| l.row);
+        // OOB 哨兵不钳；正常列钳进实际内容列宽（与上面同样的越界保护）。
+        let col_out = if col >= image_cols {
+            col
+        } else {
+            col.min(image_cols.saturating_sub(1))
+        };
+        Pos::new(content_row, col_out)
+    };
+
+    // F4：形状在**按下时**定一次（Alt = 矩形），拖动过程中不再变——
+    // 中途松/按 Alt 就换形状会让已经画出来的高亮来回跳。
+    // W2：`set_active` / `drag_active_to` 自己认锁——锁住时拖动与扩选都不改选区。
+    let mods = ui.input(|i| i.modifiers);
+    if resp.drag_started() {
+        if let Some(p) = resp.interact_pointer_pos() {
+            let sel = Selection::new(to_pos(p));
+            selections.set_active(Some(if mods.alt { sel.block() } else { sel }));
+        }
+    }
+    if resp.dragged() {
+        if let Some(p) = resp.interact_pointer_pos() {
+            selections.drag_active_to(to_pos(p));
+        }
+    }
+
+    // F3：拖出上下边缘时让视口自己跟上——否则「选到屏外那几行」做不到。
+    // 速度按越界的距离算（1–5 行/帧），并主动请求重绘：
+    // 指针不动时 egui 不会自发重绘（S4 起空闲 0 CPU），不请求就会卡在一行。
+    if resp.dragged() {
+        if let Some(p) = resp.interact_pointer_pos() {
+            let top = geom.start.y;
+            let bottom = top + geom.rows as f32 * geom.cell.y;
+            let speed = |over: f32| ((over / geom.cell.y).ceil() as i64).clamp(1, 5);
+            let before = viewport.scroll();
+            if p.y < top {
+                viewport.scroll_up(speed(top - p.y), history);
+            } else if p.y > bottom {
+                viewport.scroll_down(speed(p.y - bottom), history);
+            }
+            // 只有真的滚动了才请求重绘：滚到顶 / 没有历史时指针停在边缘
+            // 不该把进程拖进「永远重绘」的空转。
+            if viewport.scroll() != before {
+                ui.ctx().request_repaint();
+            }
+        }
+    }
+
+    // F3：双击选词、三击选行。egui 对同一次点击会同时置 `clicked`，
+    // 所以顺序必须是「先判更具体的点击」——否则选词/选行会立刻被清空。
+    if resp.triple_clicked() {
+        if let Some(p) = resp.interact_pointer_pos() {
+            selections.set_active(line_span_at(image, to_pos(p).row));
+        }
+    } else if resp.double_clicked() {
+        if let Some(p) = resp.interact_pointer_pos() {
+            selections.set_active(word_at(image, to_pos(p)));
+        }
+    } else if resp.clicked() {
+        match (mods.shift, selections.has_active()) {
+            // F4：shift-click 扩选——保留锚点与形状，只把头部挪过去。
+            // 没有现成选区时退化成「重新起一个锚点」。
+            (true, true) => {
+                if let Some(p) = resp.interact_pointer_pos() {
+                    selections.drag_active_to(to_pos(p));
+                }
+            }
+            (true, false) => {
+                if let Some(p) = resp.interact_pointer_pos() {
+                    selections.set_active(Some(Selection::new(to_pos(p))));
+                }
+            }
+            // 单击不构成选区，同时用来取消上一次选区（整批一起清）。
+            _ => selections.clear(),
+        }
+    }
+}

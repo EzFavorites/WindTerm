@@ -1,0 +1,69 @@
+{
+  "alt": false,
+  "clipboard_query": 99,
+  "clipboard_request": "hello",
+  "cols": 40,
+  "cursor": [
+    0,
+    0
+  ],
+  "cursor_blink": false,
+  "cursor_shape": "block",
+  "cursor_visible": true,
+  "grid": [
+    {
+      "marks": [],
+      "r": 0,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 1,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 2,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 3,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 4,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 5,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 6,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 7,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 8,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 9,
+      "text": "                                        "
+    }
+  ],
+  "replies": "",
+  "rows": 10,
+  "scrollback": 0,
+  "title": ""
+}

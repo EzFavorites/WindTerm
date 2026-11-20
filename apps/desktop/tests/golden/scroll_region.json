@@ -1,0 +1,69 @@
+{
+  "alt": false,
+  "clipboard_query": null,
+  "clipboard_request": null,
+  "cols": 40,
+  "cursor": [
+    4,
+    2
+  ],
+  "cursor_blink": false,
+  "cursor_shape": "block",
+  "cursor_visible": true,
+  "grid": [
+    {
+      "marks": [],
+      "r": 0,
+      "text": "top                                     "
+    },
+    {
+      "marks": [],
+      "r": 1,
+      "text": "l2                                      "
+    },
+    {
+      "marks": [],
+      "r": 2,
+      "text": "l3                                      "
+    },
+    {
+      "marks": [],
+      "r": 3,
+      "text": "l4                                      "
+    },
+    {
+      "marks": [],
+      "r": 4,
+      "text": "l5                                      "
+    },
+    {
+      "marks": [],
+      "r": 5,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 6,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 7,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 8,
+      "text": "                                        "
+    },
+    {
+      "marks": [],
+      "r": 9,
+      "text": "                                        "
+    }
+  ],
+  "replies": "",
+  "rows": 10,
+  "scrollback": 0,
+  "title": ""
+}
