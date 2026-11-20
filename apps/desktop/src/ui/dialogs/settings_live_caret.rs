@@ -1,8 +1,8 @@
-//! `Text ▸ Caret` 页（视觉基线 `13-caret.png`）。
+//! `Text ▸ Caret` 页（视觉基线 ）。
 //!
 //! # 为什么单独一个文件
 //!
-//! 2026-11-19 把 `Period` / `Width` 从灰显接成真控件之后，这一页要同时管
+//! 把 `Period` / `Width` 从灰显接成真控件之后，这一页要同时管
 //! 下拉、预览方块、两个套框数字框与三项写回，塞在 `settings_live.rs` 里把那个
 //! 文件顶过 R9 的 500 代码行上限。拆分口径与 `settings_live_font` /
 //! `settings_live_tabs` 一致：一页一个文件，页里的画法与它的写回放在一起。
@@ -15,7 +15,7 @@
 //! （下一帧起新建时读它）与 `prefs.json`（下次启动的初值），不碰任何活动标签。
 
 use super::settings_live::{recovery_notice, save_prefs};
-use super::settings_pages_view::{group_box, right_label};
+use super::settings_pages_view::{field_box, field_label, group_box, label_col};
 use crate::ui::*;
 
 /// `caret` 页的编辑结果。三个字段各自 `Option`：`None` = 这一项没动。
@@ -44,7 +44,7 @@ impl CaretEdit {
     }
 }
 
-/// `Text ▸ Caret`：视觉基线 `13-caret.png` 的 `Caret` 分组框。
+/// `Text ▸ Caret`：视觉基线  的 `Caret` 分组框。
 ///
 /// 八种样式就是 `term_core::config::CARET_STYLES`（0-3 不闪、4-7 闪），
 /// 它是 `SessionConfig.caret_style` 的全部取值，所以这里只放一个真下拉。
@@ -54,13 +54,13 @@ impl CaretEdit {
 /// 设置页里不另抄一套形状名。闪烁在静态画面里画不出来（预览画「亮着」那一相），
 /// 靠下拉里的 `Blinking …` 名字与预览上的悬停说明交代。
 ///
-/// 2026-11-19：`Period` / `Width` 两行从灰显接成真控件。此前它们是渲染层常数
+/// `Period` / `Width` 两行从灰显接成真控件。此前它们是渲染层常数
 /// （`time*2 % 1` 的 1 Hz 方波、`cell_h*0.14` 的比例宽度），现在分别是
 /// `SessionConfig.caret_period`（秒，「亮多久 = 灭多久」）与 `caret_width`
 /// （像素，`Underline` / `Beam` 用）。
 pub(in crate::ui) fn caret(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let edit = draw(ui, win.caret_style, win.caret_period, win.caret_width);
-    let touched = edit.style.is_some() || edit.period.is_some() || edit.width.is_some();
+    let touched = edit.style.is_some || edit.period.is_some || edit.width.is_some;
     if !touched {
         return;
     }
@@ -85,50 +85,53 @@ pub(in crate::ui) fn caret(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit {
     use term_core::config::{caret_style_to_shape_blink, CARET_STYLES};
 
-    let mut edit = CaretEdit::default();
+    let mut edit = CaretEdit::default;
     // 越界（手改 prefs）按 Block 显示，与 `Prefs::caret_style_index` 同一条兜底。
-    let shown = current.min(CARET_STYLES.len() - 1);
+    let shown = current.min(CARET_STYLES.len - 1);
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 页标题与数据表那些页同一份画法（灰字 + 组框），切页时视觉不跳。
-    ui.label(egui::RichText::new("Caret").color(egui::Color32::from_rgb(0xBB, 0xBB, 0xBB)));
-    ui.add_space(8.0);
-    group_box(ui, |ui| {
-        ui.label(egui::RichText::new("Caret").strong());
-        ui.add_space(11.0);
+    // 视觉基线：内容区第一个字就是组标题 `Caret`。
+    // 老实现画了灰页标题 `Caret` + 框内标题 `Caret`，同一个词出现两次。
+    // 标签列按本页最长的 `Width:` 量。
+    let col = label_col(ui, &["Style:", "Period:", "Width:"]);
+    group_box(ui, Some("Caret"), |ui| {
         ui.horizontal(|ui| {
-            right_label(ui, "Style:");
+            field_label(ui, "Style:", col);
             // 这一行要塞下拉 + 预览方块两件东西。先把预览的宽度**固定**扣掉再给
             // 下拉定宽（230 是视觉基线的值，装不下就缩）——否则下拉会吃掉全部余量，
             // 预览被挤出分组框，进而把整页顶宽、裁掉页脚的 `Close`。
             // 注意 ComboBox 的 `width` 是**下限**：选中文字更长时它会自己长一点，
             // 所以这里留的是「预览 + 一点余量」，不是精确到像素。
-            let room = ui.available_width();
+            let room = ui.available_width;
             // 名字里带 `combo_` 是有原因的：这一层已经有一个 `width` 形参（光标
             // 宽度，像素），下拉伸出来的同名局部量会把它遮住——预览方块随后要
             // 用的正是那个形参，遮住之后预览画的是「下拉有多宽」。
-            let combo_w = (room - 12.0 - ui.spacing().item_spacing.x).clamp(80.0, 230.0);
+            //
+            // 不设上限：视觉基线的 `Shape` 下拉一路铺到框右
+            // 内边距，只留出预览方块那 12 点。老实现封顶 230，右侧空出 71 点，
+            // 正是用户说的「留大段空白」。
+            let combo_w = (room - 12.0 - ui.spacing.item_spacing.x).max(80.0);
             egui::ComboBox::from_id_salt("prefs_caret_style")
                 .selected_text(CARET_STYLES[shown])
                 .width(combo_w)
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
-                    for (i, name) in CARET_STYLES.iter().enumerate() {
-                        if ui.selectable_label(i == shown, *name).clicked() {
+                    for (i, name) in CARET_STYLES.iter.enumerate {
+                        if ui.selectable_label(i == shown, *name).clicked {
                             edit.style = Some(i);
                         }
                     }
                 });
             // 预览按**本帧的选择**画：点完立刻对上，不用等下一帧。
             let (shape, blink) = caret_style_to_shape_blink(edit.style.unwrap_or(shown));
-            let (rect, resp) = ui.allocate_exact_size(egui::vec2(12.0, 18.0), egui::Sense::hover());
+            let (rect, resp) = ui.allocate_exact_size(egui::vec2(12.0, 18.0), egui::Sense::hover);
             crate::ui::terminal::draw_caret(
-                ui.painter(),
+                ui.painter,
                 rect,
                 shape,
-                ui.visuals().text_color(),
-                rect.width(),
-                rect.height(),
+                ui.visuals.text_color,
+                rect.width,
+                rect.height,
                 term_core::config::clamp_caret_width(width),
             );
             // 闪烁档与不闪档的**形状**一样，静态预览只能画「亮着」的那一半。
@@ -138,10 +141,9 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
                 resp.on_hover_text("This style blinks — the preview shows the lit phase.");
             }
         });
-        // 2026-11-19：Period / Width 接成真控件（此前是渲染层常数）。
-        // 两行同一套画法：右对齐标签 + 套框的数字框。`DragValue` 自己不画边框，
-        // 裸放着与上面几行的灰字长得一样——「看起来能改」正是它该有的样子
-        // （Font 页 `Font size` 同一条先例）。后缀与区间照视觉基线。
+        // Period / Width 接成真控件（此前是渲染层常数）。
+        // 两行同一套画法：左对齐标签 + 通栏字段框（`field_box`：描边 + 占满整行，
+        // 框内的 `DragValue` 不再画自己那层小框）。后缀与区间照视觉基线。
         let number = |ui: &mut egui::Ui,
                       label: &str,
                       value: f32,
@@ -151,27 +153,19 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
          -> Option<f32> {
             let mut out = None;
             ui.horizontal(|ui| {
-                right_label(ui, label);
-                let visuals = ui.visuals().clone();
-                egui::Frame::none()
-                    .fill(visuals.extreme_bg_color)
-                    .stroke(visuals.widgets.inactive.bg_stroke)
-                    .rounding(visuals.widgets.inactive.rounding)
-                    .inner_margin(egui::Margin::symmetric(6.0, 3.0))
-                    .show(ui, |ui| {
-                        // 与上面几行的字段框同宽：右边界一路齐到分组框右边。
-                        ui.set_width(ui.available_width());
-                        let mut v = value;
-                        let r = ui.add(
-                            egui::DragValue::new(&mut v)
-                                .range(range)
-                                .speed(speed)
-                                .suffix(suffix),
-                        );
-                        if r.changed() {
-                            out = Some(v);
-                        }
-                    });
+                field_label(ui, label, col);
+                field_box(ui, |ui| {
+                    let mut v = value;
+                    let r = ui.add(
+                        egui::DragValue::new(&mut v)
+                            .range(range)
+                            .speed(speed)
+                            .suffix(suffix),
+                    );
+                    if r.changed {
+                        out = Some(v);
+                    }
+                });
             });
             out
         };
@@ -209,8 +203,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_caret_page_admits_period_and_width_are_real_fields_now() {
-        // 2026-11-19：Period / Width 已接真（W7）。页底若仍写「渲染层常数」
+    fn the_caret_page_admits_period_and_width_are_real_fields_now {
+        // Period / Width 已接真（W7）。页底若仍写「渲染层常数」
         // 就是反向的谎——用户会以为拖了没用，而它确实会进新会话。
         assert!(
             !CARET_PAGE_NOTE.contains("constants"),
@@ -227,19 +221,19 @@ mod tests {
     }
 
     #[test]
-    fn each_field_is_written_on_its_own() {
+    fn each_field_is_written_on_its_own {
         // load-modify-save 的 modify 半边：只动被改的那一项。
         // 拖宽度不许把周期带回出厂值，反之亦然。
         let mut prefs = term_profile::prefs::Prefs {
-            language: "zh-CN".to_string(),
+            language: "zh-CN".to_string,
             caret_style: 2,
             caret_period: 1.0,
             caret_width: 4.0,
-            ..Default::default()
+            ..Default::default
         };
         CaretEdit {
             width: Some(2.5),
-            ..Default::default()
+            ..Default::default
         }
         .write_into(&mut prefs);
         assert_eq!(prefs.caret_width, 2.5);
@@ -250,7 +244,7 @@ mod tests {
         CaretEdit {
             style: Some(6),
             period: Some(0.25),
-            ..Default::default()
+            ..Default::default
         }
         .write_into(&mut prefs);
         assert_eq!(prefs.caret_style, 6);

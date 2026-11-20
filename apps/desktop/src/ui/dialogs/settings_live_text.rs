@@ -33,12 +33,9 @@
 
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, group_box};
+use super::settings_pages_view::{draw_row, field_box, field_label, group_box, label_col};
 use crate::ui::*;
 use term_app::shell::ShellAction;
-
-/// 片头标题的灰字（与数据表那些页同一份画法，切页时视觉不跳）。
-const TITLE_GRAY: egui::Color32 = egui::Color32::from_rgb(0xBB, 0xBB, 0xBB);
 
 /// 页底说明：这一页哪几行真、哪几行还缺什么。
 ///
@@ -58,7 +55,7 @@ const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs and focus the
 
 /// `Toolbar / Menu` 页的说明。
 ///
-/// 2026-11-15：Preferences 的橙色页脚按参考实现清空，「工具行开关不落盘」这条
+/// Preferences 的橙色页脚按参考布局清空，「工具行开关不落盘」这条
 /// 边界从页脚并进这里，仍然写在用户看得见的地方。
 const TOOLBAR_NOTE: &str = "Show toolbar takes effect immediately, but the switch is not saved \
      (it is back on the next launch). There is no address bar in this build, and auto-hiding the \
@@ -76,7 +73,7 @@ const AUTO_COPY_NOTE: &str = "Copying on every selection would overwrite whateve
 const SPACING_NOTE: &str = "The grid renders on the measured cell box; there is no per-row or \
      per-cell padding to store, so these two rows have no consumer.";
 
-/// 缩放（2026-11-19 已接真）：底下就是 `Prefs.font_size` —— 与 Font 页的
+/// 缩放（已接真）：底下就是 `Prefs.font_size` —— 与 Font 页的
 /// `Font size` 同一个值，这里是它的「相对出厂档位」视图（0 = 出厂字号）。
 /// 这条常量保留只是让测试能钉住「这页已无 ZOOM_NOTE 灰行」，绘制里不再用它。
 const ZOOM_NOTE: &str = "Zoom level is the offset from the factory font size; it is the same \
@@ -102,21 +99,13 @@ const ADDRESS_BAR_NOTE: &str = "There is no address bar anywhere in this build; 
 const AUTO_HIDE_MENU_NOTE: &str = "Auto-hiding would need hover / Alt-key detection over the menu \
      strip; the menu bar is an always-on panel today.";
 
-/// 页标题（灰字，与数据表那些页一致）。`pub(super)`：`settings_live_terminal`
-/// 也用它，同一份标题画法不该有第二份实现。
-pub(super) fn page_title(ui: &mut egui::Ui, title: &str) {
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new(title).color(TITLE_GRAY));
-    ui.add_space(8.0);
-}
-
 /// 一行**没有消费者**的控件：整行交给数据表的画法。
 ///
 /// 不在这里另抄一份「灰勾选 / 灰下拉长什么样」——同一页里真控件与灰行必须一眼
 /// 能分开，而「灰」的定义只有 `draw_row` 那一份实现。页面底部的说明也由它
 /// 挂在悬停上，两处说法不会是两份。
-fn disabled(ui: &mut egui::Ui, row: Row, note: &str) {
-    draw_row(ui, &row, note);
+fn disabled(ui: &mut egui::Ui, row: Row, note: &str, col: f32) {
+    draw_row(ui, &row, note, col);
 }
 
 /// `Text` 页：`Features` 两个真勾选 + 三个仍灰显的分组。
@@ -128,61 +117,65 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut hide_cursor = win.hide_cursor_typing;
     let mut changed = false;
 
-    page_title(ui, "Text");
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Features").strong());
-        ui.add_space(11.0);
-        disabled(ui, Row::DisabledCheck("Activate multiple carets"), MULTI_CARET_NOTE);
+    // 视觉基线：内容区第一个字是组标题 `Features`，没有页级灰标题。
+    // 标签列按本页最长的 `Character spacing:` 量，三个框的控件左缘因此对齐。
+    let col = label_col(ui, &["Line spacing:", "Character spacing:", "Zoom level:"]);
+    group_box(ui, Some("Features"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
+        disabled(ui, Row::DisabledCheck("Activate multiple carets"), MULTI_CARET_NOTE, col);
         changed |= ui
             .checkbox(&mut alt_row, "Alternate line background color")
-            .changed();
+            .changed;
         disabled(
             ui,
             Row::DisabledCheck("Automatically copy selection"),
             AUTO_COPY_NOTE,
+            col,
         );
         changed |= ui
             .checkbox(&mut hide_cursor, "Hide cursor when typing")
-            .changed();
+            .changed;
     });
 
     ui.add_space(6.0);
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Spacing").strong());
-        ui.add_space(11.0);
+    group_box(ui, Some("Spacing"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
         disabled(
             ui,
             Row::Combo { label: "Line spacing:", value: "Automatic" },
             SPACING_NOTE,
+            col,
         );
         disabled(
             ui,
             Row::Combo { label: "Character spacing:", value: "Automatic" },
             SPACING_NOTE,
+            col,
         );
     });
 
     ui.add_space(6.0);
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Zoom").strong());
-        ui.add_space(11.0);
-        // 2026-11-19：Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
+    group_box(ui, Some("Zoom"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
+        // Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
         // `Font size` 同一个值），这里显示「相对出厂字号的档位」，出厂 = 0。
         // 改完当场 `fonts.set_size`（重装字形 + 重新量 cell），松手落 prefs。
         ui.horizontal(|ui| {
-            use super::settings_pages_view::right_label;
-            right_label(ui, "Zoom level:");
-            let mut level = win.fonts.size() - crate::fonts::TERMINAL_FONT_SIZE;
-            let r = ui.add(
-                egui::DragValue::new(&mut level)
-                    .range(-7.0..=35.0)
-                    .speed(1.0)
-                    .suffix(" levels"),
-            );
-            if r.changed() {
+            field_label(ui, "Zoom level:", col);
+            let mut level = win.fonts.size - crate::fonts::TERMINAL_FONT_SIZE;
+            // 字段框占满整行（视觉基线的 Zoom 框从标签列一路到框右边）。
+            let mut changed = false;
+            field_box(ui, |ui| {
+                changed = ui
+                    .add(
+                        egui::DragValue::new(&mut level)
+                            .range(-7.0..=35.0)
+                            .speed(1.0)
+                            .suffix(" levels"),
+                    )
+                    .changed;
+            });
+            if changed {
                 let size = crate::fonts::TERMINAL_FONT_SIZE + level;
                 win.fonts.set_size(size);
                 win.settings.font_size = size;
@@ -209,24 +202,25 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut focus_new = win.focus_new_tab;
     let mut multi = win.confirm.multi_tabs;
 
-    page_title(ui, "Behaviour");
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Session").strong());
-        ui.add_space(11.0);
+    // `Behaviour` / `Toolbar / Menu` 两页没有视觉基线，结构与其它页保持一致：
+    // 内容区从组标题开始，不另画页级灰标题（那份标题与左栏选中项重复）。
+    let col = label_col(ui, &[]);
+    group_box(ui, Some("Session"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
         // 真勾选：判据在 `confirm::should_confirm_close`，三处关闭共用。
         // 写回是**同一帧**的 `win.confirm.multi_tabs`——门控读的就是那份缓存，
         // 所以勾完立刻生效，不是「下次启动」。
         let multi_toggled = ui
             .checkbox(&mut multi, "Confirm before closing multiple tabs")
-            .changed();
+            .changed;
         let focus_toggled = ui
             .checkbox(&mut focus_new, "Focus the new tab after opening")
-            .changed();
+            .changed;
         disabled(
             ui,
             Row::DisabledCheck("Reconnect automatically when the connection drops"),
             RECONNECT_NOTE,
+            col,
         );
         if multi_toggled {
             win.confirm.multi_tabs = multi;
@@ -241,14 +235,13 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     });
 
     ui.add_space(6.0);
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Startup").strong());
-        ui.add_space(11.0);
+    group_box(ui, Some("Startup"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
         disabled(
             ui,
             Row::DisabledCheck("Restore the previous session on launch"),
             RESTORE_NOTE,
+            col,
         );
     });
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
@@ -263,33 +256,32 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 它**不落盘**：`layout_state.json` 只存标签 / 分屏 / 停靠位，菜单栏 / 状态栏
 /// / 快捷栏那三个 `show_*` 也从不入盘，这里跟着它们——重启回默认（显示）。
 /// 页内 [`TOOLBAR_NOTE`] 写明这条边界；要它跨重启记住，得先给那三个一起做
-/// 持久化。（2026-11-15 之前它挂在页脚，页脚已按参考实现清空。）
+/// 持久化。（之前它挂在页脚，页脚已按参考布局清空。）
 pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut show = win.view.show_toolbar;
     let mut toggled = false;
+    // 本页只有勾选行，没有标签列（`col` 用兜底值）。
+    let col = label_col(ui, &[]);
 
-    page_title(ui, "Toolbar / Menu");
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Toolbar").strong());
-        ui.add_space(11.0);
-        toggled = ui.checkbox(&mut show, "Show toolbar").changed();
+    group_box(ui, Some("Toolbar"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
+        toggled = ui.checkbox(&mut show, "Show toolbar").changed;
         disabled(
             ui,
             Row::DisabledCheck("Show address bar"),
             ADDRESS_BAR_NOTE,
+            col,
         );
     });
 
     ui.add_space(6.0);
-    group_box(ui, |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.label(egui::RichText::new("Menu").strong());
-        ui.add_space(11.0);
+    group_box(ui, Some("Menu"), |ui| {
+        ui.spacing_mut.item_spacing.y = 6.0;
         disabled(
             ui,
             Row::DisabledCheck("Auto-hide the menu bar"),
             AUTO_HIDE_MENU_NOTE,
+            col,
         );
     });
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
@@ -306,7 +298,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_text_note_separates_the_live_rows_from_the_dead_ones() {
+    fn the_text_note_separates_the_live_rows_from_the_dead_ones {
         // 页底必须两件事都写：哪几行当场生效、哪几行没有字段可绑。
         assert!(TEXT_NOTE.contains("immediately"), "要写清哪些当场生效");
         assert!(TEXT_NOTE.contains("spacing"), "要点出仍然灰显的是哪几段");
@@ -314,20 +306,20 @@ mod tests {
     }
 
     #[test]
-    fn zoom_level_is_now_a_live_row_over_font_size() {
-        // 2026-11-19：Zoom level 不再是「没有字段」的灰行——它读写
+    fn zoom_level_is_now_a_live_row_over_font_size {
+        // Zoom level 不再是「没有字段」的灰行——它读写
         // `Prefs.font_size`，显示值与 Font 页的 Font size 是同一个底层值。
         // 页底不能再说 zoom「没有字段可绑」（否则是反向的谎）。
         assert!(!ZOOM_NOTE.contains("not stored"), "接真后不能再说缩放没存储");
         assert!(ZOOM_NOTE.contains("Font size"), "要说清它绑的是 Font 页字号字段");
         assert!(
-            TEXT_NOTE.find("zoom").unwrap() < TEXT_NOTE.find("have no field").unwrap(),
+            TEXT_NOTE.find("zoom").unwrap < TEXT_NOTE.find("have no field").unwrap,
             "zoom 要归到「当场生效」那一句，而不是「没有字段」那一句"
         );
     }
 
     #[test]
-    fn the_behaviour_page_points_restore_at_the_application_page() {
+    fn the_behaviour_page_points_restore_at_the_application_page {
         // 「恢复上次会话」已经实现了，只是不在这一页——不指过去，用户会以为没有。
         assert!(RESTORE_NOTE.contains("Application ▸ Startup"));
         // 自动重连缺的是「策略 + 事件钩子」，不能只说「未实现」。
@@ -335,7 +327,7 @@ mod tests {
     }
 
     #[test]
-    fn the_behaviour_note_claims_both_live_switches_and_names_the_dead_one() {
+    fn the_behaviour_note_claims_both_live_switches_and_names_the_dead_one {
         // 两个勾选当场生效，页底必须说清；灰的那一行也要点名缺什么。
         assert!(BEHAVIOUR_NOTE.contains("immediately"), "要写清哪些当场生效");
         assert!(BEHAVIOUR_NOTE.contains("Auto-reconnect"), "灰行要逐行点名");
@@ -347,8 +339,8 @@ mod tests {
     }
 
     #[test]
-    fn the_toolbar_page_says_the_switch_is_not_saved() {
-        // 2026-11-15 页脚按参考实现清空后，这条边界搬进**页内**说明
+    fn the_toolbar_page_says_the_switch_is_not_saved {
+        // 页脚按参考布局清空后，这条边界搬进**页内**说明
         // （`TOOLBAR_NOTE`），仍然对用户可见，不能只写在注释里。
         assert!(TOOLBAR_NOTE.contains("not saved"), "页内要写清不落盘");
         assert!(TOOLBAR_NOTE.contains("immediately"), "同时要写清当场生效");

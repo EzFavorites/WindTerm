@@ -1,6 +1,6 @@
-//! `Text ▸ Font`：视觉基线 `14-text-font.png` 的 `Default Font` 分组框。
+//! `Text ▸ Font`：视觉基线  的 `Default Font` 分组框。
 //!
-//! # 这一页现在四行全真（2026-11-19）
+//! # 这一页现在四行全真
 //!
 //! - `Font family 1–4`：四槽字族，取自本机已装字面清单（`fonts::catalog`），
 //!   拉下拉选，选完当场重装字形 + 重量 cell 盒，并写回 `prefs.font_family`。
@@ -29,7 +29,7 @@
 //! （500），而本页要加下拉、过滤、读写 prefs、说明，塞回去就超了。
 
 use super::settings_live::{recovery_notice, save_prefs};
-use super::settings_pages_view::{group_box, right_label};
+use super::settings_pages_view::{field_box, field_label, group_box, label_col};
 use crate::ui::*;
 use term_app::i18n::Lang;
 
@@ -58,20 +58,20 @@ struct FontEdit {
 
 impl FontEdit {
     fn touched(&self) -> bool {
-        self.family.is_some() || self.weight.is_some() || self.size.is_some()
+        self.family.is_some || self.weight.is_some || self.size.is_some
     }
 
     /// 这一帧该不该写盘。拖字号的过程中不写（每帧一次 JSON 纯属噪声），
     /// 但选字族 / 选字重是「一次点击」，立刻写。
     fn should_save(&self) -> bool {
-        self.persist_size || self.family.is_some() || self.weight.is_some()
+        self.persist_size || self.family.is_some || self.weight.is_some
     }
 
     /// 只写自己动过的那几项。
     fn write_into(&self, prefs: &mut term_profile::prefs::Prefs) {
         if let Some((slot, name)) = &self.family {
             if let Some(dst) = prefs.font_family.get_mut(*slot) {
-                *dst = name.clone();
+                *dst = name.clone;
             }
         }
         if let Some(w) = self.weight {
@@ -87,9 +87,9 @@ impl FontEdit {
 pub(in crate::ui) fn font(win: &mut TerminalWindow, ui: &mut egui::Ui, lang: Lang) {
     // 字面清单第一次进来时扫一次（本机 745 个文件，热缓存约 1s），之后复用。
     // 放在页入口而不是启动路径上：默认安装一辈子不进这一页，就不该为它读 1.2 GB。
-    win.fonts.ensure_catalog();
+    win.fonts.ensure_catalog;
     let edit = draw(ui, win, lang);
-    if !edit.touched() {
+    if !edit.touched {
         return;
     }
     if let Some((slot, name)) = &edit.family {
@@ -110,7 +110,7 @@ pub(in crate::ui) fn font(win: &mut TerminalWindow, ui: &mut egui::Ui, lang: Lan
     // 有任意一项要落盘就整体写一次：三个字段在同一次 load-modify-save 里改，
     // 比各写各的少两次读盘，也不会出现「字族写进去了、字重还在旧文件」的
     // 半份状态。
-    if edit.should_save() {
+    if edit.should_save {
         save_prefs(|prefs| edit.write_into(prefs));
     }
 }
@@ -118,65 +118,55 @@ pub(in crate::ui) fn font(win: &mut TerminalWindow, ui: &mut egui::Ui, lang: Lan
 /// 画这一页，返回「哪几项被改了」。拆出来只为让 [`font`] 的写回部分读起来
 /// 是一段直线（画 → 判 → 写），不被几十行布局代码隔开。
 fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
-    let mut edit = FontEdit::default();
-    let mut size = win.fonts.size();
+    let mut edit = FontEdit::default;
+    let mut size = win.fonts.size;
     let mut apply_size = false;
     let mut persist_size = false;
 
     recovery_notice(ui);
     ui.add_space(6.0);
-    group_box(ui, |ui| {
-        ui.label(egui::RichText::new("Font").strong());
-        // 11 而不是 2：`group_box` 在框内 `top + 30` 处补一条横线（组标题与
-        // 内容的分界）。这句提示较长，只留 2 会贴线太紧；这里单独留白。
-        // （2026-11-19 逐像素对照把线调到 +30；Application 页因行距更大另用 16pt。）
-        ui.add_space(11.0);
+    // 内容区第一个字就是组标题 `Default Font`（视觉基线）。
+    // 标签列按本页最长的 `Font family N:` 量（`FAMILY_SLOTS` 那一档），三行对齐。
+    let col = label_col(ui, &["Font size:", "Font family 1:", "Font weight:"]);
+    group_box(ui, Some("Default Font"), |ui| {
         // 视觉基线原句。等宽字族在下拉里用粗体显示，就是这句话在起作用。
-        ui.label(egui::RichText::new("Bold type indicates fixed-width fonts:").weak());
+        ui.label(egui::RichText::new("Bold type indicates fixed-width fonts:").weak);
         ui.add_space(2.0);
         for slot in 0..crate::fonts::FAMILY_SLOTS {
-            family_row(ui, win, slot, &mut edit);
+            family_row(ui, win, slot, &mut edit, col);
         }
-        weight_row(ui, win, &mut edit);
+        weight_row(ui, win, &mut edit, col);
         ui.horizontal(|ui| {
-            right_label(ui, "Font size:");
+            field_label(ui, "Font size:", col);
             // 0.5 的步长：13 → 13.5 → 14 是终端里最有用的那几档（整数跳一格
             // 在 13pt 附近显得太粗），区间与渲染层的夹取范围同一份常量。
             //
-            // 套一层框：`DragValue` 本身不画边框，裸放在这一页里和上面几行的
-            // 灰字长得一样——「看起来能改」是这一页控件该有的样子。
-            let visuals = ui.visuals().clone();
-            egui::Frame::none()
-                .fill(visuals.extreme_bg_color)
-                .stroke(visuals.widgets.inactive.bg_stroke)
-                .rounding(visuals.widgets.inactive.rounding)
-                .inner_margin(egui::Margin::symmetric(6.0, 3.0))
-                .show(ui, |ui| {
-                    // 和上面几行字段同宽、占满整行余宽：`set_width` 让这个真控件
-                    // 的框与其它行左右边界齐平（右对齐标签之后一路铺到右栏边）。
-                    ui.set_width(ui.available_width());
-                    let r = ui.add(
-                        egui::DragValue::new(&mut size)
-                            .range(term_profile::prefs::FONT_SIZE_MIN..=term_profile::prefs::FONT_SIZE_MAX)
-                            .speed(0.5)
-                            .suffix(" pixels"),
-                    );
-                    apply_size |= r.changed();
-                    // 松手（或者键盘改 / 点箭头）才落盘：拖动过程中每帧写一次
-                    // `prefs.json` 纯属噪声。
-                    persist_size |= r.drag_stopped() || (r.changed() && !r.dragged());
-                });
+            // 套 `field_box`：`DragValue` 本身不画边框，裸放在这一页里和上面几行的
+            // 灰字长得一样——「看起来能改」是这一页控件该有的样子；而且必须和
+            // 上面三行下拉的左右缘齐平（同一个 `col` 标签列 + 同一个通栏余宽）。
+            field_box(ui, |ui| {
+                let r = ui.add(
+                    egui::DragValue::new(&mut size)
+                        .range(term_profile::prefs::FONT_SIZE_MIN..=term_profile::prefs::FONT_SIZE_MAX)
+                        .speed(0.5)
+                        .suffix(" pixels"),
+                );
+                apply_size |= r.changed;
+                // 松手（或者键盘改 / 点箭头）才落盘：拖动过程中每帧写一次
+                // `prefs.json` 纯属噪声。
+                persist_size |= r.drag_stopped || (r.changed && !r.dragged);
+            });
         });
-        // 视觉基线 `14-text-font.png`：`Prefer theme fonts` 复选框在 Default Font
-        // 框内的最后一行（贴框底），不在框外。
-        ui.add_space(2.0);
-        let mut prefer_theme = false;
-        ui.add_enabled(
-            false,
-            egui::Checkbox::new(&mut prefer_theme, "Prefer theme fonts"),
-        )
-        .on_disabled_hover_text(PREFER_THEME_NOTE);
     });
+    // 视觉基线：`Prefer theme fonts` 复选框在框**外**、框底之下
+    // （与  的 `Show wrap symbols` 同一个位置关系）。
+    ui.add_space(2.0);
+    let mut prefer_theme = false;
+    ui.add_enabled(
+        false,
+        egui::Checkbox::new(&mut prefer_theme, "Prefer theme fonts"),
+    )
+    .on_disabled_hover_text(PREFER_THEME_NOTE);
     if apply_size {
         edit.size = Some(size);
     }
@@ -189,9 +179,15 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
 /// 下拉里第一项是 `(Default)`（回到自动），其余是本机全部字族，等宽的用粗体。
 /// 顶部带一个过滤框：本机三百多个字族，没有过滤就得滚很久——这不是「加分项」，
 /// 是让这个下拉可用的最低要求。
-fn family_row(ui: &mut egui::Ui, win: &TerminalWindow, slot: usize, edit: &mut FontEdit) {
+fn family_row(
+    ui: &mut egui::Ui,
+    win: &TerminalWindow,
+    slot: usize,
+    edit: &mut FontEdit,
+    col: f32,
+) {
     ui.horizontal(|ui| {
-        right_label(ui, &format!("Font family {}:", slot + 1));
+        field_label(ui, &format!("Font family {}:", slot + 1), col);
         let info = win.fonts.slot_info(slot);
         // 字段里只写生效的字族名（与视觉基线一致）：`(automatic)` 这类注解
         // 挂在悬停上——那一行本身是「你现在的字」，不是状态栏。
@@ -202,10 +198,10 @@ fn family_row(ui: &mut egui::Ui, win: &TerminalWindow, slot: usize, edit: &mut F
         } else {
             // 空槽留空（视觉基线里第 3/4 行就是空框）：写 `(None)` 反而比
             // 视觉基线多出四个字符，把字段撑成另一种样子。
-            info.family.clone()
+            info.family.clone
         };
-        let hover = if info.requested.is_empty() {
-            "Automatic: follows the built-in default for this slot.".to_string()
+        let hover = if info.requested.is_empty {
+            "Automatic: follows the built-in default for this slot.".to_string
         } else if info.fell_back {
             format!(
                 "{} is not installed on this machine — using {} instead.",
@@ -214,7 +210,7 @@ fn family_row(ui: &mut egui::Ui, win: &TerminalWindow, slot: usize, edit: &mut F
         } else {
             format!("{} (weight {})", info.family, info.weight)
         };
-        let field_w = ui.available_width().max(60.0);
+        let field_w = ui.available_width.max(60.0);
         let combo = egui::ComboBox::from_id_salt(("prefs_font_family", slot))
             .selected_text(shown)
             .width(field_w)
@@ -224,40 +220,40 @@ fn family_row(ui: &mut egui::Ui, win: &TerminalWindow, slot: usize, edit: &mut F
                 // 的输入状态」，关掉弹层就没有意义，不该进窗口状态（那会多出
                 // 一个没人写、没人清的字段）。按槽分开存，换一行不会继承上一行
                 // 的过滤词。
-                let id = ui.id().with(("font_family_filter", slot));
-                let mut filter: String = ui.memory(|m| m.data.get_temp(id).unwrap_or_default());
+                let id = ui.id.with(("font_family_filter", slot));
+                let mut filter: String = ui.memory(|m| m.data.get_temp(id).unwrap_or_default);
                 ui.add(
                     egui::TextEdit::singleline(&mut filter)
                         .hint_text("Filter families")
-                        .desired_width(ui.available_width().min(240.0)),
+                        .desired_width(ui.available_width.min(240.0)),
                 );
-                ui.memory_mut(|m| m.data.insert_temp(id, filter.clone()));
-                let needle = filter.trim().to_lowercase();
-                egui::ScrollArea::vertical()
+                ui.memory_mut(|m| m.data.insert_temp(id, filter.clone));
+                let needle = filter.trim.to_lowercase;
+                egui::ScrollArea::vertical
                     .max_height(260.0)
                     .show(ui, |ui| {
                         // 第一项始终在（哪怕在过滤）：它是「回到自动」的唯一
                         // 出口，被过滤词藏起来就再也回不去了。
                         if ui
                             .selectable_label(
-                                info.requested.is_empty(),
+                                info.requested.is_empty,
                                 format!("(Default: {})", auto_label(&info)),
                             )
-                            .clicked()
+                            .clicked
                         {
-                            edit.family = Some((slot, String::new()));
+                            edit.family = Some((slot, String::new));
                         }
-                        for family in win.fonts.families() {
-                            if !needle.is_empty() && !family.name.to_lowercase().contains(&needle) {
+                        for family in win.fonts.families {
+                            if !needle.is_empty && !family.name.to_lowercase.contains(&needle) {
                                 continue;
                             }
                             let selected = family.name.eq_ignore_ascii_case(&info.requested);
                             let mut text = egui::RichText::new(&family.name);
                             if family.monospace {
-                                text = text.strong();
+                                text = text.strong;
                             }
-                            if ui.selectable_label(selected, text).clicked() {
-                                edit.family = Some((slot, family.name.clone()));
+                            if ui.selectable_label(selected, text).clicked {
+                                edit.family = Some((slot, family.name.clone));
                             }
                         }
                     });
@@ -269,25 +265,25 @@ fn family_row(ui: &mut egui::Ui, win: &TerminalWindow, slot: usize, edit: &mut F
 /// `(Default: …)` 括号里写什么：自动生效的那个字族名；该槽本来就不自动时
 /// 写 `None`（槽 2–3 默认不用）。
 fn auto_label(info: &crate::fonts::SlotInfo) -> String {
-    if info.family.is_empty() {
-        "None".to_string()
+    if info.family.is_empty {
+        "None".to_string
     } else {
-        info.family.clone()
+        info.family.clone
     }
 }
 
 /// `Font weight` 一行：可选字重来自主字族真实装着的面。
-fn weight_row(ui: &mut egui::Ui, win: &TerminalWindow, edit: &mut FontEdit) {
+fn weight_row(ui: &mut egui::Ui, win: &TerminalWindow, edit: &mut FontEdit, col: f32) {
     ui.horizontal(|ui| {
-        right_label(ui, "Font weight:");
+        field_label(ui, "Font weight:", col);
         let info = win.fonts.slot_info(0);
-        let choices = win.fonts.weight_choices();
+        let choices = win.fonts.weight_choices;
         let current = choices
-            .iter()
+            .iter
             .find(|(w, _)| *w == info.weight)
-            .map(|(_, label)| label.clone())
-            .unwrap_or_else(|| crate::fonts::catalog::canonical_weight(info.weight).to_string());
-        let field_w = ui.available_width().max(60.0);
+            .map(|(_, label)| label.clone)
+            .unwrap_or_else(|| crate::fonts::catalog::canonical_weight(info.weight).to_string);
+        let field_w = ui.available_width.max(60.0);
         egui::ComboBox::from_id_salt("prefs_font_weight")
             .selected_text(current)
             .width(field_w)
@@ -297,7 +293,7 @@ fn weight_row(ui: &mut egui::Ui, win: &TerminalWindow, edit: &mut FontEdit) {
                     // 下拉里带上数值：`Regular` 与 `Medium` 光看名字分不出
                     // 「这字体只有一档」还是「两档都在」。
                     let text = format!("{label} ({weight})");
-                    if ui.selectable_label(*weight == info.weight, text).clicked() {
+                    if ui.selectable_label(*weight == info.weight, text).clicked {
                         edit.weight = Some(*weight);
                     }
                 }
@@ -310,7 +306,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_page_no_longer_claims_only_the_size_is_live() {
+    fn the_page_no_longer_claims_only_the_size_is_live {
         // 反向的谎和灰行一样糟：接着说「只有字号是真的」会让用户以为
         // 字族下拉是个装饰。
         assert!(
@@ -330,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn the_remaining_grey_box_says_why_instead_of_pretending() {
+    fn the_remaining_grey_box_says_why_instead_of_pretending {
         // `Prefer theme fonts` 仍是灰的。它必须说清「缺的是主题字体数据」，
         // 不能只写「未接线」——下一个人得知道该建什么数据。
         assert!(PREFER_THEME_NOTE.contains("no font data"));
@@ -338,18 +334,18 @@ mod tests {
     }
 
     #[test]
-    fn each_edit_writes_only_its_own_field() {
+    fn each_edit_writes_only_its_own_field {
         // load-modify-save 的 modify 半边：选字族不许把字号与字重回退。
         let mut prefs = term_profile::prefs::Prefs {
-            font_family: ["Menlo".to_string(), String::new(), String::new(), String::new()],
+            font_family: ["Menlo".to_string, String::new, String::new, String::new],
             font_weight: 700,
             font_size: 15.0,
-            language: "zh-CN".to_string(),
-            ..Default::default()
+            language: "zh-CN".to_string,
+            ..Default::default
         };
         FontEdit {
-            family: Some((1, "Hiragino Sans GB".to_string())),
-            ..Default::default()
+            family: Some((1, "Hiragino Sans GB".to_string)),
+            ..Default::default
         }
         .write_into(&mut prefs);
         assert_eq!(prefs.font_family[1], "Hiragino Sans GB");
@@ -359,7 +355,7 @@ mod tests {
 
         FontEdit {
             weight: Some(400),
-            ..Default::default()
+            ..Default::default
         }
         .write_into(&mut prefs);
         assert_eq!(prefs.font_weight, 400);
@@ -368,14 +364,14 @@ mod tests {
     }
 
     #[test]
-    fn clearing_a_slot_writes_an_empty_name() {
+    fn clearing_a_slot_writes_an_empty_name {
         // `(Default)` 写的是空串而不是「当前生效的那个名字」：后者会让
         // 「自动」变成「钉死在今天这台机器的 Menlo 上」。
-        let mut prefs = term_profile::prefs::Prefs::default();
-        prefs.font_family[2] = "Monaco".to_string();
+        let mut prefs = term_profile::prefs::Prefs::default;
+        prefs.font_family[2] = "Monaco".to_string;
         FontEdit {
-            family: Some((2, String::new())),
-            ..Default::default()
+            family: Some((2, String::new)),
+            ..Default::default
         }
         .write_into(&mut prefs);
         assert_eq!(prefs.font_family[2], "");
