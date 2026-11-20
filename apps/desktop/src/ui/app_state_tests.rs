@@ -1,6 +1,6 @@
-//! 应用状态**采集层**的判据（Q2 §10 刀1 验收 3）。
+//! 应用状态**采集层**的判据。
 //!
-//! `panels` 恒十条、`zone/order/floating` 与 `DockLayout::placement` 逐条一致——
+//! `panels` 恒为 `PanelId::ALL.len()` 条、`zone/order/floating` 与 `DockLayout::placement` 逐条一致——
 //! 这两条只有采集层能证：`term-core` 那边只有形状（`AppSnapshot` 的字段与不变量），
 //! 真实停靠位与可见性都只有 `ui` 拿得到。
 //!
@@ -31,12 +31,13 @@ fn panel_id(name: &str) -> PanelId {
 }
 
 #[test]
-fn panels_are_always_the_ten_dockable_panels_in_all_order() {
+fn panels_are_always_the_dockable_panels_in_all_order() {
     let ctx = egui::Context::default();
     let window = one_tab_window(&ctx);
     let snapshot = window.app_snapshot();
 
-    assert_eq!(snapshot.panels.len(), 10, "面板恒十条");
+    // Sysmon 不是停靠面板，恒为 ALL 的长度（当前 9）。
+    assert_eq!(snapshot.panels.len(), PanelId::ALL.len(), "面板数 = ALL 长度");
     let got: Vec<&str> = snapshot.panels.iter().map(|p| p.id).collect();
     let want: Vec<&str> = PanelId::ALL.iter().map(|id| id.name()).collect();
     assert_eq!(got, want, "顺序即 PanelId::ALL：客户端按 id 取，不靠长度变化");
@@ -120,7 +121,7 @@ fn placement_and_visibility_follow_the_live_window() {
         .expect("filer 在十条里");
     assert!(!filer.floating && filer.rect.is_none(), "redock 之后不再报浮动");
 }
-/// 布局动作的验收（Q2 §10 刀3 四条）。四条共用一次临时 profile：
+/// 布局动作的验收。四条共用一次临时 profile：
 /// 布局**必然落盘**，所以「文件变了没有」本身是判据的一部分。
 #[test]
 fn app_layout_dock_index_guard_and_reset() {

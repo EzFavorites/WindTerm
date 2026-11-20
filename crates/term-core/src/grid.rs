@@ -1,4 +1,4 @@
-//! B1 纯数据层：网格、颜色、属性与快照。
+//! 纯数据层：网格、颜色、属性与快照。
 //!
 //! 本模块（以及整个 `core/`）**不得依赖任何 UI 框架**：它必须能无头
 //! 编译、无头测试。`scripts/verify.sh` 第 4 项用 grep 强制这条边界。
@@ -82,7 +82,7 @@ impl Default for Cell {
 
 
 /// 与 UI 框架无关的 RGB 三元组。`core/theme.rs` 与 `core/vt.rs` 都用它，
-/// 只有外壳层（B3 之外）才把它转成绘图框架的颜色类型。
+/// 只有外壳层（之外）才把它转成绘图框架的颜色类型。
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Rgb {
     pub r: u8,
@@ -141,7 +141,7 @@ pub fn cells_text(cells: &[Cell]) -> String {
     cells_text_range(cells, 0, cells.len())
 }
 
-/// S2 起 Supervisor 发布给 UI 的只读快照：行主序、带版本号。
+/// Supervisor 发布给 UI 的只读快照：行主序、带版本号。
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct GridSnapshot {
@@ -157,7 +157,7 @@ pub struct GridSnapshot {
     /// DECSET 1：方向键发 `ESC O A` 还是 `ESC [ A`。
     pub application_cursor_keys: bool,
     /// DECSET 2004：粘贴要包进 `ESC[200~ … ESC[201~`。
-    /// F1-b 起投影据此调用 `paste_bytes_for`——它手上只有快照，没有 `Terminal`。
+    /// 投影据此调用 `paste_bytes_for`——它手上只有快照，没有 `Terminal`。
     pub bracketed_paste: bool,
     /// DECSET 1000/1002/1003：程序是否要鼠标报告。
     /// 投影只有快照，没有 `Terminal`，手势编码全靠这三个字段。
@@ -177,13 +177,13 @@ pub struct GridSnapshot {
     pub blocks: Vec<crate::osc133::CommandBlock<i64>>,
     /// margin 时间戳列：绝对行号 → 这一段字节到达的 epoch 秒。
     ///
-    /// 语义层不读钟（I3），这张表是宿主（`term-runtime`）在写入前递进来的，
+    /// 语义层不读钟，这张表是宿主（`term-runtime`）在写入前递进来的，
     /// 所以空表有两种合法含义：没有宿主（夹具 / 单测）或还没写入过。
     /// 与 `blocks` 一样不进金样本 JSON。
     pub row_times: Vec<(i64, u64)>,
     /// margin 符号列：由自动换行产生的续行的绝对行号（画 `~`）。
     pub wraps: Vec<i64>,
-    /// F1：此刻可回看的历史行数。投影据此钳制滚动上限，
+    /// 此刻可回看的历史行数。投影据此钳制滚动上限，
     /// 不需要额外一次范围请求去「探一下还有多少历史」。
     /// 不进金样本 JSON（金样本只比对网格内容与样式）。
     pub history: usize,
@@ -234,7 +234,7 @@ impl GridSnapshot {
 
     /// 一整行的只读切片（行主序内部连续的一段），越界返回 `None`。
     ///
-    /// F2：查找引擎要逐行扫单元格，按行取切片比 `cell(r, c)` 逐格复制快，
+    /// 查找引擎要逐行扫单元格，按行取切片比 `cell(r, c)` 逐格复制快，
     /// 也让「快照」和「事实窗口」能喂给同一个扫描器。
     pub fn row_cells(&self, row: usize) -> Option<&[Cell]> {
         if row >= self.rows || self.cols == 0 {
@@ -302,7 +302,7 @@ impl GridSnapshot {
             .collect()
     }
 
-    /// F1：把当前屏转成事实窗口的同一形状（`range = 0..rows`，无历史）。
+    /// 把当前屏转成事实窗口的同一形状（`range = 0..rows`，无历史）。
     /// 投影只有一条渲染路径——永远读 `ScreenImage`。贴底时用它，
     /// 回看时用监管者返回的范围窗口；两者形状一致，绘制代码不需要分叉。
     pub fn to_screen_image(&self) -> ScreenImage {
@@ -352,7 +352,7 @@ pub fn is_continued(wraps: &[i64], abs_row: i64) -> bool {
     wraps.binary_search(&abs_row).is_ok()
 }
 
-/// S4 起按行失效的集合；`full` 表示整屏重排（resize / 清屏 / 切换备用屏）。
+/// 按行失效的集合；`full` 表示整屏重排（resize / 清屏 / 切换备用屏）。
 #[allow(dead_code)]
 #[derive(Clone, Debug, Default)]
 pub struct DirtyRows {
@@ -382,7 +382,7 @@ impl DirtyRows {
     }
 }
 
-// ── R1 / I2：按范围请求的只读事实窗口 ──────────────────────────────
+// ── 按范围请求的只读事实窗口 ──────────────────────────────
 
 /// 一行拥有式切片。`row` 是相对当前可视区的行号：负数 = 回看，0..rows = 当前屏。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -410,7 +410,7 @@ pub struct ScreenImage {
     /// 内核此刻可回看的历史行数（`scrollback.len()`）。
     ///
     /// 投影用它钳制滚动上限，而不是自己猜一个数字；它仍是纯值，
-    /// 不暴露历史缓冲本身（I2：事实以值传递，不给共享句柄）。
+    /// 不暴露历史缓冲本身（事实以值传递，不给共享句柄）。
     pub history: usize,
 }
 
@@ -493,6 +493,27 @@ impl ScreenImage {
     /// [`ScreenImage::blank`] 的类型化入口：值域完全一致，只是不收裸区间。
     pub fn blank_view(cols: usize, version: u64, view: ViewRange) -> Self {
         Self::blank(cols, version, view.to_i64())
+    }
+
+    /// 回看时「事实在路上」那一帧的空白窗口：**内容与 [`blank_view`] 一致，
+    /// 但保留真实 `history`**。
+    ///
+    /// `blank_view` 的 `history = 0` 只适合「投影刚起来、还没有任何权威状态」的
+    /// 初始占位。拖动滚动条时用的是另一种空白：范围请求已经发出、还没回来，
+    /// 这一帧正文确实没内容可画，但 `history` 是已知的事实。边栏行号 / 时间戳
+    /// 按 `history + line.row` 取绝对行——若这里填 0，回看的负 `line.row` 会算出
+    /// 负数行号、时间戳整列消失，下一帧真数据到了又恢复，于是拖动时左边栏
+    /// 一闪一闪还带负数。带上真 history 后，空白帧与
+    /// 真数据帧算出的绝对行号逐值相等，左边栏稳定。
+    pub fn blank_view_with_history(
+        cols: usize,
+        version: u64,
+        view: ViewRange,
+        history: usize,
+    ) -> Self {
+        let mut blank = Self::blank_view(cols, version, view);
+        blank.history = history;
+        blank
     }
 
     /// [`ScreenImage::crop`] 的类型化入口：值域完全一致，只是不收裸区间。
@@ -619,6 +640,25 @@ mod tests {
         assert!(d.is_dirty(0));
         d.clear();
         assert!(!d.is_dirty(0));
+    }
+
+    #[test]
+    fn blank_view_with_history_keeps_absolute_rows_stable_for_scrollback() {
+        // 拖动滚动条时的「事实在路上」帧：正文空白，但 history 是真值。
+        // 边栏按 history + line.row 取绝对行——空白帧必须与真数据帧逐值相等，
+        // 否则左边栏行号会闪出负数、时间戳整列消失。
+        use crate::coords::{ViewRange, ViewRow};
+        let view = ViewRange::new(ViewRow::new(-40), ViewRow::new(-16));
+        let blank = ScreenImage::blank_view_with_history(80, 7, view.clone(), 100);
+        assert_eq!(blank.history, 100);
+        // blank_view 仍是 0（初始占位语义不变）。
+        assert_eq!(ScreenImage::blank_view(80, 7, view).history, 0);
+        // 负视口行 + 真 history => 非负绝对行号，与真窗口同源。
+        for line in &blank.lines {
+            let abs = blank.history as i64 + line.row;
+            assert!(abs >= 0, "绝对行号不该为负：{abs}");
+        }
+        assert_eq!(blank.lines[0].row, -40);
     }
 
     #[test]

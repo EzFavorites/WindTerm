@@ -1,4 +1,4 @@
-//! P3 · 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
+//! 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
 //!
 //! 浮动叠加（D1）：不改 `avail_w` / `cols` / `tab.resize`，贴底视觉基线可零 diff。
 //! 轨道**无底色**（对齐兼容终端 §2.3）：只画滑块，hover / 拖拽时提亮（指向指示色，
@@ -10,7 +10,7 @@
 //! 关联设计稿：`docs/design/03-selection-find-scrollback.md`。
 
 use crate::ui::*;
-use term_app::scrollbar::{scroll_top_of, thumb_of, Track};
+use term_app::scrollbar::{hover_in_invisible_area, scroll_top_of, thumb_of, Track};
 
 /// 滑块 / 轨道宽（兼容终端 GIF 观测约 15pt）。`pub(super)` 让药丸让位时复用同一常量。
 pub(super) const SB_W: f32 = 15.0;
@@ -144,10 +144,18 @@ pub(super) fn interact(
 
     // 悬停预览触发：指针在轨道上、且没在拖拽时，把 hover y 交回 `pane.rs` 去请求
     // 第二事实窗口（独立槽）。拖拽时走 Scrolling 分支、不触发 Previewing（§5.6）。
+    //
+    // 只在**屏幕不可见区域**（滑块之外的轨道段）触发。滑块投影的
+    // 正是当前可见的 rows 行——悬停在它上面时那一段已经在屏上，弹预览既挡住
+    // 真实视口又没有新信息；只有悬停在滑块上方（更旧历史）或下方（更新的行）
+    // 才有必要预览。判定收在纯函数 `hover_in_invisible_area` 里（可单测）。
     if resp.hovered() && !resp.dragged() {
         resp.hover_pos()
             .or_else(|| ui.input(|i| i.pointer.interact_pos()))
-            .map(|p| p.y)
+            .and_then(|p| {
+                let y_in_track = (p.y - tr.min.y) as f64;
+                hover_in_invisible_area(th, y_in_track).then_some(p.y)
+            })
     } else {
         None
     }

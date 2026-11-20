@@ -1,6 +1,6 @@
-//! 终端标签的构造与事实窗口计算（R14-d 从 `ui/terminal.rs` 拆出）。
+//! 终端标签的构造与事实窗口计算（从 `ui/terminal.rs` 拆出）。
 //!
-//! R9 要求 `ui/` 单文件 ≤ 450 行；分屏把终端绘制参数化后 terminal.rs 涨到 466 行，
+//! 要求 `ui/` 单文件 ≤ 450 行；分屏把终端绘制参数化后 terminal.rs 涨到 466 行，
 //! 于是把「谁构造 tab / 谁算事实窗口」这一组搬到这里。**只搬代码，不改行为**——
 //! 五张视觉基线逐字节一致仍是判据。`ui/terminal.rs` 用 `pub(in crate::ui) use` 重新导出，
 //! 所有调用点一处都不用改。
@@ -13,23 +13,23 @@ use super::{MarksParams, WhitespaceMode};
 use crate::ui::*;
 use term_core::session_runtime::SessionId;
 
-/// ADR-0025 阶段 0：标签恒在身份铸造源。每条 tab 在 `tab_from` 一次性领取，
+/// ADR-0025：标签恒在身份铸造源。每条 tab 在 `tab_from` 一次性领取，
 /// 与存活态（`session`）解耦——断连 / 重连都不回收、不改值。进程内单调递增，
 /// 身份只在单次运行内比较（`restore_layout` 重建标签会重新领号，不保证跨运行稳定）。
 static TAB_IDENTITY_SRC: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// 给一条新建标签铸造恒在身份（见 [`TAB_IDENTITY_SRC`]，ADR-0025 阶段 0）。
+/// 给一条新建标签铸造恒在身份（见 [`TAB_IDENTITY_SRC`]，ADR-0025）。
 pub(in crate::ui) fn mint_tab_identity() -> SessionId {
     TAB_IDENTITY_SRC.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 /// 统一的 tab 构造入口：起不来会话时仍给出空网格，UI 不会崩。
 ///
-/// 会话由**控制面**起（ADR-0019 档 1.1）：`pool.open` 失败时 tab 照样成立，
+/// 会话由**控制面**起（ADR-0019）：`pool.open` 失败时 tab 照样成立，
 /// 只是 `session = None`——界面上就是「断开」的那一副样子，而不是一个
 /// 半死的句柄。
 ///
-/// R6：这里顺手把**唤醒回调**注入会话——没有它，PTY 的输出到了也没人叫醒
+/// 这里顺手把**唤醒回调**注入会话——没有它，PTY 的输出到了也没人叫醒
 /// 界面（`draw()` 只在有输入事件时才跑，`poll()` 也因此不会被调用）。
 pub(in crate::ui) fn make_tab(
     pool: &std::sync::Arc<term_session::SessionPool>,
@@ -41,11 +41,11 @@ pub(in crate::ui) fn make_tab(
     tab_from(pool, config, session, id, ctx)
 }
 
-/// R13-d2：通道已经建好（原生 SSH）时开 tab。
+/// 通道已经建好（原生 SSH）时开 tab。
 ///
 /// 与 `make_tab` 的唯一区别是「谁打开它」：PTY 由控制面自己拉，SSH 由调用方
 /// 在后台线程里连好、经 `open_with_channel` 注入。这正是
-/// `SessionPool::open_with_channel` 存在的理由（档 1.2）——协议差异留在
+/// `SessionPool::open_with_channel` 存在的理由——协议差异留在
 /// 调用方，控制面只负责监管。
 pub(in crate::ui) fn make_tab_with_channel(
     pool: &std::sync::Arc<term_session::SessionPool>,
@@ -102,7 +102,7 @@ pub(in crate::ui) fn marks_defaults(prefs: &term_runtime::prefs::Prefs) -> Marks
 
 /// 三条建标签路径的共同落点：会话已经拿到（或没拿到）之后的全部装配。
 ///
-/// `pub(in crate::ui)` 是给 ADR-0025 阶段 5 的**一条**额外调用路径开的：脚本线程
+/// `pub(in crate::ui)` 是给 ADR-0025 的**一条**额外调用路径开的：脚本线程
 /// 已经建好会话（`session_open`），界面要绑到**同一条**——再 `pool.open` 一次
 /// 就会多出一条谁也看不见的重复会话。所以 `absorb_script_opened` 直接调它、
 /// 传 `Some(session)`，而不是另抄一份 `Tab { … }` 字面量：手抄的那份漏掉
@@ -117,7 +117,7 @@ pub(in crate::ui) fn tab_from(
     let snapshot = session
         .and_then(|sid| pool.snapshot(sid))
         .unwrap_or_else(|| GridSnapshot::empty(80, 24));
-    // ADR-0025 阶段 0：铸造恒在身份，与存活态无关——断连 / 重连都不改值。
+    // ADR-0025：铸造恒在身份，与存活态无关——断连 / 重连都不改值。
     let identity = mint_tab_identity();
     // 建标签时从 prefs 拷一份**默认参数**：四个数与斑马线都由 设置 ▸ Binary 页
     // 写，`0` 哨兵与越界值在 `from_prefs` 一处夹掉。之后 `View ▸ Hex *` 改的是
@@ -158,13 +158,13 @@ pub(in crate::ui) fn tab_from(
             debug: false,
             local_mode: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
-            // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
+            // 控制模式状态机归本 tab，跨块行缓冲从空开始。
             tmux: term_app::tmux::ControlMode::default(),
             tmux_pending: Vec::new(),
-            // D1：触发器求值器随标签建立，空状态开始；存活会话在 `poll` 首帧
+            // 触发器求值器随标签建立，空状态开始；存活会话在 `poll` 首帧
             // 经 Connect 跳变 reset（这里先置 false，让首帧识别成「刚连接」）。
             triggers: term_app::trigger::Matcher::new(),
-            // R-M3：影子求值器出厂空态（signature 哨兵在 Shadow::new 内）。
+            // 影子求值器出厂空态（signature 哨兵在 Shadow::new 内）。
             shadow: crate::automation::Shadow::new(),
             was_live: false,
             just_connected: false,
@@ -172,7 +172,7 @@ pub(in crate::ui) fn tab_from(
             // 真的敲一次回车）。与 `marks` 一样是「每条会话一份」的显示状态。
             folds: term_app::folds::Folds::new(),
             input_rows: std::cell::RefCell::new(Vec::new()),
-            // N：恢复运行态字段——默认 None，由 restore_layout 写入
+            // 恢复运行态字段——默认 None，由 restore_layout 写入
             restore_scroll_top: None,
             restore_history_len: None,
         };
@@ -182,7 +182,7 @@ pub(in crate::ui) fn tab_from(
         // 而用户点 Hex Edit 想看的恰恰是刚才那一段。历史的起点只能是标签
         // 建立那一刻，所以挂 tap 是建标签的一部分，不是切模式的一部分。
         tab.attach_tap();
-        // N：存活会话（本地 shell / 系统 SSH）在构造后立即应用恢复态
+        // 存活会话（本地 shell / 系统 SSH）在构造后立即应用恢复态
         // 断开会话（内置 SSH）稍后在 poll_activation_connect 连上后应用
         if tab.session.is_some() {
             tab.maybe_apply_restore();
@@ -193,7 +193,7 @@ pub(in crate::ui) fn tab_from(
     tab
 }
 
-/// F1：算出本帧要画的事实窗口，必要时向监管者请求范围事实。
+/// 算出本帧要画的事实窗口，必要时向监管者请求范围事实。
 ///
 /// 贴底时不请求，直接用快照派生（内容就是当前屏）；回看时请求
 /// `-scroll .. -scroll + rows`，拿到后用 `crop()` 裁出正好一屏——
@@ -226,11 +226,17 @@ pub(in crate::ui) fn ensure_view(tab: &mut Tab, rows: usize) -> ScreenImage {
     }
     // 往下仍然是视口行的世界：`crop_view()` / `blank_view()` 都收 `ViewRange`，
     // 擦成裸值只发生在 core 内部那一次委托里，UI 这一侧不再出现 `to_i64()`。
+    // 回看时范围请求异步在路上，这一帧正文没内容可画，但 history 是已知事实。
+    // 空白帧必须带上真 history：边栏按 `history + line.row` 取绝对行，若填 0，
+    // 负的 line.row 会算出负数行号、时间戳整列查不到，下一帧真数据到了又恢复
+    // ——拖动滚动条时左侧数字 / 时间一闪一闪还带负数。
+    // `blank_view_with_history` 让空白帧与真数据帧的绝对行号逐值相等。
+    let history = tab.snapshot.history;
     match &tab.screen {
         Some(img) => img.crop_view(desired.clone()).unwrap_or_else(|| {
-            ScreenImage::blank_view(tab.snapshot.cols, version, desired.clone())
+            ScreenImage::blank_view_with_history(tab.snapshot.cols, version, desired.clone(), history)
         }),
-        None => ScreenImage::blank_view(tab.snapshot.cols, version, desired),
+        None => ScreenImage::blank_view_with_history(tab.snapshot.cols, version, desired, history),
     }
 }
 
@@ -285,7 +291,13 @@ fn folded_view(tab: &mut Tab, rows: usize) -> ScreenImage {
         return if tab.viewport.is_bottom() {
             tab.snapshot.to_screen_image()
         } else {
-            ScreenImage::blank_view(tab.snapshot.cols, version, base)
+            // 同上：折叠路径的空白兜底也带真 history，避免拖动时边栏闪负数。
+            ScreenImage::blank_view_with_history(
+                tab.snapshot.cols,
+                version,
+                base,
+                tab.snapshot.history,
+            )
         };
     };
     // 过滤必须是**最后一次**变换：`crop_view` 依赖行号连续，`drop_rows` 之后

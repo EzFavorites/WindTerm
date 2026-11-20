@@ -25,17 +25,17 @@ pub enum FeatureId {
     Find,
     Clipboard,
     Selection,
-    /// R14-a：会话日志（开始 / 停止 / 暂停 / 恢复 / 打开 / 设置）。
+    /// 会话日志（开始 / 停止 / 暂停 / 恢复 / 打开 / 设置）。
     Log,
-    /// R14-c：命令面板（注册表 / 过滤 / 选中执行）。
+    /// 命令面板（注册表 / 过滤 / 选中执行）。
     Palette,
-    /// R14-d：跳到回看绝对行 / 已打开的会话。
+    /// 跳到回看绝对行 / 已打开的会话。
     Goto,
-    /// R14-f：v0.1 工作台（15 条命令的页面状态机）。
+    /// v0.1 工作台（15 条命令的页面状态机）。
     Center,
-    /// V1-3：锁屏（复用 Vault 主密码）。
+    /// 锁屏（复用 Vault 主密码）。
     Lock,
-    /// P4：停靠 / 浮动。状态在投影层的 `DockLayout`，不在 `ViewState`。
+    /// 停靠 / 浮动。状态在投影层的 `DockLayout`，不在 `ViewState`。
     Layout,
     /// 2026-11-07：终端 margin 边栏的五列开关。状态就在 `ViewState.margin`，
     /// 绘制在 `ui/terminal/margin.rs`——每列都对应真的像素。
@@ -46,7 +46,7 @@ pub enum FeatureId {
     /// 它启动的是**一个有生命周期的后台传输**，进度要持续画在状态行上。
     /// 状态本身不在 `ViewState`（里面有一个线程句柄），这一层只出口令。
     Xfer,
-    /// W2-b：标签右键菜单的 10 个动作（D2）。它们不在菜单栏里，
+    /// 标签右键菜单的 10 个动作。它们不在菜单栏里，
     /// 但是真实可点入口；`capability` 把 `tab::SHADOW_ENTRIES` 并进能力面，
     /// 于是「已接线」不再少算这一块。
     Tab,
@@ -163,11 +163,11 @@ pub enum ShellAction {
     /// 2026-11-07：左侧会话树（Session Manager）的显示开关。
     ///
     /// 侧栏标题栏的 × 走这一条。它必须是**开关**而不是「只关」：关掉之后
-    /// 还要能再打开（R5），回程是菜单 `Window › Panes › Toggle Sidebar`。
+    /// 还要能再打开，回程是菜单 `Window › Panes › Toggle Sidebar`。
     ToggleSidebar,
-    /// R13-f：右侧文件面板（空 = 关）。
+    /// 右侧文件面板（空 = 关）。
     TogglePaneFiler,
-    /// R14-e：六个工具面板开关。与 Filer 同款：只翻 bool，真正的内容由
+    /// 六个工具面板开关。与 Filer 同款：只翻 bool，真正的内容由
     /// `ui/panes.rs` 每帧从事实状态现算；reducer 不碰任何面板数据。
     TogglePaneExplorer,
     TogglePaneOutline,
@@ -177,11 +177,11 @@ pub enum ShellAction {
     /// 2026-11-17：脚本面板的专用菜单项（`Window ▸ Panes ▸ Toggle Pane Script`）。
     TogglePaneScript,
     TogglePaneTransfer,
-    /// W2-c：tmux 控制模式面板的显示开关（`ViewState.show_tmux`）。
+    /// tmux 控制模式面板的显示开关（`ViewState.show_tmux`）。
     ///
     /// 这块面板不是可停靠的 dock 面板（它是 `AnchoredWindow` 浮层），
     /// 所以不进 `PanelId`，但**必须有真实产品入口**：此前只有截图
-    /// 夹具会把它设成 true，产品里点了任何地方都打不开（S4）。
+    /// 夹具会把它设成 true，产品里点了任何地方都打不开。
     /// 现在 `Window › Panes › Tmux Control Mode` 走这一条，
     /// `ui/panels/tmux.rs::draw_tmux_panel` 每帧读开关并真的画出来。
     TogglePaneTmux,
@@ -191,16 +191,16 @@ pub enum ShellAction {
     /// 的是 `PanelId`，而上面那七条是「一条命令绑死一块面板」。与其在投影层
     /// 再抄一份 `PanelId → ShellAction` 的表，不如让纯层自己按 id 取字段——
     /// 归属只有一份（`crate::shell::panel_visible` / `set_panel_visible`，
-    /// R3 起连绘制侧也调它，不再各列一份）。
+    /// 起连绘制侧也调它，不再各列一份）。
     TogglePanel(PanelId),
-    /// 2026-11-19（Q2 刀1）：按身份**置位**一块面板的显示开关。
+    /// 2026-11-19：按身份**置位**一块面板的显示开关。
     ///
     /// 与 `TogglePanel` 的唯一区别是「置位 vs 取反」：脚本与 API 侧要的是
     /// 「把 filer 打开」，而取反语义要求调用方先读现状，两次往返之间界面可能
     /// 已经变了（TOCTOU），重试也不安全（重发一次会再翻回去）。
     ///
     /// 两条动作共用 `set_panel_visible` 那一张表，`toggle()` 只是它的
-    /// 「先读再置反」包装——不新增第二条写入路径（I1）。
+    /// 「先读再置反」包装——不新增第二条写入路径。
     SetPanel(PanelId, bool),
     ToggleFocusMode,
     ToggleFullScreen,
@@ -209,41 +209,41 @@ pub enum ShellAction {
     ///
     /// 与上面七个单项开关的分工：单项翻一格，这一条翻一整带。判定是
     /// 「带里还有任何一块亮着就全关，否则全开」——同一条动作既当收起也当
-    /// 展开，不需要额外记住关之前的组合（R5：关掉必须有回程）。
+    /// 展开，不需要额外记住关之前的组合（关掉必须有回程）。
     ///
     /// 只翻 bool，不碰面板数据，也不碰布局：带里各面板落在哪由
     /// `PanelId::default_zone()` 决定（`dock.rs`），本动作只管可见性。
     ToggleDocks(DockZone),
-    /// R14-b：循环切到下一个 / 上一个标签（相对位移，到头回绕）。
+    /// 循环切到下一个 / 上一个标签（相对位移，到头回绕）。
     ///
     /// 真正的下标在投影层（`tabs` 长度、`active_tab`）算——reducer 拿不到标签列表，
     /// 也不该拿（那是 `apps/*` 的视图状态）。本动作只带「+1 / −1」的意图。
     ActivateNextView,
     ActivatePreviousView,
-    /// R14-b：把活动标签的会话名复制到系统剪贴板（纯会话属性，不需要选区）。
+    /// 把活动标签的会话名复制到系统剪贴板（纯会话属性，不需要选区）。
     ///
     /// 文本在投影层取（`tab.config.name`）——reducer 没有那条会话，也不持有窗口。
     CopySessionName,
-    /// R14-b：把活动标签的连接串复制到系统剪贴板。
+    /// 把活动标签的连接串复制到系统剪贴板。
     ///
     /// 形如 `ssh://user@host:port`（Shell 本地会话退化为纯名字）。同样只在投影层拼，
     /// 因为协议 / 主机 / 端口 / 用户名都由那条会话的配置决定。
     CopySessionUrl,
-    /// R14-b：打开帮助（项目文档 / 上游仓库）。URL 是静态常量，reduce 直接带出去。
+    /// 打开帮助（项目文档 / 上游仓库）。URL 是静态常量，reduce 直接带出去。
     Help,
-    /// R14-b：用当前选区文本发起一次网络搜索。
+    /// 用当前选区文本发起一次网络搜索。
     ///
     /// 查询词在投影层取（`selection_text`）——reducer 没有选区，选区是每帧从事实窗口
     /// 推导的派生值。动作本身只声明意图，应用层负责 URL 编码与拉起系统浏览器。
     SearchOnline,
-    /// R14-b：终端字号缩放。+1 放大 / −1 缩小 / 0 复位。
+    /// 终端字号缩放。+1 放大 / −1 缩小 / 0 复位。
     ///
     /// 目标字号在投影层算（当前字号 ±1，带上下限），因为它活在 `apps/desktop` 的字体
     /// 度量里，不属于「领域状态」——缩放是视觉调整，不进 `ViewState`。
     ZoomIn,
     ZoomOut,
     ZoomReset,
-    /// R14-c：E 类三条——应用级退出与标签页语义的关闭；另加一条新进程窗口。
+    /// E 类三条——应用级退出与标签页语义的关闭；另加一条新进程窗口。
     ///
     /// 与既有的 `CloseActiveView`（只断开、标签还在）不同：`Close` 真的把标签
     /// 从列表里摘掉，`CloseAllViews` 摘掉全部。标签列表活在投影层，所以这里
@@ -254,7 +254,7 @@ pub enum ShellAction {
     Exit,
     Close,
     CloseAllViews,
-    /// R14-d：分屏六条。方向（左右 / 上下）与「新建本地 shell / 复制当前会话」
+    /// 分屏六条。方向（左右 / 上下）与「新建本地 shell / 复制当前会话」
     /// 两组语义在这里只作为意图；布局树与标签列表都活在投影层。
     SplitViewHorizontally,
     SplitViewVertically,
@@ -262,13 +262,13 @@ pub enum ShellAction {
     SplitGroupVertically,
     CloseActiveGroup,
     MoveGroupToGroup,
-    /// R16：多标签同步输入（C 类里唯一不需要新协议的一项）。
+    /// 多标签同步输入（C 类里唯一不需要新协议的一项）。
     /// 只翻 `ViewState` 的开关；真正的扇出在投影层的按键处理里。
     SyncInput,
-    /// R16：选中最近一条命令（`Text.SelectCommand`）。块边界来自 OSC 133，
+    /// 选中最近一条命令（`Text.SelectCommand`）。块边界来自 OSC 133，
     /// 纯层只声明意图——选区落在投影层，因为它要事实窗口的行。
     SelectCommand,
-    /// R16：隧道管理（`Terminal.ManageTunnels`）。打开面板；面板自己轮询。
+    /// 隧道管理（`Terminal.ManageTunnels`）。打开面板；面板自己轮询。
     ManageTunnels,
     /// 2026-11-17：`Terminal.TunnelSettings` —— 打开 **Tunnels 设置对话框**。
     ///
@@ -480,7 +480,7 @@ pub enum FindAction {
     ToggleWholeWord,
     Next,
     Previous,
-    /// R14-b：以「当前选区文本」为查询词，再跳到下一个 / 上一个匹配。
+    /// 以「当前选区文本」为查询词，再跳到下一个 / 上一个匹配。
     ///
     /// 这里只负责「把查找栏打开、清空旧查询、回到第一个」——与 `Open` 同款复位；
     /// 真正的「用选区当查询词 + 跳一步」在投影层落地（查询词来自每帧推导的
@@ -494,7 +494,7 @@ pub enum FindAction {
 pub enum ClipboardAction {
     Copy,
     Paste,
-    /// R14-b：把当前选区文本直接写给 PTY（等同于「复制选区 + 粘贴」一步完成）。
+    /// 把当前选区文本直接写给 PTY（等同于「复制选区 + 粘贴」一步完成）。
     PasteSelection,
 }
 
@@ -565,11 +565,11 @@ pub enum CenterPage {
     Profile,
     ToolbarList,
     ToolbarCustomize,
-    /// D3：**命令行**页——把一行字当 shell 命令发给当前终端。
+    /// **命令行**页——把一行字当 shell 命令发给当前终端。
     ///
     /// 原名 `GotoAddressBar`，与参考夹具里那个「连接目标输入框」的地址栏撞了名：
     /// 命令 `Window.GotoAddressBar` 点开的是这一页，而用户以为它要打开地址栏。
-    /// D3 把两件事分开——这一页改叫 `Command Line`（命令 ID 一起改成
+    /// 把两件事分开——这一页改叫 `Command Line`（命令 ID 一起改成
     /// `Window.GotoCommandLine`），而 `Window.GotoAddressBar` 落到
     /// [`Action::AddressBar`]，由投影层直接开地址栏。
     GotoCommandLine,
@@ -610,7 +610,7 @@ impl CenterPage {
             CenterPage::Profile => "Profile",
             CenterPage::ToolbarList => "Toolbar List",
             CenterPage::ToolbarCustomize => "Customize Toolbar",
-            // D3：这一页发的是 shell 命令，不是连接地址——标题必须说清是哪一件。
+            // 这一页发的是 shell 命令，不是连接地址——标题必须说清是哪一件。
             CenterPage::GotoCommandLine => "Command Line",
             CenterPage::CompleteHistory => "Complete History",
             CenterPage::SchemeList => "Scheme List",
@@ -657,7 +657,7 @@ pub enum LockAction {
 /// 后者归 [`FoldCmd`]（见它的文档）。目前没有任何命令 ID 映射到
 /// `MarginPart::Fold`（`Text.MarginFold` 走的是 [`FoldCmd::Toggle`]），
 /// 所以这一列恒为关、`margin::reduce` 收到它时什么也不做：状态位必须与
-/// 「画得出来」对齐（R5），先给它一个能翻的开关就是假反馈。
+/// 「画得出来」对齐，先给它一个能翻的开关就是假反馈。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MarginPart {
     Blank,
@@ -787,7 +787,12 @@ pub enum PanelId {
     Session,
     Shell,
     Transfer,
-    /// 新版截图终端区右下角那枚折叠标签。默认关着，点标签才展开。
+    /// 终端底部 `Sysmon` 读数条的展开态开关位。
+    ///
+    /// WindTerm 的 `Sysmon` 不是可停靠面板，而是终端区底部细带上的
+    /// 无边框按钮 ↔ 原地 T/C/M 读数切换。这个枚举值**不再是停靠面板**：
+    /// 它已从 `ALL` 移除（不进任何带、不进齿轮菜单、不画面板体），只作为
+    /// `TogglePanel` 的状态键延续下来，供那条细带读同一位 `ViewState`。
     Sysmon,
     /// 「脚本」停靠面板：从脚本库挑一个 Rhai 脚本，在**当前主区活动标签页的会话**
     /// 上跑，结果日志就画在面板里。默认关着——和其它工具面板一样由齿轮菜单勾选打开。
@@ -800,11 +805,13 @@ pub enum PanelId {
 impl PanelId {
     /// 全部可停靠面板，按**默认停靠顺序**排列（`DockLayout::new` 直接照它建）。
     ///
-    /// 2026-11-08 按新版截图重排：左带 Explorer → Filer（上下堆叠），
+    /// 按视觉基线重排：左带 Explorer → Filer（上下堆叠），
     /// 右带 Sidebar(Session) → Outline（上下堆叠），底带 Sender → Shell。
     /// `DockLayout::new()` 是「遍历 ALL + 按 `default_zone` 归带」，所以
     /// **ALL 的先后就是带内从上到下 / 从左到右的位次**，不是随手排的清单。
-    pub const ALL: [PanelId; 10] = [
+    ///
+    /// `Sysmon` 已移出（它不是停靠面板，见枚举值上的说明）。
+    pub const ALL: [PanelId; 9] = [
         PanelId::Explorer,
         PanelId::Filer,
         PanelId::Sidebar,
@@ -813,7 +820,6 @@ impl PanelId {
         PanelId::Session,
         PanelId::Shell,
         PanelId::Transfer,
-        PanelId::Sysmon,
         PanelId::Script,
     ];
 
@@ -850,8 +856,8 @@ impl PanelId {
         }
     }
 
-    /// 七个工具面板（R14-e + 2026-11-08 的 Sysmon）与两个「自带工具行」的
-    /// 面板（侧栏 / 文件）。
+    /// 七个工具面板与两个「自带工具行」的面板（侧栏 / 文件）。
+    /// Sysmon 不是工具面板（见枚举值说明）。
     ///
     /// 这个区分只有一个用途：停靠容器要不要替它画 `heading`。侧栏第一行是
     /// 「＋ New Session」按钮、文件面板第一行是地址栏，再生硬加个标题就是
@@ -928,7 +934,7 @@ impl DockZone {
     }
 }
 
-/// 布局动作（B4 的新子枚举）。
+/// 布局动作（新子枚举）。
 ///
 /// 六个动作都**不碰** `ViewState`：布局不是领域状态，是投影层的视图结构。
 /// `reduce()` 原样把它们包进 `Effect` 抛回去，落地的活由投影层干——它才认识
@@ -1063,24 +1069,24 @@ pub enum Action {
     Shell(ShellAction),
     Find(FindAction),
     Clipboard(ClipboardAction),
-    /// R11：选区移动。真正的位移在投影层拿到事实窗口后由 `selection::apply` 算，
+    /// 选区移动。真正的位移在投影层拿到事实窗口后由 `selection::apply` 算，
     /// 本层只把命令翻译成意图——因为它拿不到「现在画在屏上的那一屏」。
     Select(Op),
-    /// W2：多选区集合命令（激活下一份 / 锁 / 丢 / 取消 / 拆分 / 反选 / 换形状 /
+    /// 多选区集合命令（激活下一份 / 锁 / 丢 / 取消 / 拆分 / 反选 / 换形状 /
     /// 换端点）。与 `Select` 分开是因为它改的是**集合**而不是一段区间的端点；
     /// 但两者最终都落到投影层的同一个待办槽位（`selection::Cmd`）。
     SelectSet(SetOp),
-    /// R14-a：会话日志。同样只带意图：文件名与目录由写入端与投影层决定。
+    /// 会话日志。同样只带意图：文件名与目录由写入端与投影层决定。
     Log(LogAction),
-    /// R14-c：命令面板。打开 / 输入 / 移动选中 / 确认 / 关闭都是纯状态动作。
+    /// 命令面板。打开 / 输入 / 移动选中 / 确认 / 关闭都是纯状态动作。
     Palette(PaletteAction),
-    /// R14-d：Goto 面板。行号解析与会话选中都在纯层，投影层只落地跳转。
+    /// Goto 面板。行号解析与会话选中都在纯层，投影层只落地跳转。
     Goto(GotoAction),
-    /// R14-f：工作台。状态只由 `center::reduce` 写，副作用复用投影层既有方法。
+    /// 工作台。状态只由 `center::reduce` 写，副作用复用投影层既有方法。
     Center(CenterAction),
-    /// V1-3：锁屏。密码校验在投影层，状态只由 `lock::reduce` 写。
+    /// 锁屏。密码校验在投影层，状态只由 `lock::reduce` 写。
     Lock(LockAction),
-    /// P4：停靠 / 浮动。布局树不在 `ViewState` 里（与分屏树同类，是投影层的
+    /// 停靠 / 浮动。布局树不在 `ViewState` 里（与分屏树同类，是投影层的
     /// 视图结构），所以这一支的 reducer 只把意图包成 `Effect` 抛回去。
     Layout(LayoutAction),
     /// 2026-11-07：margin 边栏的列开关。纯状态动作，不产 `Effect`。
@@ -1097,7 +1103,7 @@ pub enum Action {
     /// 2026-11-09：文件传输。与 `Margin` 相反——它**只**产 `Effect`，
     /// 一行 `ViewState` 都不写：传输句柄与进度都在投影层。
     Xfer(XferCmd),
-    // ── V1-x：投影层直接构造的强类型意图（不经命令 ID 派发，B4 无字符串旁路）──
+    // ── 投影层直接构造的强类型意图（不经命令 ID 派发，无字符串旁路）──
     ImportSessions(&'static str),
     SaveLayout,
     OpenShortcuts,
@@ -1106,30 +1112,30 @@ pub enum Action {
     OpenQuickCommands,
     TmuxCommand(String),
     TmuxFeed(String),
-    /// P9：底部快捷命令栏。参数是**送进输入行的文本**，不是命令 ID，
+    /// 底部快捷命令栏。参数是**送进输入行的文本**，不是命令 ID，
     /// 也不带回车——点一下就执行 `reboot` 是危险的（见 `ui/quick_command_bar.rs`）。
     /// 命令表现在来自 `quickbar.json`（用户可改），所以是 owned `String`。
     QuickCommand(String),
-    /// P9：左侧配置菜单里切换某个快捷命令组的可见性。index 是
+    /// 左侧配置菜单里切换某个快捷命令组的可见性。index 是
     /// `quickbar.json` 组表的下标，与 `ViewState.quick_groups_visible` 一一对应；
     /// reducer 只翻这一位 `bool`，不产任何 Effect（纯 UI 状态）。
     QuickGroupToggle(usize),
-    /// W2-b：标签右键菜单的 10 个动作（D2）。reducer 只把它包成
+    /// 标签右键菜单的 10 个动作。reducer 只把它包成
     /// `Effect::Tab`，一行 `ViewState` 都不写——标签列表、
     /// 「最近关闭」队列与颜色表都在投影层。
     Tab(TabAction),
-    /// D3：打开地址栏（连接目标输入框），`Window.GotoAddressBar` 的命令面。
+    /// 打开地址栏（连接目标输入框），`Window.GotoAddressBar` 的命令面。
     ///
     /// # 为什么是顶层变体，而不是又一个 `CenterPage`
     ///
     /// 因为它**不是一页工作台**：地址栏是贴在工具行上的输入框，它的开关、
     /// 候选与最近使用都在 [`crate::address`] 与投影层，与中心面板的页面状态机
     /// 无关。做成 `CenterPage` 就等于把「输入框」画成「一页带标题的对话框」，
-    /// 那正是 D3 要解掉的语义冲突。
+    /// 那正是要解掉的语义冲突。
     ///
     /// `reduce()` 对它**不产生 `Effect`**，也**不写任何 `ViewState` 字段**
     /// （地址栏状态由投影层持有；本层既不该编造一个它会忘了维护的 bool，
-    /// 也不该为一条纯 UI 意图凭空造一个副作用）。消费点是 D3 的另一半——
+    /// 也不该为一条纯 UI 意图凭空造一个副作用）。消费点是另一半——
     /// `apps/desktop` 的 `dispatch_action` 认这个变体，就地开地址栏。
     AddressBar,
 }

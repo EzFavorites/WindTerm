@@ -66,7 +66,7 @@ impl Viewport {
             self.scroll_down(lines.saturating_neg(), max);
             return;
         }
-        self.scroll = (self.scroll + lines).min(max.max(0));
+        self.scroll = self.scroll.saturating_add(lines).min(max.max(0));
     }
 
     pub fn scroll_down(&mut self, lines: i64, max: i64) {
@@ -86,7 +86,7 @@ impl Viewport {
         self.scroll = 0;
     }
 
-    /// R14-d：把某个**回看绝对行号**放到视口顶部。
+    /// 把某个**回看绝对行号**放到视口顶部。
     ///
     /// 坐标系与 `ScreenImage.range` 一致：0 = 当前屏首行，负数 = 历史行。
     /// 视口只能向上回看，所以 `scroll = -row` 再按内核报告的上限钳制；
@@ -124,7 +124,7 @@ impl Viewport {
     /// 要展示的行区间，裸值版本。
     ///
     /// 现在它就是 `self.rows(rows).to_i64()`：**构造上**保证与类型化版本逐值一致，
-    /// 不存在两份会各自漂移的实现。K2 之后生产链（`RequestRange` / `crop_view` /
+    /// 不存在两份会各自漂移的实现。之后生产链（`RequestRange` / `crop_view` /
     /// `blank_view` / `slice_view`）已全部改收 [`ViewRange`]，这里只剩两类读者：
     /// `ScreenImage.range` 这个裸字段的比对断言，以及 demo 夹具的窗口断言。
     pub fn range(&self, rows: usize) -> Range<i64> {
@@ -158,9 +158,13 @@ impl Viewport {
     /// - scroll_top=0 => scroll=history_len (历史顶端)
     /// - scroll_top 超界 => clamp 到 [0, history_len]
     pub fn apply_scroll_top(&mut self, scroll_top: u64, history_len: u64) {
-        let max = history_len as i64;
-        let scroll = (history_len as i64 - scroll_top as i64).clamp(0, max);
-        self.scroll = scroll;
+        // 先在 u64 域做差并钳到 [0, history_len]，再转 i64：
+        // 旧式 `history_len as i64 - scroll_top as i64` 在两个值 > i64::MAX 时
+        // 会回绕成负、且 `clamp(0, max)` 在 max<0 时 panic（拖动分母来自
+        // `scroll_top_of`，边界越界就走这里）。saturating_sub + try_from 让
+        // 极端输入收敛到 representable 上限，正常域逐值不变。
+        let scroll = history_len.saturating_sub(scroll_top);
+        self.scroll = i64::try_from(scroll).unwrap_or(i64::MAX);
     }
 }
 
@@ -415,6 +419,23 @@ mod tests {
         // scroll_top = 0 是合法边界（历史最顶端）
         v.apply_scroll_top(0, 1000);
         assert_eq!(v.scroll(), 1000);
+    }
+
+    #[test]
+    fn n_extreme_scroll_top_never_panics_or_goes_negative() {
+        // 拖动滚动条的比例来自浮点，极端输入下走 apply_scroll_top：
+        // 旧式 `as i64` 回绕 + clamp(0, max<0) 会 panic；现在收敛到上限。
+        let mut v = Viewport::new();
+        v.apply_scroll_top(u64::MAX, u64::MAX);
+        assert!(v.scroll() >= 0, "scroll 永不为负");
+        v.apply_scroll_top(0, u64::MAX);
+        assert_eq!(v.scroll(), i64::MAX);
+        // 正常域仍与旧式一致：scroll = history - scroll_top，钳到 [0, history]。
+        let mut w = Viewport::new();
+        w.apply_scroll_top(1500, 1000);
+        assert_eq!(w.scroll(), 0, "超界贴底");
+        w.apply_scroll_top(400, 1000);
+        assert_eq!(w.scroll(), 600);
     }
 
     #[test]

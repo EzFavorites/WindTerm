@@ -1,7 +1,7 @@
-//! S3：视图状态集中化。`reduce()` 是唯一写入者。
+//! 视图状态集中化。`reduce()` 是唯一写入者。
 //!
-//! 这个类型的价值在于「少」：**每个字段都必须有一个读者**。S3 删掉了 14 个照抄
-//! 菜单配置、从未参与绘制的死状态位；R5 又做了第二遍审计——把 19 个 bool 字段
+//! 这个类型的价值在于「少」：**每个字段都必须有一个读者**。删掉了 14 个照抄
+//! 菜单配置、从未参与绘制的死状态位；又做了第二遍审计——把 19 个 bool 字段
 //! 逐个 grep 一遍，发现 13 个 `ui/` 一次都没读过，即「菜单是亮的，点了没反应」。
 //! 那一批现已全部处置：能实现真实效果的就实现，实现不了的回退 Planned + 置灰，
 //! 对应的状态字段一并删除。
@@ -13,12 +13,12 @@ use crate::center::CenterState;
 use crate::goto::GotoState;
 use crate::palette::PaletteState;
 
-// 2026-11-12 R2：`LockState` / `MarginState` 的定义从 `lock.rs` / `margin.rs` 挪到这里。
+// 2026-11-12：`LockState` / `MarginState` 的定义从 `lock.rs` / `margin.rs` 挪到这里。
 // 原因是它们既是 `ViewState` 的字段，又被各自模块的 reducer 读（`&mut ViewState`）——
 // 定义留在能力模块里就必然出现 `state ↔ lock` 这样的双向边。两个结构都是纯数据，
 // 没有任何 `crate::` 依赖，压到聚合根里不损失内聚。原路径由 `pub use` 保住。
 
-/// 锁屏状态（V1-3）。放在聚合根里，理由见上方注记。
+/// 锁屏状态。放在聚合根里，理由见上方注记。
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct LockState {
     pub locked: bool,
@@ -43,7 +43,7 @@ pub struct MarginState {
 ///
 /// F2：这里**没有**匹配总数。匹配是 `(query, 大小写, 事实窗口)` 的纯函数值，
 /// 不是需要维护的状态——把它存下来就一定会过期（滚动换了窗口但没人通知），
-/// 于是迟早要有第二个写入者去「顺手修正」，I1 就是这么破的。
+/// 于是迟早要有第二个写入者去「顺手修正」，就是这么破的。
 /// 计数改由 `app::find::matches` 每帧从窗口算出，状态只留用户的选择。
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
 pub struct FindState {
@@ -90,7 +90,7 @@ pub struct ViewState {
     pub show_toolbar: bool,
     pub show_status_bar: bool,
     pub show_quick_bar: bool,
-    /// P9：四个快捷命令组的可见性开关，由底部栏左侧的配置菜单切换。
+    /// 四个快捷命令组的可见性开关，由底部栏左侧的配置菜单切换。
     ///
     /// 长度必须与 `apps/desktop/src/ui/shell/quick_command_bar.rs::GROUPS` 一致；
     /// 改任意一边都要同步更新 `QUICK_GROUP_COUNT`，`quick_command_bar.rs` 的测试
@@ -103,9 +103,9 @@ pub struct ViewState {
     /// 一行提示、不发起连接（`filer.rs::ensure_filer_session`）。
     pub show_filer: bool,
 
-    // ── R14-e 六个工具面板 + 2026-11-08 的 Sysmon ──
+    // ── 六个工具面板 + 2026-11-08 的 Sysmon ──
     // 每个开关都有 `ui/panels/` 的读者：开着就画一个有真实内容的面板，
-    // 不是「点了只翻一个没人看的 bool」（R5）。2026-11-08 起 Explorer /
+    // 不是「点了只翻一个没人看的 bool」。2026-11-08 起 Explorer /
     // Outline / Sender / Shell 默认开（见 Default 里的分带说明）。
     pub show_pane_explorer: bool,
     pub show_pane_outline: bool,
@@ -113,11 +113,14 @@ pub struct ViewState {
     pub show_pane_session: bool,
     pub show_pane_shell: bool,
     pub show_pane_transfer: bool,
-    /// 视觉基线终端区右下角那枚 `Sysmon` 折叠标签展开后的面板。默认关着：
-    /// 视觉基线里它也只露一个标签，没有内容区。开关由标签自己翻（R5 回程）。
+    /// 终端底部 `Sysmon` 细带的展开位（`false` = 无边框 `Sysmon` 按钮，
+    /// `true` = 原地显示 T/C/M 读数条）。默认关着。
+    ///
+    /// Sysmon 已不是停靠面板，此位只由底部那条细带的按钮翻
+    /// （点按钮 ↔ 点读数条），夹具 `--demo sysmon` 也派发同一 `TogglePanel`。
     pub show_pane_sysmon: bool,
     /// 「脚本」停靠面板：在**当前活动标签页的会话**上跑脚本库的 Rhai 脚本。
-    /// 默认关着——和 Sysmon 同口径，靠齿轮菜单勾选打开。面板体在
+    /// 默认关着，靠齿轮菜单勾选打开。面板体在
     /// `apps/desktop/src/ui/panels/script_panel.rs`，执行线程复用 `script_run`。
     pub show_pane_script: bool,
 
@@ -130,7 +133,7 @@ pub struct ViewState {
     pub show_new_session: bool,
     pub show_settings: bool,
     pub show_about: bool,
-    /// R14-a：日志设置 / 状态对话框。
+    /// 日志设置 / 状态对话框。
     ///
     /// 它不只是「设置」——还显示当前会话正在往哪个文件写、暂停了没有。
     /// 日志是后台行为，没有面板就没人知道它到底有没有在记。
@@ -144,7 +147,7 @@ pub struct ViewState {
     /// （`SSH / Account / Sessions` 三标签 + 左列表 + `Cancel / Ok`）。
     pub show_onekeys: bool,
 
-    /// D6：首次启动引导（Welcome → 探测到的 SSH 主机 → Done）。
+    /// 首次启动引导（Welcome → 探测到的 SSH 主机 → Done）。
     ///
     /// 读者是 `ui/mod.rs` 末尾那段对话框分发（`if view.show_onboarding`）与
     /// `ui/overlays/onboarding.rs`。出厂 `false`：**不是**「第一次用」，而是
@@ -156,7 +159,7 @@ pub struct ViewState {
     /// `open_onboarding` / `finish_onboarding` 里一起改——没有第二个写入者。
     pub show_onboarding: bool,
 
-    /// D6：预览窗（Filer 双击 / 右键「预览」打开的文件）。
+    /// 预览窗（Filer 双击 / 右键「预览」打开的文件）。
     ///
     /// 读者是 `ui/mod.rs` 末尾那段窗口分发（`if view.show_preview`）与
     /// `ui/overlays/preview.rs` 的 `draw_preview` / `close_preview`。
@@ -170,36 +173,36 @@ pub struct ViewState {
     // ── Find (Search) ──
     pub find: FindState,
 
-    /// R14-c：命令面板（开没开 / 范围 / 查询 / 选中第几个）。
+    /// 命令面板（开没开 / 范围 / 查询 / 选中第几个）。
     ///
     /// 读者是 `ui/palette.rs`：面板只在 `visible` 时画，条目与过滤结果由
     /// `app::palette` 从菜单树 + 查询词现算，投影层一个字段都不写回来。
     pub command_palette: PaletteState,
 
-    /// R14-d：Goto 面板（开没开 / 模式 / 输入 / 选中 / 输入是否非法）。
+    /// Goto 面板（开没开 / 模式 / 输入 / 选中 / 输入是否非法）。
     ///
     /// 读者是 `ui/goto.rs`：面板只在 `visible` 时画，`error` 直接显示成提示，
     /// 输入经 `SetInput` 派发；投影层一个字段都不写回来。
     pub goto: GotoState,
 
-    /// R14-f：v0.1 工作台（开没开 / 哪个页面 / 输入 / 选中 / 历史 / 高亮 /
+    /// v0.1 工作台（开没开 / 哪个页面 / 输入 / 选中 / 历史 / 高亮 /
     /// 工具栏隐藏位 / 一次性提示）。读者是 `ui/center.rs` 与 `ui/terminal.rs`
     /// （常驻高亮）——投影层只读，一个字段都不写回来。
     pub center: CenterState,
 
-    /// V1-3：锁屏（复用 Vault 主密码）。读者是 `ui/lock.rs` 的全屏遮罩。
+    /// 锁屏（复用 Vault 主密码）。读者是 `ui/lock.rs` 的全屏遮罩。
     pub lock: LockState,
-    /// V1-2：快捷键绑定表窗口。读者是 `ui/shortcuts.rs`。
+    /// 快捷键绑定表窗口。读者是 `ui/shortcuts.rs`。
     pub show_shortcuts: bool,
     /// 2026-11-11：独立的「快捷命令」配置弹窗。读者是
     /// `ui/dialogs/quick_commands.rs`；命令表数据来自 `quickbar.json`。
     pub show_quick_commands: bool,
-    /// V1-4：tmux 控制模式面板。读者是 `ui/tmux_panel.rs`。
+    /// tmux 控制模式面板。读者是 `ui/tmux_panel.rs`。
     pub show_tmux: bool,
-    /// R16：同步输入开关。开着时键盘输入写给**所有**活着的标签，
+    /// 同步输入开关。开着时键盘输入写给**所有**活着的标签，
     /// 读者是 `ui/terminal.rs` 的按键处理与状态栏的 SYNC 徽标。
     pub sync_input: bool,
-    /// R16：隧道管理面板。读者是 `ui/tunnel_manager.rs`。
+    /// 隧道管理面板。读者是 `ui/tunnel_manager.rs`。
     pub show_tunnels: bool,
 
     /// 2026-11-07：界面语言。读者是每一处 `i18n::t(...)`（菜单 / 面板标题 /
@@ -246,10 +249,10 @@ impl Default for ViewState {
             show_log_settings: false,
             show_triggers: false,
             show_onekeys: false,
-            // D6：出厂不画引导。打开它是 `construct.rs::init` 的活（依据
+            // 出厂不画引导。打开它是 `construct.rs::init` 的活（依据
             // `Prefs::onboarded`），`Default` 只回答「这一帧画不画」。
             show_onboarding: false,
-            // D6：预览窗同样出厂不画——它是浮层，启动时不该盖住终端。
+            // 预览窗同样出厂不画——它是浮层，启动时不该盖住终端。
             show_preview: false,
             find: FindState::default(),
             command_palette: PaletteState::default(),
@@ -290,7 +293,7 @@ mod tests {
         assert!(!s.center.visible && s.center.highlights.is_empty());
         // v0.1 出口：锁屏 / 快捷键表 / tmux 面板默认都不占屏。
         assert!(!s.lock.locked && !s.show_shortcuts && !s.show_tmux);
-        // D6：两个一次性 / 临时窗口出厂都不占屏（引导由 init 按 prefs 打开，
+        // 两个一次性 / 临时窗口出厂都不占屏（引导由 init 按 prefs 打开，
         // 预览窗只能由用户对某一行动手打开）。
         assert!(!s.show_onboarding && !s.show_preview);
         // 同步输入默认关：它会让一次按键作用到所有会话，不能默认打开。

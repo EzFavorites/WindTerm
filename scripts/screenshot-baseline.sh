@@ -28,7 +28,7 @@
 # 全部由 `--demo <夹具>` 生成：夹具走 term-core 的 Terminal 处理固定字节流，
 # 不依赖 PTY 输出时序，所以同一二进制连续跑多次哈希不变（已实测 5 次一致）。
 #
-# 组件级基线（P2）：`tests/baseline/components/<name>.png`，一张图一个组件。
+# 组件级基线：`tests/baseline/components/<name>.png`，一张图一个组件。
 # 组件图的背景是纯色画布（`harness::canvas_bg`），不含会话树 / 状态栏 / 终端网格，
 # 所以改弹窗时比对的就是弹窗本身，而不是「整屏 1280×980 里找差异」。
 # 名单从二进制里取（`--list-components`），脚本不另抄一份。
@@ -320,19 +320,19 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "all" ]; then
   add_job 'check screenshot-find.png --demo find'
   add_job 'check screenshot-word.png --demo word'
   add_job 'check screenshot-block.png --demo block'
-  # P4 §7.3：悬停预览窗夹具（`--demo preview`）。回看 6 行 + 轨道 50% 处冻结点亮
+  # 悬停预览窗夹具（`--demo preview`）。回看 6 行 + 轨道 50% 处冻结点亮
   # 橄榄预览框，框内是历史快照、框外是实时视口、滑块与状态栏不动。新增基线。
   add_job 'check screenshot-preview.png --demo preview'
-  # 2026-11-19：Sysmon 展开态（`--demo sysmon`）。派发 TogglePanel 打开右带
-  # 面板，读数在 fixture 模式钉成视觉基线逐字值——守住 `T/C/M` 头与
-  # `time/system/mem` 三段的位置 / 颜色，防「又变回中文诊断列表」的回归。
+  # Sysmon 展开态（`--demo sysmon`）：派发 TogglePanel 把终端底部细带翻成
+  # T/C/M 读数条（原地切换，不再是右带面板）。fixture 模式把
+  # 读数钉成视觉基线逐字值——守住三段的右对齐位置 / 颜色。
   add_job 'check screenshot-sysmon.png --demo sysmon'
   add_job 'check screenshot-dialog.png --demo newsession'
-  # 2026-11-07：margin 边栏（时间戳 / 行号 / 符号三列 + 当前行强调）。
+  # margin 边栏（时间戳 / 行号 / 符号三列 + 当前行强调）。
   # 必须单独一张：另外五张的字节流既没有 OSC 133 提示符也不折行，
   # 符号列在它们身上永远是空的——等于没有基线。
   add_job 'check screenshot-margin.png --demo margin'
-  # 2026-11-07：底带（一条带 + 标签条 + 齿轮菜单）。同样必须单独一张：
+  # 底带（一条带 + 标签条 + 齿轮菜单）。同样必须单独一张：
   # 其余夹具里 Sender / Shell 都是关着的，底带根本不画。
   add_job 'check screenshot-dock.png --demo dock'
   # 2026-11-10：Hex 视图两张。`bin` 守「环从会话建立那一刻就在收」（首行偏移

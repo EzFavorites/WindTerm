@@ -1,6 +1,6 @@
 //! Shell 能力：窗口 chrome、模式开关、对话框与连接动作。
 //!
-//! R3 起 `Action` 不再是一个平铺的全局枚举。每个能力自己持有
+//! 起 `Action` 不再是一个平铺的全局枚举。每个能力自己持有
 //! `Action` 子枚举、自己的字符串入口和自己的 reducer；`app::action`
 //! 只负责把各能力的入口串起来。新增能力 = 新增一个模块 + 在
 //! `Action` 上挂一个变体，不需要改别的能力的 reducer。
@@ -20,7 +20,7 @@ pub use crate::vocab::MarksKnob;
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<ShellAction> {
@@ -65,7 +65,7 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
         }
         // ── 面板开关：8 个专用动作 + 通用 `TogglePanel` 都走 `toggle()` ──
         //
-        // R3-c：原来这 8 个分支各自写 `state.show_xxx = !state.show_xxx`，
+        // 原来这 8 个分支各自写 `state.show_xxx = !state.show_xxx`，
         // 而 `TogglePanel(panel)` 走 `panel_visible` / `set_panel_visible` 那张表——
         // 同一位开关有两条翻法。表里挪一个字段、分支里没跟上，就会变成
         // 「菜单勾上了，面板没出来」，而且两处都编译得过。现在只剩一条路。
@@ -86,7 +86,7 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
             vec![]
         }
         ShellAction::TogglePanel(panel) => toggle(state, panel),
-        // 置位版：Q2 刀1 起给脚本的 `app_panel_set` 用（端口 / 队列 / 采集 / 动词
+        // 置位版：给脚本的 `app_panel_set` 用（端口 / 队列 / 采集 / 动词
         // 四段都已接）。幂等——设成同值不改变任何字段，调用方可以放心重发；
         // `toggle` 是它的取反包装。
         ShellAction::SetPanel(panel, on) => {
@@ -116,9 +116,9 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
             state.always_on_top = !state.always_on_top;
             vec![]
         }
-        // ── R14-b：下列动作把副作用全部交给投影层，reducer 只带意图 ──
+        // ── 下列动作把副作用全部交给投影层，reducer 只带意图 ──
         // 它们不写 `ViewState`：标签列表、会话配置、选区、字号都活在 `apps/*`，
-        // 纯函数的 reducer 拿不到也不该拿到。I5 / B4 边界里「副作用以值返回」的本意。
+        // 纯函数的 reducer 拿不到也不该拿到。边界里「副作用以值返回」的本意。
         ShellAction::ActivateNextView => vec![Effect::ActivateTab(1)],
         ShellAction::ActivatePreviousView => vec![Effect::ActivateTab(-1)],
         ShellAction::CopySessionName => vec![Effect::CopySessionName],
@@ -128,19 +128,19 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
         ShellAction::ZoomIn => vec![Effect::Zoom(1)],
         ShellAction::ZoomOut => vec![Effect::Zoom(-1)],
         ShellAction::ZoomReset => vec![Effect::Zoom(0)],
-        // ── R14-c：E 类三条 + 新进程窗口，全部只声明副作用 ──
+        // ── E 类三条 + 新进程窗口，全部只声明副作用 ──
         ShellAction::NewWindow => vec![Effect::NewWindow],
         ShellAction::Exit => vec![Effect::Exit],
         ShellAction::Close => vec![Effect::CloseActiveTab],
         ShellAction::CloseAllViews => vec![Effect::CloseAllTabs],
-        // ── R14-d：分屏六条，reducer 只声明方向与范围 ──
+        // ── 分屏六条，reducer 只声明方向与范围 ──
         ShellAction::SplitViewHorizontally => vec![Effect::SplitView(true)],
         ShellAction::SplitViewVertically => vec![Effect::SplitView(false)],
         ShellAction::SplitGroupHorizontally => vec![Effect::SplitGroup(true)],
         ShellAction::SplitGroupVertically => vec![Effect::SplitGroup(false)],
         ShellAction::CloseActiveGroup => vec![Effect::CloseActiveGroup],
         ShellAction::MoveGroupToGroup => vec![Effect::MoveGroupToGroup],
-        // ── R16：同步输入 / 选中命令 / 隧道管理 ──
+        // ── 同步输入 / 选中命令 / 隧道管理 ──
         ShellAction::SyncInput => {
             state.sync_input = !state.sync_input;
             vec![]
@@ -224,7 +224,7 @@ fn zone_panels(zone: DockZone) -> Vec<PanelId> {
 
 /// 面板可见性 ⇒ `ViewState` 字段的**唯一**映射。
 ///
-/// 这张表既是动作侧的写点，也是绘制侧的读点。R3（2026-11-12）之前 `ui/panels/mod.rs`
+/// 这张表既是动作侧的写点，也是绘制侧的读点。（2026-11-12）之前 `ui/panels/mod.rs`
 /// 里还有一份一模一样的 9 分支 match；两份都是对 `PanelId` 的穷尽 match，所以
 /// 「一边改了另一边没改」会被编译器挡住——但它挡不住「同一个开关有两条翻法」，
 /// 那才是 2026-11-12 之前真实的坏法（8 个专用动作各写各的赋值）。现在：
@@ -235,7 +235,7 @@ fn zone_panels(zone: DockZone) -> Vec<PanelId> {
 ///
 /// 为什么读点留在 `shell` 而不是 `dock`：`dock::PanelId` 是词表，`menu/bars.rs`
 /// 用它；把它改成依赖 `ViewState` 会引出 `palette → menu → dock → state → palette`
-/// 这个四节点环——正是 R2 刚拆掉的那类病。`shell` 本来就同时依赖 `dock` 与
+/// 这个四节点环——正是刚拆掉的那类病。`shell` 本来就同时依赖 `dock` 与
 /// `state`，把表放这里不新增任何一条边。
 ///
 /// 门禁 4h 为此加了一条**受检的间接读**：这 9 个字段允许在 `ui/` 里没有直接读点，
@@ -287,7 +287,7 @@ fn toggle(state: &mut ViewState, panel: PanelId) -> Vec<Effect> {
 mod tests {
     use super::*;
 
-    /// W2-c：tmux 面板不能只活在截图夹具里。
+    /// tmux 面板不能只活在截图夹具里。
     /// 「ID 能 parse → reduce 真翻开关 → 再点一次能关回去」三件事一起守，
     /// 少一件就又是「菜单亮着、点了没反应」或「关掉没回程」。
     #[test]
@@ -307,7 +307,7 @@ mod tests {
         assert_eq!(state, before, "关掉以后点不回来了");
     }
 
-    /// R5：底带标签的 ×、齿轮菜单勾选、Sysmon 折叠标签都发 `TogglePanel(id)`。
+    /// 底带标签的 ×、齿轮菜单勾选、Sysmon 折叠标签都发 `TogglePanel(id)`。
     /// 每块面板都要能翻自己的字段，且连翻两次回到原状——「关掉没有回程」
     /// 是明令禁止的。新增面板时这条会直接把漏接映射的那块指出来。
     #[test]
@@ -365,7 +365,7 @@ mod tests {
 
     /// 专用动作（`TogglePaneExplorer` 那 8 个）与通用 `TogglePanel(id)` 必须翻同一件事。
     ///
-    /// R3-c 之前这两条路各写各的赋值语句：专用动作 `state.show_xxx = !state.show_xxx`，
+    /// 之前这两条路各写各的赋值语句：专用动作 `state.show_xxx = !state.show_xxx`，
     /// 通用动作走 `panel_visible` / `set_panel_visible` 那张表。上面那条测试只覆盖了
     /// 通用动作，所以「专用动作翻错了字段」「表里挪了字段、专用动作没跟上」这两类
     /// 都编译得过、测试也全绿，只有人手点菜单才发现。这里逐面板比对两条路的**结果状态**，
@@ -425,10 +425,10 @@ mod tests {
 
         assert_eq!(
             covered,
-            PanelId::ALL.len() - 1,
+            PanelId::ALL.len(),
             "PanelId 加了新变体：要么给它接上专用动作，要么在上面的 dedicated() 里 \
              显式 return None 登记「它只有 TogglePanel 一条路」——别让它悄悄漏掉。\
-             现在只有 Sysmon 一条走 TogglePanel，所以这里少 1"
+             Sysmon 已不在 ALL 里（它不是停靠面板），所以现在全覆盖。"
         );
     }
 }

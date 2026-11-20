@@ -1,4 +1,4 @@
-//! P4：停靠位——**面板停在哪条带的第几位**（模型层，纯数据）。
+//! 停靠位——**面板停在哪条带的第几位**（模型层，纯数据）。
 //!
 //! 三件事分在三个文件里，因为它们回答三个不同的问题：
 //!
@@ -9,7 +9,7 @@
 //! 与 `split.rs` 同一类：**布局是投影层的视图结构，不是 `ViewState` 字段**。
 //! reducer 只声明意图（`term_app::dock::LayoutAction`），改动由 `effects` 落地。
 //! 这条分工不是洁癖：布局要处理矩形与指针，把它塞进纯函数 reducer 就等于让
-//! reducer 认识 `egui`（B1 直接破）。
+//! reducer 认识 `egui`（直接破）。
 //!
 //! # 发射点固定，成员与位次是数据
 //!
@@ -25,7 +25,7 @@
 //! 会立刻变红，所以它不能是「顺手调整」。
 //!
 //! 带内**谁在第几位**、以及谁被拖成了浮动窗，全部来自 [`DockLayout`]。默认布局
-//! 由 `PanelId::ALL` 与 `default_zone()` 推出来，与 P3 的三个写死 `SidePanel`
+//! 由 `PanelId::ALL` 与 `default_zone()` 推出来，与三个写死 `SidePanel`
 //! 调用逐字等价（`the_default_layout_is_exactly_the_p3_emission_order` 守这一条）。
 
 use eframe::egui;
@@ -55,14 +55,14 @@ const BAND_FLOAT_PREFIX: &str = "float-band:";
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::ui) struct DockLayout {
     placements: Vec<(PanelId, Placement)>,
-    /// 带级浮动（K3-b）。成员**仍保留各自的 `Dock` 位次**，只把整条带记在这里：
+    /// 带级浮动。成员**仍保留各自的 `Dock` 位次**，只把整条带记在这里：
     /// 这样收回时原位次一分不差（`redock` 单面板才会追加到末尾），而 `zone()`
-    /// 对浮动带返回空，原停靠位自然呈现 K3-a 的空壳。
+    /// 对浮动带返回空，原停靠位自然呈现空壳。
     floating_bands: Vec<(DockZone, egui::Rect)>,
 }
 
 impl DockLayout {
-    /// 默认布局：`ALL` 顺序 + `default_zone()`，与 P3 的写死顺序逐字等价。
+    /// 默认布局：`ALL` 顺序 + `default_zone()`，与写死顺序逐字等价。
     pub(in crate::ui) fn new() -> Self {
         let mut out = Self {
             placements: Vec::new(),
@@ -100,7 +100,7 @@ impl DockLayout {
 
     /// 某带的成员，按位次。这是 `draw()` 真正遍历的东西。
     ///
-    /// 整条带浮起来时**这里返回空**：原停靠位要让给 K3-a 的空壳，成员只在
+    /// 整条带浮起来时**这里返回空**：原停靠位要让给空壳，成员只在
     /// 浮动窗内出现。成员本身的位次仍在 `docked_members` 里，收回即可复原。
     pub(in crate::ui) fn zone(&self, zone: DockZone) -> Vec<PanelId> {
         if self.is_band_floating(zone) {
@@ -375,6 +375,7 @@ mod tests {
             layout.zone(DockZone::Left),
             vec![PanelId::Explorer, PanelId::Filer]
         );
+        // Sysmon 不是停靠面板（终端底部细带），不在右带。
         assert_eq!(
             layout.zone(DockZone::Right),
             vec![
@@ -382,7 +383,6 @@ mod tests {
                 PanelId::Outline,
                 PanelId::Session,
                 PanelId::Transfer,
-                PanelId::Sysmon,
             ]
         );
         assert_eq!(
@@ -402,12 +402,7 @@ mod tests {
         );
         assert_eq!(
             layout.zone(DockZone::Right),
-            vec![
-                PanelId::Outline,
-                PanelId::Session,
-                PanelId::Transfer,
-                PanelId::Sysmon,
-            ],
+            vec![PanelId::Outline, PanelId::Session, PanelId::Transfer],
             "换带之后原位次要重排，不能留下空洞"
         );
     }
@@ -446,7 +441,7 @@ mod tests {
         assert!(layout.is_band_floating(DockZone::Right));
         assert!(
             layout.zone(DockZone::Right).is_empty(),
-            "原停靠位要空出来给 K3-a 空壳"
+            "原停靠位要空出来给空壳"
         );
         assert_eq!(layout.band_members(DockZone::Right), before);
         layout.band_redock(DockZone::Right);

@@ -31,7 +31,7 @@ pub struct Track {
     /// 轨道（滑块可被拖动的总高）。
     pub height: f64,
     /// 滑块最小高度；与 egui `ScrollStyle::handle_min_length` 对齐，防止长会话
-    /// 时滑块缩成看不见的一条线（见设计稿 §8 R5）。
+    /// 时滑块缩成看不见的一条线（见设计稿 §8）。
     pub min_thumb: f64,
 }
 
@@ -81,7 +81,7 @@ pub fn thumb_of(track: Track, rows: usize, history: usize, scroll_top: u64) -> T
 /// [`thumb_of`] 的逆：给定滑块上缘像素位置，反算 `scroll_top`。
 ///
 /// 反解用「有效轨道高 = `track - h`」，避免在上下端因 `h` 被钳制而产生跳变
-/// （设计稿 §8 R5）。`history == 0` 或 `rows == 0` 时恒返回 0（贴底）。
+/// （设计稿 §8）。`history == 0` 或 `rows == 0` 时恒返回 0（贴底）。
 pub fn scroll_top_of(track: Track, rows: usize, history: usize, thumb_top: f64) -> u64 {
     let track_h = track.height.max(0.0);
     if rows == 0 || history == 0 {
@@ -109,13 +109,23 @@ pub fn scroll_top_of(track: Track, rows: usize, history: usize, thumb_top: f64) 
 /// `ratio` 会被钳进 `[0, 1]`；`history == 0` 时恒落在贴底（range 起点 0）。
 ///
 /// 注：签名里**没有** `rows` 参数——可见行数不参与换算（预览框高度由 `box_h /
-/// cell_h` 反算，见 §8 R4），带上只会触发 clippy 的未使用参数告警。
+/// cell_h` 反算，见 §8），带上只会触发 clippy 的未使用参数告警。
 pub fn preview_range(history: usize, ratio: f64, preview_rows: usize) -> ViewRange {
     let ratio = ratio.clamp(0.0, 1.0);
     let scroll_top = (ratio * history as f64).round() as u64;
     let mut vp = Viewport::new();
     vp.apply_scroll_top(scroll_top, history as u64);
     vp.rows(preview_rows)
+}
+
+/// 指针是否落在「屏幕不可见区域」——滑块之外的那段轨道。
+///
+/// 滑块 `[top, top+height]` 投影的正是当前可见的 `rows` 行：悬停在滑块上时，
+/// 那段内容已经在屏上，弹预览没有意义，还会挡住真实视口；只有悬停在滑块
+/// **上方**（更旧的历史）或**下方**（更新的、还没滚到的行）才弹预览。
+/// 坐标都是「相对轨道顶」的像素偏移，与 [`Thumb`] 同一坐标系。
+pub fn hover_in_invisible_area(thumb: Thumb, pointer_y: f64) -> bool {
+    pointer_y < thumb.top || pointer_y > thumb.top + thumb.height
 }
 
 /// 预览框（占满内容区宽、恒高 `box_h` 的半透明取景框）的**上缘**。

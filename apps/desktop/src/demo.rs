@@ -1,6 +1,6 @@
 //! 视觉基线夹具：构造**确定性**的回看画面，用冻结一张 PNG。
 //!
-//! 为什么需要它：`--screenshot` 只截「贴底」状态，而 F1 新增的回看、选区、
+//! 为什么需要它：`--screenshot` 只截「贴底」状态，而新增的回看、选区、
 //! 浮标都在滚动之后才出现——没有基线，改动渲染时只能靠肉眼，等于没有回归。
 //!
 //! 为什么不用真实的 shell：PTY 输出、shell 提示符、字体回退都会让两次运行的
@@ -10,9 +10,9 @@
 //! 只由 `--demo scroll` / `--demo find` / `--demo word` / `--demo block` 触发；
 //! 正常启动路径不受影响。
 //!
-//! R4 起查找夹具**不再直接写 `FindState`**：它只描述「要派发哪些 Action」，
+//! 起查找夹具**不再直接写 `FindState`**：它只描述「要派发哪些 Action」，
 //! 由投影层用同一个 `reduce` 跑一遍。理由很直接——`--demo` 若能把状态写好，
-//! 它就是第二个写入者，而 R4 的全部意义就是消灭最后这个例外。
+//! 它就是第二个写入者，而全部意义就是消灭最后这个例外。
 
 use term_app::action::Action;
 use term_app::find::FindAction;
@@ -22,7 +22,7 @@ use term_app::viewport::Viewport;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::vt::Terminal;
 
-/// 选区夹具：不选 / 跨三行的拖动选区 / 双击选词（F3）。
+/// 选区夹具：不选 / 跨三行的拖动选区 / 双击选词。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelSpec {
     None,
@@ -38,7 +38,7 @@ pub enum SelSpec {
 ///
 /// - `scroll`：从底部往历史里滚几行。
 /// - `sel`：选区是什么形状。
-/// - `find`：`Some(query)` = 打开 Find 栏搜这个串（F2：验证回看里的高亮）。
+/// - `find`：`Some(query)` = 打开 Find 栏搜这个串（验证回看里的高亮）。
 // 注意：不派 `Eq`——`preview_hover: Option<f32>` 含浮点，`f32` 不实现 `Eq`。
 // `PartialEq`（够 `assert_eq!` / `==`）保留；无 `HashSet`/`BTreeSet` 键用法。
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -57,7 +57,7 @@ pub struct DemoSpec {
     /// 普通夹具既没有 shell 集成也不会折行，图上那一列永远是空的——
     /// 等于没有基线。
     pub marks: bool,
-    /// `true` = 换成 G6 字形样张：truecolor 绿色 `|` 当列标尺，样例覆盖
+    /// `true` = 换成字形样张：truecolor 绿色 `|` 当列标尺，样例覆盖
     /// ASCII / CJK / emoji / Nerd Font 私用区 / 组合字符。像素判据在
     /// `scripts/glyph-probe.py`，两处的行序必须一致。
     pub glyph: bool,
@@ -133,7 +133,7 @@ impl DemoSpec {
         ..DemoSpec::SCROLL
     };
 
-    /// 回看 + 双击选词（F3）：只有 "quick" 一词高亮，
+    /// 回看 + 双击选词：只有 "quick" 一词高亮，
     /// 图上一眼能看出边界对不对（多一格 / 少一格都很显眼）。
     pub const WORD: DemoSpec = DemoSpec {
         scroll: 6,
@@ -148,7 +148,7 @@ impl DemoSpec {
         sysmon: false,
     };
 
-    /// 回看 + 列选（F4）：三行同一段列，图上是竖着的一条带子。
+    /// 回看 + 列选：三行同一段列，图上是竖着的一条带子。
     /// 若矩形退化成线性，中间行会整行高亮——一眼能看出来。
     pub const BLOCK: DemoSpec = DemoSpec {
         scroll: 6,
@@ -194,8 +194,8 @@ impl DemoSpec {
         sysmon: false,
     };
 
-    /// 字形样张（M0 / G6）：不滚动、不选区、不打开查找栏，画面里只有样张与标尺。
-    /// 这张图**不进** `screenshot-baseline.sh` 的逐字节基线：G6 要量的是
+    /// 字形样张：不滚动、不选区、不打开查找栏，画面里只有样张与标尺。
+    /// 这张图**不进** `screenshot-baseline.sh` 的逐字节基线：要量的是
     /// 字形占位与颜色，判据是 `scripts/glyph-probe.py` 的数值，不是 PNG 哈希。
     pub const GLYPH: DemoSpec = DemoSpec {
         scroll: 0,
@@ -242,7 +242,7 @@ impl DemoSpec {
         sysmon: false,
     };
 
-    /// hover 预览夹具（P4 §7.3）：回看 6 行（滚动条可见）+ 冻结点亮预览框。
+    /// hover 预览夹具：回看 6 行（滚动条可见）+ 冻结点亮预览框。
     /// 预览框定格在轨道 50% 处，内容是该位置的历史快照——与真实视口（回看 6 行）
     /// 不同，便于肉眼确认「框内是历史、框外是实时视口、滑块不动、状态栏不动」。
     pub const PREVIEW: DemoSpec = DemoSpec {
@@ -280,11 +280,11 @@ impl DemoSpec {
             // hex 视图（本轮 ②）：一段铺满屏的字节 / 一个被洪水打满的环。
             "bin" => Some(DemoSpec::BIN),
             "binfull" => Some(DemoSpec::BIN_FULL),
-            // hover 预览：回看 6 行 + 冻结点亮预览框（P4 §7.3）。
+            // hover 预览：回看 6 行 + 冻结点亮预览框。
             "preview" => Some(DemoSpec::PREVIEW),
             // Sysmon 展开：`T/C/M` 头 + `time/system/mem` 读数条。
             "sysmon" => Some(DemoSpec::SYSMON),
-            // 弹窗夹具：背景用回看画面，弹 New Session 对话框（dev-spec T5 比对用）。
+            // 弹窗夹具：背景用回看画面，弹 New Session 对话框（与组件基线比对用）。
             "newsession" => Some(DemoSpec {
                 open_new_session: true,
                 ..DemoSpec::SCROLL
@@ -300,7 +300,7 @@ pub struct Fixture {
     pub screen: ScreenImage,
     pub viewport: Viewport,
     pub selection: Option<Selection>,
-    /// R4：夹具只描述「按了哪些动作」，不携带领域状态。
+    /// 夹具只描述「按了哪些动作」，不携带领域状态。
     find: Vec<Action>,
     /// 2026-11-07：margin 夹具。夹具**不直接写** `ViewState.margin`——
     /// 它派发 `Text.MarginTimestamp`，由同一个 `reduce` 打开时间戳列，
@@ -316,9 +316,9 @@ pub struct Fixture {
     /// 夹具要求的显示模式。只有 hex 夹具是 `Bin`，其余一律 `Text`——
     /// 五张既有基线必须逐字节不变，靠的就是这一位在它们身上没被改过。
     pub mode: term_runtime::prefs::DisplayMode,
-    /// P4 §7.3：hover 预览夹具切出的历史快照（`None` = 普通夹具不画预览）。
+    /// hover 预览夹具切出的历史快照（`None` = 普通夹具不画预览）。
     pub preview_screen: Option<ScreenImage>,
-    /// P4 §7.3：冻定的轨道归一化位置；`None` = 普通夹具。pane.rs 据此反算绝对 y。
+    /// 冻定的轨道归一化位置；`None` = 普通夹具。pane.rs 据此反算绝对 y。
     pub preview_hover: Option<f32>,
 }
 
@@ -419,7 +419,7 @@ fn margin_bytes(cols: usize) -> Vec<Vec<u8>> {
     out
 }
 
-/// G6 字形样张的列标尺色：truecolor (0, 255, 128)。
+/// 字形样张的列标尺色：truecolor (0, 255, 128)。
 ///
 /// 不用 ANSI 绿（32）是因为调色板的绿随主题变，按 RGB 提取的像素分析
 /// 换一次主题就失效。truecolor 由 `vt.rs` 落成 `Colour::Rgb`，经
@@ -541,7 +541,7 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
         demo_bytes(rows)
     };
     for (i, chunk) in chunks.iter().enumerate() {
-        // 时刻的产权在宿主（I3）：夹具扮演宿主，递一个固定值进去。
+        // 时刻的产权在宿主：夹具扮演宿主，递一个固定值进去。
         vt.stamp_row(DEMO_CLOCK_BASE + i as u64);
         vt.process(chunk);
     }
@@ -612,8 +612,8 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
         ))],
         // 默认布局已经把 Sender / Shell 打开：再 Toggle 一次是**关掉**它们，
         // 底带会从图上消失。夹具只负责钉死字节流，不碰外壳状态。
-        // Sysmon 是唯一的例外：它出厂关闭，展开夹具派发一次 TogglePanel 打开
-        // 右带面板（走与用户点折叠标签相同的 reduce，不是第二套写状态的路）。
+        // Sysmon 是唯一的例外：它出厂关着（底部细带只露按钮），展开夹具派发
+        // 一次 TogglePanel 把细带翻成 T/C/M 读数（与用户点按钮同一条 reduce）。
         shell: if spec.sysmon {
             vec![Action::Shell(term_app::shell::ShellAction::TogglePanel(
                 term_app::dock::PanelId::Sysmon,
@@ -663,7 +663,7 @@ mod tests {
         assert!(!f.viewport.is_bottom());
         assert_eq!(f.viewport.scroll(), 6);
         assert_eq!(f.screen.range, f.viewport.range(24));
-        // K3：类型化视图必须与裸字段逐值同源，否则「收口」只是换了个写法。
+        // 类型化视图必须与裸字段逐值同源，否则「收口」只是换了个写法。
         assert_eq!(f.screen.view_range(), f.viewport.rows(24));
         assert_eq!(f.screen.lines.len(), 24);
         // 上滚 6 行后，首行应是第二屏靠后的内容，而不是第 1 行。

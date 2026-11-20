@@ -228,3 +228,30 @@ fn thumb_top_is_proportional_to_scroll_top() {
     let mid = thumb_of(track, rows, history, (history / 2) as u64).top;
     assert!(t0 < mid && mid < t1, "t0={t0} mid={mid} t1={t1}");
 }
+
+// ── hover 预览只在屏幕不可见区域生效 ──
+
+#[test]
+fn preview_hover_only_outside_the_thumb() {
+    // 滑块占轨道中段 [400, 600]：落在滑块上的指针不该弹预览（那段已在屏上），
+    // 只有上方（更旧历史）与下方（更新的行）才弹。边界取严格不等，压在滑块
+    // 上下缘的点算「可见」，不弹——避免预览框在边缘上反复闪。
+    let thumb = Thumb { top: 400.0, height: 200.0 };
+    for y in [400.0, 450.0, 500.0, 600.0] {
+        assert!(!hover_in_invisible_area(thumb, y), "滑块上的 y={y} 不该预览");
+    }
+    for y in [0.0, 399.9, 600.1, 999.0] {
+        assert!(hover_in_invisible_area(thumb, y), "滑块外的 y={y} 该预览");
+    }
+}
+
+#[test]
+fn at_bottom_the_whole_older_history_is_invisible() {
+    // 贴底：滑块贴轨道底段。此时轨道上方全是更旧的历史，都该能预览；滑块本身不。
+    let track = Track { height: 1000.0, min_thumb: 12.0 };
+    let (rows, history) = (24, 100);
+    let thumb = thumb_of(track, rows, history, history as u64);
+    assert!(thumb.top > 0.0, "贴底滑块应在轨道下部");
+    assert!(hover_in_invisible_area(thumb, thumb.top - 1.0));
+    assert!(!hover_in_invisible_area(thumb, thumb.top + thumb.height / 2.0));
+}

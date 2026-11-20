@@ -1,6 +1,6 @@
-//! P4：停靠 / 浮动的**词表**——面板身份、停靠带、四个布局动作。
+//! 停靠 / 浮动的**词表**——面板身份、停靠带、四个布局动作。
 //!
-//! 这一层只有名字与意图，没有一个字节的几何：`term-app` 不依赖 `egui`（B1），
+//! 这一层只有名字与意图，没有一个字节的几何：`term-app` 不依赖 `egui`，
 //! 「浮在哪个坐标、拖到第几位」由投影层算。这么切是因为两边的生命周期不同：
 //! 词表要能进 `Action` 被 reducer 单测，几何只活在 `ui/layout/dock.rs`。
 //!
@@ -26,7 +26,7 @@ pub use crate::vocab::LayoutAction;
 /// 纯层只声明意图。`ViewState` 一个字段都不写——布局树不在那里。
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<LayoutAction> {
@@ -79,8 +79,8 @@ mod tests {
             .map(|p| p.name())
             .collect();
         // 工具面板 = 全部 − {侧栏, 文件}：前者第一格是「＋ New Session」，后者是地址栏，
-        // 都不该再被停靠容器加标题。新增 `Script` 后总数 = 10 − 2 = 8。
-        assert_eq!(tool.len(), 8);
+        // 都不该再被停靠容器加标题。Sysmon 不是停靠面板，总数 = 9 − 2 = 7。
+        assert_eq!(tool.len(), 7);
         assert!(!tool.contains(&"sidebar") && !tool.contains(&"filer"));
     }
 
@@ -103,15 +103,10 @@ mod tests {
                 .collect()
         };
         assert_eq!(names(DockZone::Left), vec!["pane_explorer", "filer"]);
+        // Sysmon 不是停靠面板（终端底部细带原地切换），不在右带。
         assert_eq!(
             names(DockZone::Right),
-            vec![
-                "sidebar",
-                "pane_outline",
-                "pane_session",
-                "pane_transfer",
-                "pane_sysmon",
-            ]
+            vec!["sidebar", "pane_outline", "pane_session", "pane_transfer"]
         );
         assert_eq!(
             names(DockZone::Bottom),
