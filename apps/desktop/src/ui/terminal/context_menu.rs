@@ -82,7 +82,7 @@ impl TerminalWindow {
 
     /// 在终端区的 response 上挂右键菜单。`slot` 让分屏 / 底带面板各自作用在
     /// 正确的窗格上（2026-11-15：参数从「标签下标」换成槽位，`Shell` 面板因此
-    /// 拿到了与参考实现同一份菜单）。
+    /// 拿到了与兼容终端同一份菜单）。
     pub(in crate::ui) fn draw_terminal_context(&mut self, _ui: &mut egui::Ui, resp: &egui::Response, slot: TabSlot) {
         // 状态与文案先拷出来：闭包里不能借 `self`（`resp.context_menu` 的闭包与
         // `&mut self` 的方法体共用同一个 `self`），`MarginState` 是五个 bool，
@@ -99,7 +99,7 @@ impl TerminalWindow {
             ui.separator();
             ui.menu_button(more, |ui| {
                 // Margin / Zoom 已挪到「左边缘专用菜单」（`draw_margin_context`）：
-                // 参考实现里左边缘与内容区是两份菜单，不该把 margin 塞进内容菜单。
+                // 兼容终端里左边缘与内容区是两份菜单，不该把 margin 塞进内容菜单。
                 // 脚本入口本来就是上下文相关动作，菜单栏没有同义路径。
                 if ui.button(run_script).clicked() {
                     work.push(Work::RunScript);
@@ -214,13 +214,13 @@ impl TerminalWindow {
         }
     }
 
-    /// 终端**左边缘（margin 栏）专用**右键菜单。参考实现里左边缘与内容区是**两份**
+    /// 终端**左边缘（margin 栏）专用**右键菜单。兼容终端里左边缘与内容区是**两份**
     /// 不同的右键菜单：左边缘给「边距 / 符号 / 空白 / 折叠 / 缩放」，内容区给
     /// 复制/粘贴/查找那一套。这里走**与内容菜单同一套**手绘行（`draw_context_rows`），
     /// 风格与宽度自适应完全一致。
     ///
     /// 菜单里的动作没有一条是标签页级的（改的是窗口的 margin / 缩放状态），
-    /// 所以槽位只用来对齐签名——底带面板的左边缘与参考实现是同一份菜单。
+    /// 所以槽位只用来对齐签名——底带面板的左边缘与兼容终端是同一份菜单。
     pub(in crate::ui) fn draw_margin_context(
         &mut self,
         _ui: &mut egui::Ui,

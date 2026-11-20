@@ -72,7 +72,7 @@ enum Entry {
     },
 }
 
-/// 参考实现菜单每行第一个字母都带下划线（S̲plit / F̲loat / Ëxplorer / …）。
+/// 兼容终端菜单每行第一个字母都带下划线（S̲plit / F̲loat / Ëxplorer / …）。
 /// 位置复用主菜单那张访问键表；翻译成中文时按 `menu_items::underline_for`
 /// 的同一口径划首字。
 fn labelled(lang: Lang, key: &'static str) -> (String, Option<usize>) {
@@ -104,9 +104,9 @@ fn labelled(lang: Lang, key: &'static str) -> (String, Option<usize>) {
 ///
 /// 三个带的菜单**内容同源**，差别只有三处，都在这里：
 /// - `Split` 每条带都有，但左右带**置灰**：它们是上下均分的，切一刀没有语义。
-///   参考实现浮动窗那张图里 Split 就是灰的，直接少一行反而不像（R5 的「点了没反应」
+///   兼容终端浮动窗那张图里 Split 就是灰的，直接少一行反而不像（R5 的「点了没反应」
 ///   用禁用态解决，不是用删行解决）；
-/// - `Float` 行的勾表示「这条带是不是浮着」，参考实现浮窗图里它带着勾；
+/// - `Float` 行的勾表示「这条带是不是浮着」，兼容终端浮窗图里它带着勾；
 /// - 勾选框说的是「在不在**这条**带里」，所以同一块面板在左带菜单里可能勾着、
 ///   在底带菜单里没勾——这正是「把面板从左带拖到底带」在菜单上的表达。
 fn gear_entries(
@@ -123,7 +123,7 @@ fn gear_entries(
         underline: split_underline,
         check: None,
         cmd: Cmd::Split,
-        // 左右带是上下均分，Split 没有语义；参考实现浮动窗那一行就是灰的。
+        // 左右带是上下均分，Split 没有语义；兼容终端浮动窗那一行就是灰的。
         disabled: zone != DockZone::Bottom,
     });
     // 文案恒为 "Float"（视觉基线两张菜单都是这一行）。停靠态浮整带；浮窗态
@@ -279,7 +279,7 @@ pub(super) fn btn_center(x: f32, strip_top: f32) -> egui::Pos2 {
 
 /// `^`（展开态画 `v`）。视觉基线里是两条 45° 短线。
 pub(super) fn paint_chevron(p: &egui::Painter, k: egui::Pos2, up: bool, c: egui::Color32) {
-    // 参考实现箭头更小（此前用 5px 半宽显得过大 → 3.5），用户再反馈仍偏大，收到
+    // 兼容终端箭头更小（此前用 5px 半宽显得过大 → 3.5），用户再反馈仍偏大，收到
     // 3.0（总宽 6px），与齿轮（外径 10）/ 叉（6.5）保持同一量级。
     let a = 3.0;
     let dy = if up { a } else { -a };
@@ -331,7 +331,7 @@ mod tests {
             .collect()
     }
 
-    /// 参考实现菜单三条带都有 Split 行，但左右带那行是**灰的**——左右带上下均分，
+    /// 兼容终端菜单三条带都有 Split 行，但左右带那行是**灰的**——左右带上下均分，
     /// 切一刀没有语义；禁用态既保留了原图那一行，又不会点了没反应。
     #[test]
     fn split_is_present_everywhere_but_disabled_outside_the_bottom_band() {
@@ -349,7 +349,7 @@ mod tests {
         }
     }
 
-    /// 参考实现每行文字都带加速键下划线（S̲plit / F̲loat / Ëxplorer / …），
+    /// 兼容终端每行文字都带加速键下划线（S̲plit / F̲loat / Ëxplorer / …），
     /// 位置按英文 key 的首字母；中文显示时划首字。
     #[test]
     fn every_menu_row_carries_its_access_key_underline() {
@@ -371,7 +371,7 @@ mod tests {
         }
     }
 
-    /// 参考实现浮动窗那张菜单里 Float 行带勾（表示这条带正浮着），停靠带空壳里
+    /// 兼容终端浮动窗那张菜单里 Float 行带勾（表示这条带正浮着），停靠带空壳里
     /// 同一行没有勾。
     #[test]
     fn the_float_row_checks_the_floating_state() {

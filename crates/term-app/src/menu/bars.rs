@@ -58,7 +58,7 @@ pub const BAR_TOOLS: &[BarTool] = &[
 /// 派发一条命令 / 弹一个菜单，命令 ID 必须由这里给。
 ///
 /// 2026-11-15 夜语义更正：第一个字母**不是**「字体缩放菜单」，而是
-/// **group 的名字**（`A/B/C/D`，每个 group 各不相同）。参考实现 `Merge To Group ▸`
+/// **group 的名字**（`A/B/C/D`，每个 group 各不相同）。兼容终端 `Merge To Group ▸`
 /// 子菜单按名字列出目标组；缩放在 `View ▸ Zoom` 另有独立入口。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum TabTool {

@@ -27,7 +27,7 @@
 //! # 三条纪律
 //!
 //! 1. **永不读密码。** `docs/design/09-session-import-and-onboarding.md` 把「密码不迁移」写成产品
-//!    底线：各家加密方案不公开，逆向解密既不合规也不可靠。`ImportedSession`
+//!    底线：各家加密方案不公开，本应用不尝试解密：不可靠，也不合规。`ImportedSession`
 //!    类型里根本没有密码字段——这是类型层面的保证，不是约定。
 //! 2. **近乎纯函数。** `parse_*` 不读文件、不看时钟；唯一的**环境读取**是
 //!    `sessions::expand_home()` 里的 `dirs::home_dir()`——`parse_ssh_config` 必须

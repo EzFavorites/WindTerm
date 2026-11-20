@@ -206,7 +206,7 @@ impl TerminalWindow {
     }
 
     /// 空容器的壳：只画 ⚙ 与 ×，没有色块 / 标题 / Filter。
-    /// 参考实现「空容器 + 全不勾菜单」那张图就是这个形态——它保留一个入口让用户
+    /// 兼容终端「空容器 + 全不勾菜单」那张图就是这个形态——它保留一个入口让用户
     /// 把面板勾回来，而不是整条带消失、再也找不到入口。
     pub(in crate::ui) fn draw_compact_chrome(
         &mut self,
@@ -346,7 +346,7 @@ impl TerminalWindow {
             let icon = crate::theme::chrome(CHROME_SCALE.icon);
             let mut bx = btns_left + EDGE_PAD;
 
-            // ^ / v：向上展开占满 / 还原（参考实现方向：点 ^ 是展开占满，不是收起）。
+            // ^ / v：向上展开占满 / 还原（兼容终端方向：点 ^ 是展开占满，不是收起）。
             // 浮动窗里没有这颗：窗口自己就是「展开态」，原图浮窗右端只有 ⚙ ×。
             if show_maximize {
                 if icon_button(ui, strip.top(), bx, egui::Id::new((zone.name(), "dock_collapse"))).clicked() {

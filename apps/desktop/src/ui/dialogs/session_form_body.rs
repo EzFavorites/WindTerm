@@ -36,7 +36,7 @@ pub(in crate::ui) const FORM_W: f32 = 400.0;
 ///
 /// 93 只放得下约 13 个等宽字符：`Description:` 刚好，再长就得截（`fit_label`
 /// 内按像素宽度判定）。那些长标签页（`Word Separators For Alternate Screen:`…）
-/// 在参考实现里根本不是两列表单，而是「标题在上、控件占满整行」——见 `heading`
+/// 在兼容终端里根本不是两列表单，而是「标题在上、控件占满整行」——见 `heading`
 /// 的注释；它们还等着按那个语法重排，在那之前先保证不压到左栏树上。
 pub(in crate::ui) const LABEL_W: f32 = 93.0;
 
@@ -73,7 +73,7 @@ fn form_row_colored(ui: &mut egui::Ui, label: &str, color: egui::Color32) {
 /// 从前这里按「超过 20 个字符」硬截，于是 `Sends null packet to keep session
 /// alive:` 明明可以整条显示却还是变成 `Sends null packet t…`。按宽度判断之后，
 /// Session / Connection 这类标签都能整条画出来；只有真的塞不下标签列的长标签
-/// （`Word Separators For Alternate Screen:` 这类，参考实现里根本不是两列表单、
+/// （`Word Separators For Alternate Screen:` 这类，兼容终端里根本不是两列表单、
 /// 而是「标题在上」）才截断——截断处既不压到左栏树上，也不把控件挤走。
 fn fit_label(ui: &egui::Ui, label: &str) -> String {
     let font = egui::TextStyle::Body.resolve(ui.style());
@@ -107,7 +107,7 @@ fn form_row_accent(ui: &mut egui::Ui, label: &str) {
     form_row_colored(ui, label, egui::Color32::from_rgb(0xF5, 0x8C, 0x2E));
 }
 
-/// 「标题在上、控件占满整行」那几页的一行说明——参考实现 Session 的**大多数**
+/// 「标题在上、控件占满整行」那几页的一行说明——兼容终端 Session 的**大多数**
 /// 二级页都是这个语法，不是两列网格：
 /// `01-ssh-connection.png`（`Sends null packet…` 在框上方）、
 /// `default-session-keyboard.png`（`Alt modifier key sends:` 在框上方）、
@@ -280,7 +280,7 @@ fn combo_term(ui: &mut egui::Ui, current: &mut usize) {
 /// 认证方式在勾选块里的文案。逐字取自视觉基线
 /// `03-ssh-authentication.png`（`Attempt ssh-agent authentication` 等五条），
 /// 不用 `AuthMethod::to_string()`——那是日志与配置里的短名（`Password`、
-/// `GSSAPI with MIC`），放进界面既不是参考实现措辞也读不出「尝试」的含义。
+/// `GSSAPI with MIC`），放进界面既不是兼容终端措辞也读不出「尝试」的含义。
 fn attempt_label(m: AuthMethod) -> &'static str {
     match m {
         AuthMethod::Agent => "Attempt ssh-agent authentication",
@@ -412,7 +412,7 @@ impl TerminalWindow {
                             .hint_text("[nesting groups] a>b>c"),
                     );
                     ui.end_row();
-                    // 参考实现 `04-new-session/00-ssh-session.png` 的 Session 页
+                    // 兼容终端 `04-new-session/00-ssh-session.png` 的 Session 页
                     // 没有 Logon Script；CRT 那一项不属于 WindTerm 会话表单，
                     // 字段仍留在数据层供脚本侧读取，但不再画进 1:1 页面。
                 }
@@ -445,7 +445,7 @@ impl TerminalWindow {
         // 视觉基线 Description 框底到 Sftp 轨道顶是 7pt——Grid 末行自带的那点
         // 行距已经吃掉大半，这里只补 0。
         ui.add_space(0.0);
-        // 参考实现这两个是拨动开关，不是复选框（`04-new-session/00-ssh-session.png`）：
+        // 兼容终端这两个是拨动开关，不是复选框（`04-new-session/00-ssh-session.png`）：
         // 标签右对齐到同一列，轨道 31×16，开态 #007ACC。统一走 kit::switch。
         let sftp_on = self.new_session.sftp;
         let sysmon_on = self.new_session.sysmon;
@@ -488,7 +488,7 @@ impl TerminalWindow {
     /// 4 `Connection`：纯 TCP 选项（与 WindTerm 一致）。Host/Port 已上移到
     /// Session 页；`Built-in SSH client` 移到 Authentication 页（SSH 专属）。
     ///
-    /// 整页按视觉基线 `02-session-dialog/ssh/01-ssh-connection.png` 重排：参考实现
+    /// 整页按视觉基线 `02-session-dialog/ssh/01-ssh-connection.png` 重排：兼容终端
     /// **不是两列网格**，而是「两句说明 + 两个勾选 + 两个占满整行的数值框」。
     /// 量得：说明行 45.5、勾选 71 / 101、标题 127.5 / 180，数值框 146 / 198
     /// （高 23、宽 402），标题与框之间 4.5。
@@ -517,7 +517,7 @@ impl TerminalWindow {
     /// 视觉基线 `02-session-dialog/ssh/03-ssh-authentication.png` 的勾选块原样
     /// 照抄（标题 `Automatic authentication methods:` + 五条 `Attempt …`，
     /// 顺序 ssh-agent / password / public-key / keyboard-interactive /
-    /// gssapi-with-mic）。用户名与密码是本实现多出来的两项——参考实现把这两样
+    /// gssapi-with-mic）。用户名与密码是本实现多出来的两项——兼容终端把这两样
     /// 推迟到连接时的密码提示里问，而我们要在「保存即连接」的一次点击里
     /// 就把凭据备齐；它们按同一套「标题在上」的语法接在勾选块后面。
     fn authentication_page(&mut self, ui: &mut egui::Ui) {

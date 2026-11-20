@@ -29,7 +29,7 @@ pub struct Reading {
     pub mem_total_kb: u64,
 }
 
-/// 采样间隔。参考实现读数条是「越几秒跳一次」而不是逐帧刷新，2 秒既跟得上
+/// 采样间隔。兼容终端读数条是「越几秒跳一次」而不是逐帧刷新，2 秒既跟得上
 /// 肉眼又不会让 `top` 常驻。
 const SAMPLE_EVERY: Duration = Duration::from_secs(2);
 

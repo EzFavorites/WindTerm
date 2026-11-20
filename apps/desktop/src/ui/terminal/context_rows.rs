@@ -578,7 +578,7 @@ pub(in crate::ui) fn context_rows_width(ui: &egui::Ui, rows: &[Row]) -> f32 {
     rows_width(ui, cells, gutter).max(180.0 - 2.0 * POPUP_INNER_X)
 }
 
-/// 终端左边缘（margin 栏）右键菜单的行定义（参考实现：左边缘与内容区两份菜单）。
+/// 终端左边缘（margin 栏）右键菜单的行定义（兼容终端：左边缘与内容区两份菜单）。
 /// 勾选态按当前 `MarginState` 现算，所以每帧重建。
 pub(in crate::ui) fn margin_rows(
     margin: &term_app::margin::MarginState,

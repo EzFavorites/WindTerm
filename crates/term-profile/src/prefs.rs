@@ -364,9 +364,9 @@ pub struct Prefs {
     /// 旧内容——所以它必须是一个用户亲手打开的开关，而不是默认值。
     #[serde(default)]
     pub copy_on_select: bool,
-    /// 快捷命令栏的三个显示开关。参考实现 WindTerm 把它们放在 `user.config` 的
+    /// 快捷命令栏的三个显示开关。兼容终端 WindTerm 把它们放在 `user.config` 的
     /// `quickbar.*` 一组——**不**在 `quickbar.config`（那份只有命令表）。本应用
-    /// 照参考实现的位置放进 `prefs.json`，渲染期由 [`QuickBarDisplay`] 从 `Prefs` 读
+    /// 照兼容终端的位置放进 `prefs.json`，渲染期由 [`QuickBarDisplay`] 从 `Prefs` 读
     /// 初值携带，与命令表（读 `quickbar.config`）分两条路、各写各的文件。
     ///
     /// 出厂：`show_multiple_groups` / `show_group_title` 为 `true`（视觉基线底栏
@@ -826,7 +826,7 @@ impl Prefs {
         }
     }
 
-    /// 快捷命令栏的渲染开关，从 `prefs` 读初值（参考实现 `user.config` 的位置）。
+    /// 快捷命令栏的渲染开关，从 `prefs` 读初值（兼容终端 `user.config` 的位置）。
     /// 三个老文件缺键 / 刚装的用户都回落出厂态（多组 + 组标题 + 不字母序）。
     pub fn quick_bar_display(&self) -> QuickBarDisplay {
         QuickBarDisplay {

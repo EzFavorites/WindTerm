@@ -322,7 +322,7 @@ pub trait Session: Send {
     /// `Clear Scrollback`：丢掉当前屏**以上**的全部历史行。
     ///
     /// 与 [`Self::clear`] 分开是因为屏幕上那几行是「现在」，历史是「过去」：
-    /// 参考实现把这三档拆成 Clear Screen / Clear Scrollback / Clear All 三条菜单，
+    /// 兼容终端把这三档拆成 Clear Screen / Clear Scrollback / Clear All 三条菜单，
     /// 不是同一个动作的三种叫法。默认空实现 = 能力尚未通到这一层的会话
     /// （如测试替身）什么都不做，而不是假装清过。
     fn clear_scrollback(&self) {}

@@ -530,7 +530,7 @@ impl SessionConfig {
                 // W1-b：出网代理走官文给出的 `nc` 等价式
                 // （官方 `proxy-http-socks5` 文档：`nc -X 5 -x 127.0.0.1:7777 %h %p`，
                 // HTTP 用 `-X connect`）。**这不是**「ProxyCommand 用户字段」：
-                // 那一栏参考实现本身未实现（D8），仍保持灰显；这里只是让「用系统
+                // 那一栏兼容终端本身未实现（D8），仍保持灰显；这里只是让「用系统
                 // ssh」这条路径也真的走代理，与内置客户端行为一致。
                 // 四档互斥：单选说是 Http 就不能还偷偷带上 `-J`。
                 match self.effective_proxy_type() {

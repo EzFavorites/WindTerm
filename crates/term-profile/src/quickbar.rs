@@ -1,22 +1,22 @@
 //! 快捷命令栏配置（`quickbar.config`）——命令表是**用户数据**，不是编译期常量。
 //!
-//! # 文件格式与参考实现逐字节兼容
+//! # 文件格式与兼容终端逐字节一致
 //!
-//! 落盘文件是 WindTerm 参考实现同名的 `quickbar.config`：**一个扁平的 JSON 数组**，
-//! 每条命令 5 个参考实现键 `quick.group` / `quick.icon` / `quick.label` / `quick.type`
-//! / `quick.uuid`。参考实现读这份文件即可直接打开本应用写出的配置。本应用额外写入
-//! `send` / `label_zh` / `group_label_zh` 三个键，参考实现（serde 忽略未知键）自动
+//! 落盘文件与兼容终端同名，都是 `quickbar.config`：**一个扁平的 JSON 数组**，
+//! 每条命令 5 个格式键 `quick.group` / `quick.icon` / `quick.label` / `quick.type`
+//! / `quick.uuid`。兼容终端读这份文件即可直接打开本应用写出的配置。本应用额外写入
+//! `send` / `label_zh` / `group_label_zh` 三个键；兼容终端解析时（serde 忽略未知键）自动
 //! 跳过，不影响它读取命令表——这就是用户要的「同一份配置文件」。
 //!
 //! 组在扁平格式里是**隐式**的：靠 `quick.group` 同名聚合；组色编码进 `quick.icon`
-//! 的 `session::<图形>-<颜色>`（颜色用 `#RRGGBB`，Qt/WindTerm 也认 hex）。
+//! 的 `session::<图形>-<颜色>`（颜色用 `#RRGGBB`，hex 写法通用）。
 //! 内存里仍用嵌套的 `QuickBarConfig`（组 → 命令）方便编辑与渲染；`load` / `save`
 //! 负责扁平 ↔ 嵌套的双向转换。
 //!
 //! # 三个显示开关不在这份文件里
 //!
 //! `Show multiple groups` / `Show group title` / `Show commands in alphabetical
-//! order` 在参考实现存于 `user.config`（≈本应用的 `prefs.json`），**不**在
+//! order` 在兼容终端存于 `user.config`（≈本应用的 `prefs.json`），**不**在
 //! `quickbar.config`。本应用把它们放进 `Prefs`（见 `prefs.rs` 的 `quickbar_*`
 //! 字段），渲染期由 [`QuickBarDisplay`] 携带。
 //!
@@ -32,8 +32,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 落盘文件名：与 WindTerm 参考实现同名，放在 profile 的 `terminal/` 子目录
-/// （参考实现在 `profiles/<name>/terminal/`，本应用的 `profile_dir` 已是其根）。
+/// 落盘文件名：与 WindTerm 兼容终端同名，放在 profile 的 `terminal/` 子目录
+/// （兼容终端在 `profiles/<name>/terminal/`，本应用的 `profile_dir` 已是其根）。
 pub const QUICKBAR_FILE: &str = "quickbar.config";
 
 fn default_type() -> String {
@@ -44,7 +44,7 @@ fn default_color() -> String {
     "#1E90FF".into()
 }
 
-/// 渲染期携带的三个显示开关。来源是 `Prefs`（参考实现 `user.config` 的位置），不随
+/// 渲染期携带的三个显示开关。来源是 `Prefs`（兼容终端 `user.config` 的位置），不随
 /// 命令表落盘，所以与 [`QuickBarConfig`] 分开。`Default` 即出厂态：显示多组与组
 /// 标题、不按字母序（守住 main-dark 底栏 File 组的既有顺序）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,7 +68,7 @@ impl Default for QuickBarDisplay {
 
 /// 一条快捷命令。`label` 是按钮逐字文字，`send` 是送进输入行的文本——两者不总
 /// 相同（`Copy` → `cp `）。`label_zh` 为空时中文界面回退 `label`。`uuid` 是命令
-/// 的稳定标识（参考实现必填，落盘进 `quick.uuid`）。
+/// 的稳定标识（兼容终端必填，落盘进 `quick.uuid`）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuickCommandConfig {
     pub label: String,
@@ -80,7 +80,7 @@ pub struct QuickCommandConfig {
     /// 不会让整个文件解析失败。
     #[serde(default)]
     pub mark: String,
-    /// 命令的稳定 uuid（参考实现 `quick.uuid`）。出厂项用确定性哈希生成（可复现、
+    /// 命令的稳定 uuid（兼容终端 `quick.uuid`）。出厂项用确定性哈希生成（可复现、
     /// 不依赖时钟/随机数，便于组件基线稳定）；用户新建项用 [`new_uuid`] 取唯一值。
     pub uuid: String,
 }
@@ -216,8 +216,8 @@ fn flat_to_config(entries: &[FlatEntry]) -> QuickBarConfig {
             continue;
         }
         let (mark, color) = parse_icon(&e.icon);
-        // 参考实现没有独立的「发送文本」字段，label 就是发送内容；我们读到 `send`
-        // 缺省时回落 label，这样参考实现文件导入后按钮仍可用。自己写出去的 `send`
+        // 兼容终端没有独立的「发送文本」字段，label 就是发送内容；我们读到 `send`
+        // 缺省时回落 label，这样兼容终端文件导入后按钮仍可用。自己写出去的 `send`
         // 非空（见 save），不会被这条回落改掉。
         let send = if e.send.is_empty() {
             e.label.clone()
@@ -265,7 +265,7 @@ fn save_to(path: &Path, config: &QuickBarConfig) -> bool {
         }
     }
     // 拍平：组 → 命令，组色进 icon，组中文名进每条命令的 `group_label_zh`
-    // （扁平格式没有组级字段，只能冗余到成员上；参考实现忽略它）。
+    // （扁平格式没有组级字段，只能冗余到成员上；兼容终端忽略它）。
     let entries: Vec<FlatEntry> = config
         .groups
         .iter()
@@ -305,7 +305,7 @@ fn build_icon(mark: &str, color: &str) -> String {
 }
 
 /// CSS 颜色名 → `#RRGGBB`。只收一小撮常见名（含 WindTerm 样例里出现的
-/// deeppink / rosybrown / coral），认不出的回落出厂蓝——颜色是装饰，读参考实现
+/// deeppink / rosybrown / coral），认不出的回落出厂蓝——颜色是装饰，读兼容终端
 /// 文件时丢了色也不该让命令表读不出来。
 fn named_to_hex(name: &str) -> String {
     let trimmed = name.trim();
@@ -372,8 +372,8 @@ fn preserve_broken(path: &Path) -> bool {
     std::fs::write(&backup, &bytes).is_ok()
 }
 
-/// 落盘格式：WindTerm 参考实现 `quickbar.config` 的一条。serde 字段名即参考实现键；
-/// 额外键 `send` / `label_zh` / `group_label_zh` 参考实现读时忽略（serde 默认填充）。
+/// 落盘格式：WindTerm 兼容终端 `quickbar.config` 的一条。serde 字段名即格式键；
+/// 额外键 `send` / `label_zh` / `group_label_zh` 兼容终端读时忽略（serde 默认填充）。
 /// 空字符串不写，保持文件干净也避免读取时误触回落。
 #[derive(Serialize, Deserialize)]
 struct FlatEntry {
@@ -398,7 +398,7 @@ struct FlatEntry {
 static UUID_CLOCK: AtomicU64 = AtomicU64::new(0);
 
 /// 用户新建命令/组时取唯一 uuid（离线、无外部 crate：时间戳 + 序号 + PID 混出
-/// 一个 v4 外观的串，足够当稳定键，不会与参考实现或其它新建项撞）。
+/// 一个 v4 外观的串，足够当稳定键，不会与兼容终端或其它新建项撞）。
 pub fn new_uuid() -> String {
     let n = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -497,7 +497,7 @@ mod tests {
 
     #[test]
     fn the_flat_file_matches_windterm_shape() {
-        // 写出去的文件必须能被参考实现逐字节读懂：5 个参考实现键 + 扁平数组。
+        // 写出去的文件必须能被兼容终端逐字节读懂：5 个格式键 + 扁平数组。
         let p = temp("shape");
         assert!(save_to(&p, &QuickBarConfig::default()));
         let text = std::fs::read_to_string(&p).unwrap();
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn a_real_windterm_file_reads_with_label_as_send() {
-        // 参考实现文件没有 `send` 键，读进来 send 必须回落成 label，按钮才可用。
+        // 兼容终端文件没有 `send` 键，读进来 send 必须回落成 label，按钮才可用。
         let p = temp("windterm");
         std::fs::write(
             &p,
@@ -554,7 +554,7 @@ mod tests {
         let quick = &c.groups[0];
         assert_eq!(quick.label, "Quick");
         assert_eq!(quick.commands[0].label, "Untitled");
-        assert_eq!(quick.commands[0].send, "Untitled", "参考实现无 send → 用 label");
+        assert_eq!(quick.commands[0].send, "Untitled", "兼容终端无 send → 用 label");
         assert_eq!(quick.commands[0].mark, "square", "deeppink 颜色忽略，图形取 square");
         // coral 认得出 → 组色是 coral 的 hex。
         assert_eq!(c.groups[1].color, "#FF7F50");

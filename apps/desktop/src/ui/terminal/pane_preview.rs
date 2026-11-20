@@ -22,7 +22,7 @@ use term_app::selection::Selections;
 use term_app::wrap;
 use term_core::grid::{GridSnapshot, ScreenImage};
 
-/// 预览框高占内容区高的比例（参考实现 GIF 标定：576 / 1022 ≈ 0.564）。
+/// 预览框高占内容区高的比例（兼容终端 GIF 标定：576 / 1022 ≈ 0.564）。
 pub(super) const PREVIEW_FRACTION: f64 = 576.0 / 1022.0;
 
 /// 预览框内的可见行数（用于请求 `ViewRange`）。框高由 `box_h / cell_h` 反算，

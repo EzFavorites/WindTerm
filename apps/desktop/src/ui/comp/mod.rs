@@ -227,7 +227,7 @@ impl TerminalWindow {
                 self.confirm.suppress_session = true;
                 self.confirm.suppress_window = true;
                 // 2026-11-15：Triggers / OneKeys 已从 Preferences 内嵌页改成
-                // **独立对话框**（参考实现形态）。夹具跟着走真实路径，否则这张基线
+                // **独立对话框**（兼容终端形态）。夹具跟着走真实路径，否则这张基线
                 // 冻结的是一个用户点菜单永远看不到的形态。
                 match self.settings_page {
                     dialogs::SettingsPage::Triggers => {

@@ -1,6 +1,6 @@
 //! 拨动开关（trigger switch）：**一处定义、多处复用**的函数式原语。
 //!
-//! 参考实现形状量自 `04-new-session/00-ssh-session.png`（2352×1532 @2×）的
+//! 兼容终端形状量自 `04-new-session/00-ssh-session.png`（2352×1532 @2×）的
 //! `Sftp`（开）与 `Sysmon`（关）：
 //!
 //! | 项 | 物理像素 | 逻辑点 |
@@ -12,7 +12,7 @@
 //! | 圆点 | `#FFFFFF`，轨道内缩 5 物理点（2.5 逻辑点） | — |
 //!
 //! 遵守 ADR-0021：Props 只读，点击以返回值交回调用方，组件不碰业务状态。
-//! 不引入 retained widget / 动画状态——参考实现静态截图就是这个形状，交互反馈
+//! 不引入 retained widget / 动画状态——兼容终端静态截图就是这个形状，交互反馈
 //! 只靠 hover 提亮一档（蓝底永远是指向色，不是固有底色）。
 
 use eframe::egui;
@@ -24,7 +24,7 @@ const TRACK_H: f32 = 16.0;
 const KNOB_D: f32 = 11.0;
 const KNOB_INSET: f32 = 2.5;
 
-/// 开态蓝。**不用主题 `accent`**：主题是 `#047CCC`，参考实现这个控件量得
+/// 开态蓝。**不用主题 `accent`**：主题是 `#047CCC`，兼容终端这个控件量得
 /// `#007ACC`，差一档；这是控件的固有状态色，不是指向高亮。
 const ON: u32 = 0x007ACC;
 /// 关态灰。
@@ -50,7 +50,7 @@ pub(in crate::ui) struct SwitchProps<'a> {
 }
 
 impl<'a> SwitchProps<'a> {
-    /// 带左标签的开关（参考实现 `Sftp:` / `Sysmon:` 的形态）。
+    /// 带左标签的开关（兼容终端 `Sftp:` / `Sysmon:` 的形态）。
     pub(in crate::ui) fn labeled(id: &'a str, label: &'a str, label_width: f32, on: bool) -> Self {
         Self { id, label: Some(label), label_width, on }
     }
@@ -77,13 +77,13 @@ pub(in crate::ui) fn trigger_switch(ui: &mut egui::Ui, props: &SwitchProps<'_>) 
                 font.clone(),
                 color,
             );
-            // 访问键下划线：参考实现每个开关标签的首字母下都有一条（Sftp 的 S、
+            // 访问键下划线：兼容终端每个开关标签的首字母下都有一条（Sftp 的 S、
             // Sysmon 的首字母）。等宽字体下按字符数均分即可，不必为两个标签
             // 单独量字宽。
             let chars = label.chars().count().max(1) as f32;
             let galley = painter.layout_no_wrap(label.to_owned(), font, color);
             let cw = galley.size().x / chars;
-            // 下划线画在**首字符**下（参考实现 Sftp 的 S、Sysmon 的 S），不是末尾。
+            // 下划线画在**首字符**下（兼容终端 Sftp 的 S、Sysmon 的 S），不是末尾。
             let underline_left = rect.right() - 4.0 - galley.size().x;
             let y = rect.center().y + 6.0;
             painter.line_segment(

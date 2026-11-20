@@ -196,7 +196,7 @@ pub struct TerminalWindow {
     /// 渲染期副本同一条规矩：拖动 / 输入过程中的值和盘上的值不能各说一套。
     quick_bar: term_runtime::quickbar::QuickBarConfig,
     /// 快捷命令栏三个显示开关的渲染期副本（`show_multiple_groups` /
-    /// `show_group_title` / `alphabetical`），来自 `prefs.json`（参考实现
+    /// `show_group_title` / `alphabetical`），来自 `prefs.json`（兼容终端
     /// `user.config` 的位置）。它们不随命令表落 `quickbar.config`，所以单独存
     /// 一份窗口副本，构造时从 prefs 读一次、命令配置弹窗 Ok 时同步。底栏每帧
     /// 读这份副本，不碰盘。
@@ -586,7 +586,7 @@ pub struct TerminalWindow {
     /// 视口不浮了记录一起删（`draw_native_floats` 末尾），重新浮起来还能再要。
     float_focus_tries: Vec<(egui::ViewportId, u8)>,
     /// 底带"向上展开占满"（填满可用高度）。投影态，不进 `ViewState`。
-    /// 注意与旧名 `bottom_collapsed`（折成标签条）相反：参考实现点 `^` 是向上展开
+    /// 注意与旧名 `bottom_collapsed`（折成标签条）相反：兼容终端点 `^` 是向上展开
     /// 占满全屏，不是收起——用户明确纠正过这个方向。
     bottom_maximized: bool,
     /// 底带分组：`Some(k)` = 前 k 个成员在左组（`Split` 的产物）。
@@ -1082,7 +1082,7 @@ impl TerminalWindow {
             self.draw_settings_dialog(ctx);
         }
         // 2026-11-15：`Terminal.ManageTriggers` / `ManageOneKeys` 的落点是
-        // **独立对话框**（参考实现形态），不再借 Preferences 翻页。
+        // **独立对话框**（兼容终端形态），不再借 Preferences 翻页。
         if self.view.show_triggers {
             self.draw_triggers_dialog(ctx);
         }

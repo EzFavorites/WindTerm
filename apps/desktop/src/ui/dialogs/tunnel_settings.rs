@@ -249,7 +249,7 @@ fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
             egui::vec2(FIELD_W, FIELD_H),
         ),
         |ui| {
-            // 31.5×15.5 是参考实现胶囊的实测尺寸（与 Triggers 那颗同一份量测）。
+            // 31.5×15.5 是兼容终端胶囊的实测尺寸（与 Triggers 那颗同一份量测）。
             super::dialog_chrome::toggle(ui, egui::vec2(31.5, 15.5), &mut next.status, true);
         },
     );
@@ -520,7 +520,7 @@ fn footer(
         egui::pos2(ok_r.left() - 4.5 - cancel_spec.size.x, ok_r.top()),
         cancel_spec.size,
     );
-    // 参考实现这两个按钮与 Triggers 页脚不是同一套：宽 80.5（不是 72/70）、高 24
+    // 兼容终端这两个按钮与 Triggers 页脚不是同一套：宽 80.5（不是 72/70）、高 24
     // （不是 22），**`Cancel` 那圈描边是亮蓝 `#3EA0EC`**、`Ok` 是 `#424242`，
     // 内部都带一层自上而下的渐变。这些差异全部记在规格表的 Tunnels 变体里，
     // 绘制与另外三套页脚共用 `kit::footer`。

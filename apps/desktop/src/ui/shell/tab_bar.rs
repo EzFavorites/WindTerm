@@ -221,7 +221,7 @@ impl TerminalWindow {
                     }
                 }
                 TabTool::GroupName => {
-                    // 只读标识：参考实现这里显示 group 名字，点它不会弹缩放菜单。
+                    // 只读标识：兼容终端这里显示 group 名字，点它不会弹缩放菜单。
                     // 缩放三条命令在 `View ▸ Zoom` 有独立入口（`menu/tree.rs`），
                     // 与标签条无关（2026-11-15 用户裁定，修掉把字母当 Font 工具的误读）。
                 }

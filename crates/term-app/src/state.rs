@@ -136,7 +136,7 @@ pub struct ViewState {
     /// 日志是后台行为，没有面板就没人知道它到底有没有在记。
     pub show_log_settings: bool,
     /// 2026-11-15：`Terminal.ManageTriggers` 的落点从「Preferences 里翻到
-    /// Triggers 页」改为**独立对话框**——参考实现是带左列表、`+ - Duplicate Rename`
+    /// Triggers 页」改为**独立对话框**——兼容终端是带左列表、`+ - Duplicate Rename`
     /// 与 `Cancel / Ok` 的自有窗口，不是设置树里的一页（视觉基线
     /// `Highlight Text / Sessions` 双标签那份）。
     pub show_triggers: bool,

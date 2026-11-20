@@ -11,7 +11,7 @@
 //! - Shell：**一块完整终端**——一条特殊的 session（默认系统本地 shell），
 //!   渲染与交互与主区标签页完全同一份代码（见 [`draw_shell`]）
 //! - Transfer：**不在这里**——真队列在 `transfer_panel.rs`（2026-11-10 换掉替身）
-//! - Sysmon：参考实现形态的 `T/C/M` 切换头 + `time / system / mem` 读数条（默认关；
+//! - Sysmon：兼容终端形态的 `T/C/M` 切换头 + `time / system / mem` 读数条（默认关；
 //!   采样在 `ui/` 之外的 `sysmon_sample`，这里只读纯值）
 //!
 //! 默认全关，且专注模式压掉全部面板；新版默认布局里 Explorer / Outline /
@@ -176,8 +176,8 @@ pub(in crate::ui) fn draw_session(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
 /// Sysmon：视觉基线里终端区右下角那枚折叠标签展开后的内容。
 ///
-/// 参考实现是两行紧凑条（用户比对 2026-11-19）：上行 `T - C - M -` 切换头，下行
-/// `[T] HH:MM  [C] NN.N%  [M] A.AA/B.BB GiB` 读数。颜色逐像素取自参考实现截图：
+/// 兼容终端是两行紧凑条（用户比对 2026-11-19）：上行 `T - C - M -` 切换头，下行
+/// `[T] HH:MM  [C] NN.N%  [M] A.AA/B.BB GiB` 读数。颜色逐像素取自兼容终端截图：
 /// 条底 `#333333`（= `CHROME_SCALE.tab`）、时间 `#BBBBBB`（= `CHROME_SCALE.text`）、
 /// system 绿 `#009E00`、mem 红 `#FF0000`。
 ///
@@ -193,7 +193,7 @@ const SYSMON_GAP: f32 = 10.0;
 /// 保证 `23.00/23.63 GiB` 永不被裁；宽于此值就是视觉基线的 1:1 尺寸。
 const SYSMON_DESIGN_W: f32 = 320.0;
 
-/// 视觉基线的绿 / 红是参考实现读数条状态色，不是主题色——主题里没有这两个语义槽，
+/// 视觉基线的绿 / 红是兼容终端读数条状态色，不是主题色——主题里没有这两个语义槽，
 /// 故只在这一处固化（逐像素 `#009E00` / `#FF0000`）。
 fn sysmon_system_colour() -> egui::Color32 {
     egui::Color32::from_rgb(0x00, 0x9E, 0x00)

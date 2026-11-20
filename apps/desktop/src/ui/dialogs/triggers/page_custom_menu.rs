@@ -11,7 +11,7 @@
 //! 视觉基线只给了**空表**（`No action available`），没有给「一行数据长什么样」。
 //! 所以本实现严格只做图里有的东西：`+` 弹出 `Add Action` / `Add Separator`
 //! （图 `25`），行的选中/删除/上下移动按工具条按钮的语义接上；`Action` 列的
-//! 取值切换暂用「点击循环四项」，因为参考实现的下拉形态没有视觉基线——补图后应换成
+//! 取值切换暂用「点击循环四项」，因为兼容终端的下拉形态没有视觉基线——补图后应换成
 //! 下拉，`README` 的待办里记了这一条。
 
 use super::fields::{mono, rgb, text_w};
@@ -157,7 +157,7 @@ fn table(
     if let Some(i) = clicked_row {
         view.menu_sel = Some(i);
     }
-    // `Action` 列的取值切换：参考实现是下拉，视觉基线里没有它的展开态，先按双击循环。
+    // `Action` 列的取值切换：兼容终端是下拉，视觉基线里没有它的展开态，先按双击循环。
     if let Some(i) = double_row.filter(|i| *i < count) {
         let item = &mut rule.config.menu.items[i];
         if !item.separator {

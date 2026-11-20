@@ -149,7 +149,7 @@ use super::*;
         }
     }
 
-    /// 2026-11-15 按参考实现截图清理：Preferences 的页脚只剩 `Close`。那句橙色
+    /// 2026-11-15 按兼容终端截图清理：Preferences 的页脚只剩 `Close`。那句橙色
     /// 「什么时候生效」连同 `footer_note` 数据表一起删掉了——各页的说明仍由
     /// `page_note` / `settings_live_text::*_NOTE` 在页内给出。这条守的是
     /// 「不许把长提示又挂回页脚」，它是「被 Close 压掉半截」的直接原因。

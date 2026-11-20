@@ -92,7 +92,7 @@ const BODY_PAD: f32 = 8.0;
 ///
 /// 原表里 Explorer 是蓝、Outline 是绿、Session 是红——全部猜错，图上一目了然：
 /// Explorer 是**珊瑚红**、Outline 是**浅青**、Session 是**蓝**。注意最后一条：
-/// 参考实现那个「Session」面板就是本项目的 `Sidebar`（标题同为 "Session"，正文同为
+/// 兼容终端那个「Session」面板就是本项目的 `Sidebar`（标题同为 "Session"，正文同为
 /// 「Filter + 分组会话树」），所以 `#0093FF` 本就该挂在 `Sidebar` 上；`PanelId::Session`
 /// 是本项目自有的精简列表，视觉基线里没有，仍是推定值。
 ///
@@ -156,10 +156,10 @@ fn group_active(group: &[PanelId], active: Option<PanelId>) -> PanelId {
 pub(in crate::ui) enum Cmd {
     /// 切分当前带。**只有底带**用得上（左右带是竖直堆叠，没有「切一刀」的语义）。
     Split,
-    /// 浮动**整条带**（参考实现浮动窗内是横向 tab，不是单块面板）。
+    /// 浮动**整条带**（兼容终端浮动窗内是横向 tab，不是单块面板）。
     /// 单块浮起仍由拖拽落点 `LayoutAction::Float(panel)` 负责。
     FloatBand(DockZone),
-    /// 浮窗里 `Float` 的语义：把当前 tab 单独拆成一块浮窗（参考实现菜单文案仍是
+    /// 浮窗里 `Float` 的语义：把当前 tab 单独拆成一块浮窗（兼容终端菜单文案仍是
     /// "Float"，不能为了给「整带收回」造一个视觉基线里没有的 "Dock" 行）。
     Float(PanelId),
     /// 勾上：拉进本条带（并确保可见）。
@@ -245,7 +245,7 @@ impl TerminalWindow {
 
     /// 展开态：底带**覆盖层**。
     ///
-    /// 参考实现 `^` 是「向上展开覆盖上面所有面板、顶到菜单栏」，不是把面板重排挤扁。
+    /// 兼容终端 `^` 是「向上展开覆盖上面所有面板、顶到菜单栏」，不是把面板重排挤扁。
     /// 因此这里**不声明** `TopBottomPanel`——它是布局切分，会抢走随后所有面板的
     /// 高度（2026-11-15 实测：左右带 / 标签条 / 工具行 / Sysmon / 中央区被压到
     /// ≈0 高，全部叠在窗口顶部）。改为在所有面板画完之后，用一层
@@ -321,7 +321,7 @@ impl TerminalWindow {
             if let Some(id) = picked {
                 self.set_band_tab(DockZone::Bottom, id);
             }
-            // 正文始终画：展开态也要显示内容（参考实现展开是看内容，不是收起）。
+            // 正文始终画：展开态也要显示内容（兼容终端展开是看内容，不是收起）。
             let body =
                 egui::Rect::from_min_max(egui::pos2(col.left(), col.top() + TAB_H), col.max);
             self.draw_bottom_body(ui, body, active);

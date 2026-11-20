@@ -10,7 +10,7 @@
 //! 官方公开文档 `windterm-docs-md/2020/01/22/restore-sessions/index.md:27`：
 //! 「All last sessions will be restored after restart, and the session only
 //! connects to target when its view is actived」。启动时把 N 条 SSH 全连上会
-//! 连着弹指纹窗与密码窗；参考实现把它们摆成断开态，切到哪条才连哪条。
+//! 连着弹指纹窗与密码窗；兼容终端把它们摆成断开态，切到哪条才连哪条。
 //! 所以这里**不改掉断开态**，只做两件补充：
 //!
 //! 1. 按 `prefs.json` 的 Startup 三档决定摆回哪些标签（纯判定在
@@ -107,7 +107,7 @@ impl TerminalWindow {
         let ids: Vec<SessionId> = self.tabs.iter().map(|t| t.identity).collect();
         // ④-1：构造期那片单叶子（`init_pane`）就是窗口的第一个 group，恢复时
         // 让第一片叶子**复用**它——否则它被丢弃，新铸的 pane 从 `B` 起，
-        // group 名字就凭空少一个 `A`（参考实现四格是 A/B/C/D）。
+        // group 名字就凭空少一个 `A`（兼容终端四格是 A/B/C/D）。
         let init_pane = self.layout.leaf_panes().into_iter().next();
         // ④-0：恢复出「窗格身份」树，并配套建 `pane_groups`（每片窗格一个只含一条会话的 group）。
         let (tree, groups) = restore_tree_reusing(self.startup.mode, &saved.tree, &ids, init_pane);

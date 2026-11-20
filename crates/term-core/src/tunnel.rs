@@ -3,7 +3,7 @@
 //! # 与 `term-tunnel` 的关系
 //!
 //! `term-tunnel` 的词表是 `ssh` 的：`Forward::{Local, Remote, Socks5}`，规则从
-//! 一行文本解析（`Forward::parse`）。本模块说的是参考实现界面上的东西——一条隧道
+//! 一行文本解析（`Forward::parse`）。本模块说的是兼容终端界面上的东西——一条隧道
 //! 有名字、有归属会话、有「启用」开关、有两个勾选框，七拐八弯的字段拼不出
 //! 那句 `-L 8080:db:5432`。
 //!
@@ -18,7 +18,7 @@
 //!
 //! # 已知边界：动态端口（`listen_port == 0`）
 //!
-//! 参考实现这一栏留空时显示 `Dynamic port allocation`，由系统挑端口。本仓内核
+//! 兼容终端这一栏留空时显示 `Dynamic port allocation`，由系统挑端口。本仓内核
 //! `check_bind` 明确拒绝 0 端口（「那会让系统挑一个，用户没法知道连哪」），
 //! 所以 [`validate`](TunnelProfile::validate) 也拒绝它——**在表单这一层就说清楚**，
 //! 而不是让用户点完 `Ok` 再看到一句来自 socket 层的抱怨。
@@ -27,7 +27,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// 三种隧道类型，与参考实现 `Type` 下拉同序。
+/// 三种隧道类型，与兼容终端 `Type` 下拉同序。
 ///
 /// 与 `term_tunnel::Kind` 一一对应，但**不复用**那个枚举：`term-core` 不依赖
 /// `term-tunnel`（那是带线程与 socket 的传输层），而这里只需要一个能落盘的标签。
@@ -68,7 +68,7 @@ impl TunnelKind {
     }
 }
 
-/// 一条命名隧道（参考实现 `Tunnels` 设置对话框里的一行）。
+/// 一条命名隧道（兼容终端 `Tunnels` 设置对话框里的一行）。
 ///
 /// 字段与视觉基线逐项对应，顺序也一致：`Name` / `Type` / `Session` / `Listen Port` /
 /// `Destination Host` / `Destination Port` / `Status`，然后是两行勾选
@@ -184,7 +184,7 @@ impl TunnelProfile {
     /// 表单层的校验。返回**第一处**不对的地方（一次改一处，与 `parse_rules` 同风格）。
     ///
     /// 它**不能**替代 `Forward::parse`：那边还要查端口范围与目标主机格式。
-    /// 这里拦的是「参考实现表单上有、但拼不进一行文本」的几种：
+    /// 这里拦的是「兼容终端表单上有、但拼不进一行文本」的几种：
     /// 名字空、会话空、动态端口（见模块头）、SOCKS5 不需要目标但别的类型必须有。
     ///
     /// 返回 [`TunnelFault`] 而不是 `String`：`term-core` 是边界 crate，4i 判据
@@ -227,7 +227,7 @@ impl TunnelProfile {
 /// [`TunnelProfile::validate`] 的失败分类。
 ///
 /// 每一格对应表单上的一栏，而不是一句文案：UI 想加「红框标在哪一栏」时不必
-/// 去 parse 字符串。中文说明在 [`Display`] 里，`to_string()` 就是参考实现那句提示。
+/// 去 parse 字符串。中文说明在 [`Display`] 里，`to_string()` 就是兼容终端那句提示。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TunnelFault {
     /// 名字空（列表里靠它认人）。
@@ -332,7 +332,7 @@ mod tests {
         assert!(fault.to_string().contains("动态端口"), "{fault}");
     }
 
-    /// 四个必填项按参考实现表单的顺序报错，用户一次只看到一处。
+    /// 四个必填项按兼容终端表单的顺序报错，用户一次只看到一处。
     #[test]
     fn the_form_reports_the_first_missing_field() {
         let mut p = filled(TunnelKind::Local);

@@ -260,7 +260,7 @@ pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
 }
 
 // 2026-11-15：原先这里有一张 `footer_note(page)` 表 + `REFERENCE_FOOTER`，
-// 负责给 Preferences 页脚那句橙色「什么时候生效」提示。参考实现
+// 负责给 Preferences 页脚那句橙色「什么时候生效」提示。兼容终端
 // `03-settings/01-application.png` 的页脚只有右下角 `Close`，而这句长文本
 // 在 560 宽的对话框里会被 `Close` 压掉半截（用户反馈「糟乱」）。整条渲染与
 // 这张表一起删除；各页自己的说明本来就在页内（`page_note` /

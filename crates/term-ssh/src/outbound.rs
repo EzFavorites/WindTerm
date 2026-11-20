@@ -1,6 +1,6 @@
 //! 出网代理：HTTP CONNECT 与 SOCKS5 的**协议本体**。
 //!
-//! 官方公开文档 `2021/03/11/proxy-http-socks5/index.md` 把参考实现的行为写得很直白：
+//! 官方公开文档 `2021/03/11/proxy-http-socks5/index.md` 把兼容终端的行为写得很直白：
 //! HTTP 代理与 SOCKS5 代理都是真功能，SOCKS5 那一档等价于
 //! `/usr/bin/nc -X 5 -x 127.0.0.1:7777 %h %p`，并且「DNS 可以走代理」。
 //! 这一层就是把这两句话落成字节：

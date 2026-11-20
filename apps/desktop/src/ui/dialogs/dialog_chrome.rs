@@ -83,7 +83,7 @@ pub(in crate::ui) fn plain_button(ui: &mut egui::Ui, label: &str, enabled: bool)
     )
 }
 
-/// 带边框按钮（设置页页脚 `Cancel` / `Ok`）。`primary` 用参考实现的蓝调描边。
+/// 带边框按钮（设置页页脚 `Cancel` / `Ok`）。`primary` 用兼容终端的蓝调描边。
 ///
 /// 尺寸与配色从 [`crate::ui::kit::spec::FooterButton`] 查；这里只保留
 /// 「按内容流式排一行、返回 `Response`」这一层布局语义。
@@ -226,7 +226,7 @@ pub(in crate::ui) fn dark_field(
     })
 }
 
-/// 参考实现的圆角开关（Triggers `Rules:` 行右端那颗）。
+/// 兼容终端的圆角开关（Triggers `Rules:` 行右端那颗）。
 ///
 /// 实测（物理 1450..1513 × 82..113 → 逻辑 **31.5×15.5**）：深蓝底 `#003E69`，
 /// 两端是**完整半圆**（圆角 = 高的一半 = 7.75）；白色圆滑块直径 11.5，
@@ -266,7 +266,7 @@ pub(in crate::ui) fn toggle(
         egui::Rounding::same(r),
         if *on { rgb(0x003E69) } else { rgb(0x3A3A3A) },
     );
-    // 参考实现没有额外的亮描边（放大 7 倍看只有抗锯齿过渡），画上去反而显得厚。
+    // 兼容终端没有额外的亮描边（放大 7 倍看只有抗锯齿过渡），画上去反而显得厚。
     // 关态留一圈浅边是为了在深底上能分出边界。
     if !*on {
         p.rect_stroke(rect, egui::Rounding::same(r), egui::Stroke::new(1.0, rgb(0x4A4A4A)));

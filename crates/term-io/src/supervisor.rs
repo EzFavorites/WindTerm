@@ -60,7 +60,7 @@ enum Command {
     Write(Vec<u8>),
     Resize(usize, usize),
     Clear,
-    /// 只丢历史（屏幕留着）。与 `Clear` 分开：参考实现把「清屏 / 清历史 / 两者都清」
+    /// 只丢历史（屏幕留着）。与 `Clear` 分开：兼容终端把「清屏 / 清历史 / 两者都清」
     /// 做成三条菜单，语义不同。
     ClearScrollback,
     /// 清屏 + 清历史。

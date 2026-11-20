@@ -153,7 +153,7 @@ impl TerminalWindow {
             default_session: SessionConfig::new(Protocol::Ssh),
             // 快捷命令表出厂四组十五项；文件坏 / 不存在都回默认，不拦启动。
             quick_bar: term_runtime::quickbar::load(),
-            // 三个显示开关从 prefs 读初值（参考实现 user.config 的位置）；
+            // 三个显示开关从 prefs 读初值（兼容终端 user.config 的位置）；
             // 命令配置弹窗 Ok 时再同步这一份渲染副本。
             quick_bar_display: prefs.quick_bar_display(),
             settings: SettingsData {

@@ -177,7 +177,7 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
         //
         // 2026-11-15 改：原先这里置 `show_settings` 再发一个「翻到 Triggers 页」
         // 的效应，结果弹的是 Preferences、Triggers 只是它左树里翻不到的一页
-        // （因为那两项已按用户裁定移出左树）。参考实现是自有窗口（左列表 +
+        // （因为那两项已按用户裁定移出左树）。兼容终端是自有窗口（左列表 +
         // `Cancel / Ok`），所以落点改成独立对话框字段，不需要效应。
         ShellAction::ManageTriggers => {
             state.show_triggers = true;

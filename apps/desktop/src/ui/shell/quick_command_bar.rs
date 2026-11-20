@@ -71,7 +71,7 @@ pub(super) struct GroupView<'a> {
     pub label: &'a str,
     pub color: u32,
     pub commands: Vec<CmdView<'a>>,
-    /// 默认 Quick 组：底栏标题既不显示组名也不显示图标（参考实现行为——左区只有
+    /// 默认 Quick 组：底栏标题既不显示组名也不显示图标（兼容终端行为——左区只有
     /// group 可见菜单入口那一个汉堡包图标）。
     pub is_default: bool,
 }
@@ -135,7 +135,7 @@ fn group_views<'a>(config: &'a QuickBarConfig, lang: Lang, display: &QuickBarDis
 }
 
 /// 画一整条快捷命令栏。只往 `actions` 里追加意图，不写任何状态、不碰 PTY。
-/// `display` 是三个显示开关（来自 `Prefs`，参考实现 `user.config` 的位置）。
+/// `display` 是三个显示开关（来自 `Prefs`，兼容终端 `user.config` 的位置）。
 ///
 /// `right_edge` 是**这条栏的右沿**（屏幕坐标）。右端那对 `⚙ ×` 按它往回退
 /// `glyph::ICON_R_PAD`，所以必须由调用方给真值：
@@ -256,7 +256,7 @@ pub(in crate::ui) fn draw_quick_command_bar(
     );
 }
 
-/// 一个命令组：灰色标签（可关）+ 组内按钮。默认 Quick 组按参考实现行为——底栏左区
+/// 一个命令组：灰色标签（可关）+ 组内按钮。默认 Quick 组按兼容终端行为——底栏左区
 /// 只有一个图标（group 可见菜单入口的汉堡包），默认组本身**既不显示组名、也
 /// 不显示图标**，直接排命令按钮。
 fn draw_group(

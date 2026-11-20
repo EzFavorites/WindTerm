@@ -1,7 +1,7 @@
 //! R14-d：分屏布局树——把「一个 CentralPanel 一个活动标签」变成可二分的窗格。
 //!
 //! 这是布局树的**最小可用形态**：内部节点只有左右 / 上下二等分，叶子挂一个
-//! 窗格身份（[`PaneId`]）。参考实现的 Split View / Split Group / Move Group 是多组
+//! 窗格身份（[`PaneId`]）。兼容终端的 Split View / Split Group / Move Group 是多组
 //! 嵌套的完整布局系统，本批不假装做到那个程度（逐条语义见
 //! `docs/design/04-tabs-split-layout.md`）——但六条命令都真的改变可见窗格，不是空转
 //! 开关（R5）。
@@ -63,7 +63,7 @@ pub(in crate::ui) fn mint_pane_identity() -> PaneId {
 /// ADR-0026：group 的名字——按 `PaneId` 恒在身份派生，`1→A` … `26→Z`、`27→AA`
 /// （Excel 列名式）。
 ///
-/// 用户裁定「A/B/C/D 只是 group 的名字」：参考实现 `Merge To Group ▸` 子菜单按名字列出
+/// 用户裁定「A/B/C/D 只是 group 的名字」：兼容终端 `Merge To Group ▸` 子菜单按名字列出
 /// `A/B/C/D`，名字**跟着 group 走、不随屏幕位置重排**（四格截图里 `A` 跑到右上、
 /// 后建的 `B`/`C`/`D` 在别处）。`PaneId` 本就是运行期按创建序递增的恒在身份，
 /// 直接派生即可，不需要再存一份 `name` 字段、也不需要额外的分配器状态。
@@ -543,7 +543,7 @@ mod tests {
         assert_eq!(pane_group_name(PaneId(2)), "B");
         assert_eq!(pane_group_name(PaneId(3)), "C");
         assert_eq!(pane_group_name(PaneId(4)), "D");
-        // 参考实现四格截图就是 A/B/C/D；名字不随 pane 在树里的位置变化。
+        // 兼容终端四格截图就是 A/B/C/D；名字不随 pane 在树里的位置变化。
         assert_eq!(pane_group_name(PaneId(26)), "Z");
         assert_eq!(pane_group_name(PaneId(27)), "AA");
         assert_eq!(pane_group_name(PaneId(28)), "AB");

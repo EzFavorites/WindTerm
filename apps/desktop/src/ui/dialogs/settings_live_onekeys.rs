@@ -1,4 +1,4 @@
-//! `Terminal.ManageOneKeys` 的对话框内容：登录方案管理器（参考实现 Tool ▸ OneKeys…）。
+//! `Terminal.ManageOneKeys` 的对话框内容：登录方案管理器（兼容终端 Tool ▸ OneKeys…）。
 //!
 //! # 1:1 对齐（2026-11-16，用户要求「必须 1:1，不接受大概」）
 //!
@@ -130,7 +130,7 @@ fn name_ok(draft: &[OneKey], at: usize, name: &str) -> bool {
 /// OneKeys 对话框的入口：标签条 + 左列表 + 右字段 + 页脚，全部按实测坐标摆。
 pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 字号对齐视觉基线：实测正文墨迹高约 8.5 逻辑点 → 12px 字体。
-    // egui 默认 Button/Body 是 14，整块看起来比参考实现粗大一圈。
+    // egui 默认 Button/Body 是 14，整块看起来比兼容终端粗大一圈。
     // 统一后字号取自 type_scale::SIZE_BODY，字体族走那里定义的全 UI 等宽。
     crate::ui::kit::type_scale::install_sized_styles(
         ui.style_mut(),
@@ -150,7 +150,7 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let origin = ui.cursor().min;
 
     // ── 标签条：三等分；选中块比未选更暗（与内容区同色） ──
-    // 标签条**贴满窗口**（参考实现物理 x 2..1406，没有左右内边距），所以起点要
+    // 标签条**贴满窗口**（兼容终端物理 x 2..1406，没有左右内边距），所以起点要
     // 退回到 PAD 之外、宽度补回两侧。
     let tab_w = (content_w + PAD * 2.0) / 3.0;
     place(

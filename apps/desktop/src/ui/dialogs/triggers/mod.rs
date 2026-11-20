@@ -349,7 +349,7 @@ pub(in crate::ui) fn show(
     if let Some(i) = view.sel {
         view.kind = win.triggers[i].kind;
     }
-    // 列表非空但未选中 → 默认选第一条（参考实现打开就有内容）。
+    // 列表非空但未选中 → 默认选第一条（兼容终端打开就有内容）。
     if view.sel.is_none() {
         view.sel = if win.triggers.is_empty() { None } else { Some(0) };
         if let Some(i) = view.sel {

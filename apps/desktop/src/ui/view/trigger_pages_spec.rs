@@ -200,7 +200,7 @@ pub mod tooltip {
 
 /// `Sound Name` 下拉里的音频名（视觉基线 `22`，47 项）。
 ///
-/// **只有文件名，不附带音频文件**：本仓不发布参考实现资源，`Test` 的试听能力见
+/// **只有文件名，不附带音频文件**：本仓不发布兼容终端资源，`Test` 的试听能力见
 /// （含视觉基线里的拼写 `Delection.mp3`）。
 pub const SOUND_NAMES: [&str; 47] = [
     "Confirmation.mp3",

@@ -13,7 +13,7 @@
 //!
 //! # 与 `crates/term-bridge/tests/support/mod.rs` 的关系
 //!
-//! 那边有一份 `PoolSurface`，是桥接自己的**参考实现**（它不能依赖 bin crate，
+//! 那边有一份 `PoolSurface`，是桥接自己的**兼容终端**（它不能依赖 bin crate，
 //! 所以只能自己带一份）。两份的**形状必须一致**，防漂移靠三件事：
 //!
 //! 1. 方法名与 schema 的单一真相是 `term_core::surface::METHODS`，两边都经

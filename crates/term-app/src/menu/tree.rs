@@ -803,7 +803,7 @@ pub fn menus() -> Vec<Menu> {
                     id: "Terminal.ManageTunnels",
                 },
                 // 2026-11-17：设置对话框与「在跑的面板」是两个入口。
-                // 参考实现的 `Tunnels` 打开的是配置编辑器，本仓那条先占住了面板，
+                // 兼容终端的 `Tunnels` 打开的是配置编辑器，本仓那条先占住了面板，
                 // 所以设置单独给一行——两件事都还在。
                 Item::Action {
                     label: "Tunnel Settings",

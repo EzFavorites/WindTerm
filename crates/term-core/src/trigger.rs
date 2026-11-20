@@ -356,7 +356,7 @@ pub struct ActionConfig {
     pub sound: String,
     /// 声音时长（秒）。视觉基线 `21` 显示 `00:00:01.368`。
     ///
-    /// 本仓不附带参考实现音频资源，时长由配置记录、UI 只做格式化显示；`0.0` 表示
+    /// 本仓不附带兼容终端音频资源，时长由配置记录、UI 只做格式化显示；`0.0` 表示
     /// 未选声音（空态显示 `00:00:00.000`），不伪造测量值。
     #[serde(default)]
     pub sound_secs: f32,
@@ -452,10 +452,10 @@ pub struct RuleConfig {
 pub struct Rule {
     /// 稳定标识，UI 用它定位（不参与匹配）。同一批规则里必须唯一。
     pub id: String,
-    /// 参考实现 Triggers 对话框左栏列表里的显示名（视觉基线那句
+    /// 兼容终端 Triggers 对话框左栏列表里的显示名（视觉基线那句
     /// `Enter a name for the new trigger.`）。
     ///
-    /// 2026-11-15 加：参考实现每个 trigger 是一个**具名对象**，而不是一串匿名规则。
+    /// 2026-11-15 加：兼容终端每个 trigger 是一个**具名对象**，而不是一串匿名规则。
     /// 不参与匹配；旧 `prefs.json` 没有这个键，`serde(default)` 读作空串，
     /// UI 回落到 `pattern`——所以旧配置不需要迁移。
     #[serde(default)]

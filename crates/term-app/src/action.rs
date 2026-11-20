@@ -836,7 +836,7 @@ mod tests {
     /// **独立对话框**；`ClearRecentUrls` 一个字段都不写。
     ///
     /// 2026-11-15 改口径：这两条原先置 `show_settings` 再发「翻到某页」的效应，
-    /// 弹出来的是 Preferences（而且那两页已按用户裁定移出左树，翻不到）。参考实现
+    /// 弹出来的是 Preferences（而且那两页已按用户裁定移出左树，翻不到）。兼容终端
     /// 是自有窗口，所以现在只置 `show_triggers` / `show_onekeys`、不再发效应。
     #[test]
     fn the_two_direct_commands_carry_their_intent_and_only_triggers_touches_state() {

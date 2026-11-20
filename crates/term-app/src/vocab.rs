@@ -273,7 +273,7 @@ pub enum ShellAction {
     /// 2026-11-17：`Terminal.TunnelSettings` —— 打开 **Tunnels 设置对话框**。
     ///
     /// 与 `ManageTunnels` 是两件事：那条开的是「在跑的隧道」面板（看状态），
-    /// 这条开的是配置编辑器（改名、增删、改目标）。同一个名字在参考实现里也是
+    /// 这条开的是配置编辑器（改名、增删、改目标）。同一个名字在兼容终端里也是
     /// 两个入口：`Tool ▸ Tunnels` 进设置，菜单栏那颗按钮的下拉进这里。
     ///
     /// reducer 只抛 `Effect::OpenTunnelSettings`：草稿与校验都在投影层。
@@ -943,7 +943,7 @@ pub enum LayoutAction {
     },
     /// 单块面板变成浮动窗。**不携带坐标**：坐标来自松手时的指针，属于投影层。
     Float(PanelId),
-    /// 整条带一起浮动，窗内用横向 tab 切成员（参考实现「浮动窗口」的形态）。
+    /// 整条带一起浮动，窗内用横向 tab 切成员（兼容终端「浮动窗口」的形态）。
     FloatBand(DockZone),
     /// 收回它的默认带（浮动窗标题栏的 ×，以及布局文件里读不出矩形时的退路）。
     Redock(PanelId),

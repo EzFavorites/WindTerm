@@ -81,7 +81,7 @@ fn the_three_presets_dispatch_to_their_own_prefs_values() {
 }
 
 /// 第四条命令不设值：打开设置并**预选 `Appearance` 页**（那页有开关 + 滑杆）。
-/// 停在默认页也是一种没接好——2026-11-15 起默认页已按参考实现改成 `Application`，
+/// 停在默认页也是一种没接好——2026-11-15 起默认页已按兼容终端改成 `Application`，
 /// 所以这条命令必须显式 `FocusAppearancePage`，这里同时钉住「对话框真的开了」。
 #[test]
 fn the_fourth_command_opens_settings_on_the_appearance_page() {

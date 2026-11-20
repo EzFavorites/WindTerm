@@ -56,7 +56,7 @@ pub(in crate::ui) struct Metrics {
 
 impl Metrics {
     /// `visible` 决定参与排版与配色的是哪些组；`config` 提供命令表，`display`
-    /// 携带三个显示开关（来自 `Prefs`，参考实现 `user.config` 的位置），`lang` 决定
+    /// 携带三个显示开关（来自 `Prefs`，兼容终端 `user.config` 的位置），`lang` 决定
     /// 每个标签取英文还是中文。
     ///
     /// 中文标签虽是 CJK，但用词更短，整条栏的自然宽度反而**比英文窄**

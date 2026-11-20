@@ -1,7 +1,7 @@
 //! P3 · 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
 //!
 //! 浮动叠加（D1）：不改 `avail_w` / `cols` / `tab.resize`，贴底视觉基线可零 diff。
-//! 轨道**无底色**（对齐参考实现 §2.3）：只画滑块，hover / 拖拽时提亮（指向指示色，
+//! 轨道**无底色**（对齐兼容终端 §2.3）：只画滑块，hover / 拖拽时提亮（指向指示色，
 //! 只在真实 hover 时出现——静态夹具用 `pointed` 定格，生产路径传 `None`）。
 //!
 //! bin 模式首版不做滚动条（坐标来自 `RawLog.anchor` 而非 `Viewport`，见设计稿 §5.5
@@ -12,7 +12,7 @@
 use crate::ui::*;
 use term_app::scrollbar::{scroll_top_of, thumb_of, Track};
 
-/// 滑块 / 轨道宽（参考实现 GIF 观测约 15pt）。`pub(super)` 让药丸让位时复用同一常量。
+/// 滑块 / 轨道宽（兼容终端 GIF 观测约 15pt）。`pub(super)` 让药丸让位时复用同一常量。
 pub(super) const SB_W: f32 = 15.0;
 /// 滑块最小高度下限；与 egui `ScrollStyle::handle_min_length` 对齐（`Track::min_thumb`）。
 const SB_MIN_THUMB: f64 = 12.0;
@@ -153,7 +153,7 @@ pub(super) fn interact(
     }
 }
 
-/// 第 7 段 chrome：只画滑块，不画轨道底色（对齐参考实现 §2.3）。
+/// 第 7 段 chrome：只画滑块，不画轨道底色（对齐兼容终端 §2.3）。
 /// 只读 `viewport`，可在 `paint_overlays` 之后调用。
 pub(super) fn paint(
     painter: &egui::Painter,

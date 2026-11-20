@@ -8,7 +8,7 @@
 //! `Ok` = 保存并关闭，`Cancel` = 回滚到**打开窗口那一刻**的快照并关闭。
 //! 编辑期间改动即时反映到底栏（`quick_bar` 是渲染期副本），但只有 `Ok`
 //! 才写 `quickbar.config`——每帧写盘会让输入框每敲一个字都触发一次 IO。
-//! 三个显示开关则写 `prefs.json`（参考实现 `user.config` 的位置）。
+//! 三个显示开关则写 `prefs.json`（兼容终端 `user.config` 的位置）。
 
 use eframe::egui;
 use term_runtime::prefs;
@@ -60,7 +60,7 @@ impl TerminalWindow {
         }
 
         let mut cfg = self.quick_bar.clone();
-        // 三个显示开关（参考实现 `user.config` 的位置）从 prefs 读初值，单独存一份
+        // 三个显示开关（兼容终端 `user.config` 的位置）从 prefs 读初值，单独存一份
         // 本地副本：勾选只改它，只有 Ok 才落 prefs（Cancel 不动盘，自动回滚）。
         let mut disp = self.quick_bar_display;
         let mut gi: usize = ctx.data(|d| d.get_temp(g_id).unwrap_or(0));
@@ -116,7 +116,7 @@ impl TerminalWindow {
                                     ui.selectable_value(&mut gi, i, g.label.as_str());
                                 }
                             });
-                        // 组操作按钮：参考实现是**纯文字、无边框**（用户反馈要去掉边框）。
+                        // 组操作按钮：兼容终端是**纯文字、无边框**（用户反馈要去掉边框）。
                         if ui.add(egui::Button::new("Add Group").frame(false)).clicked() {
                             cfg.groups.push(QuickGroupConfig {
                                 label: "Untitled".into(),
@@ -285,7 +285,7 @@ impl TerminalWindow {
                 });
 
                 // ── 底部三勾选（文案逐字照视觉基线）──
-                // 这三个是「显示开关」，参考实现存于 user.config（≈本应用 prefs），
+                // 这三个是「显示开关」，兼容终端存于 user.config（≈本应用 prefs），
                 // 不随命令表落 quickbar.config；勾选只改本地 `disp`，Ok 才写 prefs。
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
@@ -358,7 +358,7 @@ impl TerminalWindow {
             self.quick_bar = cfg;
             if ok {
                 quickbar::save(&self.quick_bar);
-                // 三个显示开关落 prefs（参考实现 user.config 的位置）；并同步窗口上的
+                // 三个显示开关落 prefs（兼容终端 user.config 的位置）；并同步窗口上的
                 // 渲染副本，底栏当帧就反映勾选结果。命令表与开关各写各的文件。
                 let mut p = prefs::load().unwrap_or_default();
                 p.quickbar_show_multiple_groups = disp.show_multiple_groups;
@@ -390,7 +390,7 @@ mod tests {
 
     #[test]
     fn the_three_switches_have_the_expected_factory_state() {
-        // 三个显示开关出厂态（参考实现 user.config 位置）：显示多组 + 显示组标题、
+        // 三个显示开关出厂态（兼容终端 user.config 位置）：显示多组 + 显示组标题、
         // 不按字母序——main-dark.png 的 File 组顺序不是字母序。
         let d = term_runtime::quickbar::QuickBarDisplay::default();
         assert!(d.show_multiple_groups);

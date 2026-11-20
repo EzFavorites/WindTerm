@@ -32,7 +32,7 @@ fn one_tab_window(ctx: &egui::Context) -> TerminalWindow {
 /// 2026-11-15 改口径：原先这条断言「打开 Preferences 并停在 Triggers 页」。
 /// 但 Triggers / OneKeys 两页早就按用户裁定移出了 Preferences 左树，于是
 /// 那条路径弹出的是一个翻不到那一页的设置窗口——用户看到的就是「点了弹错
-/// 窗口」。参考实现是自有窗口（左列表 + `Cancel / Ok`），所以现在直接置
+/// 窗口」。兼容终端是自有窗口（左列表 + `Cancel / Ok`），所以现在直接置
 /// `show_triggers`，连 Preferences 都不碰。
 #[test]
 fn manage_triggers_opens_the_standalone_dialog() {

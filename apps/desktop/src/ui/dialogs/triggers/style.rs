@@ -3,7 +3,7 @@
 //! 视觉基线 `01` / `13` 的规则表是**空表**，没有任何数据行，所以「Style 列的行内容
 //! 长什么样」没有像素依据。这里按列的语义画「本色块 + 一条该线型的样例线」，三个
 //! 颜色维度（text / background / line）与 `line_style` 都能一眼看出来，改动后也能
-//! 在表里立刻看见效果——参考实现从 `Modify` 进 [`super::popups`] 改的就是这三项。
+//! 在表里立刻看见效果——兼容终端从 `Modify` 进 [`super::popups`] 改的就是这三项。
 
 use super::fields::{mono, rgb};
 use crate::ui::view::trigger_spec::color as c;

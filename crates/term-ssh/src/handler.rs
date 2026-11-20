@@ -439,7 +439,7 @@ mod tests {
 
     #[test]
     fn unix_prefix_and_junk_display_are_handled() {
-        // `unix:n` 是 X 的另一种写法，与参考实现 `:n` 同落点。
+        // `unix:n` 是 X 的另一种写法，与兼容终端 `:n` 同落点。
         match resolve_x11_target(Some("unix:3")) {
             Some(X11Target::Unix(path)) => assert_eq!(path, PathBuf::from("/tmp/.X11-unix/X3")),
             Some(X11Target::Tcp(..)) => panic!("`unix:3` 应走 unix socket，不是 TCP"),
