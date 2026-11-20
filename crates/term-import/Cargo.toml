@@ -1,0 +1,18 @@
+[package]
+name = "term-import"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 独立配置导入模块（用户 2026-11-12 明确要求单独立出来）。
+#
+# 依赖表就是边界（`scripts/verify.sh` 第 4d 项复核）：
+# - 有 `term-core`（目标类型 `SessionConfig` / `Palette`）、`serde_json`（宽松解析）、
+#   `dirs`（找主题文件）；
+# - **没有** term-io / term-profile / term-runtime：导入是「把外部文本变成领域
+#   类型」，它不该能开会话、不该能写配置——落库与接线由调用方负责；
+# - **没有** UI / tokio / portable-pty。
+[dependencies]
+term-core = { path = "../term-core" }
+serde_json = "1.0"
+dirs = "5.0"

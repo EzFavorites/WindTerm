@@ -1,0 +1,36 @@
+[package]
+name = "term-io"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 会话 IO 与线程层：伪终端、串口、字节通道、每会话 Supervisor 线程、会话日志。
+#
+# 依赖表就是边界（`scripts/verify.sh` 第 4d 项复核）：
+# - 有 `portable-pty`（开伪终端）与 `serialport`（串口，三平台一套 API）；
+# - **没有** SQLite / serde（配置档案在 `term-profile`）、没有 tokio / russh
+#   （异步只在 term-ssh / term-tunnel / term-sftp 的笼子里）、没有 UI。
+# 路径规则只用 `term-paths`——不要为了一个目录反过来依赖持久化层。
+[dependencies]
+term-core = { path = "../term-core" }
+term-paths = { path = "../term-paths" }
+portable-pty = "0.8"
+# 串口后端（`serial.rs`）：Windows 走 `CreateFile` + `DCB`，Linux/macOS 走 termios，
+# 一套 API 三平台。**关掉默认特性**：默认特性是 Linux 上的 `libudev`，只服务
+# `available_ports()`——那会逼着 Linux 构建装 `libudev-dev`。我们的设备枚举本来
+# 就是自己扫 `/dev`（见 `serial::list_devices`），Windows 侧用 `available_ports()`
+# 不依赖 libudev（它走 SetupAPI）。所以这项特性对本仓是纯成本。
+#
+# 2026-11-16 之前串口是手写 termios + `nix`；补 Windows 时发现要另写一套
+# `CreateFile`/`DCB`/`COMMTIMEOUTS`/`ClearCommError`，而 `serialport` 三平台都做了，
+# unix 侧行为与手写版等价（`O_NOCTTY | O_NONBLOCK | O_CLOEXEC` + `cfmakeraw` +
+# 设置回读校验），于是整体换过来。
+serialport = { version = "4", default-features = false }
+
+[dev-dependencies]
+# `nix` 现在**只**被 `serial_channel` 的测试用到：造一对 pty 当假串口
+# （`openpty` + `ttyname` + `fcntl`），不碰任何真实设备。串口本体交给 `serialport`
+# 之后，正常构建不该再编它，所以退到 dev-dependencies。
+#
+# `pty` 模块由 `term` 特性带出来（nix 0.25 没有独立的 `pty` 特性，见其 lib.rs）。
+nix = { version = "0.25", features = ["term", "fs"] }
