@@ -1,0 +1,112 @@
+# 多协议测试床的网络编排：一台目标机、一台跳板机、一台 telnet、一台 TCP。
+#
+# 为什么是两台 SSH 而不是一台：`ProxyJump` 的语义是「由另一台机器替我连」。
+# 只有一台时 `-J` 那条路径根本不会被走到（同一个地址自己连自己），测出来的
+# 只能是「命令拼接对了」，而不是「链路通了」。
+#
+# 端口固定在高位段（22022–22027），避开本机可能已有的 sshd(22) 与常见 2222。
+# 高位端口不需要 root，这是「不频繁请求权限」的第一道保障。
+#
+# 密钥全部从 `./keys/` 只读挂载，容器内不生成长期密钥（除非故意不挂，
+# 那是 host-key 变更测试用的场景）。运行 `tests/docker/gen-keys.sh` 先备好。
+name: windterm-protocol-test
+
+services:
+  # 目标机：sshd（密码 / 公钥 / 键盘交互）+ SFTP + SCP + tmux + sz/rz
+  target:
+    build: .
+    image: windterm-test-sshd:latest
+    container_name: windterm-target
+    environment:
+      ROLE: sshd
+    ports:
+      - "22022:22"
+    volumes:
+      - ./keys/client:/keys/client:ro
+      - ./keys/target:/keys/host:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
+      interval: 2s
+      timeout: 2s
+      start_period: 5s
+      retries: 40
+
+  # 跳板机：与目标机同一镜像，但挂自己的 host key —— 两把钥匙不同，「主机密钥
+  # 变了要拒绝」的判据才有意义。
+  bastion:
+    image: windterm-test-sshd:latest
+    container_name: windterm-bastion
+    environment:
+      ROLE: sshd
+    depends_on:
+      target:
+        condition: service_healthy
+    ports:
+      - "22023:22"
+    volumes:
+      - ./keys/client:/keys/client:ro
+      - ./keys/bastion:/keys/host:ro
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
+      interval: 2s
+      timeout: 2s
+      start_period: 5s
+      retries: 40
+
+  # 跳板测试的客户端。不在宿主机上跑 ssh 的原因：ProxyJump 会再起一条
+  # `ssh -W` 作为 ProxyCommand，它**不继承**外层命令的 `-o` 选项，所以
+  # 「首次信任」这类设置传不到跳板那一跳；往宿主机 ~/.ssh 写测试密钥更不行。
+  # 容器里的 HOME 是一次性的，正好隔离。
+  client:
+    image: windterm-test-sshd:latest
+    depends_on:
+      target:
+        condition: service_healthy
+      bastion:
+        condition: service_healthy
+    volumes:
+      # 挂成 /keys/id_ed25519（而不是 /keys/client/...）：ProxyJump 测试的
+      # 期望 argv 里写死了这个路径，而 `-i` 只作用于最后一跳，跳板那一跳的
+      # 私钥得从 ~/.ssh/config 指过来。保持这个路径，测试就不用改。
+      - ./keys/client:/keys:ro
+    entrypoint: ["/bin/true"]
+
+  # 真 telnet 服务端。IAC 协商与 PTY 分配由 inetutils 提供，不是我们模拟的。
+  telnet:
+    image: windterm-test-sshd:latest
+    container_name: windterm-telnet
+    environment:
+      ROLE: telnetd
+    depends_on:
+      target:
+        condition: service_started
+    ports:
+      - "22024:2323"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "2323"]
+      interval: 2s
+      timeout: 2s
+      start_period: 3s
+      retries: 40
+
+  # 裸 TCP：9999 回显 / 9998 汇聚（回 SHA256）/ 9997 源端（发 SHA256 头 + 字节）。
+  # 这三个端口是「不经过 SSH 的二进制通道」，用来把协议层的问题和加密通道的
+  # 问题分开定位。
+  tcp:
+    image: windterm-test-sshd:latest
+    container_name: windterm-tcp
+    environment:
+      ROLE: tcp
+    depends_on:
+      target:
+        condition: service_started
+    ports:
+      - "22025:9999"
+      - "22026:9998"
+      - "22027:9997"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "9999"]
+      interval: 2s
+      timeout: 2s
+      start_period: 3s
+      retries: 40
