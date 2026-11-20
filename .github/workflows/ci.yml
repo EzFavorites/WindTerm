@@ -1,0 +1,48 @@
+# 持续集成：类型检查 + 测试。
+#
+# 编译器钉 1.94.0：各 crate 的 `rust-version = "1.94"`，门禁与发布产物都用同一版。
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.94.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      # egui/eframe 在 Linux 上需要 X11/Wayland 头文件；russh 走 ring 需要 C 工具链；
+      # 部分测试会在进程内拉起 sftp-server 与会话日志链路。
+      - name: 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxi-dev \
+            libxcursor-dev libxrandr-dev libgl1-mesa-dev \
+            libfontconfig1-dev \
+            openssh-server openssh-sftp-server lrzsz
+
+      - name: 安装 Rust 1.94.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo build
+        run: cargo build --workspace --locked
+
+      - name: cargo test
+        run: cargo test --workspace --locked

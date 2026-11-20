@@ -1,0 +1,171 @@
+# 发布：推 v* 标签时构建四个平台的安装包，并创建一个 draft Release。
+#
+# 版本号的唯一来源是 apps/desktop/Cargo.toml 的 `version`；tag 只用于触发，
+# 不参与产物命名（tag 与 Cargo 版本不一致时打印警告，不阻断）。
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# 发布不可重入取消：中途 cancel 会留下「tag 已存在、Release 半成品」的状态。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  meta:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(sed -n 's/^version *= *"\([0-9][^"]*\)".*/\1/p' apps/desktop/Cargo.toml | head -1)
+          if [ -z "$V" ]; then
+            echo "apps/desktop/Cargo.toml 里找不到 version" >&2
+            exit 1
+          fi
+          TAG="${GITHUB_REF_NAME:-}"
+          if [ -n "$TAG" ] && [ "${TAG#v}" != "$V" ]; then
+            echo "::warning::tag $TAG 与 apps/desktop/Cargo.toml 的 version $V 不一致；产物按 $V 命名"
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: meta
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS：两个架构都在 macos-14（arm64）上编，x86_64 走交叉编译。
+          - target: aarch64-apple-darwin
+            os: macos-14
+            label: macos-aarch64
+          - target: x86_64-apple-darwin
+            os: macos-14
+            label: macos-x86_64
+          # Linux 用 22.04：glibc 向下兼容，产物能在更新的发行版上运行。
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            label: linux-x86_64
+          # Windows 用 MSVC 工具链（runner 自带）。
+          - target: x86_64-pc-windows-msvc
+            os: windows-2022
+            label: windows-x86_64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      RUSTUP_TOOLCHAIN: "1.94.0"
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 系统依赖（仅 Linux）
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxi-dev \
+            libxcursor-dev libxrandr-dev libgl1-mesa-dev \
+            libfontconfig1-dev
+
+      - name: 安装 Rust 1.94.0 + 目标平台
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.label }}
+
+      - name: 构建
+        run: cargo build -p term-desk --release --locked --target "$TARGET"
+
+      - name: 打包
+        run: |
+          set -euo pipefail
+          EXE=""
+          case "$TARGET" in
+            *-windows-*) EXE=".exe" ;;
+          esac
+          BIN="target/$TARGET/release/term-desk$EXE"
+          bash scripts/package-release.sh \
+            "$TARGET" "${{ needs.meta.outputs.version }}" "$BIN" dist
+
+      # 产物结构断言：包能被上传不代表它是对的。
+      - name: 校验产物
+        run: |
+          set -euo pipefail
+          ls -l dist
+          n=$(ls dist | grep -cE '\.(tar\.gz|zip)$' || true)
+          if [ "$n" -ne 1 ]; then
+            echo "期望恰好 1 个分发包，实际 $n：$(ls dist)" >&2
+            exit 1
+          fi
+          case "$TARGET" in
+            *-apple-darwin)
+              tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/pkg-list.txt"
+              grep -qxF 'WindTerm.app/Contents/MacOS/WindTerm' "$RUNNER_TEMP/pkg-list.txt" \
+                || { echo ".app 里没有 Contents/MacOS/WindTerm" >&2; exit 1; }
+              ;;
+            *-windows-*)
+              ls dist/*.zip >/dev/null || { echo "没有 .zip" >&2; exit 1; }
+              ;;
+            *-linux-gnu)
+              tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/pkg-list.txt"
+              grep -qxF './windterm' "$RUNNER_TEMP/pkg-list.txt" \
+                || { echo "包里没有 ./windterm" >&2; exit 1; }
+              ;;
+          esac
+          echo "产物校验通过：$(ls dist)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    needs: [meta, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 列出将发布的文件
+        run: ls -l dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # draft：给发布者一次「看一遍再发」的机会。
+          draft: true
+          generate_release_notes: false
+          name: WindTerm ${{ needs.meta.outputs.version }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
