@@ -23,7 +23,8 @@ jobs:
       - uses: actions/checkout@v4
 
       # egui/eframe 在 Linux 上需要 X11/Wayland 头文件；russh 走 ring 需要 C 工具链；
-      # 部分测试会在进程内拉起 sftp-server 与会话日志链路。
+      # 部分测试会在进程内拉起 sftp-server 与会话日志链路；fonts-* 是字体回落测试
+      # 的依赖（runner 镜像默认不带等宽/中文字面）。
       - name: 系统依赖
         run: |
           sudo apt-get update
@@ -32,6 +33,7 @@ jobs:
             libxkbcommon-dev libwayland-dev libx11-dev libxi-dev \
             libxcursor-dev libxrandr-dev libgl1-mesa-dev \
             libfontconfig1-dev \
+            fonts-dejavu-core fonts-noto-cjk \
             openssh-server openssh-sftp-server lrzsz
 
       - name: 安装 Rust 1.94.0

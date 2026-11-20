@@ -50,12 +50,27 @@ pub const MAX_FONT_SIZE: f32 = 48.0;
 ///
 /// 为什么是函数而不是 `const` 表：Windows 的系统目录未必在 `C:`，路径要从
 /// `%SystemRoot%` 拼出来——常量表拼不了。
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn mono_candidates() -> Vec<(String, u32)> {
     [
         "/System/Library/Fonts/Menlo.ttc",
         "/Library/Fonts/Monaco.ttf",
         "/System/Library/Fonts/Supplemental/Courier New.ttf",
+    ]
+    .iter()
+    .map(|path| ((*path).to_string(), 0))
+    .collect()
+}
+
+/// Linux 发行版把字体分散在 `/usr/share/fonts` 下的不同子目录；这里只列
+/// 三个最常见的位置（Debian/Ubuntu 的 `fonts-dejavu-core`、`fonts-noto-mono`、
+/// `fonts-liberation`）。都没有时终端会退回 egui 内置字形，而不是拒绝启动。
+#[cfg(target_os = "linux")]
+fn mono_candidates() -> Vec<(String, u32)> {
+    [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+        "/usr/share/fonts/truetype/noto/NotoSansMono-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
     ]
     .iter()
     .map(|path| ((*path).to_string(), 0))
@@ -68,7 +83,7 @@ fn mono_candidates() -> Vec<(String, u32)> {
     windows_fonts(&["consola.ttf", "lucon.ttf"])
 }
 
-#[cfg(not(windows))]
+#[cfg(all(not(windows), not(target_os = "linux")))]
 fn cjk_candidates() -> Vec<(String, u32)> {
     [
         "/System/Library/Fonts/Hiragino Sans GB.ttc",
@@ -77,6 +92,22 @@ fn cjk_candidates() -> Vec<(String, u32)> {
         "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
         "/System/Library/Fonts/Songti.ttc",
         "/System/Library/Fonts/PingFang.ttc",
+    ]
+    .iter()
+    .map(|path| ((*path).to_string(), 0))
+    .collect()
+}
+
+/// CJK 候选：`fonts-noto-cjk` 的合集（Ubuntu/Debian 装在 opentype 或 truetype
+/// 子目录）、以及文泉驿与 AR PL 作为更老的兜底。`.ttc` 的 0 号面即
+/// Noto Sans CJK Regular，含中日韩全量字形。
+#[cfg(target_os = "linux")]
+fn cjk_candidates() -> Vec<(String, u32)> {
+    [
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
+        "/usr/share/fonts/truetype/arphic/uming.ttc",
     ]
     .iter()
     .map(|path| ((*path).to_string(), 0))
