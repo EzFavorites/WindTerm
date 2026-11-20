@@ -1,0 +1,15 @@
+[package]
+name = "term-xfer"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 文件传输协议层（XMODEM / XMODEM-1K / YMODEM）：纯状态机，零 IO。
+#
+# 本 crate 刻意**零依赖**：
+# - 不依赖 term-core：协议层只认 `&[u8]` 进、`Action` 出，连会话抽象都不需要，
+#   比 I4 单向依赖再低一层；
+# - 不依赖 tokio / russh / egui：定时器归调用方（`on_timeout()` 由驱动方按自己的
+#   时钟调用），文件读写归调用方（`Action::Data` 交给谁落盘与本 crate 无关）；
+# - 不依赖 rand 等测试辅助库：测试里的随机切分用自带的 xorshift 实现。
+[dependencies]

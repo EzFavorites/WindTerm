@@ -1,0 +1,17 @@
+[package]
+name = "term-zmodem"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# ZMODEM 收发状态机：纯逻辑，零 IO，只有一处依赖。
+#
+# 唯一依赖是 `term-xfer`，而且只复用三样东西：
+# - `Action` / `Error` / `Fault`：事件与错误的形状（UI 不必为两种协议写两套分支）；
+# - `packet::crc16`：帧头 CRC 的算法（ZMODEM 的十六进制帧头用的就是 CRC-16/XMODEM）；
+# - 代码风格与「定时器归调用方」的约定。
+#
+# 状态机本身独立实现：ZMODEM 是滑动窗口 + 可变长帧 + 帧内转义 + 会话内协商，
+# 错误恢复语义是「按偏移重传」，与 X/YMODEM 的「重发当前块」不同，不能共用一个 feed。
+[dependencies]
+term-xfer = { path = "../term-xfer" }
