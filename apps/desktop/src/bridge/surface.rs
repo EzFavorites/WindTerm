@@ -51,11 +51,11 @@ const DEFAULT_ROWS: u64 = 24;
 /// 把 `SessionPool` 包成桥接的后端。
 pub struct DeskSurface {
     pool: Arc<SessionPool>,
-    /// ADR-0023 §决策 2：每个会话一份 `ScriptSession`，让远程的
+    /// ADR-0023：每个会话一份 `ScriptSession`，让远程的
     /// `read` / `read_until` / `wait_any` 与脚本共享**同一套捕获游标语义**。
     ///
     /// 为什么必须有状态：`read_until` 的承诺是「自上次取走点往后读到哨兵」。
-    /// 无状态实现只能每次从屏幕重读——那就是洪水输出下漏读（ADR-0019 §B.13）。
+    /// 无状态实现只能每次从屏幕重读——那就是洪水输出下漏读（ADR-0019）。
     /// 桥接是一条串行管道（`handler.rs` 硬约束 3），持游标不引入并发问题。
     cursors: Mutex<HashMap<SessionId, ScriptSession>>,
 }
@@ -135,7 +135,7 @@ impl DeskSurface {
                     .map_err(OpenFailure::Session)
             }
             None => {
-                // P1-5：登录名由宿主注入（core 不读 `$USER`）。
+                // 登录名由宿主注入（core 不读 `$USER`）。
                 let mut config = SessionConfig::new_local_shell(&term_io::host::login());
                 if let Some(explicit) = name {
                     config.name = explicit;
@@ -146,7 +146,7 @@ impl DeskSurface {
 
         let tab = opened.map_err(open_failure)?;
         // 立刻建好这条会话的读取游标。`ScriptSession` 是在**构造时**登记捕获器
-        // 的（ADR-0019 §B.13 先登记后消费），所以懒创建等于把「session_open 之后、
+        // 的（ADR-0019 先登记后消费），所以懒创建等于把「session_open 之后、
         // 第一次 read 之前」到达的输出**永久丢掉**：客户端典型写法正好是
         // `write` → `wait` → `read`，等它第一次 read 时游标才登记，前面那段
         // 已经不在它的窗口里了。脚本侧没有这个洞（游标在脚本开跑之前就建好），
@@ -157,7 +157,7 @@ impl DeskSurface {
         // 留给首次读取显式报 `Closed`。
         let _ = self.cursor(tab);
         // 返回**真名**，不是调用方想要的 base：重名时池子会加后缀
-        // （`cat` → `cat-2`），拿 base 回去寻址会打中另一条会话（ADR-0024 §2）。
+        // （`cat` → `cat-2`），拿 base 回去寻址会打中另一条会话（ADR-0024）。
         let real = self.pool.name(tab).ok_or_else(|| {
             SurfaceError::internal(format!("会话 {tab} 刚建出来，池子却给不出它的名字"))
         })?;
@@ -174,7 +174,7 @@ impl DeskSurface {
     /// 非 exec 会话的统一开法：**只经** [`crate::session_open::open_session`]。
     ///
     /// 为什么单独一个方法而不是在 `session_open` 里内联：能力面这八条方法**不许**
-    /// 出现协议专有参数（§B.14），所以 `session_open` 的线上形状里永远没有
+    /// 出现协议专有参数（ADR-0019），所以 `session_open` 的线上形状里永远没有
     /// 「用内置 SSH 连哪台机器」。协议注入点在控制面之下由
     /// `session_open` 决定，这一层既不认识 `SshOptions` 也不认识 russh。
     fn open_config(
@@ -260,7 +260,7 @@ impl DeskSurface {
         let timeout_ms = optional_u64(params, "timeout_ms")?.unwrap_or(DEFAULT_WAIT_TIMEOUT_MS);
         let (_, tab) = self.resolve(params)?;
 
-        // 先登记、后匹配（§B.13）：wait_register 返回即已生效，
+        // 先登记、后匹配（ADR-0019）：wait_register 返回即已生效，
         // 之后的输出保证被匹配；登记点之前的输出不入账。
         let registration = self.pool.wait_register(tab, &pattern)?;
         let matched = registration
@@ -389,7 +389,7 @@ impl DeskSurface {
         let dir = required_string(params, "dir")?;
         let (name, tab) = self.resolve(params)?;
         // 会话名进文件名——就是寻址名本身，不必再向清单要一遍：
-        // 名字在开会话时定下、之后不再变（ADR-0024 §3）。
+        // 名字在开会话时定下、之后不再变（ADR-0024）。
         //
         // 格式选项取设置页那一份（同一个用户在 `prefs.json` 里配的），
         // 不另立一套无头默认值：否则同样的会话，界面里点 Start 与 agent
@@ -634,7 +634,7 @@ fn open_failure(err: OpenFailure) -> SurfaceError {
             SurfaceError::invalid_request(OpenError::BuiltinChannelNeedsInjection.to_string())
         }
         OpenFailure::Session(OpenError::Channel(failure)) => {
-            // W1-c：工厂的失败分类在 `session_open::open_failure` 已经翻成
+            // 工厂的失败分类在 `session_open::open_failure` 已经翻成
             // NeedsVault / Unsupported / Connect 三档，正常走不到这里；
             // 留一臂是为了控制面新增分类时不会静默丢进「起会话失败」。
             match failure {
@@ -652,7 +652,7 @@ fn open_failure(err: OpenFailure) -> SurfaceError {
     }
 }
 
-// 夹具与断言较多（14 条），单独成文件：R9 的单文件上限管的是**代码**行，
+// 夹具与断言较多（14 条），单独成文件：单文件上限管的是**代码**行，
 // 而这些用例只是回归，不该把翻译层顶出上限。见 `lock_tests.rs` 的同款处理。
 #[cfg(test)]
 #[path = "surface_tests.rs"]

@@ -1,6 +1,6 @@
 //! 遍历一棵菜单树：`Item` 分发到「画一行 / 分隔线 / 子菜单」。
 //!
-//! R9：2026-11-08 从 `menu_bar.rs` 拆出。这里只有**遍历**——一行长什么样
+//! 2026-11-08 从 `menu_bar.rs` 拆出。这里只有**遍历**——一行长什么样
 //! 全在 `menu_style.rs`，本文件不碰任何颜色常量。
 
 use crate::ui::*;
@@ -158,7 +158,7 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
                 draw_action_row(win, ui, label, id, cell, look)
             }
             Item::Separator => menu_separator(ui),
-            // I5：一条命令都没有的子菜单不画成能点开的样子。
+            // 一条命令都没有的子菜单不画成能点开的样子。
             //
             // 这些父级（`Select Column To` / `Word` / `Page` / … / `Hex Base`）
             // 在视觉基线里是有的，删掉会让菜单结构与视觉基线对不上，所以**留着**；

@@ -1,15 +1,15 @@
-//! `NewSessionData` 串口五参数的往返单测（C2）。
+//! `NewSessionData` 串口五参数的往返单测。
 //!
 //! 挂在 `session_form.rs` 之下（`#[path]`），与主测试模块并行，避免让
-//! `ui/` 源文件越过 4j 的 500 行上限。
+//! `ui/` 源文件越过 500 行上限。
 
 use super::*;
 
 #[test]
 fn serial_fields_round_trip_through_the_form() {
-    // C2：串口五个参数必须真进真出。此前只有 baud_rate 有落点，
+    // 串口五个参数必须真进真出。此前只有 baud_rate 有落点，
     // data_bits/stop_bits/parity/flow_control 在 SessionConfig 里是常量、
-    // 表单写不进也读不出——「能填、看起来存了、实际没生效」的 R5 假控件。
+    // 表单写不进也读不出——「能填、看起来存了、实际没生效」的假控件。
     let mut c = SessionConfig::new(Protocol::Serial);
     c.baud_rate = 57600;
     c.data_bits = 7;

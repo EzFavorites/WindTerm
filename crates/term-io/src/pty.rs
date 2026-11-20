@@ -52,7 +52,7 @@ impl PtySession {
         Self::spawn_with(config, cols, rows, plan)
     }
 
-    /// Same as `spawn`, but with an explicit plan. S2 uses this for the headless
+    /// Same as `spawn`, but with an explicit plan. This is used for the headless
     /// runner: a one-shot `/bin/sh -c <command>` needs no SessionConfig entry.
     pub fn spawn_with(
         config: SessionConfig,
@@ -90,7 +90,7 @@ impl PtySession {
         } else {
             cmd.env("LANG", "en_US.UTF-8");
         }
-        // W4：本地 Shell 的启动工作目录。空串沿用当前目录（仍按 I5 留作占位）。
+        // 本地 Shell 的启动工作目录。空串沿用当前目录（仍留作占位）。
         if config.protocol == Protocol::Shell && !config.working_dir.trim().is_empty() {
             cmd.cwd(config.working_dir.trim());
         }

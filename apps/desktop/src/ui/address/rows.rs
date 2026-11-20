@@ -13,7 +13,7 @@
 //! 1. 视觉基线那两行是静态图；这里每行是**可点击控件**，选中态铺
 //!    `CHROME_SCALE.selected`、悬停铺 `hover`。
 //! 2. 视觉基线 `Opened` 行右端有 `Alt+1`。本仓**没有** `Alt+n` 的标签切换绑定
-//!    （`DEFAULT_SHORTCUTS` 里没有这几条），画出来就是 R5 禁止的假快捷键，
+//!    （`DEFAULT_SHORTCUTS` 里没有这几条），画出来就是禁止的假快捷键，
 //!    所以这一列只留动作提示，不留快捷键。
 
 use eframe::egui;

@@ -5,7 +5,7 @@
 //! 折叠标签 `Sysmon`。所以它在 `draw()` 里必须在左右竖带之后、中央区之前
 //! 声明——egui 先声明的 panel 占外圈，顺序错了这条带就会横跨到竖带上方。
 //!
-//! R5：这枚标签是**真开关**。点一下翻 `TogglePanel(PanelId::Sysmon)`，再点
+//! 这枚标签是**真开关**。点一下翻 `TogglePanel(PanelId::Sysmon)`，再点
 //! 一下收回；展开出来的面板也有自己的 ×。没有「点了没反应」的假标签。
 
 use crate::ui::*;
@@ -27,7 +27,7 @@ pub(in crate::ui) fn sysmon_bar_frame() -> egui::Frame {
 }
 
 impl TerminalWindow {
-    /// `pane_salt`：④-1 分屏时每片 pane 各画一条 Sysmon，`ui.interact` 的 id
+    /// `pane_salt`：分屏时每片 pane 各画一条 Sysmon，`ui.interact` 的 id
     /// 必须带 pane 身份，否则三格同名 id 会撞（egui 报 "First/Second use of
     /// widget ID"）。全窗路径传 `None`，id 保持原来的 `"sysmon_tab"` 一字不变。
     pub(in crate::ui) fn draw_sysmon_bar(&mut self, ui: &mut egui::Ui, pane_salt: Option<u64>) {

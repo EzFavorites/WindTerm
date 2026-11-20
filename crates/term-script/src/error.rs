@@ -4,7 +4,7 @@ use std::fmt;
 
 use term_core::session_runtime::WaitError;
 
-/// 脚本原语的失败方式。一律显式失败，禁止静默空成功（ADR-0019 §B.13）。
+/// 脚本原语的失败方式。一律显式失败，禁止静默空成功（ADR-0019）。
 ///
 /// 带 `String` 的三个变体（[`UnknownKey`](Self::UnknownKey) 与两个会话名）
 /// 让它失去 `Copy`：名字都是脚本运行时给的，不像整数那样拷贝免费。这点小代价
@@ -51,10 +51,10 @@ pub enum PrimitiveError {
     /// 不返回空串冒充「用户按了回车」——那会让「要不要继续」这条分支静默走成
     /// 「继续」。
     NoInput,
-    /// 用户按了「停止」（ADR-0027 S2）。与超时分开：那是「等的东西没来」，
+    /// 用户按了「停止」（ADR-0027）。与超时分开：那是「等的东西没来」，
     /// 这是「人不让它等了」。
     Cancelled,
-    /// 授权信封里没有这一项（D2）。文案里带 requested / granted。
+    /// 授权信封里没有这一项。文案里带 requested / granted。
     Denied(String),
     /// 宿主没有该能力（无头宿主的窗口、CLI 的文件框……）。
     Unsupported(String),
@@ -179,11 +179,11 @@ impl From<crate::clip_ui::UiError> for PrimitiveError {
     }
 }
 
-/// 应用控制面的失败 → 原语错误（ADR-0027 §9 的第七端口）。
+/// 应用控制面的失败 → 原语错误（ADR-0027 的第七端口）。
 ///
 /// 映射三条：授权不足与「宿主没有」各走各的变体（脚本据此改分支）；
 /// `Busy` / `Io` / 参数错落到 `Failed`——脚本侧拿不到「重试时机」，
-/// 多一个类型只多一条没人读的分支（Q2 §8.2 的取舍）。
+/// 多一个类型只多一条没人读的分支（取舍）。
 impl From<crate::app_ui::AppError> for PrimitiveError {
     fn from(err: crate::app_ui::AppError) -> Self {
         use crate::app_ui::AppError;

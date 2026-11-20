@@ -209,14 +209,14 @@ pub fn parse_proxy_jump(raw: &str) -> Result<Vec<ProxyHop>, SshError> {
         .collect()
 }
 
-/// 出网代理的协议档位（W1-b / D8）。
+/// 出网代理的协议档位。
 ///
 /// **不含 `Jump`**：跳板机是 SSH 自己的 `direct-tcpip` 链（`proxy_jump`），
 /// 与「把第一段 TCP 交给一个代理」是两件不同的事，混在一个枚举里会让
 /// 「选了 HTTP 却还在走 -J」变成类型上合法的状态。
 ///
 /// `ProxyCommand` 也不在这里：官方公开文档明确写「Strictly speaking,
-/// ProxyCommand is not implemented in WindTerm」，按 D8 保持灰显，不造一个
+/// ProxyCommand is not implemented in WindTerm」，保持灰显，不造一个
 /// 没有语义的档位。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ProxyKind {
@@ -389,7 +389,7 @@ pub struct SshOptions {
     pub port: u16,
     pub user: String,
     pub auth: AuthMethod,
-    /// D2（OneKey）：凭据回退链。**有序**，空 = 回落单一 `auth`（旧行为不变）。
+    /// （OneKey）：凭据回退链。**有序**，空 = 回落单一 `auth`（旧行为不变）。
     ///
     /// 非空时 `authenticate()` 按此顺序逐个尝试，第一个被接受即停。被拒
     /// （`SshError::Auth`）或该方式本地根本用不了（`SshError::Key`，例如私钥
@@ -423,7 +423,7 @@ pub struct SshOptions {
     pub x11_screen: u32,
     /// 算法白名单（空 = 用 russh 默认清单）。语义见 [`AlgorithmPolicy`]。
     pub algorithms: AlgorithmPolicy,
-    /// W1-b：出网代理。`None` = 第一段 TCP 直连目标（或第一跳跳板机）。
+    /// 出网代理。`None` = 第一段 TCP 直连目标（或第一跳跳板机）。
     ///
     /// 只作用于**整条链的第一段 TCP**：之后的每一跳都在上一条 SSH 连接里开
     /// `direct-tcpip`，早就不需要也不该再穿过一次代理。
@@ -471,7 +471,7 @@ impl SshOptions {
             port: DEFAULT_PORT,
             user: user.into(),
             auth,
-            // D2：默认空链 = 只用上面这一个 `auth`（旧行为不变）。
+            // 默认空链 = 只用上面这一个 `auth`（旧行为不变）。
             auth_chain: Vec::new(),
             host_key: HostKeyPolicy::Tofu,
             known_hosts: None,
@@ -527,7 +527,7 @@ impl SshOptions {
         }
         if let Some(proxy) = &self.outbound_proxy {
             // 「选了 HTTP/SOCKS5 却没填主机」必须在碰网络前报错：否则
-            // 连接层只能悄悄退化成直连，那正是 W1-b 要消灭的静默失效。
+            // 连接层只能悄悄退化成直连，那正是要消灭的静默失效。
             proxy.validate()?;
         }
         if let AuthMethod::PrivateKey { path, .. } = &self.auth {
@@ -535,7 +535,7 @@ impl SshOptions {
                 return Err(SshError::Config("选择了私钥认证但没选文件".to_string()));
             }
         }
-        // D2：链里每一环也要过同样的「私钥必须有文件」检查：走到链中段才发现
+        // 链里每一环也要过同样的「私钥必须有文件」检查：走到链中段才发现
         // 少填了文件，用户已经白等一轮握手了。
         for method in &self.auth_chain {
             if let AuthMethod::PrivateKey { path, .. } = method {

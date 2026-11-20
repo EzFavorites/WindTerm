@@ -135,7 +135,7 @@ run_group() {
         fi
         ;;
     control)
-        say "6. W1-c 控制面本体：desk script 经通道工厂连真 sshd"
+        say "6. 控制面本体：desk script 经通道工厂连真 sshd"
         if cargo test -p term-desk --test docker_control_plane --target-dir "$ROOT/target" \
             -- --ignored --test-threads=1 --nocapture; then
             pass "会话库 → SessionPool::open → 工厂 → 真 sshd 回显全链路通过"

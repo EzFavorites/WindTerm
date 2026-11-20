@@ -10,7 +10,7 @@
 //! 凭据，于是整块面板只显示一句「没有文件面板」，左带下半一大片空白。
 //! WindTerm 在本地会话下看的其实是**本地目录**，所以补上本地源：
 //!
-//! - `term_runtime::local_dir` 负责读目录与 `mtime → YYYY/MM/DD`（IO 不进 `ui/`，B2）；
+//! - `term_runtime::local_dir` 负责读目录与 `mtime → YYYY/MM/DD`（IO 不进 `ui/`）；
 //! - `--demo` 时用 `demo.rs::demo_files()` 的固定条目，基线不钉在真实家目录上；
 //! - SSH 会话仍走原来的 `SftpHandle`，`date` 列为空（服务端那条 `Entry` 没有
 //!   mtime，不编一个假日期出来）。
@@ -109,7 +109,7 @@ pub(in crate::ui) struct Filer {
     /// `prefs.filer_show_hidden`，这里只是它的工作副本；重建面板时经
     /// [`Filer::from_prefs`] 重新对齐。
     pub(in crate::ui) show_hidden: bool,
-    /// 远端预览的待收件箱（D6）：正在等哪一份文件传完。
+    /// 远端预览的待收件箱：正在等哪一份文件传完。
     ///
     /// 双击远端文件不会凭空出现内容——必须先把整份文件搬到本地（`term_sftp`
     /// 的 `download`），传完才有东西可画。所以这里记住「我们在等哪个远端路径、
@@ -118,7 +118,7 @@ pub(in crate::ui) struct Filer {
     /// 一次只等一个：预览窗一次只显示一个文件，后点的那个直接顶掉前一个
     /// （前一个的下载不会被取消，`Done` 回来时匹配不上就什么也不做）。
     pending_preview: Option<PendingPreview>,
-    /// 目录同步（XFER-06）：`Some` = 正在扫描 / 待审阅 / 正在执行。
+    /// 目录同步：`Some` = 正在扫描 / 待审阅 / 正在执行。
     ///
     /// 跟着面板走，理由同 `xfer_queue`：同步依附于这条会话的远端目录，
     /// 面板重建后一份属于旧目录的计划没有任何意义。
@@ -221,7 +221,7 @@ impl TerminalWindow {
     ///
     /// 三处重建（换会话 / 关面板 / 会话结束）都必须先过这里，再换新的 `Filer`。
     /// 为什么不是「丢句柄让 `Drop` 去收」：`Drop` 里不能 await，后台线程只能
-    /// 被动地关通道；而 P1-4 要的是**可观测**的显式收尾——`SftpHandle::close()`
+    /// 被动地关通道；而要的是**可观测**的显式收尾——`SftpHandle::close()`
     /// 会等后台线程收敛（有上限），再由后台线程 `auth.disconnect()` 发出
     /// `SSH_MSG_DISCONNECT`。少了这一下，用户反复开关文件面板，服务端就一层层
     /// 堆半死的会话，顶满 `MaxSessions` 之后连不上。
@@ -293,7 +293,7 @@ impl TerminalWindow {
         if !self.view.show_filer {
             if self.filer.handle.is_some() || self.filer.session.is_some() {
                 // 用户把面板关了：这条会话到此为止。显式 close 而不是删掉结构体
-                // 让它自己烂掉——服务端那边要看到一次挂断，否则会话累积（P1-4）。
+                // 让它自己烂掉——服务端那边要看到一次挂断，否则会话累积。
                 self.close_filer_handle();
                 let demo_rows = self.filer.demo_rows.take();
                 self.filer = Filer {
@@ -376,7 +376,7 @@ impl TerminalWindow {
                     // 队列那边不用判：它只认自己发出去的路径，写操作的路径不在
                     // 表里，`on_done` 会直接返回。树传输也把 bytes 交给它——
                     // 文件级 Done 用来记这一棵树的累计字节，树根 Done 的 bytes
-                    // 是整棵树的总字节（W5-B3）。
+                    // 是整棵树的总字节。
                     self.filer.xfer_queue.on_done(&path, bytes);
                     // 同步执行器也要认这一步：它只认自己在途的那个远端路径，
                     // 认不上（普通传输 / 写操作）就什么也不做。
@@ -384,7 +384,7 @@ impl TerminalWindow {
                     if bytes > 0 && !matches!(self.filer.sync, Some(sync::SyncState::Running(_))) {
                         self.filer.progress = Some(format!("{path}: done ({bytes} B)"));
                     }
-                    // D6：这次 Done 是不是「为了预览而下载」的那一份？是就开窗。
+                    // 这次 Done 是不是「为了预览而下载」的那一份？是就开窗。
                     // 判据只用远端路径，**不用 `bytes`**：`bytes == 0` 在这个事件
                     // 上是「写操作完成」的信号，但一个 0 字节的文件下载完也是 0
                     // ——拿它当判据会让「预览一个空文件」什么也不发生。我们知
@@ -421,7 +421,7 @@ impl TerminalWindow {
                     // 队列先收：它要按「还有没有重试额度」决定这一项是回排队
                     // 还是终态。`path` 不在表里（列目录 / 写操作失败）时它什么也不做。
                     self.filer.xfer_queue.on_failed(&path, &message, now);
-                    // D6：为预览而下的那一份失败了——把等待摘掉并说一句，
+                    // 为预览而下的那一份失败了——把等待摘掉并说一句，
                     // 否则下一次同路径的 Done 会开一个内容不对的窗。
                     if matches!(&self.filer.pending_preview, Some(p) if p.remote == path) {
                         self.filer.pending_preview = None;
@@ -606,7 +606,7 @@ impl TerminalWindow {
             "{} {name}",
             t(lang, "Downloading to a temporary file")
         ));
-        // 传输线程不会通知 egui：S4 之后空闲不重绘，不主动要一帧的话
+        // 传输线程不会通知 egui：之后空闲不重绘，不主动要一帧的话
         // 「已开始下载」这句提示要等到用户碰鼠标才出现。
         self.ctx.request_repaint();
     }
@@ -627,7 +627,7 @@ impl TerminalWindow {
     }
 }
 
-/// 绘制（R9 拆出）。**挂在 `filer` 模块下**而不是 `panels` 下，是为了能直接
+/// 绘制（拆出）。**挂在 `filer` 模块下**而不是 `panels` 下，是为了能直接
 /// 用 `Filer` 的私有字段，不必把十几个字段逐个提成 `pub(super)`。
 #[path = "filer_view.rs"]
 mod view;
@@ -643,7 +643,7 @@ pub(in crate::ui) mod ops;
 #[path = "filer_xfer.rs"]
 pub(in crate::ui) mod xfer;
 
-/// 目录同步（XFER-06）：扫描 → 审阅 → 执行的状态机。挂在这里是因为它要碰
+/// 目录同步：扫描 → 审阅 → 执行的状态机。挂在这里是因为它要碰
 /// `handle`（发请求）、`local_path`（本地根）与 `progress`（报结果）。
 #[path = "filer_sync.rs"]
 pub(in crate::ui) mod sync;

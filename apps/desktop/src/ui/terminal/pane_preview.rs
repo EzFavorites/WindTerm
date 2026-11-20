@@ -1,4 +1,4 @@
-//! P4 · 终端悬停预览窗：轨道 hover → 第二事实窗口（独立槽）→ 历史快照框。
+//! 终端悬停预览窗：轨道 hover → 第二事实窗口（独立槽）→ 历史快照框。
 //!
 //! 浮动 chrome（第 8 段，在 `paint_scrollbar` 之后）。只读 `tab.preview_screen`，
 //! 绝不碰 `tab.view` / `tab.viewport` / `tab.last_request`——这就是 §5.6 不变式
@@ -26,7 +26,7 @@ use term_core::grid::{GridSnapshot, ScreenImage};
 pub(super) const PREVIEW_FRACTION: f64 = 576.0 / 1022.0;
 
 /// 预览框内的可见行数（用于请求 `ViewRange`）。框高由 `box_h / cell_h` 反算，
-/// 与框的屏幕高度同源（设计稿 §8 R4）。
+/// 与框的屏幕高度同源（设计稿 §8）。
 pub(super) fn preview_rows(rect: egui::Rect, cell_h: f32) -> usize {
     let content_h = (rect.height() - GRID_PAD * 2.0).max(0.0);
     let box_h = content_h * PREVIEW_FRACTION as f32;

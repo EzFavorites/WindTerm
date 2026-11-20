@@ -1,12 +1,12 @@
-//! R14-c：命令面板的绘制——只读状态、跨帧输入缓冲、动作统一出队。
+//! 命令面板的绘制——只读状态、跨帧输入缓冲、动作统一出队。
 //!
-//! 与 Find 栏同一套受控契约（R4）：`ViewState.command_palette` 只读，正在敲的字
+//! 与 Find 栏同一套受控契约：`ViewState.command_palette` 只读，正在敲的字
 //! 落在投影层的 `palette_input` 缓冲里，改动以 `SetQuery` 派发回 reducer；
 //! 条目与过滤结果由 `app::palette` 从菜单树 + 查询词现算，本文件不算第二遍。
 //!
 //! 为什么执行也要出队：面板上的 Enter / 点击只产出 `Action`，真正「关掉面板并
 //! 执行选中命令」由顶层 `reduce` 递归派发完成。投影层因此没有第二个状态写入者，
-//! 也没有绕过 `Action::parse` 的字符串派发旁路（B4）。
+//! 也没有绕过 `Action::parse` 的字符串派发旁路。
 
 use crate::ui::harness::AnchoredWindow;
 use crate::ui::*;

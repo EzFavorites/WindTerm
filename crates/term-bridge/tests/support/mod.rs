@@ -311,7 +311,7 @@ fn open_error(err: OpenError) -> SurfaceError {
         OpenError::Config(detail) => SurfaceError::invalid_params(detail.to_string()),
         OpenError::Spawn(detail) => SurfaceError::invalid_request(format!("起会话失败：{detail}")),
         OpenError::BuiltinChannelNeedsInjection => SurfaceError::invalid_request(err.to_string()),
-        // W1-c：分类仍要送到调用方，别拍平成一句「起不来」。
+        // 分类仍要送到调用方，别拍平成一句「起不来」。
         OpenError::Channel(term_session::ChannelFailure::NeedsVault { session }) => {
             SurfaceError::locked(format!("会话 {session} 需要解锁保险库"))
         }

@@ -1,6 +1,6 @@
 //! `Custom link` 与 `Send text` 两个页面的绘制。
 //!
-//! 从 `panels.rs` 拆出（R9 单文件 500 行上限）。两者共用「Match 框 + flag bar」
+//! 从 `panels.rs` 拆出（单文件 500 行上限）。两者共用「Match 框 + flag bar」
 //! 那段（[`match_box`]），差别在下半页。
 
 use super::fields::{combo, field, flag_bar, label, mono, multiline, rgb, text_w};

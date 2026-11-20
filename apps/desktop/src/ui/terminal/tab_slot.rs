@@ -184,7 +184,7 @@ impl TerminalWindow {
     /// prefs 里的显示默认值都跟着装上，所以「面板里的终端」与「标签页里的终端」
     /// 从构造那一刻起就是同一种东西。
     pub(in crate::ui) fn open_shell_tab(&mut self) -> usize {
-        // P1-5：登录名与壳名都由宿主注入（core 不读环境）。
+        // 登录名与壳名都由宿主注入（core 不读环境）。
         let mut config = SessionConfig::new_local_shell(&term_io::host::login());
         // 序号沿着已用过的最大值 +1：关掉中间一条之后再来一条，名字不会重复。
         let ordinal = next_shell_ordinal(self.shell_tabs.iter().map(|t| t.config.name.as_str()));

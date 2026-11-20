@@ -15,7 +15,7 @@ pub use crate::vocab::LogAction;
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<LogAction> {

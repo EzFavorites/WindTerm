@@ -4,7 +4,7 @@
 //!
 //! # 为什么从 `pane.rs` 拆出来
 //!
-//! ws-wrap：从 `pane.rs` 拆出。理由与前两次同因（`pane_pointer.rs` 的 R9、`paste.rs`
+//! 从 `pane.rs` 拆出。理由与前两次同因（`pane_pointer.rs` 的行数上限、`paste.rs`
 //! 的 ws-b1）——4j 的单文件 500 代码行上限。搬之前 `pane.rs` 是 492 代码行，接下来
 //! 三批工作（段驱动渲染 / reflow / 坐标系联动）都要往 `draw_tab` 里加代码，一行都
 //! 加不进去。挑这一块搬，是因为它是一段**只读的尾巴**：只往 `painter` 上追加图形，
@@ -55,7 +55,7 @@ use crate::fonts::TerminalFonts;
 ///
 /// 为什么是结构体而不是两个 `bool` 参数：这两项都不在 `Tab` 上——不是「每条标签
 /// 各一份」，而是整窗一份，总是同时从 `TerminalWindow` 取。绑成一组让调用点只占
-/// **一行**：`ui/terminal/pane.rs` 正好贴着 R9 的 500 代码行上限（一个参数一行就
+/// **一行**：`ui/terminal/pane.rs` 正好贴着 500 代码行上限（一个参数一行就
 /// 把它顶到 501），而这一组的语义本来就是「叠层里那些窗口级开关」。
 ///
 /// **别往里塞第三个不相干的东西**：`bin` 看着像同类，但它是从 `tab.mode` 算出来的
@@ -141,7 +141,7 @@ pub(super) fn paint_overlays(
         }
     }
 
-    // R14-f：常驻高亮。词表只在 `ViewState.center.highlights` 里，匹配复用
+    // 常驻高亮。词表只在 `ViewState.center.highlights` 里，匹配复用
     // `find_matches_in`（对事实窗口，字符列坐标与查找同一套），不自己扫字节——
     // 中文词的列偏移不会算错（F2 / F3）。
     if !bin && !view.center.highlights.is_empty() {

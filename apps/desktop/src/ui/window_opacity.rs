@@ -1,4 +1,4 @@
-//! D5：窗口透明度的**运行期副本 + 渲染落地**。
+//! 窗口透明度的**运行期副本 + 渲染落地**。
 //!
 //! 全链路有四段，这一段是最后一段：
 //!
@@ -148,7 +148,7 @@ impl TerminalWindow {
             }
             self.applied_window.alpha_permille = Some(alpha_permille);
         }
-        // 值变了就请一次重绘：S4 的空闲 0 CPU 约定下，不请这一下用户要等
+        // 值变了就请一次重绘：空闲 0 CPU 约定下，不请这一下用户要等
         // 到下一次终端输出才看得到窗口变透。
         ctx.request_repaint();
     }

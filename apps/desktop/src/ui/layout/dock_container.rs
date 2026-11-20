@@ -1,6 +1,6 @@
 //! 统一 Dock 容器：**五个位置的壳只在这一处定义**。
 //!
-//! K1（2026-11-16）：把三套容器 chrome 逐字搬进本模块——
+//! （2026-11-16）：把三套容器 chrome 逐字搬进本模块——
 //! 左右四块的标题/Filter（`dock_panel_chrome`）、右 Sidebar 的标题/Filter
 //! （`sidebar_view`）、底带的标签条（`dock_bottom`）。原调用点通过 `impl
 //! TerminalWindow` 方法名直接命中这里，签名与画法一字未改，**像素零变化**。
@@ -8,10 +8,10 @@
 //! 为什么要搬：三套实现里同一块几何各写一遍，× 的位置因此出现 `right-12`
 //! 与 `right-10` 两种、笔法出现文字与手绘两种（见 `2026-11-16-dock-containers-audit.md`）。
 //! 搬进同一文件是让这些差异**并排可见**，不是顺手统一——统一会改像素，要按
-//! 用户逐页提供的视觉基线定（K2/K3）。
+//! 用户逐页提供的视觉基线定。
 //!
 //! 遵守 ADR-0021：函数式原语、`Props` 只读、交互以返回值交回调用方。
-//! 本阶段先落契约类型与 chrome 平移；`draw_container` 在 K2 接上五个位置。
+//! 本阶段先落契约类型与 chrome 平移；`draw_container` 接上五个位置。
 
 use crate::ui::*;
 use eframe::egui;
@@ -78,7 +78,7 @@ impl PanelFilters {
     }
 }
 
-/// 顶部 chrome 的三种形态。K2 用它把五个位置收敛到一个绘制入口。
+/// 顶部 chrome 的三种形态。它把五个位置收敛到一个绘制入口。
 pub(in crate::ui) enum Header<'a> {
     /// 停靠单块：▪ 标题 … ⚙ ×
     Title { accent: egui::Color32, text: &'a str },

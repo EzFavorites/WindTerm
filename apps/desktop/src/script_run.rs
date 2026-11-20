@@ -2,7 +2,7 @@
 //!
 //! 为什么这个文件在 `apps/desktop/src/` 而不在 `src/ui/`：
 //!
-//! 1. **IO 不进投影层**（B2）。读脚本文件、起线程、收结果都是副作用；`ui/` 里
+//! 1. **IO 不进投影层**。读脚本文件、起线程、收结果都是副作用；`ui/` 里
 //!    只该有「画」与「发动作」。验收还专门在 `ui/` 里禁了 `mpsc::Receiver` 这类
 //!    字样——把 Runner 关在这里，界面拿到的是一个**不透明句柄**。
 //! 2. **脚本会阻塞**。`ScriptEngine::run` 一直跑到脚本结束或沙箱超时，放在 UI
@@ -42,12 +42,12 @@ pub enum Outcome {
     },
 }
 
-/// 「跑这个脚本文件」这条命令的 ID 前缀（ADR-0027 §S6）。
+/// 「跑这个脚本文件」这条命令的 ID 前缀（ADR-0027）。
 ///
 /// 映射键、按钮栏（快速命令）、`Recent Scripts` 三条入口说的是同一件事，所以
 /// 共用**同一个**命令 ID：`Script.RunFile:<绝对路径>`。
 ///
-/// 为什么这个常量在这里而不是 `ui/` 里：`scripts/verify.sh` 4e 要求命令 ID
+/// 为什么这个常量在这里而不是 `ui/` 里：`scripts/verify.sh` 要求命令 ID
 /// 字面量只出现在数据层，`apps/desktop/src/ui` 下出现 `"Xxx.Yyy"` 形状的字符串
 /// 一律判红。放这里既满足门禁，也让「谁能发这个 ID、谁负责解释它」只剩一份。
 pub const RUN_FILE_PREFIX: &str = "Script.RunFile:";
@@ -66,7 +66,7 @@ pub fn run_file_target(action_id: &str) -> Option<&str> {
     }
 }
 
-/// 「最近跑过的脚本」插一条：**去重、置顶、截断**（ADR-0027 §S6）。
+/// 「最近跑过的脚本」插一条：**去重、置顶、截断**（ADR-0027）。
 ///
 /// 三条规矩各自都有理由：
 ///
@@ -95,7 +95,7 @@ fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     }
 }
 
-/// 同会话互斥的登记簿（ADR-0027 §S3）。
+/// 同会话互斥的登记簿（ADR-0027）。
 ///
 /// **拒绝，不排队**。排队会造出「我点了运行，三分钟后它自己动了」——用户早已
 /// 忘了这回事，屏幕上却突然冒出一串命令。所以第二条当场报错，并说清是谁在跑。
@@ -205,7 +205,7 @@ pub struct RunOptions {
 }
 
 impl RunOptions {
-    /// 接上应用控制面的队列（Q2 刀1）。与 `with_window` 分开：
+    /// 接上应用控制面的队列。与 `with_window` 分开：
     /// 窗口端口是「有没有界面」，这条是「能不能改应用状态」——两者可以各自缺席。
     pub fn with_app(mut self, app: crate::script_app::AppQueue) -> Self {
         self.app = Some(app);
@@ -476,7 +476,7 @@ pub fn read_source(path: &str) -> Result<String, String> {
 
 /// 保存失败的两种：还没有路径 / 写盘 IO 失败。
 ///
-/// 不返回 `String`——4q 的错误边界基线只许减不许增，新增边界用独立枚举。
+/// 不返回 `String`——错误边界基线只许减不许增，新增边界用独立枚举。
 #[derive(Debug)]
 pub enum SaveError {
     /// 脚本还没存过（调用方应先走「另存为」）。
@@ -509,9 +509,9 @@ fn io_error(path: &str, source: std::io::Error) -> SaveError {
 /// 把编辑好的脚本写回磁盘。路径为空时拒绝（调用方应先「另存为」）。
 ///
 /// 与 [`read_source`] 对称：错误里必须带**路径**。写文件是 OS 资源，所以它留在
-/// `apps/desktop/src/` 而不是 `ui/`（B2：`ui/` 不碰文件系统）。
+/// `apps/desktop/src/` 而不是 `ui/`（`ui/` 不碰文件系统）。
 ///
-/// **写之前按需创建父目录**（D8-4）：脚本库目录（`profile_dir()/scripts`）在第一次
+/// **写之前按需创建父目录**：脚本库目录（`profile_dir()/scripts`）在第一次
 /// 保存时还不存在；用户在「另存为」里手打一级新目录也是常事。不建目录的话，这两种
 /// 情况都会得到一句 `No such file or directory`——而用户想要的只是「保存」。
 pub fn save_source(path: &str, text: &str) -> Result<(), SaveError> {
@@ -528,7 +528,7 @@ pub fn save_source(path: &str, text: &str) -> Result<(), SaveError> {
     std::fs::write(path, text).map_err(|source| io_error(path, source))
 }
 
-/// 新建脚本的默认落点（D8-4）：脚本库目录下的 `untitled.rhai`，重名就加序号。
+/// 新建脚本的默认落点：脚本库目录下的 `untitled.rhai`，重名就加序号。
 ///
 /// 为什么不让「新建」落到工作目录：`cargo run` 起来的进程 CWD 是仓库根，双击启动的
 /// 进程 CWD 可能是 `$HOME` 也可能是 `/`。同一句「新建脚本」在三种启动方式下写进
@@ -605,7 +605,7 @@ mod tests {
             Outcome::Failed { message, at } => {
                 // 引擎的措辞里带位置；别在这一层重新编一句「脚本失败」。
                 assert!(!message.is_empty(), "失败要说清原因");
-                // D8-1 之后结构化位置也一路带到这里（编辑器点错误跳行要用）。
+                // 之后结构化位置也一路带到这里（编辑器点错误跳行要用）。
                 assert!(at.is_some(), "语法错应带结构化 (行, 列)：{at:?}");
             }
             other => panic!("{other:?}"),

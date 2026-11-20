@@ -1,7 +1,7 @@
 //! 会话树的绘制（视觉层）：标题带 / 筛选 / 分组头 / 会话行 / 图标。
 //!
-//! R9：从 `sidebar.rs` 拆出（2026-11-07）。`sidebar.rs` 只留数据与落盘，
-//! 这里只画——与 P9 的 `quick_command_bar.rs` / `quick_layout.rs` 同一分工。
+//! 从 `sidebar.rs` 拆出（2026-11-07）。`sidebar.rs` 只留数据与落盘，
+//! 这里只画——与 `quick_command_bar.rs` / `quick_layout.rs` 同一分工。
 //!
 //! # 对齐 WindTerm 3.x 会话管理截图
 //!
@@ -217,14 +217,14 @@ impl TerminalWindow {
                                 import_idx = Some(2);
                                 ui.close_menu();
                             }
-                            // V1-1：WindTerm profiles/ 是迁移路径的主入口
+                            // WindTerm profiles/ 是迁移路径的主入口
                             //（00-summary 判断五：缺它冷启动就断）。
                             if ui.button(lbl_windterm_sessions).clicked() {
                                 import_idx = Some(3);
                                 ui.close_menu();
                             }
                         });
-                        // R13-d2：`Properties` 从「就地改名」升级成
+                        // `Properties` 从「就地改名」升级成
                         // 真正的属性表单——否则老会话没有入口切到
                         // 内置 SSH 客户端（改名只是它的一个字段）。
                         if ui.button(lbl_properties).clicked() {
@@ -302,7 +302,7 @@ impl TerminalWindow {
             t.close();
         }
         self.tabs.retain(|t| t.config.name != name);
-        // ADR-0025 阶段 1：摘掉同名标签后，恒在身份顺序要立刻跟着重算。
+        // ADR-0025：摘掉同名标签后，恒在身份顺序要立刻跟着重算。
         self.sync_open_order();
         self.sessions.remove(i);
         // 属性对话框可能正指着被删掉的那一条（或它后面的某一条）：

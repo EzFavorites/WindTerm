@@ -10,29 +10,29 @@
 //! # 全部灰显，这是故意的
 //!
 //! 这些开关（代理类型、标签行为、光标闪烁、折行模式、补全列表高度……）
-//! 在 `term-core` 里还没有对应字段，也没有任何地方读它们。按 I5：
-//! **未接线的项必须灰显 + 说明**，不许画成能点却什么都不做（R5）。
+//! 在 `term-core` 里还没有对应字段，也没有任何地方读它们。
+//! **未接线的项必须灰显 + 说明**，不许画成能点却什么都不做。
 //! 每个页面底部那一行小字就是这句说明。
 //!
 //! 灰显页上的勾选一律是**空框**（`Row::DisabledCheck`）：勾传达「这项设置
-//! 已生效」，而它们零读者（S4 的假勾选）。W7 把剩下的 18 行「灰显却打勾」
+//! 已生效」，而它们零读者（假勾选）。剩下的 18 行「灰显却打勾」
 //! 全改成了空框——Terminal 1（Enable local mode）、Auto Completion 6、
 //! Mouse Tracking 5、Text 2、Binary 1、Quick Bar 3；Highlight / Terminal 的
 //! 粘贴确认框 / Behaviour / Toolbar 此前已经改过。Quick Bar 那三项 2026-11-19
 //! 接成真控件，已搬去 `settings_live_quickbar`，这里只留历史口径。
 //!
 //! 真接线的页不在这里：
-//! - `Application`（两个关闭确认框绑 `confirm.suppress_*`；W1-a 起 Startup
+//! - `Application`（两个关闭确认框绑 `confirm.suppress_*`；Startup
 //!   三档 + Session 1–4 绑 `win.startup`，都真的会生效）；
 //! - `Appearance`（语言与主题是真的，落 prefs）；
 //! - `Font`（2026-11-10 起 `Font size` 是真控件，绑 `prefs.font_size`，
 //!   改完当场重装字形；字族 / 字重仍灰显。画法在 `settings_live_font.rs`）；
-//! - `Caret`（W6：八种样式绑 `prefs.caret_style`，新建会话按它画光标）；
-//! - `Command History`（W7：容量 / TTL / 落盘开关都有读者，改完当场重建
+//! - `Caret`（八种样式绑 `prefs.caret_style`，新建会话按它画光标）；
+//! - `Command History`（容量 / TTL / 落盘开关都有读者，改完当场重建
 //!   历史表并写回 prefs）；
-//! - `Search`（W8：引擎下拉 + 可编辑 URL 模板，落 `prefs.search_url`，
+//! - `Search`（引擎下拉 + 可编辑 URL 模板，落 `prefs.search_url`，
 //!   `Text ▸ Search Online` 按它搜；自定义引擎列表仍无存储，故 `+ − ▲ ▼` 灰显）；
-//! - `Filer`（W8：`Show hidden items` 绑 `prefs.filer_show_hidden`，
+//! - `Filer`（`Show hidden items` 绑 `prefs.filer_show_hidden`，
 //!   `local_dir::list` 按它过滤，勾完当场重列）；
 //! - `Text` / `Behaviour` / `ToolbarMenu`（2026-11-10：**部分真控件**——
 //!   每页只有一两行接了字段，其余行仍按本文件的画法灰显。画法在
@@ -76,10 +76,10 @@ pub(in crate::ui) enum Row {
     Check(&'static str, bool),
     /// 「未启用」的勾选行：控件形状照视觉基线，但**永远是空框**。
     ///
-    /// W2：`Row::Check(text, true)` 会被画成一个灰显却打勾的框——
-    /// 勾传达「这项设置已生效」，而它其实既没落盘也没读者（S4 的假勾选）。
+    /// `Row::Check(text, true)` 会被画成一个灰显却打勾的框——
+    /// 勾传达「这项设置已生效」，而它其实既没落盘也没读者（假勾选）。
     /// 这一行不假装生效：空框 + 灰显 + 悬停给出本页 `page_note` 的理由。
-    /// 等 W4 把它接成真设置（粘贴前弹确认）时，再换回有状态的控件。
+    /// 等它接成真设置（粘贴前弹确认）时，再换回有状态的控件。
     DisabledCheck(&'static str),
     Radios {
         label: &'static str,
@@ -117,7 +117,7 @@ pub(in crate::ui) const DISABLED_NOTE: &str = "Not stored yet: these settings co
 //
 // 这一批的共同毛病不是「文案不够好看」，而是原来八页共用 `DISABLED_NOTE` 那句
 // 「配置层没有字段」。那句话只说了「没字段」，没说缺的是**存储字段**、**状态机**、
-// **渲染器**还是**编码通道**——读起来一律像「还没轮到做」。S4 要求灰掉的控件
+// **渲染器**还是**编码通道**——读起来一律像「还没轮到做」。灰掉的控件必须
 // 同时交代缺口：用户看到灰控件，必须能判断是「真做不了」还是「还没做」。
 // 所以每句都指到代码里的那一处（文件:行），而不是形容词。
 //
@@ -144,7 +144,7 @@ const SECURITY_NOTE: &str = "Not wired: the timeout needs a window-level last-ac
 
 /// `AutoCompletion` 页已在 2026-11-19 接成十行真控件（`settings_live_completion`），
 /// 引擎在 `term-core::completion`。原先解释「整页灰显」的说明随之删除——
-/// R5/I5 要求灰显理由只在确实没接线的项上保留，接线完成后不能再挂着旧理由。
+/// 灰显理由只在确实没接线的项上保留，接线完成后不能再挂着旧理由。
 
 /// `MouseTracking` 页。2026-11-19 校正：原先说「缺一条编码通道」是**过期说明**——
 ///
@@ -180,7 +180,7 @@ const MOUSE_TRACKING_NOTE: &str = "Not wired: mouse report bytes do reach the PT
 ///   `column_marker_col(image.cols)` 处画竖线，偏好 `view_column_marker`）。
 ///   两条都记在 `docs/design/12-capability-surface-and-menus.md,574`。
 ///
-/// 按 I5：写清缺的是「把坐标系从一屏行改成一逻辑行 n 段」这一段，
+/// 写清缺的是「把坐标系从一屏行改成一逻辑行 n 段」这一段，
 /// 而不是画几个能点却什么都不做的开关。
 const WRAP_NOTE: &str = "Not wired: the grid already hard-wraps at the pane width, so a soft-wrap \
      toggle would map every line onto itself (see term-app/src/wrap.rs). Only Wrap column has no \
@@ -209,7 +209,7 @@ const SHORTCUT_NOTE: &str = "Read-only: this list shows the bindings in effect \
 /// 喂给 `term_app::trigger::Matcher`。四种触发源（Output / Connect / Disconnect /
 /// Idle）各自有消费者——`session.rs` 的 `apply_trigger` 把 `SendText` / `SendLine`
 /// 写进 PTY、`Beep` 发 BEL、`RunCommand` 走命令通道。`Highlight` 这一项因为 v0.3
-/// 才有行级高亮渲染基底，本页**不暴露**（不画也不假装画，R5）。
+/// 才有行级高亮渲染基底，本页**不暴露**（不画也不假装画）。
 const TRIGGERS_NOTE: &str = "Live: rules are matched every frame against terminal \
      output and session events. Enabled rules can send text, ring the bell, or run a \
      menu command. Highlight is not offered yet (no line-highlight renderer).";
@@ -221,7 +221,7 @@ const ONEKEYS_NOTE: &str = "Credentials stored here are used automatically by SS
      connections when a session's OneKey is selected. Click the lock to make changes.";
 
 /// 页底那行小字。**有内容的灰页一律给自己的专句**：说明里得点出缺的那一节
-/// （存储字段 / 状态机 / 渲染器 / 编码通道），「没接线」本身不是理由（S4 / W6）。
+/// （存储字段 / 状态机 / 渲染器 / 编码通道），「没接线」本身不是理由。
 ///
 /// 2026-11-10：`Proxy` / `Security` / `AutoCompletion` / `MouseTracking`
 /// 四页从通用那句换成专句，加上原有的 `Wrap` / `Shortcut Keys`

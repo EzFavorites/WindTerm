@@ -4,15 +4,15 @@ version = "1.0.0"
 rust-version = "1.94"
 edition = "2021"
 
-# 无前端的应用层（R12 从 app/src/app/ 抽出）：动作、reducer、视图状态、菜单树、
+# 无前端的应用层：动作、reducer、视图状态、菜单树、
 # 能力面、选区与查找的**判定**都在这里，一行 UI 代码也没有。
 #
-# 依赖表就是 B1 / ADR-0016 的判据，而且**只有 term-core 一个**：
-# - 没有 egui / eframe（B1）；
+# 依赖表就是 ADR-0016 的判据，而且**只有 term-core 一个**：
+# - 没有 egui / eframe；
 # - 没有 term-runtime——这一层**拿不到 PTY**，所以「界面层偷偷起进程」这种错误
 #   在编译期就不成立；任何无窗口消费者（`--headless --exec`、将来的 API 层）
 #   也因此可以直接复用它；
-# - 也没有 term-import。2026-11-13（P0-2）之前它是 D6 首次启动引导引进来的：
+# - 也没有 term-import。2026-11-13 之前它是首次启动引导引进来的：
 #   引导要把 `~/.ssh/config` 的文本变成「探测到的主机」。但 term-import 带
 #   `std::fs` / `dirs` / `current_exe()`，一旦进来，「副作用只能以 `Effect`
 #   返回」就从**编译器强制**降级成自律。现在解析适配（`ImportedSession` →

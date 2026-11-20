@@ -1,6 +1,6 @@
-//! `ssh_ask.rs` 里 V1-3 那三项（跳板链 / agent 转发 / 私钥文件）的单测。
+//! `ssh_ask.rs` 里那三项（跳板链 / agent 转发 / 私钥文件）的单测。
 //!
-//! 拆成独立文件的理由与 `session_nav_tests.rs` 相同：R9（verify 4j）要求
+//! 拆成独立文件的理由与 `session_nav_tests.rs` 相同：verify 要求
 //! `ui/**/*.rs` ≤ 450 行。这里钉住的是「表单里填的三项真的进了连接参数」——
 //! 在这一批之前它们能填、能存、不生效，而这恰好是单测最容易漏的部分：
 //! 出错的形态是「什么都不报」，不是「报一个错」。
@@ -208,7 +208,7 @@ fn an_empty_identity_file_falls_back_to_the_default_key_order() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ── W1-b：出网代理（HTTP CONNECT / SOCKS5） ───────────────────────────
+// ── 出网代理（HTTP CONNECT / SOCKS5） ───────────────────────────
 
 #[test]
 fn an_http_proxy_reaches_the_connection_options() {
@@ -256,11 +256,11 @@ fn an_incomplete_outbound_proxy_is_an_error_not_a_silent_direct_connection() {
     assert!(err.to_string().contains("代理主机"), "{err}");
 }
 
-// ── D2 OneKey：界面路径的回退链 ─────────────────────────────────────────
+// ── OneKey：界面路径的回退链 ─────────────────────────────────────────
 
 #[test]
 fn a_password_primary_plus_a_key_fallback_builds_a_two_step_chain() {
-    // D2：密码被拒后自动改试公钥——这正是界面 OneKey 的核心场景。
+    // 密码被拒后自动改试公钥——这正是界面 OneKey 的核心场景。
     let dir = temp_dir("chain-ui");
     std::fs::write(dir.join("id_ed25519"), b"x").expect("写 key");
     let mut c = ssh_session(AuthMethod::Password);

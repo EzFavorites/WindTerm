@@ -37,7 +37,7 @@ const TERMINAL_FAMILY: &str = "windterm-terminal";
 /// 另一处悄悄不跟。
 pub const TERMINAL_FONT_SIZE: f32 = term_core::config::DEFAULT_FONT_SIZE;
 
-/// R14-b：字号缩放的上下限（太小会糊成一团，太大占满屏）。
+/// 字号缩放的上下限（太小会糊成一团，太大占满屏）。
 ///
 /// 区间与设置页（`Font ▸ Font size` 的滑块）和 `term_runtime::prefs` 的
 /// `FONT_SIZE_MIN/MAX` **必须一致**：页面按 6–48 画，渲染层却夹在 8–40，
@@ -210,7 +210,7 @@ pub struct TerminalFonts {
     /// 八百个 `String` 每帧克隆一遍纯属浪费；而 `&Catalog` 一借出去，页面
     /// 里就再也拿不到 `&mut fonts` 做别的判断。
     choices: Vec<FamilyChoice>,
-    /// R14-b：当前字号（点）。出厂默认 `TERMINAL_FONT_SIZE`，缩放时改这里，
+    /// 当前字号（点）。出厂默认 `TERMINAL_FONT_SIZE`，缩放时改这里，
     /// 由 `install` 侦测变化后重装字形、`measure_once` 重新度量 cell 盒。
     size: f32,
     /// Cell width in logical points, measured from the mono face.
@@ -225,7 +225,7 @@ pub struct TerminalFonts {
     /// moving to another screen changes it, which asks for a re-install and a
     /// fresh measurement.
     installed_ppp: f32,
-    /// The point size the definitions were installed for (R14-b：缩放后必须重装)。
+    /// The point size the definitions were installed for (缩放后必须重装)。
     installed_size: f32,
     /// 这份 `FontDefinitions` 已经量过 cell 盒。
     measured: bool,
@@ -447,7 +447,7 @@ impl TerminalFonts {
     /// Hand the faces to egui. Cheap after the first call: `set_fonts` is a
     /// no-op when the definitions have not changed.
     ///
-    /// R14-b：字号变化也要重装——否则改了 `size` 却仍用旧字形度量，
+    /// 字号变化也要重装——否则改了 `size` 却仍用旧字形度量，
     /// 网格会按旧 cell 尺寸排版，缩放「看不出来」。
     ///
     /// # 返回值：这一帧有没有换定义
@@ -625,12 +625,12 @@ impl TerminalFonts {
         }
     }
 
-    /// R14-b：当前字号（缩放后的值）。
+    /// 当前字号（缩放后的值）。
     pub fn size(&self) -> f32 {
         self.size
     }
 
-    /// R14-b：设定字号并强制下一帧重装 + 重新度量。
+    /// 设定字号并强制下一帧重装 + 重新度量。
     ///
     /// 不直接改 `installed`：重装由 `install` 的「size 变了」分支负责，
     /// 这里只更新目标值；`draw` 每帧调 `install`，会自动追上新尺寸。
@@ -645,7 +645,7 @@ impl TerminalFonts {
         self.measured = false;
     }
 
-    /// R14-b：相对步进缩放（dir>0 放大、dir<0 缩小、dir==0 复位到出厂默认）。
+    /// 相对步进缩放（dir>0 放大、dir<0 缩小、dir==0 复位到出厂默认）。
     ///
     /// 步进固定 1pt：终端字号对可读性敏感，连续缩放容易一步跨过头。
     pub fn zoom(&mut self, dir: i8) {

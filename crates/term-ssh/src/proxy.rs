@@ -512,7 +512,7 @@ mod tests {
         }
     }
 
-    /// W1-b 的接线判据：`dial` 把**第一段 TCP**交给出网代理，而且目标主机名
+    /// 接线判据：`dial` 把**第一段 TCP**交给出网代理，而且目标主机名
     /// 原样送去（不在本地解析）。`target.internal` 在本机 DNS 里不存在——
     /// 只要有人把 `resolve_host(&target.host)` 加回去，这个用例就会红。
     #[tokio::test]

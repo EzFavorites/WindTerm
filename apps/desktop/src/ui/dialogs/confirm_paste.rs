@@ -315,7 +315,7 @@ impl TerminalWindow {
                 }
             });
 
-        // R5：两个按钮的真效果只在闭包外落地（闭包里 `self` 还被借着）。
+        // 两个按钮的真效果只在闭包外落地（闭包里 `self` 还被借着）。
         if yes {
             if let Some(pending) = self.pending_paste.take() {
                 // 全文，不是 `preview.shown`：预览只是显示层。

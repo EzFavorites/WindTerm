@@ -1,4 +1,4 @@
-//! R13-d2：原生 SSH 的连接流程（在投影层，不在 `term-app`）。
+//! 原生 SSH 的连接流程（在投影层，不在 `term-app`）。
 //!
 //! 为什么这段代码在 `apps/desktop` 而不是 `term-app`：`term-app` 的依赖表里不许有
 //! tokio（哪怕是间接的），而 `term-ssh` 带着 russh。于是「什么时候连、用什么
@@ -11,7 +11,7 @@
 //!
 //! 1. **连接是同步的，但不能阻塞帧。** `term_ssh::connect` 最多等 15 秒，
 //!    所以它在一条自己的线程里跑；界面每帧 `try_recv` 一次。
-//! 2. **结果到了要主动叫醒界面。** S4 之后空闲不重绘，线程结束时若不
+//! 2. **结果到了要主动叫醒界面。** 之后空闲不重绘，线程结束时若不
 //!    `ctx.request_repaint()`，用户就会看着「Connecting…」到天荒地老。
 //! 3. **连上之前不建 tab。** 失败留一个空白标签比什么都不留更让人困惑。
 
@@ -46,7 +46,7 @@ pub(in crate::ui) enum Step {
 
 /// 连上之后，这条会话该落到哪儿。
 ///
-/// # 为什么需要它（S1：会话创建单一路径）
+/// # 为什么需要它（会话创建单一路径）
 ///
 /// 内置 SSH 的连接是**异步**的：后台握手可能等十几秒，而 `make_tab` 是同步的
 /// （起 PTY 是毫秒级）。于是「复制标签 / 重新打开 / 分屏」这些**立刻就要一个
@@ -78,7 +78,7 @@ pub(in crate::ui) struct Connector {
     pub(in crate::ui) step: Step,
     /// 正在后台跑的那次连接（`None` = 在等用户回答）。
     ///
-    /// 类型是不透明句柄（B2）：线程与队列都收在 `term-ssh` 里，
+    /// 类型是不透明句柄：线程与队列都收在 `term-ssh` 里，
     /// 这里只轮询——与 tab 拿 `SupervisorHandle` 是同一条规矩。
     pub(in crate::ui) rx: Option<ConnectHandle>,
     /// 当前凭据。确认指纹之后要用同一份重连，所以必须存下来。
@@ -117,7 +117,7 @@ impl Connector {
 
     /// 同 `waiting_password`，但由调用方说明「为什么在问」。
     ///
-    /// R13-b2 起多了一种情况：密码存在保险库里、但库锁着——那时该提示
+    /// 多了一种情况：密码存在保险库里、但库锁着——那时该提示
     /// 「去解锁」，而不是「没有保存密码」（那句话会让人以为存丢了）。
     pub(in crate::ui) fn waiting_password_with(config: SessionConfig, reason: String) -> Self {
         Self::new(config, Step::NeedPassword { reason })
@@ -151,7 +151,7 @@ impl Connector {
         self.auth = Some(auth);
         self.step = Step::Connecting;
         // 线程与结果队列都在库里（`ConnectHandle`）；`request_repaint` 经回调
-        // 传进去——结果就绪时叫醒这一帧（S4 之后空闲不重绘，不叫结果就躺着没人取）。
+        // 传进去——结果就绪时叫醒这一帧（之后空闲不重绘，不叫结果就躺着没人取）。
         let ctx = ctx.clone();
         self.rx = Some(term_ssh::connect_in_background(opts, move || ctx.request_repaint()));
     }

@@ -1,4 +1,4 @@
-//! R13-e2：会话的转发规则与「在跑的隧道」。
+//! 会话的转发规则与「在跑的隧道」。
 //!
 //! 两件事分得很开：
 //!
@@ -7,7 +7,7 @@
 //!    `<L|R|D> <ssh 风格的一段>`——`ssh` 用 `-L/-R/-D` 三个开关表达类型，
 //!    而表单里没有开关，类型就得写在行内。
 //! 2. **在跑的隧道**（`RunningTunnel`）只是一个持有者：句柄或隧道本体都在
-//!    `term-tunnel` 里，这里只轮询与收摊（B2：投影层不接触线程与队列）。
+//!    `term-tunnel` 里，这里只轮询与收摊（投影层不接触线程与队列）。
 
 use crate::ui::*;
 use crate::ui::dialogs::ssh_connect;
@@ -160,7 +160,7 @@ pub(in crate::ui) fn session_tunnel_key(session: &str) -> String {
 /// 五格都是「用户能改的错」，但**来源不同**：表单校验来自 `term-core`（那边
 /// 已经是枚举）、规则解析来自既有的 `parse_rule`、后三种是窗口此刻的状态。
 /// 拍成一个 `String` 会让「该去改表单」与「该先去连那条会话」混成同一句话，
-/// 而且 4q 的 String 边界基线只许减不许增。中文说明在 `Display` 里。
+/// 而且 String 边界基线只许减不许增。中文说明在 `Display` 里。
 enum TunnelStartFault {
     /// 表单那一栏没填对。
     Form(term_core::tunnel::TunnelFault),
@@ -273,7 +273,7 @@ impl TerminalWindow {
     ///
     /// 用的是**另开一条 SSH 连接**，而不是复用终端那条：`term-ssh` 的会话通道
     /// 与 `term-tunnel` 的 `Authenticated` 是两种形状，合成一条要改动会话线程的
-    /// 结构（R13-e 的 crate 文档写了「两者失败方式不同」，独立连接正好对上）。
+    /// 结构（crate 文档写了「两者失败方式不同」，独立连接正好对上）。
     /// 代价是第二次认证——密码/密钥已经在内存里，所以不会再问用户。
     pub(in crate::ui) fn start_session_tunnel(
         &mut self,
@@ -345,7 +345,7 @@ impl TerminalWindow {
         self.tunnels.retain(|t| t.session != session);
     }
 
-    /// R16：隧道面板要的行（会话名 / 状态 / 规则 / 失败原因）。
+    /// 隧道面板要的行（会话名 / 状态 / 规则 / 失败原因）。
     ///
     /// 只做「读」：面板不解析规则、不轮询、不起连接——那三件事分别属于
     /// `parse_rule`、`poll_tunnels` 与 `start_session_tunnel`。
@@ -384,12 +384,12 @@ impl TerminalWindow {
             .unwrap_or_default()
     }
 
-    /// R16：停掉一条会话的隧道。
+    /// 停掉一条会话的隧道。
     pub(in crate::ui) fn stop_tunnel(&mut self, session: &str) {
         self.close_tunnels_of(session);
     }
 
-    /// R16：按会话配置重起隧道（改完规则后调）。
+    /// 按会话配置重起隧道（改完规则后调）。
     pub(in crate::ui) fn restart_tunnel(&mut self, session: &str) {
         let Some(tab) = self.tabs.iter().find(|t| t.config.name == session) else {
             return;
@@ -401,7 +401,7 @@ impl TerminalWindow {
         self.start_session_tunnel(&config, auth.as_ref());
     }
 
-    /// R16：给活动会话加一条转发规则。解析失败**不写配置**，只把原因记下来，
+    /// 给活动会话加一条转发规则。解析失败**不写配置**，只把原因记下来，
     /// 让用户还能改那一行（和新建会话对话框的规则页同一个约定）。
     pub(in crate::ui) fn add_forward(&mut self, text: &str) {
         match parse_rule(text) {
@@ -426,7 +426,7 @@ impl TerminalWindow {
         }
     }
 
-    /// R16：删掉活动会话的第 `index` 条规则。
+    /// 删掉活动会话的第 `index` 条规则。
     pub(in crate::ui) fn remove_forward(&mut self, index: usize) {
         let active = self.active_slot();
         let Some(tab) = self.tabs.get_mut(active) else {

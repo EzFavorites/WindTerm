@@ -1,4 +1,4 @@
-//! S-c 验收：外部进程经 JSON-RPC over stdio 操作**真 PTY 会话**。
+//! 验收：外部进程经 JSON-RPC over stdio 操作**真 PTY 会话**。
 //!
 //! 两条端到端：
 //!
@@ -7,7 +7,7 @@
 //!    screen → state → facets → session_list → session_close`，全部真会话。
 //! 2. [`an_external_python_script_completes_the_same_flow_over_stdio`] ——
 //!    **外部 python3 进程**用生成的桩跑同一套流程，桥接这一端由
-//!    [`term_bridge::serve_stdio`] 驱动。这是 ADR-0019 S-c 的原文口径
+//!    [`term_bridge::serve_stdio`] 驱动。这是 ADR-0019 的原文口径
 //!    （外部 Python 脚本完成同一登录 + 取输出）。
 //!
 //! # 寻址是会话名
@@ -373,7 +373,7 @@ fn an_external_python_script_completes_the_same_flow_over_stdio() {
 
 /// 找得到就返回，找不到**显式失败**。
 ///
-/// 这条路刻意没有「跳过」分支：本用例就是 ADR-0019 S-c 的验收口径
+/// 这条路刻意没有「跳过」分支：本用例就是 ADR-0019 的验收口径
 /// （外部 Python 脚本完成同一套动作）。静默跳过等于把验收悄悄取消，
 /// 而那正是 ADR 里最反对的「看起来全绿、其实没验」。
 fn python_interpreter() -> String {

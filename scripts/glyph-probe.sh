@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M0 / G6：字形样张「出图 → 像素判据」的一键编排。
+# 字形样张「出图 → 像素判据」的一键编排。
 #
 #   scripts/glyph-probe.sh                       # 结果落到 /tmp/zterm-glyph
 #   GLYPH_OUT_DIR=docs/gate scripts/glyph-probe.sh   # 把报告与样张留档

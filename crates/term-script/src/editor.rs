@@ -1,6 +1,6 @@
 //! 脚本编辑器的纯逻辑：文档缓冲区 + Rhai 词法着色。
 //!
-//! 这里**不知道** egui 的存在（B2：投影层只画，逻辑留在这里）：
+//! 这里**不知道** egui 的存在（投影层只画，逻辑留在这里）：
 //! `apps/desktop/src/ui/overlays/script_editor.rs` 只把 [`ScriptDoc::text`] 塞进多行
 //! 输入框、把 [`lex`] 的 token 映射成颜色。于是「读写文档」「算行号」「判断哪个
 //! 词该上色」都能在没有窗口的环境里单测。
@@ -298,7 +298,7 @@ impl ScriptDoc {
     /// Rhai 的 **1 起** `(行, 列)` → 文档字节偏移。列按**字符**数（Rhai 的口径），
     /// 不是字节；列越界钳到行内容末尾，行号为 0 或越界给 `None`。
     ///
-    /// D8-3 用它把「错误在第 3 行第 7 列」换算成光标字节位置。
+    /// 用它把「错误在第 3 行第 7 列」换算成光标字节位置。
     pub fn byte_offset(&self, line1: usize, column1: usize) -> Option<usize> {
         let line0 = line1.checked_sub(1)?;
         let start = *self.line_starts.get(line0)?;

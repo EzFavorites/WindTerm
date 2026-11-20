@@ -1,11 +1,11 @@
-//! `term-script` — 腿 A 脚本引擎（ADR-0019 S-a）。
+//! `term-script` — 腿 A 脚本引擎（ADR-0019）。
 //!
 //! Rhai 沙箱 + 原语（`write` / `wait` / `wait_any` / `read_until` / `read` /
 //! `screen`）与行级类 grep 过滤（`grep` / `grep_v`）。
 //! 协议无关（§B.14 最高原则）：只认 [`term_core::session_runtime::Session`]，
 //! 不出现 SSH / PTY 等协议专有分支——脚本驱动的是抽象会话，不是某类连接。
 //!
-//! 运行时依赖仅 `term-core`（I4 单向）+ `regex`（只进本 crate，不进抽象层）；
+//! 运行时依赖仅 `term-core`（单向）+ `regex`（只进本 crate，不进抽象层）；
 //! 零 tokio、零 `.await`（ADR-0017 笼子）；不依赖 UI 框架：脚本线程绝不直写 UI 状态。
 //!
 //! # 引擎 API 形态
@@ -27,7 +27,7 @@
 //! let screen = screen();
 //! ```
 //!
-//! # 全局层（S-d）
+//! # 全局层
 //!
 //! 单会话原语作用在「当前绑定」上；`session_*` 五个动词负责选绑定与增删会话。
 //! 一切按**会话名**寻址（ADR-0024）——名字跨进程稳定，脚本存下来明天还能跑：
@@ -42,7 +42,7 @@
 //! ```
 //!
 //! 一组会话（`session_list` 问谁要清单、`session_open` 让谁去开）由调用方实现
-//! [`Sessions`]——`term-script` 不依赖应用层的会话登记表（I4 单向）。
+//! [`Sessions`]——`term-script` 不依赖应用层的会话登记表（单向）。
 //!
 //! # 语义选择
 //!

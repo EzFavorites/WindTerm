@@ -4,9 +4,9 @@ version = "1.0.0"
 rust-version = "1.94"
 edition = "2021"
 
-# SSH 隧道（R13-e，ADR-0017 §分期 e）：本地转发 / 远程转发 / SOCKS5。
+# SSH 隧道（ADR-0017 分期五）：本地转发 / 远程转发 / SOCKS5。
 #
-# 骑在 R13-d 的连接层上：`term_ssh::Authenticated` 给出「已认证、还没开会话」的
+# 骑在 SSH 连接层上：`term_ssh::Authenticated` 给出「已认证、还没开会话」的
 # 连接，这里在它上面反复开 `direct-tcpip` 通道、请求 `tcpip_forward`。
 # 不与 `term-ssh` 合并，是因为它们的失败方式完全不同：终端会话失败 = 标签页连不上；
 # 隧道失败 = 某个端口的转发断了，而应用其余部分照常。

@@ -1,4 +1,4 @@
-//! Trigger 对话框的几何 / 文案 / 色板规格（R2，零 egui）。
+//! Trigger 对话框的几何 / 文案 / 色板规格（view 层，零 egui）。
 //!
 //! # 坐标来源与换算
 //!
@@ -9,7 +9,7 @@
 //!   （`1536÷2 = 768`，`1124÷2 = 562`）。
 //!
 //! 两条口径归一后窗口都是 **768×562 逻辑点**。本模块所有常数都是归一后的
-//! egui 逻辑点，可直接被 R3 绘制层消费。
+//! egui 逻辑点，可直接被绘制层消费。
 //!
 //! 所有矩形为 `(left, top, width, height)`，单位 egui 逻辑点，原点在窗口左上。
 //! 页面内容坐标相对 [`BODY`] 左上（即 `(280.8, 63.0)`）。
@@ -435,7 +435,7 @@ pub fn type_mnemonic(kind: term_core::trigger::TriggerKind) -> char {
     }
 }
 
-/// R2 视图快照：换成 JSON 仍可消费（ADR-0021 §2 的序列化判据）。
+/// view 层快照：换成 JSON 仍可消费（ADR-0021 §2 的序列化判据）。
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct TriggerViewSnapshot {
     pub selected: Option<usize>,

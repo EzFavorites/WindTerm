@@ -4,7 +4,7 @@
 //! （`apps/desktop/src/ui/terminal/margin.rs`），行号 / 时间戳 / 续行标记的数据来自
 //! 内核快照（`GridSnapshot::row_times` / `wraps` / `blocks`）。
 //!
-//! **五列全是真的**（`Fold` 列 2026-11-18 接线，C6）：
+//! **五列全是真的**（`Fold` 列 2026-11-18 接线）：
 //! - `Blank`：边栏留白。关掉就贴边（效果可见，不是空转 bool）；
 //! - `Number`：行号（绝对行号，来源见内核 `cmd_marks` 同一套坐标）；
 //! - `Symbol`：`›` 提示符行 / `~` 自动换行续行（数据来自 OSC 133 与 `wrap_rows`）；
@@ -69,7 +69,7 @@ impl MarginState {
 
 /// 命令 ID → 本能力的动作。认不出的 ID（含 `Text.MarginFold`，见模块头）返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<MarginAction> {
@@ -80,7 +80,7 @@ pub fn parse(id: &str) -> Option<MarginAction> {
 ///
 /// 五位都翻得动，因为五列都有读者（`Fold` 列自从有了
 /// `apps/desktop/src/ui/terminal/margin.rs` 的折叠头绘制之后才允许翻——
-/// 在那之前 `Fold` 到这里是 `return`，理由正是「状态位必须和画得出来对齐」R5）。
+/// 在那之前 `Fold` 到这里是 `return`，理由正是「状态位必须和画得出来对齐」。
 pub fn reduce(state: &mut ViewState, action: MarginAction) {
     let MarginAction::Toggle(part) = action;
     let slot = match part {

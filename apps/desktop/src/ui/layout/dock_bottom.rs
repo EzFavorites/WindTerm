@@ -26,7 +26,7 @@
 //! | 色块 → 文字 | 8 |
 //! | 右端三颗 | `^` `⚙` `×`，点按区宽 18（用户反馈 22 过大收紧），右缘留 4 |
 //!
-//! # 三颗按钮都是真的（R5）
+//! # 三颗按钮都是真的
 //!
 //! - `^` 向上展开覆盖 —— 底带以浮层盖住上方所有面板、顶到菜单栏，再点收回
 //!   恢复原位（图标翻成 `v`）。**它是覆盖不是布局切分**：展开态不声明
@@ -43,7 +43,7 @@
 //!
 //! 面板进出底带走菜单（勾选 / `Float`），标签本身只负责「切内容」。不做「拖标签
 //! 重排」是刻意的：它和「拖标签扔掉 / 拖出去浮起来」是同一块手势区，两件事一起
-//! 上没有不打架的判据，而菜单已经给了确定的出口（R5 要的是回程，不是手势）。
+//! 上没有不打架的判据，而菜单已经给了确定的出口（要的是回程，不是手势）。
 //!
 //! # 为什么 `Split` 是「分组」而不是「再开一条带」
 //!
@@ -79,7 +79,7 @@ pub(super) const BTN_W: f32 = 18.0;
 // `shell::glyph`（⚙ 外径 10.0 / × 边长 6.5），不再由这条带自己算一份。
 /// 右端按钮与窗沿的距离（视觉基线 4）。
 pub(super) const EDGE_PAD: f32 = 4.0;
-/// 底带默认高度。与 P4 的 `BOTTOM_DEFAULT_HEIGHT` 一致。
+/// 底带默认高度。与 `BOTTOM_DEFAULT_HEIGHT` 一致。
 pub(in crate::ui) const DEFAULT_H: f32 = 220.0;
 /// 内容区左右内边距。
 const BODY_PAD: f32 = 8.0;
@@ -195,7 +195,7 @@ impl TerminalWindow {
         let ids = visible_members(self);
         let groups = split_groups(&ids, self.bottom_split);
         let mut cmds: Vec<Cmd> = Vec::new();
-        // K3-a：空带不再整条消失（整带浮起时原停靠位也是这个形态）。
+        // 空带不再整条消失（整带浮起时原停靠位也是这个形态）。
         let empty = ids.is_empty();
         let anchor = PanelId::ALL
             .into_iter()

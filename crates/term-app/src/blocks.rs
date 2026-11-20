@@ -1,4 +1,4 @@
-//! 命令块边界（V1-4 / M4 总前置）。
+//! 命令块边界（总前置）。
 //!
 //! `term_core::osc133` 把字节流翻成标记；这里把标记流翻成**可查询的块表**，
 //! 让 Select Command / 命令块折叠 / 跨标签搜索共用同一份坐标。纯层，
@@ -226,7 +226,7 @@ mod tests {
     #[test]
     fn typed_command_rows_matches_the_bare_arithmetic_within_reachable_domain() {
         // 可达域内（绝对行号 ≥ 0、history 不超 i64::MAX）：新旧逐值必须相等。
-        // 这是 P1 迁移唯一被允许的判据——不靠「看着对」。
+        // 这是迁移唯一被允许的判据——不靠「看着对」。
         for start_row in 0..=32i64 {
             for end_row in start_row..=32i64 {
                 for history in 0..=32usize {

@@ -4,8 +4,8 @@
 # 用法：
 #   scripts/verify.sh                        # 常规验收（阶段提交后跑）
 #   SKIP_GIT_CHECK=1 scripts/verify.sh      # 阶段提交前跑（跳过工作树检查）
-#   STRICT_B4=1 scripts/verify.sh           # S3 之后：强制零字符串派发
-#   ALLOW_MARKERS=1 scripts/verify.sh       # 仅调试时临时放宽 R12（正常应为 0）
+#   STRICT_B4=1 scripts/verify.sh           # 强制零字符串派发
+#   ALLOW_MARKERS=1 scripts/verify.sh       # 仅调试时临时放宽地址字面判据（正常应为 0）
 #   VERIFY_CLIPPY=1 scripts/verify.sh       # 额外跑 clippy（-D warnings，0 warning 才算过）
 #   SHOT_JOBS=8 scripts/verify.sh           # 截图并行度（默认 4；设 1 退回逐张）
 #   VERIFY_NO_SHOT_CACHE=1 scripts/verify.sh # 强制重拍所有截图（默认复用同Inputs缓存）
@@ -24,7 +24,7 @@ cd "$ROOT" || exit 1
 # 故障表现是「设置页基线红了」，而干净树上复跑又是绿的，排查方向全是错的。
 # 用 `$ROOT/target` 既天然按工作树隔离，又正好复用在建工作树的增量缓存，不额外重建。
 TARGET="${CARGO_TARGET_DIR:-$ROOT/target}"
-ALLOW_MARKERS="${ALLOW_MARKERS:-0}"   # S5 起默认 0 命中
+ALLOW_MARKERS="${ALLOW_MARKERS:-0}"   # 默认 0 命中
 
 fails=0
 step() { printf '\n── %s ──\n' "$1"; }
@@ -128,7 +128,7 @@ else
 fi
 
 step "4. B1：term-core 内不得出现 egui / eframe / epaint / winit"
-# 2026-11-14 架构审查 P0-2：原词表只有 `egui|eframe`，而 UI 依赖可以不经
+# 2026-11-14 架构审查：原词表只有 `egui|eframe`，而 UI 依赖可以不经
 # 这两个名字溜进来 —— `epaint` 是 egui 独立发布的绘制 crate，`winit` 是窗口
 # 后端，任何一个被 core 直接 `use` 都同样是「纯语义层认识 UI」。补上这两个，
 # 与 4d 的 `bad_deps` 用同一份词表（两处不许各写各的，否则又是一格盲区）。
@@ -136,21 +136,21 @@ if [ -d crates/term-core/src ]; then
   hits=$(grep -rEn 'egui|eframe|epaint|winit' crates/term-core/src --include='*.rs' 2>/dev/null || true)
   if [ -n "$hits" ]; then bad "core/ 混入 UI 依赖：$hits"; else ok "core/ 零 UI 依赖（egui / eframe / epaint / winit 全挡）"; fi
 else
-  ok "core/ 尚未建立（S1 之前跳过）"
+  ok "core/ 尚未建立（当时跳过）"
 fi
 
-step "4b. I3：term-core 全目录零副作用（R2 例外已清零）"
+step "4b. term-core 全目录零副作用（例外已清零）"
 # ADR-0014 后 supervisor / channel / theme_load 已迁往 term-runtime，
 # 判据从「限定三文件 + 登记例外」升级为覆盖整个纯语义编译单元。
 #
-# 2026-11-13（P1-5 根因）：判据里原本**没有 `std::env`**。于是
+# 2026-11-13：判据里原本**没有 `std::env`**。于是
 # `session.rs:587` 的 `std::env::var("USER")` 一直活得好好的——同一份输入在不同
 # 宿主上得到不同 `spawn_plan`，而 4b 天天报「零副作用」。这不是漏网，是判据
 # 本身漏了一个类别：环境变量和墙钟、线程、文件系统是同一件事——**把宿主状态
 # 偷偷塞进纯函数**。现在补上，core 里 `std::env` / `env::var` 命中 0（实测）。
 # 教训与 4d 那次一样：改掉一处违规，必须同时把「能看见这类违规」的判据补上，
 # 否则下一个人会原样写回去，而门禁仍然绿着。
-# 2026-11-14 架构审查 P0-1 / P0-2：原词表只挡了「文件 / 线程 / PTY / 通道 /
+# 2026-11-14 架构审查：原词表只挡了「文件 / 线程 / PTY / 通道 /
 # 目录 / 环境变量」六类，墙钟的另一种写法 `SystemTime::now()`、以及 `std::io::`
 # / `std::net::` / `std::process::` 三个宿主 IO 入口全在视野之外 —— 它们和
 # `std::env` 是同一件事：把宿主状态偷偷塞进纯函数。
@@ -171,7 +171,7 @@ else
   ok "term-core 零副作用（墙钟两种写法、线程、文件/网络/进程 IO、OS 句柄、环境读取全覆盖；整行注释不算代码），架构例外 0"
 fi
 
-step "4c. I2：事实流无共享写锁"
+step "4c. 事实流无共享写锁"
 # 值传递的事实窗口不得退化成共享可变状态（04 §2 警告过的 RwLock<Terminal> 争用）。
 lock_hits=$(grep -rEn 'RwLock|ArcSwap|Mutex|AtomicPtr' crates/term-core/src --include='*.rs' 2>/dev/null || true)
 if [ -n "$lock_hits" ]; then
@@ -186,37 +186,37 @@ step "4d. ADR-0014：编译单元边界（编译器强制）"
 # 依赖表里加一行 `epaint = "0.29"` 曾经谁也不抓 —— 两处不许各写各的。
 bad_deps=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-core/Cargo.toml | grep -E 'egui|eframe|epaint|winit|portable-pty|dirs|tokio|russh|wasmtime|term-runtime|term-app' || true)
 bad_rev=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-runtime/Cargo.toml | grep -E 'egui|eframe|term-desk' || true)
-# R12：term-app 是无前端应用层，**不许**有 UI 框架，也**不许**有 term-runtime——
+# term-app 是无前端应用层，**不许**有 UI 框架，也**不许**有 term-runtime——
 # 后者保证这一层拿不到 PTY / 线程，副作用只能以 Effect 值返回（ADR-0016）。
 bad_app=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-app/Cargo.toml | grep -E 'egui|eframe|portable-pty|term-runtime|dirs|tokio' || true)
-# 2026-11-13 P0-2 加固：上面那条是**黑名单**，漏一个词就全体失守——D6 引进
+# 2026-11-13 加固：上面那条是**黑名单**，漏一个词就全体失守——一次引进
 # `term-import` 时正是这样溜进来的（依赖表多了一个带 `std::fs` / `dirs` 的 crate，
-# 而 `bad_app` 的词表里没有它，于是 4d 一直绿）。架构审查报告 P0-2 的判据失明
+# 而 `bad_app` 的词表里没有它，于是 4d 一直绿）。架构审查报告指出的正是这处判据失明
 # 就指这一处。改成**精确白名单**：`term-app` 的 [dependencies] 里只许 `term-core`
 # 一个内部 crate，其余任何 `term-*` 依赖一律判红，不需要跟着新名字维护词表。
 # 用 awk 切 `[dependencies]` 段，避免把 `[dev-dependencies]` 的测试期依赖误判成
 # 运行时依赖（4l 踩过同一个坑）。
 bad_app_extra=$(awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' crates/term-app/Cargo.toml | grep -E '^[[:space:]]*term-[a-zA-Z0-9_-]+[[:space:]]*=' | grep -vE '^[[:space:]]*term-core[[:space:]]*=' || true)
-# R13-a：保险库是纯字节变换 —— 依赖表里不许出现运行时（tokio）、UI、PTY。
+# 保险库是纯字节变换 —— 依赖表里不许出现运行时（tokio）、UI、PTY。
 # 「加密顺手读一下文件」是最容易发生的一次越界，用依赖表挡住比 code review 可靠。
 bad_vault=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-vault/Cargo.toml | grep -E 'tokio|async|egui|eframe|portable-pty|term-runtime|term-core|dirs' || true)
-# R13-d：SSH 连接层可以有 tokio，但**不许**有 UI，也不许反向依赖应用层，
+# SSH 连接层可以有 tokio，但**不许**有 UI，也不许反向依赖应用层，
 # 也不许依赖 `term-runtime`——2026-11-12 收敛前它就是靠 term-runtime 拿到
 # `TermChannel` 与 `SpawnError` 的，于是传输层被绑在「本机能开伪终端」上。
 # 两个类型现在都在 `term_core::channel`，这条黑名单就是要它别再滑回去。
 bad_ssh=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-ssh/Cargo.toml | grep -E 'egui|eframe|epaint|term-app|term-desk|term-runtime' || true)
-# R13-b：会话库是纯同步存储 —— 依赖表里不许有运行时 / UI / PTY / 应用层。
+# 会话库是纯同步存储 —— 依赖表里不许有运行时 / UI / PTY / 应用层。
 # 「顺手把密码解密一下」是最容易发生的一次越界（库只存 entry_id，不认识保险库），
 # 所以 term-vault 也不在白名单里：解密的调用点必须留在应用层。
 bad_store=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-store/Cargo.toml | grep -E 'tokio|async|egui|eframe|portable-pty|term-runtime|term-app|term-vault|dirs' || true)
-# R13-e：隧道可以有 tokio（与 term-ssh 同为异步笼子），但**不许**有 UI，
+# 隧道可以有 tokio（与 term-ssh 同为异步笼子），但**不许**有 UI，
 # 也不许反向依赖应用层 —— 它只认得「已认证的连接」与「转发规则」。
 # 2026-11-14 架构审查：这里原先漏了 `term-runtime`，而 `[dev-dependencies]`
 # 里恰好躺着一条全 crate 0 引用的 `term-runtime` 死依赖 —— 与 ssh/sftp 同样
 # 不许碰门面，这一格却是空的。删死依赖与补词表必须同一刀做完：只删不补，
 # 下一个人原样写回来时门禁仍然绿（4b / 4d 反复栽过的就是这个跟头）。
 bad_tunnel=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-tunnel/Cargo.toml | grep -E 'egui|eframe|epaint|term-app|term-desk|term-runtime' || true)
-# R13-f：SFTP 与隧道同类（可以有 tokio），但只认得「已认证的连接」——
+# SFTP 与隧道同类（可以有 tokio），但只认得「已认证的连接」——
 # 不许有 UI、不许反向依赖应用层，也不许顺手把 term-runtime 拉进来
 # （那会让「文件面板」与「会话线程」长在一起）。
 bad_sftp=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-sftp/Cargo.toml | grep -E 'egui|eframe|epaint|term-app|term-desk|term-runtime|dirs' || true)
@@ -240,9 +240,9 @@ bad_profile=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-pro
 # 不许能写配置（term-profile）、不许反向依赖门面，也不许 UI / tokio / PTY。
 # 这条黑名单是「导入不会偷偷顺手做别的事」的编译期保证。
 bad_import=$(grep -E '^[[:space:]]*[a-zA-Z0-9_-]+[[:space:]]*=' crates/term-import/Cargo.toml | grep -E 'term-io|term-profile|term-runtime|term-app|term-desk|portable-pty|tokio|russh|async|egui|eframe' || true)
-# 2026-11-13（P1 收口）：4d 原来只覆盖上面这 12 个 crate，term-bridge 由 4l 单独守，
+# 2026-11-13 收口：4d 原来只覆盖上面这 12 个 crate，term-bridge 由 4l 单独守，
 # 但 **term-session / term-script / term-zmodem / term-xfer 四个没有任何依赖判据**。
-# 这不是纸面问题：P1-6 刚把「控制面反向依赖待删门面 term-runtime」拆掉，而当时
+# 这不是纸面问题：刚把「控制面反向依赖待删门面 term-runtime」拆掉，而当时
 # 没有任何门禁能阻止它被原样绑回去——改代码不补门禁，等于留了个能重新打开的口子。
 # 判据只加**禁止项**、不预设白名单：绑定关系会随重构变，禁止项（不许碰 UI / 不许
 # 碰门面 / 不许开异步）才是稳定的性质。
@@ -262,7 +262,7 @@ else
   bad "term-core / term-app 独立编译失败"
 fi
 
-# 2026-11-13（P1-7）：`[target.'cfg(target_os = "macos")'.dependencies]` 必须是
+# 2026-11-13：`[target.'cfg(target_os = "macos")'.dependencies]` 必须是
 # 文件**最后一段**。AGENTS.md:1028-1032 记过一次真实事故：13 条依赖被写在该段
 # 之后，于是全部被吞成 macOS-only，Linux 上编译失败而没人知道原因。当时唯一的
 # 防线是 `apps/desktop/Cargo.toml` 里一行「这一段必须留在文件最后」的**注释**——
@@ -299,7 +299,7 @@ step "4k. ADR-0017 §决策 2：tokio 笼子（异步只许在 term-ssh / term-t
 #    所以 1) 管的是直接依赖：这条缝是故意留的，写在这里免得下次有人把它堵上；
 # 5) term-tunnel 必须走 term-ssh 的 `Authenticated` —— 隧道复用「已认证的连接」，
 #    而不是自己再写一份 known_hosts / 认证。复制一份就是两处漏一个 CVE；
-# 6) `apps/desktop` 必须直接依赖 term-tunnel —— 与第 4 条同一个道理：R13-e 的库
+# 6) `apps/desktop` 必须直接依赖 term-tunnel —— 与第 4 条同一个道理：隧道的库
 #    不接进界面，就只是一堆没人调用的转发代码。tokio 也因此多了一条间接通道，
 #    但仍然只有这两条（第 1 条管直接依赖）。
 # 注意：这里**不能**写 `case`——bash 3.2 在 `$( )` 里遇到 case 分支的 `)`
@@ -324,7 +324,7 @@ else
   ok "tokio / russh 只在 term-ssh / term-tunnel / term-sftp；term-app 与 apps/* 零 await；SshChannel 实现了 TermChannel；desk 经这三个库连一条会话 / 起隧道 / 列目录，后两者都复用 Authenticated"
 fi
 
-step "4l. I4：term-bridge 依赖边界（白名单，运行时只许 term-core / serde / serde_json）"
+step "4l. term-bridge 依赖边界（白名单，运行时只许 term-core / serde / serde_json）"
 # 为什么不用 4d 那种 `^name =` 正则，而是 awk 切 section + 白名单——两条都实测会出错：
 # 1) `crates/term-bridge/Cargo.toml` 的注释文字里本来就写着 tokio / term-session
 #    （「不许有 tokio …」「term-session 只在 dev-dependencies 里」），黑名单 grep 会把
@@ -469,8 +469,8 @@ else
   ok "自动化不抢前台（三个开关齐备；脚本一律 --screenshot 或无窗口出口）"
 fi
 
-step "4e. I5：能力注册（命令 ID 只在数据层，投影层零硬编码）"
-# R3 的三条判据：
+step "4e. 能力注册（命令 ID 只在数据层，投影层零硬编码）"
+# 三条判据：
 # 1) 命令 ID 只允许出现在 crates/term-app/src/menu.rs（纯数据），ui/ 不得硬编码；
 # 2) 不再有「什么也不做」的 Unhandled 变体（未接线必须是 Option::None）；
 # 3) 匹配计数不是状态：投影层不得出现 total_matches（F2 已把它删出 FindState），
@@ -479,7 +479,7 @@ step "4e. I5：能力注册（命令 ID 只在数据层，投影层零硬编码�
 # 别处的 `#[cfg(test)]` + `#[path = "xxx_tests.rs"] mod …;` 两行声明拉进来的。
 # 下面那套「截断到 #[cfg(test)] 之后」的手法对这类文件完全失效：awk 一行也截不掉，
 # 于是测试里的 `("Window.Close", …)` 这种命令 ID 字面量会被当成生产代码硬编码判红。
-# 判据**不靠文件名后缀**（那等于给 I5 开后门：随便起个 `_tests.rs` 后缀就能藏 ID），
+# 判据**不靠文件名后缀**（那等于给这条判据开后门：随便起个 `_tests.rs` 后缀就能藏 ID），
 # 而是回到声明处——只有真的被那条两行声明引入的文件才跳过。
 test_only_mods=" $(grep -rhA1 --include='*.rs' '^[[:space:]]*#\[cfg(test)\][[:space:]]*$' \
     crates apps 2>/dev/null \
@@ -502,10 +502,10 @@ cmd_in_ui=$(grep -rEn '"[A-Z][A-Za-z]+\.[A-Za-z]+"' apps/desktop/src/ui --includ
     done || true)
 # app/ 层的命令 ID 只允许出现在**命令数据表**与各能力的 parse()（入口）。
 # W2 把「一张表」拆成了三张，都是纯数据，不是投影层硬编码：
-#   · menu.rs            顶级 10 棵菜单（I5 原始白名单）
+#   · menu.rs            顶级 10 棵菜单（判据原始白名单）
 #   · menu_submenus.rs   W2 从 menu.rs 拆出的 18 个子菜单明细，同一张菜单表
 #   · tab.rs             影子入口数据表 SHADOW_ENTRIES + Tab 能力的 parse
-#   · api_class.rs       Q2 §6 的分类表：**每条记录都是一条命令 ID**（`("Window.Close",
+#   · api_class.rs       分类表：**每条记录都是一条命令 ID**（`("Window.Close",
 #                        ApiClass::…)`），与 menu.rs 同属「命令数据表」这一侧。它回答的是
 #                        「这条命令为什么不在脚本 API 里」，不是投影层的硬编码分支——
 #                        真正的判定逻辑（`class_of` / 五条断言）里一个 ID 字面量都没有。
@@ -543,13 +543,13 @@ nw_arm=$(grep -c 'new_window_plan().launch()' apps/desktop/src/ui/effects.rs 2>/
 nw_spawn=$(grep -c '\.spawn()' apps/desktop/src/new_window.rs 2>/dev/null || true)
 if [ -n "$cmd_in_ui" ] || [ -n "$cmd_in_app" ] || [ -n "$unhandled" ] || [ -n "$slot_write" ] \
    || [ "${nw_arm:-0}" -lt 1 ] || [ "${nw_spawn:-0}" -lt 1 ]; then
-  bad "I5 判据未过：ui 硬编码=[$cmd_in_ui] app 硬编码=[$cmd_in_app] Unhandled=[$unhandled] 投影写计数=[$slot_write] NewWindow arm 消费=${nw_arm:-0} / launch 真 spawn=${nw_spawn:-0}（两条都须 ≥1）"
+  bad "判据未过：ui 硬编码=[$cmd_in_ui] app 硬编码=[$cmd_in_app] Unhandled=[$unhandled] 投影写计数=[$slot_write] NewWindow arm 消费=${nw_arm:-0} / launch 真 spawn=${nw_spawn:-0}（两条都须 ≥1）"
 else
   ok "命令 ID 只出现在 menu.rs 与 parse 分支；无 Unhandled；匹配计数不在投影层；NewWindow 两跳（arm 消费 plan / launch 真 spawn）都在"
 fi
 
 step "4f. F1/F2/F3：投影只读事实窗口；纯状态模块零 UI 依赖"
-# R3 把动作按能力分区、R12 搬成 `crates/term-app`：viewport / selection / find /
+# 动作按能力分区、搬成 `crates/term-app`：viewport / selection / find /
 # shell / capability 都不该认识 egui（注释里提名字不算，只查代码引用），
 # 这件事现在由依赖表守，这里再兜一层 grep。
 # 同时 ui/ 不得再直接索引 GridSnapshot.cells——渲染只有一个入口：事实窗口。
@@ -558,7 +558,7 @@ cell_idx=$(grep -rEn '(snapshot|snap)\.cells' apps/desktop/src/ui --include='*.r
 # F2：投影只能对「事实窗口」查找（find_matches_in），不得回到快照版入口，
 # 否则回看里搜不到东西——两套入口意味着两套行号坐标系。
 snap_find=$(grep -rEn 'find_matches\(' apps/desktop/src/ui --include='*.rs' 2>/dev/null || true)
-# F1-b：粘贴必须经 term-core 编码（换行归一 / 控制字符过滤 / 括号粘贴）。
+# 粘贴必须经 term-core 编码（换行归一 / 控制字符过滤 / 括号粘贴）。
 # 两个方向都查：调用必须存在，且不得把剪贴板原文直接写给 PTY——
 # 后者正是「多行粘贴在 vim 里塞满 ^J」那个 bug 的形状。
 paste_enc=$(grep -c 'paste_bytes_for' apps/desktop/src/ui/mod.rs 2>/dev/null || true)
@@ -573,9 +573,9 @@ else
   ok "term-app 零 UI 依赖；ui/ 只经事实窗口渲染与查找；粘贴经 term-core 编码；选词/选行走纯层"
 fi
 
-step "4g. R4：投影层零领域写——Find 栏是受控组件"
-# 架构宪章 I1 的最后一处例外曾是 `FindState.query` 由 egui `TextEdit` 直接编辑：
-# 绘制过程中把状态改掉，投影层就成了第二个写入者。R4 把输入框改成受控
+step "4g. 投影层零领域写——Find 栏是受控组件"
+# 最后一处例外曾是 `FindState.query` 由 egui `TextEdit` 直接编辑：
+# 绘制过程中把状态改掉，投影层就成了第二个写入者。于是把输入框改成受控
 # （状态只读 + 缓冲可变 + 改动派发 `SetQuery`），这里把「不许再写回去」钉住。
 ui_mut_state=$(grep -rEn '&mut +FindState|&mut +self\.view\.find' apps/desktop/src/ui --include='*.rs' 2>/dev/null || true)
 ui_find_assign=$(grep -rEn 'find(_state)?\.(query|visible|case_sensitive|current_match)[[:space:]]*=[^=]' apps/desktop/src/ui --include='*.rs' 2>/dev/null || true)
@@ -586,13 +586,13 @@ ui_query_mut=$(grep -rEn 'query[[:space:]]*\.(push|clear|pop|insert|truncate|ret
 ctl_state=$(grep -c 'find_state: &FindState' apps/desktop/src/ui/shell/find_bar.rs 2>/dev/null || true)
 ctl_input=$(grep -c 'input: &mut String' apps/desktop/src/ui/shell/find_bar.rs 2>/dev/null || true)
 if [ -n "$ui_mut_state" ] || [ -n "$ui_find_assign" ] || [ -n "$ui_query_mut" ] || [ "${ctl_state:-0}" -eq 0 ] || [ "${ctl_input:-0}" -eq 0 ]; then
-  bad "R4 判据未过：ui 持有可变状态=[$ui_mut_state] ui 写 FindState=[$ui_find_assign] ui 改 query=[$ui_query_mut] 受控签名=[$ctl_state/$ctl_input]"
+  bad "判据未过：ui 持有可变状态=[$ui_mut_state] ui 写 FindState=[$ui_find_assign] ui 改 query=[$ui_query_mut] 受控签名=[$ctl_state/$ctl_input]"
 else
-  ok "Find 栏受控（只读 state + 编辑缓冲）；ui/ 零领域状态写入 —— I1 例外 0 处"
+  ok "Find 栏受控（只读 state + 编辑缓冲）；ui/ 零领域状态写入 —— 例外 0 处"
 fi
 
-step "4j. R9：单文件代码行（apps/desktop/src + crates/，不含空行与注释，上限 500）"
-# `ui/mod.rs` 曾是 1,586 行；R9 按「谁画谁」拆成 6 个文件，2026-11-06 再按组件
+step "4j. 单文件代码行（apps/desktop/src + crates/，不含空行与注释，上限 500）"
+# `ui/mod.rs` 曾是 1,586 行；按「谁画谁」拆成 6 个文件，2026-11-06 再按组件
 # 分到 6 个子目录（shell / terminal / panels / dialogs / overlays / layout）。
 # 这条只挡一件事：新代码别再往同一个文件里堆。
 #
@@ -642,9 +642,9 @@ over_files=""
 stale_debt=""
 max_file=""; max_lines=0
 n_files=0
-# 2026-11-13（P1-2 扩面）：扫描根从 `apps/desktop/src/ui` 扩到 `apps/desktop/src`。
+# 2026-11-13 扩面：扫描根从 `apps/desktop/src/ui` 扩到 `apps/desktop/src`。
 # 原来只扫 `ui/`，于是 `src/xfer_run.rs`（775 代码行）与 `src/session_open.rs`（538）
-# 在门禁视野之外——不是「合规」，是「没被量过」。审查报告 P1-2 点的就是这一处。
+# 在门禁视野之外——不是「合规」，是「没被量过」。审查报告点的就是这一处。
 #
 # 扩面立刻多出这两条红项。它们不进「允许额度」，进**待拆清单**：下面的第二条断言
 # 强制它们必须仍然超限——一旦拆到 ≤500，这里也必须删掉该表项，否则基线会悄悄
@@ -723,7 +723,7 @@ else
   ok "文件规模合规（递归 ${n_files} 个文件；desk 2 处 + crates ${crates_over_n} 处已登记欠账，其余均 ≤ ${DESK_SZ_LIMIT}；全仓最大 $max_file = $max_lines 行，属欠账）"
 fi
 
-step "4i. R9：crate 边界的错误必须分类（不得退回 String）"
+step "4i. crate 边界的错误必须分类（不得退回 String）"
 # 配置错 / 打不开 PTY / 找不到程序，调用方的反应完全不同；拍平成字符串就只剩一句话。
 # `term-core` 出 `ConfigError`，`term-runtime` 出 `SpawnError`（含 Config/Pty/Program 三类）。
 #
@@ -737,7 +737,7 @@ else
   ok "错误已分类：core → ConfigError，runtime → SpawnError；无 String 边界"
 fi
 
-step "4r. R3-b：term-app 分层单向（词汇 → 副作用 → 状态 → 能力 → 入口 → 分发）"
+step "4r. term-app 分层单向（词汇 → 副作用 → 状态 → 能力 → 入口 → 分发）"
 # 2026-11-12 拆分前，`term-app` 是一个 13 节点的强连通分量：`action`（类型 + 入口 +
 # 分发三合一）与 `state` 各 7 条入边，46 条生产边里 13 条从 `action` 射出、7 条射向它。
 # 后果不是编译错误——同 crate 内模块可以成环——而是**拆不动**：任何按层切分都会撞上
@@ -753,7 +753,7 @@ step "4r. R3-b：term-app 分层单向（词汇 → 副作用 → 状态 → 能
 # 那是历史说明，不是依赖。同理 `crate::i18n` 里的数字要能被 `[a-z0-9_]+` 匹配到，
 # 否则会被截成 `crate::i`（第一版就是这么误报的）。
 #
-# 2026-11-12 R4：`menu` / `selection` / `i18n` 拆出同名子目录（`menu/tree.rs` 等 7 个
+# 2026-11-12：`menu` / `selection` / `i18n` 拆出同名子目录（`menu/tree.rs` 等 7 个
 # 文件、约 2000 行）。旧版把文件名写死成 `<模块>.rs` 只认顶层——子目录里的文件**一次
 # 都没被查过**，本项照样绿。这和 4e / 4h 那次静默变绿是同一类错：判据的**输入集合**
 # 悄悄缩了，判据本身不报错。所以现在三件事一起改：
@@ -776,7 +776,7 @@ check_layer "$APP_SRC_DIR/state.rs"     '^crate::(i18n|palette|goto|center|vocab
 check_layer "$APP_SRC_DIR/action.rs"    '^crate::(vocab|effect|reduce)$'
 check_layer "$APP_SRC_DIR/capability.rs" '^crate::(vocab|menu|tab|parse)$'
 check_layer "$APP_SRC_DIR/palette.rs"   '^crate::(vocab|capability|menu|tab|parse)$'
-# R4 拆出的子模块：搬家不该改层级，所以照样钉住。
+# 拆出的子模块：搬家不该改层级，所以照样钉住。
 # `menu/bars.rs` 里的 `crate::dock` 是数据层（`DockItem` 要 `DockZone`），不是回边。
 check_layer "$APP_SRC_DIR/i18n/zh.rs"            '^crate::i18n$'
 check_layer "$APP_SRC_DIR/menu/tree.rs"          '^crate::(dock|menu|vocab)$'
@@ -889,7 +889,7 @@ else
   ok "生产路径 panic ${panic_n} 处（基线 ${PANIC_BASELINE}，只许减不许增；整文件排除 ${excluded_n} 个纯测试模块）"
 fi
 
-step "4q. R9：全仓错误边界 String 化基线（只许减不许增，基线 40）"
+step "4q. 全仓错误边界 String 化基线（只许减不许增，基线 40）"
 # 4i 只扫 `term-core` / `term-runtime`，其余 crate 与 `apps/` 从没被量过——把判据
 # 扩到 `crates` + `apps` 立刻命中 42 行，其中 6 行是**旧正则的误报**：
 # `Result<Option<String>, VaultError>` / `Result<Vec<(String, Option<String>)>, StoreError>`
@@ -944,8 +944,8 @@ else
   ok "term_runtime:: 引用 ${facade_n} 行 / ${facade_files} 文件（基线 ${FACADE_REF_BASELINE}，只许减不许增）"
 fi
 
-step "4h. R5：ViewState 的每个字段都要有读者"
-# R5 的教训：`ViewState` 里 19 个 bool 有 13 个 `ui/` 一次都没读过——菜单是亮的、
+step "4h. ViewState 的每个字段都要有读者"
+# 教训：`ViewState` 里 19 个 bool 有 13 个 `ui/` 一次都没读过——菜单是亮的、
 # 命令能 parse、点了只翻一个没人看的 bool。这种「接了线但没效果」比置灰更糟：
 # 置灰是诚实地表示没做，空转是让人以为坏了。
 # （`FindState` 的字段经 `app::find` 读取，不在此列。）
@@ -963,7 +963,7 @@ step "4h. R5：ViewState 的每个字段都要有读者"
 # 代价（有意的）：将来若用别名读（`let v = &self.view; v.x`）会红——那时把该处写成
 # `view.<字段>` 即可。别名会让这条检查彻底失效，宁可逼一次显式访问。
 #
-# 2026-11-12 R3 起的补充：面板开关表合并到 `term_app::shell::panel_visible`，
+# 2026-11-12 起的补充：面板开关表合并到 `term_app::shell::panel_visible`，
 # `ui/panels/mod.rs` 不再自己列 9 个分支，于是这 8 个字段在 `ui/` 里的**直接读点
 # 消失了**。判据不放松，改成承认**一处受检的间接读**（"桥"）：
 #   ① 桥的实现真的读了它：`crates/term-app/src/shell.rs` 生产段里有一行 `state.<字段>`；
@@ -991,7 +991,7 @@ field_n=$(printf '%s\n' "$view_fields" | grep -c . || true)
 # 「读」与「写」的区别：`&mut state.x` 与 `state.x = …` 都是写点，不算读者。
 # 旧判据只在注释里声称「纯赋值不算」，实际 grep 会把 `self.view.x = true;` 算成读者
 # ——那正是 4h 自己那份「旧判据有四个洞」清单里的第 5 个（注释只列了 4 个）。
-# 2026-11-12 R3 这一刀顺手堵上：不加这两条过滤，桥的实现侧也会被
+# 2026-11-12 这一刀顺手堵上：不加这两条过滤，桥的实现侧也会被
 # `set_panel_visible` 里的 `&mut state.<字段>` 骗过（实测：把 `panel_visible` 的
 # Sidebar 分支删掉，判据仍绿）。`= [^=]` 放过 `==`，所以比较式仍算读。
 reads_only() {
@@ -1045,7 +1045,7 @@ else
 fi
 
 step "5. B2：ui/ 不得持有 OS 资源"
-# 2026-11-13（P1-3 加固）：原判据是四个**字面量**黑名单，包一层就逃逸。
+# 2026-11-13 加固：原判据是四个**字面量**黑名单，包一层就逃逸。
 # 实证：`ui/terminal/session.rs:198` 的 `std::sync::mpsc::channel()` 把 Receiver
 # 交给 `HexTap`（apps/desktop/src/hex_tap.rs:24-26），ui 侧字段只写 `HexTap`，
 # 四个字面量一个都不命中——门禁绿着，东西已经进去了。
@@ -1073,23 +1073,23 @@ if [ -d apps/desktop/src/ui ]; then
     ok "ui/ 零 OS 资源；零裸 channel 端；不透明句柄 ${handle_n:-0} 处（基线 ${HANDLE_BASELINE}，只许减不许增）"
   fi
 else
-  ok "ui/ 尚未建立（S1 之前跳过）"
+  ok "ui/ 尚未建立（当时跳过）"
 fi
 
-step "6. B4：禁止字符串派发（S3 起强制）"
+step "6. 禁止字符串派发（强制）"
 hits=$(grep -rn 'last_action' apps/desktop/src crates --include='*.rs' 2>/dev/null || true)
 if [ -n "$hits" ]; then
   c=$(printf '%s\n' "$hits" | wc -l | tr -d ' ')
   if [ "${STRICT_B4:-0}" = "1" ]; then
     bad "仍有字符串派发：$hits"
   else
-    ok "已知待办：$c 处，S3 清除（S0–S2 不阻断）；S3 后用 STRICT_B4=1 强制"
+    ok "已知待办：$c 处，待清除（当前不阻断）；之后用 STRICT_B4=1 强制"
   fi
 else
   ok "无 last_action"
 fi
 
-step "7. R12 合规标记（Mach-O 地址注释）"
+step "7. 合规标记（Mach-O 地址注释）"
 n=$(grep -rEo '0x[0-9a-fA-F]{8,}' apps/desktop/src crates --include='*.rs' 2>/dev/null | wc -l | tr -d ' ')
 if [ "$n" -le "${ALLOW_MARKERS}" ]; then
   ok "${n} 处，阈值 ${ALLOW_MARKERS}；详见仓库内的合规标记说明"
@@ -1097,7 +1097,7 @@ else
   bad "${n} 处超过阈值 ${ALLOW_MARKERS}"
 fi
 
-step "7b. R12 全仓库地址字面（含未跟踪的新文件）"
+step "7b. 全仓库地址字面（含未跟踪的新文件）"
 # 防御性写法：`docs` 现在是实体目录，但这个仓库曾被改成过符号链接，
 # 未来也可能再被谁换掉。BSD grep 的三种行为都实测过：
 #   grep -r docs   → 若 docs 是链接："Is a directory"、空结果（被 || true 吞掉 = 假绿）
@@ -1147,7 +1147,7 @@ else
   ok "跳过（用 VERIFY_SCREENSHOT=1 开启）"
 fi
 
-step "8d. R13-d：term-ssh 端到端（进程内 mock 服务端，真握手）"
+step "8d. term-ssh 端到端（进程内 mock 服务端，真握手）"
 # 这一层最容易错的不是逻辑而是接缝：`check_server_key` 的返回值、`request_pty`
 # 的参数顺序、`ExitStatus` 的到达时机。所以必测的不是 mock，是**真握手**——
 # `tests/e2e.rs` 里起一个 russh 服务端（同库的 server 端），只监听 127.0.0.1，
@@ -1165,12 +1165,12 @@ else
   bad "crates/term-ssh/tests/e2e.rs 缺失"
 fi
 
-step "8e. R13-b：term-store 恢复测试（SQLite 往返 + 库文件里没有明文密码）"
+step "8e. term-store 恢复测试（SQLite 往返 + 库文件里没有明文密码）"
 # 判据三条：
 # 1) 会话列表过一遍库还能原样回来（身份列 + 整份 JSON 都不许丢字段）；
 # 2) 凭据引用（vault_entry_id）不会被「保存列表」抹掉；
 # 3) 库文件（含 -wal）的原始字节里找不到密码——密码只在保险库里。
-# 还有一条**接线**判据：产品的持久化必须真的走这个库（R13-b2），
+# 还有一条**接线**判据：产品的持久化必须真的走这个库，
 # 否则它又变回「只活在库里、界面用不到」。
 if [ -d crates/term-store/src ]; then
   store_out=$(cargo test -p term-store --target-dir "$TARGET" --quiet 2>&1)
@@ -1188,7 +1188,7 @@ else
   bad "crates/term-store/src 缺失"
 fi
 
-step "8f. R13-e：term-tunnel 进程内真握手（-L / -D / -R 各搬一次真字节）"
+step "8f. term-tunnel 进程内真握手（-L / -D / -R 各搬一次真字节）"
 # 隧道最容易错的也是接缝：`direct-tcpip` 的目标参数顺序、SOCKS5 的应答字节、
 # `tcpip-forward` 的应答端口、`close()` 之后监听是否真的放掉。所以四个用例都起来
 # 真握手，并断言**服务端收到的目标地址 / 端口**就是命令行里写的那个——写反会直接红。
@@ -1205,15 +1205,15 @@ else
   bad "crates/term-tunnel/tests/e2e.rs 缺失"
 fi
 
-step "8g. R13-b2 / e2：库真的接进产品了（不是「只活在库里」）"
+step "8g. 库真的接进产品了（不是「只活在库里」）"
 # 这一项存在的理由是本项目反复踩过的坑：库做完、单测全绿、界面上一个入口都没有。
 # 四个判据都是「调用点存在」这种可 grep 的事实：
 # 1) 会话持久化走 Store（persist 里不再有把会话序列化成 JSON 的代码）；
 # 2) 连之前会问保险库要密码（`stored_password`）；
 # 3) 连上之后按配置起隧道（`start_session_tunnel`）；
 # 4) 会话配置里有转发规则字段（`SessionConfig.forwards`）——没有它前两条无从谈起；
-# 5) R13-f：文件面板真的会去开 SFTP 会话（`term_sftp::start_in_background` 的调用点），
-#    并且那个开关在 `ViewState` 里（否则菜单亮了却没有读者，正是 R5 修过的那类假接线）。
+# 5) 文件面板真的会去开 SFTP 会话（`term_sftp::start_in_background` 的调用点），
+#    并且那个开关在 `ViewState` 里（否则菜单亮了却没有读者，正是修过的那类假接线）。
 json_left=$(grep -cE 'serde_json::to_(string|vec)' crates/term-profile/src/persist.rs 2>/dev/null || true)
 vault_used=$(grep -rl 'stored_password' apps/desktop/src 2>/dev/null | wc -l | tr -d ' ')
 tunnel_used=$(grep -rl 'start_session_tunnel' apps/desktop/src 2>/dev/null | wc -l | tr -d ' ')
@@ -1226,7 +1226,7 @@ else
   ok "persist 只走 Store；desk 连接前查保险库、连上后起隧道、开面板时起 SFTP；会话配置带转发规则"
 fi
 
-step "8h. R13-f：term-sftp 端到端（进程内 SSH 服务端 + 真 sftp-server 子系统）"
+step "8h. term-sftp 端到端（进程内 SSH 服务端 + 真 sftp-server 子系统）"
 # 客户端最容易错的地方全在协议细节上（版本交换、realpath、readdir 的 EOF、
 # 失败目录的应答码）。自己实现一遍服务端只能测「我们对协议的理解」，
 # 所以这里把通道接到系统自带的 `sftp-server` 上——测的是能不能和真的实现谈成。
@@ -1235,7 +1235,7 @@ step "8h. R13-f：term-sftp 端到端（进程内 SSH 服务端 + 真 sftp-serve
 # 「没有 sftp-server 时用例会 skip 并在输出里写明，不当失败处理」——那句话正是
 # 假绿的入口：缺依赖的机器上 7 条 `return` 之后 libtest 报 `passed`，于是
 # 「从没和真服务端谈成过」与「谈成了」在输出里长得一模一样。ZMODEM 的同一句
-# 写法已被审查判为 P0-3 并修掉，这里补齐，不留双标准。
+# 写法已被审查指出并修掉，这里补齐，不留双标准。
 #
 # 所以这一项跑两次：默认那次确认 7 条**确实**被 ignored（若某天有人把
 # `#[ignore]` 删了，这里会红），`--ignored` 那次才真跑。两次都判，因为
@@ -1273,7 +1273,7 @@ else
   bad "crates/term-sftp/tests/e2e.rs 缺失"
 fi
 
-step "8i. R14-a：会话日志端到端（清洗器 + 监管者线程真落盘）"
+step "8i. 会话日志端到端（清洗器 + 监管者线程真落盘）"
 # 两个判据：
 # 1) 清洗器（`term_core::ansi`）—— 转义序列被吃掉、CRLF 折成一个换行、
 #    跨 chunk 的 UTF-8 不被切坏。这几条是「日志能不能 grep」的全部前提；

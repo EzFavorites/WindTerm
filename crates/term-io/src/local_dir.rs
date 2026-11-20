@@ -1,6 +1,6 @@
 //! 本地目录枚举：Filer 在「本地 shell」会话里的数据源。
 //!
-//! 为什么放在 `term-io` 而不是 `apps/desktop/src/ui`：B2 要求 `ui/` 不持有
+//! 为什么放在 `term-io` 而不是 `apps/desktop/src/ui`：要求 `ui/` 不持有
 //! OS 资源，读目录是 IO；投影层只拿一组已经变成值的数据来画。
 //!
 //! 日期列要显示 `YYYY/MM/DD`，而 `std::fs::Metadata::modified()` 给的是

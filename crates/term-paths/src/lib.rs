@@ -61,7 +61,7 @@ const LEGACY_FILES: &[&str] = &[
     "prefs.json",
     "layout.json",
     "vault.ztv",
-    // R13-b 之前的会话库格式：读到就仍能被新代码读出来，所以一并搬。
+    // 之前的会话库格式：读到就仍能被新代码读出来，所以一并搬。
     "user.sessions",
 ];
 
@@ -205,7 +205,7 @@ fn clean_between(dir: &std::path::Path, min_age: std::time::Duration) -> usize {
     removed
 }
 
-/// 脚本库目录：`profile_dir()/scripts`（D8-4）。
+/// 脚本库目录：`profile_dir()/scripts`。
 ///
 /// 新建脚本默认落这里，而不是工作目录——否则从任何 CWD 启动，「新建脚本」都会
 /// 写进一个随启动目录漂移的地方，用户第二次就找不到自己的脚本了。目录本身按需

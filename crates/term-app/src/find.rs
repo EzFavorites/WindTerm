@@ -1,10 +1,10 @@
 //! Find 能力：会话内查找的局部动作与局部 reducer。
 //!
-//! R3 之前 Find 的状态是「投影层直接写」的：`ui/find_bar.rs` 里的
+//! 之前 Find 的状态是「投影层直接写」的：`ui/find_bar.rs` 里的
 //! `update_matches(&mut FindState, …)` 在绘制过程中把 `total_matches` /
-//! `current_match` 写进 `ViewState`，等于投影层成了第二个写入者（违反 I1）。
+//! `current_match` 写进 `ViewState`，等于投影层成了第二个写入者（违反单向依赖）。
 //!
-//! R3 把计算搬进了 reducer，但保留了「计数」这个缓存槽。
+//! 把计算搬进了 reducer，但保留了「计数」这个缓存槽。
 //! F2 发现缓存槽必然过期：查找的输入从「整块快照」变成「当前事实窗口」，
 //! 而滚动会换窗口却不产生任何 `Action`，于是「3 / 7」会在回看后停在旧数字上。
 //! 补法不是「滚动时也写一次」，而是**把计数从状态里删掉**——它是
@@ -52,7 +52,7 @@ pub fn current_index(state: &FindState, total: usize) -> Option<usize> {
 /// 前者与「N / M」计数天然一致，也不会因为光标停在匹配内部而原地打转。
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<FindAction> {
@@ -102,7 +102,7 @@ pub fn reduce(state: &mut FindState, action: FindAction, window: Option<&ScreenI
             state.query.clear();
             state.current_match = 0;
         }
-        // R14-b：以选区为查询词的前置复位——打开栏、清空旧查询、回到第一个匹配。
+        // 以选区为查询词的前置复位——打开栏、清空旧查询、回到第一个匹配。
         // 「填选区 + 跳一步」交给投影层（`SelectionNext`/`SelectionPrev` 在 action.rs
         // 路由成 `Effect::FindSelection(±1)`）。
         FindAction::SelectionNext | FindAction::SelectionPrev => {

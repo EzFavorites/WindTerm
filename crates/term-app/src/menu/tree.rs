@@ -10,7 +10,7 @@ use super::{CheckState, Item, Menu};
 /// 10 棵顶级菜单。
 ///
 /// W2：数据表里 18 个子菜单仍写作 `vec![]` / `vec![Item::Separator]`
-/// 作为「结构占位」标记，出口前统一由 `submenus::fill` 按 P1 换成真条目。
+/// 作为「结构占位」标记，出口前统一由 `submenus::fill` 换成真条目。
 /// 这样父级位次与子项明细各在一处，逐张比对时不用在 1000 行表里找子项。
 pub fn menus() -> Vec<Menu> {
     let mut tree = vec![
@@ -574,8 +574,8 @@ pub fn menus() -> Vec<Menu> {
                             label: "Toggle Pane Transfer",
                             id: "Window.TogglePaneTransfer",
                         },
-                        // W2-c：tmux 控制模式浮层的真实入口。
-                        // P1 的 `01-window-menu.png` 没有展开 Panes 子菜单，
+                        // tmux 控制模式浮层的真实入口。
+                        // `01-window-menu.png` 没有展开 Panes 子菜单，
                         // 这一组本来就是我们自己按 dock 面板命名的；
                         // 加这一条不破坏视觉基线的可见结构，却让 `show_tmux`
                         // 从「只有截图夹具设过」变成产品里点得到。
@@ -601,18 +601,18 @@ pub fn menus() -> Vec<Menu> {
                 // 开关（`ShellAction::Marks(MarksKnob::CaretLine)` → 翻活动标签的
                 // `Tab.marks.caret_line`，像素在 `ui/terminal/view.rs` 铺在字形
                 // 之下）。所以勾改成 `Live`：勾不勾读当前标签，而**不是**抄截图
-                // 里那一刻的状态——抄常量就变成「永远空框」（R10 那版）或
+                // 里那一刻的状态——抄常量就变成「永远空框」（之前那版）或
                 // 「永远打勾」，两种都是假反馈。
                 Item::Check {
                     label: "Highlight Caret Line",
                     id: "Text.HighlightCaretLine",
                     checked: CheckState::Live,
                 },
-                // 2026-11-07：margin 边栏。R10 把「边距」当成编辑器语义删掉过，
+                // 2026-11-07：margin 边栏。之前把「边距」当成编辑器语义删掉过，
                 // 现在它有真实实现（行号 / 符号 / 时间戳三列都从内核快照算），
-                // 所以按 R10 的判据重新加回来：**菜单项跟着能力走**。
+                // 所以按那个判据重新加回来：**菜单项跟着能力走**。
                 //
-                // 2026-11-18（C6）：`Fold` 这一项不再是缺口——
+                // 2026-11-18：`Fold` 这一项不再是缺口——
                 // · `Margin Fold`（`Text.MarginFold`）折的是光标所在的块（折叠族第 9 条）；
                 // · `Margin Fold Column`（`Text.MarginFoldColumn`）才是「画不画折叠
                 //   标记列」，画的是折叠头，行号取绝对历史行（与 `folded_view` 同源）。
@@ -897,7 +897,7 @@ pub fn menus() -> Vec<Menu> {
                     id: "Window.WindowList",
                 },
                 Item::Separator,
-                // P4：把浮动 / 移位过的面板全部收回默认停靠位。拖丢之后的确定性出口。
+                // 把浮动 / 移位过的面板全部收回默认停靠位。拖丢之后的确定性出口。
                 Item::Action {
                     label: "Reset Layout",
                     id: "Window.ResetLayout",

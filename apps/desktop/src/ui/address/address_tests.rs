@@ -1,4 +1,4 @@
-//! D3 地址栏投影层的单测：`plan.rs` 的纯函数逐条钉住。
+//! 地址栏投影层的单测：`plan.rs` 的纯函数逐条钉住。
 //!
 //! 为什么这些判定必须有测试：它们都是「看起来显然」的映射，错了的症状却离
 //! 现场很远——名字少了 `:port` 要到两台同名机器并排才看得出；`builtin_ssh`
@@ -442,7 +442,7 @@ fn dragging_the_panel_segment_still_moves_the_whole_row() {
 
 #[test]
 fn the_arrow_menu_opens_and_its_first_row_opens_the_new_session_dialog() {
-    // ADDR-01 的 `▾` 菜单：它必须**真的能点开、点了有反应**（R5）。
+    // `▾` 菜单：它必须**真的能点开、点了有反应**。
     // 这条不钉像素坐标，而是在「输入框右端」那条带里找一个能点开的点：
     // 字体 / 行高变了也不该让这条测试变得「红得对不上原因」。
     //
@@ -488,6 +488,6 @@ fn the_arrow_menu_opens_and_its_first_row_opens_the_new_session_dialog() {
     }
     assert!(
         fired,
-        "▾ 菜单打开了，但第一行 `New Session` 点了没反应（R5 的空转开关）"
+        "▾ 菜单打开了，但第一行 `New Session` 点了没反应（空转开关）"
     );
 }

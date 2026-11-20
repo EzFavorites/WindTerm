@@ -1,4 +1,4 @@
-//! XFER-06 目录同步的**组装层**：把两端采集到的清单变成 `term_xfer::sync` 能吃的计划。
+//! 目录同步的**组装层**：把两端采集到的清单变成 `term_xfer::sync` 能吃的计划。
 //!
 //! # 为什么这一层在 `apps/desktop`
 //!
@@ -227,7 +227,7 @@ mod tests {
 
     #[test]
     fn a_first_sync_uploads_everything_and_a_second_run_skips_everything() {
-        // 这是 XFER-06 最有价值的一条判据：它同时证明采集（mtime 到手）、归一
+        // 这是最有价值的一条判据：它同时证明采集（mtime 到手）、归一
         // （两侧同一口径）、决策（判定表）三处都对。
         //
         // 它只喂合成清单——真机上那条链由三段拼起来，每一段都有自己的判据：

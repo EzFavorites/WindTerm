@@ -133,7 +133,7 @@ mod tests {
         "Logging settings saved", "Could not save logging settings",
         "Not available in the current log state", "Not wired (placeholder)",
         "Status:", "File:", "Size:",
-        // ── P9 快捷命令栏：两个弹层 + 图标/命令按钮提示 ──
+        // ── 快捷命令栏：两个弹层 + 图标/命令按钮提示 ──
         "Configure command groups", "Show command groups",
         "Close quick command bar", "Quick command bar settings",
         "More commands", "Send `{cmd}` to the current session (no Enter)",
@@ -144,23 +144,23 @@ mod tests {
         "Session Triggers", "More",
         // ── 2026-11-12 未挂接弹层（其余由菜单树 visit() 自动覆盖）──
         "Enable Symbol Preview", "switch to tab", "Opened",
-        // D3：地址栏下拉第三段的分组名（`term_app::address::AddressKind::Host`）。
+        // 地址栏下拉第三段的分组名（`term_app::address::AddressKind::Host`）。
         "Host",
-        // D3：地址栏浮层（`apps/desktop/src/ui/address/`）——输入框占位、动作提示、
+        // 地址栏浮层（`apps/desktop/src/ui/address/`）——输入框占位、动作提示、
         // `▾` 菜单三行与四条解析报错。列进来才算被门禁管住：漏翻一条，中文界面
         // 就在地址栏里露一句英文。
         "Host, user@host, or pick a session", "connect", "Session Properties",
         "Clear Recent", "Enter a host, or an address like ssh://user@host:22.",
         "This address has no host name.", "'{raw}' is not a port number (0-65535).",
         "'{raw}' is not a valid user name.",
-        // ── D6：首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
+        // ── 首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
         // 窗口标题与两页的全部文案。带 `{n}` / `{path}` 的两条整句进表，
         // 占位符由调用方 `replace`（与 `… {n} items` 同一写法）。
         "Welcome", "Detected hosts", "Next", "Back", "Skip", "Finish",
         "Import {n} sessions", "From {path}",
         "WindTerm can seed your session tree from the SSH hosts already configured on this machine. Passwords are never copied.",
         "No SSH hosts found — you can still add sessions from the sidebar later.",
-        // ── D6：预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
+        // ── 预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
         // 窗口标题、两种按钮、四种内容说明、三条提示。字符集名 / 图片格式 /
         // `MiB` 单位 / 文件名 / 路径都是**数据**，故意不进这张表。
         "Preview", "Open Externally", "Only the beginning is shown",
@@ -170,12 +170,12 @@ mod tests {
         // Filer 双击远端文件时那一句一次性提示（`log_note`）与它的两种失败。
         "Downloading to a temporary file", "Could not download the file",
         "Not connected to SFTP",
-        // ── D8-3：脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
+        // ── 脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
         // 窗口标题 / 五个按钮 / 脏标记 / 空路径 / 两种结果 / 跳行。`{n}` 整句进表，
         // 占位符由调用方 `replace`（与 `… {n} items` 同一写法）。
         "Script Editor", "Run", "Save As", "Save as:", "● Unsaved", "(unsaved)",
         "This tab has no live session", "Done", "Failed", "Go to line {n}",
-        // ── D8-4：「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
+        // ── 「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
         // 两个列头 + 两种空态。文件名 / 路径是数据，故意不进这张表。
         "Library", "Recent", "no scripts in library", "nothing run yet",
         // ── Sender ▸ Selected Sessions 的多选下拉（`tools_sender_menu.rs`）──
@@ -229,7 +229,7 @@ mod tests {
         for id in crate::dock::PanelId::ALL {
             labels.push(id.title());
         }
-        // W2：Hex Base 的 2 / 7 / 8 / 10 / 16 是纯数字标签，没有可翻译内容，
+        // Hex Base 的 2 / 7 / 8 / 10 / 16 是纯数字标签，没有可翻译内容，
         // `zh()` 按设计返回原文。不作豁免会被判成「漏翻」，作出过宽的豁免
         // 又会让真漏翻的英文文案混过去——所以只按「有没有 ASCII 字母」放行，
         // 边界由 `only_digit_labels_skip_the_translation_gate` 单独钉住。

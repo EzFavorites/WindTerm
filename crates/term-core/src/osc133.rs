@@ -1,6 +1,6 @@
 //! OSC 133（FinalTerm shell integration）的**纯语义层**。
 //!
-//! V1-4 的前置，也是 M4 里 Select Command / 命令块折叠 / 跨标签搜索共用
+//! 前置，也是 Select Command / 命令块折叠 / 跨标签搜索共用
 //! 的那一层。`term-core` 零副作用（verify 4b）：这里只把字节流翻成标记，
 //! 不碰 PTY、不碰时间、不碰文件。
 //!

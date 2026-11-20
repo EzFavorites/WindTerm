@@ -9,7 +9,7 @@
 //!
 //! # 为什么放在 `ui/` 之外
 //!
-//! `scripts/verify.sh` 第 5 项（B2）的判据是「`ui/` 不得持有 OS 资源」。拉起一个
+//! `scripts/verify.sh` 第 5 项的判据是「`ui/` 不得持有 OS 资源」。拉起一个
 //! 进程不是画——`open_with.rs` / `sysopen.rs` / `main.rs` 的模块区都写着同一条
 //! 口径。本文件与它们同级，投影层只经 `Effect::NewWindow` 说一句意图，一个
 //! `Command` 都不进 `ui/`。
@@ -29,7 +29,7 @@
 //!
 //! | 变量 | 处置 | 理由 |
 //! |---|---|---|
-//! | `WINDTERM_SCREENSHOT_TO` | `env_remove` | 夹具态。`ui/harness.rs::fixture_mode` 用 `var_os().is_some()` 判**存在性**，必须真删，设空串无效。不清则 `main.rs` 让新窗口 `with_visible(false)` + macOS `ActivationPolicy::Prohibited` 隐形不上前台；`shot.rs` 存完图直接 `process::exit(0)`，用户看到的是「窗口闪一下就没了」，正是 R5 禁止的「点了没反应」；`image::save_buffer` 还直接写固定路径、非原子，两进程会并发写同一 PNG |
+//! | `WINDTERM_SCREENSHOT_TO` | `env_remove` | 夹具态。`ui/harness.rs::fixture_mode` 用 `var_os().is_some()` 判**存在性**，必须真删，设空串无效。不清则 `main.rs` 让新窗口 `with_visible(false)` + macOS `ActivationPolicy::Prohibited` 隐形不上前台；`shot.rs` 存完图直接 `process::exit(0)`，用户看到的是「窗口闪一下就没了」，正是禁止的「点了没反应」；`image::save_buffer` 还直接写固定路径、非原子，两进程会并发写同一 PNG |
 //! | `WINDTERM_COMP_DEMO` | `env_remove` | 夹具态。不清则新窗口进静态组件画面而非真实终端 |
 //! | `WINDTERM_SECONDARY_WINDOW` | `env("1")` 显式设置 | 角色标记，`ui/construct.rs::init` 据此跳过 `restore_layout()` |
 //! | `WINDTERM_PROFILE_DIR` | **保留继承，不清** | 配置态 / 共享范围开关（`term-paths` 读它）。清掉会让 `prefs.json`、SQLite 会话库、`layout.json` 全都不再共享，违背用户裁定「窗口态独立、配置与会话库共享」 |
@@ -187,7 +187,7 @@ pub fn new_window_plan() -> SpawnPlan {
     }
 }
 
-/// 失败原因。**不返回 `Result<_, String>`**：4q 把全仓「错误边界 String 化」冻结在
+/// 失败原因。**不返回 `Result<_, String>`**：把全仓「错误边界 String 化」冻结在
 /// 40 处（只许减不许增），而且「找不到自己」与「起不来」的处置完全不同。
 #[derive(Debug)]
 pub enum NewWindowError {
@@ -348,7 +348,7 @@ mod tests {
             "角色变量要打上，construct.rs 据此跳过 restore_layout"
         );
 
-        // 失败文案能读懂，且两类原因分得开（R5：不许静默失败）。
+        // 失败文案能读懂，且两类原因分得开（不许静默失败）。
         let spawn_err = NewWindowError::Spawn(io::Error::other("denied"));
         assert!(spawn_err.message().contains("denied"));
         let exe_err = NewWindowError::CurrentExe(io::Error::other("gone"));

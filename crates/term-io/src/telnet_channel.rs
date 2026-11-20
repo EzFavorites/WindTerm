@@ -1,6 +1,6 @@
-//! 原生 Telnet 通道：把 [`term_core::telnet`] 的协商语义接到真实 TCP 上（W6-C1）。
+//! 原生 Telnet 通道：把 [`term_core::telnet`] 的协商语义接到真实 TCP 上。
 //!
-//! W6-C1 的前半段（语义层）早已写好却零消费者：`Protocol::Telnet` 一直经
+//! 前半段（语义层）早已写好却零消费者：`Protocol::Telnet` 一直经
 //! `spawn_plan()` 拉系统 `telnet` 客户端塞进 PTY。这里补上另一半——用
 //! `std::net::TcpStream` 直连，把「原始字节流 → 纯数据 + 应答」真正拆开：
 //!

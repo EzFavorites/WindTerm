@@ -1,6 +1,6 @@
 //! 兼容门面：`Action` / `Effect` / `reduce` 的对外路径。
 //!
-//! 2026-11-12 R2 之前，这个文件同时装着**类型词表**（`Action` / `Effect` /
+//! 2026-11-12 之前，这个文件同时装着**类型词表**（`Action` / `Effect` /
 //! 各能力的子枚举）、**字符串入口**（13 段 `if let` 链）和**分发**（`reduce`）。
 //! 三件事挤在一起，于是 `action` 同时向 13 个能力模块射出依赖，而其中 7 个
 //! 又反向 `use crate::action::Effect`——实测是一个 13 节点的强连通分量，
@@ -25,7 +25,7 @@ pub use crate::vocab::{Action, FeatureId, XferCmd, XferProtocol};
 #[cfg(test)]
 mod tests {
     use super::*;
-    // 2026-11-12 R2：`ViewState` / `Cmd` 的定义已下沉（`state` / `vocab`），
+    // 2026-11-12：`ViewState` / `Cmd` 的定义已下沉（`state` / `vocab`），
     // 生产路径不再需要它们，但测试要构造状态与断言副作用，所以只在测试里引入。
     use crate::state::ViewState;
     // 子枚举已下沉到 `vocab`，门面只再导出 `Action` 本身——测试要构造
@@ -109,11 +109,11 @@ mod tests {
 
     #[test]
     fn commands_without_a_visible_effect_stay_planned() {
-        // R5：这些开关一度被算作「已接线」，但 `ui/` 里没有任何代码读它们——
+        // 这些开关一度被算作「已接线」，但 `ui/` 里没有任何代码读它们——
         // 点了只是翻转一个没人看的 bool。现在回退成占位：`parse` 返回 `None`，
         // 菜单据此置灰。**不要再为了凑数字把它们接回去**，除非先有真实效果。
         for id in [
-            // V1-3：`Window.LockScreen` 已从这条名单移出——它现在有真实读者
+            // `Window.LockScreen` 已从这条名单移出——它现在有真实读者
             // （`ui/lock.rs` 的遮罩 + Vault 主密码校验），不是空转开关。
             // `Text.ToggleHexEdit` 也已移出：它现在会翻每条会话的显示模式
             // （`Effect::ToggleHex` → 投影层的 `Tab.mode`，不落盘），
@@ -130,7 +130,7 @@ mod tests {
         }
     }
 
-    /// T02：`Text.ToggleHexEdit` 从「点了没效果」变成真开关。
+    /// `Text.ToggleHexEdit` 从「点了没效果」变成真开关。
     ///
     /// 三段一起钉：ID 能解析成外壳动作、reducer 只吐意图、**`ViewState` 一位不动**。
     /// 最后一段是这条测试的重点——模式是**每条会话**的属性，一旦有人把它写成
@@ -279,7 +279,7 @@ mod tests {
     /// 整带开关是**一条动作两个方向**：带里有任何一块亮着就全关，全灭就全开。
     ///
     /// 这里把三块右带面板点亮再连翻两次：第一次全灭，第二次全亮。
-    /// 第二条断言是重点——「关掉之后回不去」是 R5 明令禁止的。
+    /// 第二条断言是重点——「关掉之后回不去」是明令禁止的。
     #[test]
     fn toggle_right_docks_closes_then_restores_the_whole_band() {
         let mut state = ViewState {
@@ -326,7 +326,7 @@ mod tests {
         assert_eq!(effects, vec![Effect::CopySelection]);
     }
 
-    // ── R11：选区命令 ──
+    // ── 选区命令 ──
     #[test]
     fn selection_commands_route_to_the_selection_feature() {
         assert_eq!(
@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(state, before, "位移在投影层算，reducer 不写视图状态");
     }
 
-    // ── W2：9 条集合命令 ──
+    // ── 9 条集合命令 ──
     #[test]
     fn set_commands_route_to_the_selection_feature() {
         let ids = [
@@ -381,7 +381,7 @@ mod tests {
         assert_eq!(Action::parse("Text.SelectToNextLine"), Some(Action::Select(Op::LineNext)));
     }
 
-    // ── W2：Goto 的 4 条光标移动 ──
+    // ── Goto 的 4 条光标移动 ──
     #[test]
     fn goto_cursor_commands_move_the_head_through_the_same_op_path() {
         let ids = [
@@ -506,7 +506,7 @@ mod tests {
         assert!(state.find.visible);
     }
 
-    // ── R14-b：窗口 / 会话 / 缩放动作的解析 ──
+    // ── 窗口 / 会话 / 缩放动作的解析 ──
     #[test]
     fn window_and_session_actions_route_to_shell() {
         let ids = [
@@ -605,7 +605,7 @@ mod tests {
         .is_empty());
     }
 
-    // ── R14-c：命令面板 ──
+    // ── 命令面板 ──
     #[test]
     fn palette_commands_route_to_the_palette_feature() {
         assert_eq!(
@@ -712,7 +712,7 @@ mod tests {
         assert_eq!(s, before);
     }
 
-    // ── R14-d：Goto 两条 ──
+    // ── Goto 两条 ──
     #[test]
     fn goto_commands_route_to_the_goto_feature() {
         assert_eq!(
@@ -880,7 +880,7 @@ mod tests {
         assert_eq!(s, before, "reducer 不该写视图状态");
     }
 
-    /// D5 四档语义：**三档预设各自的 transparent / opacity 值**，第四条翻页 + 开对话框。
+    /// 四档语义：**三档预设各自的 transparent / opacity 值**，第四条翻页 + 开对话框。
     ///
     /// 判据刻意分成三层：`WindowOpacityPreset` 自带数值（全仓唯一一份档位表）、
     /// `parse` 只把 ID 映射到那一档、`reduce` 只把它翻译成一条带参数的 `Effect`。
@@ -973,7 +973,7 @@ mod tests {
         }
     }
 
-    // ── R14-e：六个工具面板开关 ──
+    // ── 六个工具面板开关 ──
     fn pane_flags(s: &ViewState) -> [bool; 7] {
         [
             s.show_pane_explorer,
@@ -1096,7 +1096,7 @@ mod tests {
         assert_eq!(s, before, "不该改任何视图状态");
     }
 
-    // ── P9：快捷命令栏 ──
+    // ── 快捷命令栏 ──
     #[test]
     fn a_quick_command_emits_send_command_and_leaves_view_state_alone() {
         let (state, effects) = red(Action::QuickCommand("tcpdump ".to_string()));
@@ -1165,9 +1165,9 @@ mod tests {
     #[test]
     fn zmodem_transfer_commands_parse_to_a_transfer_intent() {
         // 这两条曾经是**故意**返回 `None` 的（当时 `term-zmodem` 还没落地，
-        // 接上只会「菜单变亮、点了不动」，R5）。内核与真实 `sz`/`rz` 双向互通
+        // 接上只会「菜单变亮、点了不动」。内核与真实 `sz`/`rz` 双向互通
         // 之后它们必须正向落位——**反向断言改成正向断言，不是删掉**：
-        // 这条测试守的是「菜单亮着 = 有动作」，翻回去就是又一条 R5 违规。
+        // 这条测试守的是「菜单亮着 = 有动作」，翻回去就是又一条违规。
         assert_eq!(
             Action::parse("Terminal.SendZModem"),
             Some(Action::Xfer(XferCmd::Send(XferProtocol::Zmodem)))
@@ -1195,7 +1195,7 @@ mod tests {
         assert_eq!(state, before, "传输句柄与进度在投影层，reducer 不写视图状态");
     }
 
-    // ── W2-b：标签右键 10 个影子入口 ──
+    // ── 标签右键 10 个影子入口 ──
     #[test]
     fn every_tab_context_command_parses_and_belongs_to_the_tab_feature() {
         for entry in tab_feature::SHADOW_ENTRIES {

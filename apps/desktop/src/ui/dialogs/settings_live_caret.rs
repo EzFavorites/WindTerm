@@ -4,7 +4,7 @@
 //!
 //! 把 `Period` / `Width` 从灰显接成真控件之后，这一页要同时管
 //! 下拉、预览方块、两个套框数字框与三项写回，塞在 `settings_live.rs` 里把那个
-//! 文件顶过 R9 的 500 代码行上限。拆分口径与 `settings_live_font` /
+//! 文件顶过 500 代码行上限。拆分口径与 `settings_live_font` /
 //! `settings_live_tabs` 一致：一页一个文件，页里的画法与它的写回放在一起。
 //!
 //! # 三项都是「新会话初值」
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn the_caret_page_admits_period_and_width_are_real_fields_now() {
-        // Period / Width 已接真（W7）。页底若仍写「渲染层常数」
+        // Period / Width 已接真。页底若仍写「渲染层常数」
         // 就是反向的谎——用户会以为拖了没用，而它确实会进新会话。
         assert!(
             !CARET_PAGE_NOTE.contains("constants"),

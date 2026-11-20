@@ -1,4 +1,4 @@
-//! 应用状态快照的**采集**（ADR-0027 §9，Q2 刀1）。
+//! 应用状态快照的**采集**（ADR-0027）。
 //!
 //! 形状在 `term_core::app_state`，采集只能在这里：面板停靠位来自 `DockLayout`
 //! （`pub(in crate::ui)`）、可见性来自 `ViewState`、透明度来自 `WindowOpacity`——
@@ -14,7 +14,7 @@
 //!
 //! `prefs` 段回的是**落盘值**，不是设置页里未保存的编辑——运行期的界面真值在
 //! `ViewState` / `WindowOpacity` 里，已经分别落在 `window` 与 `panels` 段。
-//! 目前只暴露语言：它是唯一一条「改了能立刻生效」的偏好（Q2 §4.4）。
+//! 目前只暴露语言：它是唯一一条「改了能立刻生效」的偏好。
 
 use crate::ui::layout::Placement;
 use crate::ui::*;
@@ -23,7 +23,7 @@ use term_app::dock::{DockZone, LayoutAction, PanelId};
 use term_app::shell::panel_visible;
 use term_core::app_state::{AppSnapshot, PanelState, WindowState};
 // 走真实 crate 路径而不是 `term_runtime::prefs` 门面：门面里那个模块只是
-// `term_profile::prefs` 的再导出，经它会让 `verify.sh` 4s 的计数 +1（基线只许减）。
+// `term_profile::prefs` 的再导出，经它会让计数 +1（基线只许减）。
 use term_profile::prefs;
 
 impl TerminalWindow {
@@ -131,7 +131,7 @@ impl TerminalWindow {
                             crate::script_app::AppReply::Delta(term_script::AppDelta {
                                 changed: vec![format!("panels.{}", id.name())],
                                 rev: self.app_rev,
-                                // 回执带写入**之后**的全景（Q2 §4.2）：脚本接着判断
+                                // 回执带写入**之后**的全景：脚本接着判断
                                 // 现状时不必再发一次 `app_state`，也就不必赌时序。
                                 panels: self.app_snapshot().panels,
                             })
@@ -145,7 +145,7 @@ impl TerminalWindow {
             },
         };
         let _ = pending.reply.send(reply);
-        // 回执之后要一帧重绘：面板可见性变了，画面上必须看得见（R5）。
+        // 回执之后要一帧重绘：面板可见性变了，画面上必须看得见。
         self.ctx.request_repaint();
     }
 }
@@ -160,7 +160,7 @@ impl TerminalWindow {
         })
     }
 
-    /// 把一次布局请求落到窗口上（Q2 §4.3）。
+    /// 把一次布局请求落到窗口上。
     ///
     /// 校验（名字 / 停靠带 / 序号）全部在 `dispatch_action` **之前**完成，
     /// 所以失败路径没有副作用：布局文件、`rev`、`DockLayout` 一样都不动。

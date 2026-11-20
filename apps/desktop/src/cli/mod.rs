@@ -1,6 +1,6 @@
-//! 无窗口子命令：`doctor` / `capability` / `serve`（ADR-0020 §3 的 P0 与 P1）。
+//! 无窗口子命令：`doctor` / `capability` / `serve`（ADR-0020 §3）。
 //!
-//! 为什么在 `apps/desktop` 而不是第二个二进制：ADR-0019 §4 与 ADR-0020 把可执行
+//! 为什么在 `apps/desktop` 而不是第二个二进制：ADR-0019 与 ADR-0020 把可执行
 //! 目标收敛成一个，`apps/` 只留 `desk`。这些命令的共同点是**不需要窗口**，
 //! 所以必须在 `eframe` 起来之前处理掉——一旦进了 `main` 后半段，就会要求显示
 //! 环境，CI 与排障现场都跑不了。

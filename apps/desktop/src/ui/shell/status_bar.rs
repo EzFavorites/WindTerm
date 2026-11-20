@@ -1,4 +1,4 @@
-//! 窗口最底部的状态栏（WindTerm 视觉基线 G8）。
+//! 窗口最底部的状态栏（WindTerm 视觉基线）。
 //!
 //! 放大 `main-dark.png` / `main-light.png` 底部逐字读出：
 //!

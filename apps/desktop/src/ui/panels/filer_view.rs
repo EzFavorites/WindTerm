@@ -1,6 +1,6 @@
 //! Filer 的绘制：路径栏 / 表头 / 文件列表 / 底部状态行。
 //!
-//! 2026-11-08 从 `filer.rs` 拆出（R9：那边 698 行顶破 450）。`filer.rs` 只留
+//! 2026-11-08 从 `filer.rs` 拆出（那边 698 行顶破 450）。`filer.rs` 只留
 //! 状态与数据源（本地目录 / SFTP 事件轮询），本文件只画——与
 //! `sidebar_view.rs` / `sidebar_rows.rs` 同一分工。
 //!
@@ -20,8 +20,6 @@
 //! 21 行会一路画穿面板下沿、压到 Sender 上（2026-11-08 实测）。改按
 //! `list_rect` 精确算出能放几行、只画这几行，滚轮按整行翻页，`set_clip_rect`
 //! 是第二道保险。视觉基线也正是「21 items 只露出 4 行」。
-//!
-//! # R5
 //!
 //! 路径栏四颗都有真实效果：`×` 清空输入、`↑` 上一级、`↻` 刷新、三点循环切排序；
 //! 路径框回车跳到该目录；点目录行进入；状态行的条目数与总字节数都从当前列表现算。
@@ -98,7 +96,7 @@ impl TerminalWindow {
         // 传输判据的两项输入，画之前取一次：菜单里每行都要问「现在能不能传」。
         let connected = self.filer.handle.is_some();
         let remote_dir = self.filer.path.clone();
-        // 目录同步（XFER-06）的两项输入。本地根在远端视图下也一直是有效的
+        // 目录同步的两项输入。本地根在远端视图下也一直是有效的
         // （`local_path` 跨帧保留），所以两个根都能拿到才有「同步」可言。
         let sync_local = self.filer.local_path.clone();
         let sync_local_display = if sync_local.as_os_str().is_empty() {
@@ -135,7 +133,7 @@ impl TerminalWindow {
         let mut xfer: Option<super::xfer::XferPick> = None;
         // 右键菜单里点了「目录同步」（画完再落地）。
         let mut sync_now = false;
-        // D6：双击 / 右键「预览」选中的行（排序后整张表的下标，画完再落地）。
+        // 双击 / 右键「预览」选中的行（排序后整张表的下标，画完再落地）。
         let mut open_at: Option<usize> = None;
         let preview_label = self.tr("Preview");
 
@@ -316,7 +314,7 @@ impl TerminalWindow {
             if text_resp.clicked() && line.is_dir {
                 goto = Some(line.target.clone());
             }
-            // D6：双击是**打开**——目录进去、本地文件立刻预览、远端文件先下载。
+            // 双击是**打开**——目录进去、本地文件立刻预览、远端文件先下载。
             // 单击仍然只做「目录进入」（既有行为，视觉基线与老用户的手感都钉着
             // 它，不在这里顺手改成「单击即预览」）。
             if text_resp.double_clicked() {
@@ -347,8 +345,8 @@ impl TerminalWindow {
             let label = if is_local { upload_label } else { download_label };
             let blocker = super::xfer::transfer_blocker(connected, &remote_dir, line.is_dir);
             text_resp.context_menu(|ui| {
-                // D6：预览。双击也能开，但双击不可发现——菜单里必须有一条
-                // 看得见的入口（I5：能力不能只有一个隐藏手势）。目录不给这一项：
+                // 预览。双击也能开，但双击不可发现——菜单里必须有一条
+                // 看得见的入口（能力不能只有一个隐藏手势）。目录不给这一项：
                 // 目录没有内容可预览，画上去就是点了没反应的假入口。
                 if !line.is_dir {
                     if ui.button(preview_label).clicked() {
@@ -357,7 +355,7 @@ impl TerminalWindow {
                     }
                     ui.separator();
                 }
-                // 灰项下面必须跟一句原因（I5）：只灰不说，用户会以为面板坏了。
+                // 灰项下面必须跟一句原因：只灰不说，用户会以为面板坏了。
                 if ui
                     .add_enabled(blocker.is_ok() && !sync_running, egui::Button::new(label))
                     .clicked()
@@ -372,7 +370,7 @@ impl TerminalWindow {
                 }
                 if !is_local {
                     let here = current_path.clone();
-                    // XFER-06：目录同步。它与下面的 `New folder` 同类——作用对象是
+                    // 目录同步。它与下面的 `New folder` 同类——作用对象是
                     // **当前目录**，不是右键点中的那一行。所以只在远端视图出现
                     // （本地视图里没有远端根），文案里点名「目录」。
                     ui.separator();
@@ -529,11 +527,11 @@ impl TerminalWindow {
         if let Some(op) = op {
             self.begin_filer_op(op);
         }
-        // XFER-06：只发起扫描，不改任何文件。汇总在下一帧由 `poll_sync` 写进状态行。
+        // 只发起扫描，不改任何文件。汇总在下一帧由 `poll_sync` 写进状态行。
         if sync_now {
             self.filer.begin_sync();
         }
-        // D6：双击 / 右键「预览」的落地放在最后：`open_filer_entry` 会重算整张
+        // 双击 / 右键「预览」的落地放在最后：`open_filer_entry` 会重算整张
         // 表并按排序后的下标取行，所以它必须在`lines`（本帧的快照）用完、
         // 且 `self.filer` 的路径栏缓冲已经写回之后再跑。
         if let Some(index) = open_at {

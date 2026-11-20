@@ -1,10 +1,10 @@
-//! R14-d：分屏布局树——把「一个 CentralPanel 一个活动标签」变成可二分的窗格。
+//! 分屏布局树——把「一个 CentralPanel 一个活动标签」变成可二分的窗格。
 //!
 //! 这是布局树的**最小可用形态**：内部节点只有左右 / 上下二等分，叶子挂一个
 //! 窗格身份（[`PaneId`]）。兼容终端的 Split View / Split Group / Move Group 是多组
 //! 嵌套的完整布局系统，本批不假装做到那个程度（逐条语义见
 //! `docs/design/04-tabs-split-layout.md`）——但六条命令都真的改变可见窗格，不是空转
-//! 开关（R5）。
+//! 开关。
 //!
 //! **单叶子时走原来的渲染路径**：`draw()` 只有 `layout.is_single()` 为 false
 //! 才进这里的递归切分，所以五张视觉基线一字节都不变。
@@ -33,7 +33,7 @@ use term_core::theme::ACCENT_BLUE;
 /// 重建（`restore.rs` 的 `from_saved` / `restore_tree`）。
 ///
 /// 与 `SessionId` 是**不同的 newtype**，刻意不混用：把 PaneId 误当 SessionId
-/// 传进 `draw_terminal_area_for`、或反过来，都会在编译期被挡下（M6）。
+/// 传进 `draw_terminal_area_for`、或反过来，都会在编译期被挡下。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PaneId(pub u64);
 
@@ -209,7 +209,7 @@ impl Layout {
         }
     }
 
-    // A3：`swap_leaves`（拖拽交换 pane 的纯函数）见同目录 `swap.rs`，单测也随它走。
+    // `swap_leaves`（拖拽交换 pane 的纯函数）见同目录 `swap.rs`，单测也随它走。
 
     /// 沿着 `path`（`0` = 第一个孩子，`1` = 第二个孩子，空 = 当前节点）定位分屏节点
     /// 并改写比例。比例夹在 [`SPLIT_RATIO_MIN`]…[`SPLIT_RATIO_MAX`] 之内，不让任一格消失。
@@ -347,7 +347,7 @@ pub(in crate::ui) fn draw_node(
                 return;
             };
             let rect = ui.available_rect_before_wrap();
-            // A3：标签栏拖拽中的会话悬停在这片窗格时给放置高亮；松手即交换两格内容。
+            // 标签栏拖拽中的会话悬停在这片窗格时给放置高亮；松手即交换两格内容。
             // 只在「确实在拖」且不是同一片（拖回自己）时才处理。
             if let Some(drag) = win.drag_session {
                 if drag != session {
@@ -446,7 +446,7 @@ pub(in crate::ui) fn draw_node(
                     ((pointer.y - rect.min.y) / rect.height() * SPLIT_RATIO_SCALE as f32) as i32
                 };
                 let new_ratio = raw.clamp(SPLIT_RATIO_MIN as i32, SPLIT_RATIO_MAX as i32) as u16;
-                // A2：只有比例确实变了才置待存标志，避免拖动中无变化帧反复写盘；
+                // 只有比例确实变了才置待存标志，避免拖动中无变化帧反复写盘；
                 // sash 松手那帧由最后一次变化帧覆盖，同样会得到即时落盘。
                 let changed = win.layout.ratio_at(path) != Some(new_ratio);
                 win.layout.set_ratio_at(path, new_ratio);
@@ -587,7 +587,7 @@ mod tests {
         assert_eq!(l, Layout::single(PaneId(0)));
     }
 
-    /// A0：关掉一个窗格里显示的会话，应当**剪掉那片叶子**而不是用别的会话冒充它。
+    /// 关掉一个窗格里显示的会话，应当**剪掉那片叶子**而不是用别的会话冒充它。
     /// 关键不变量：整条布局树上**身份唯一**——不能出现重复叶子，否则后续 split /
     /// close 只认第一个匹配，深嵌套后第二个窗格就失灵（这正是修掉的旧 bug）。
     #[test]

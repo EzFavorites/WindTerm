@@ -15,7 +15,7 @@
 //!
 //! 旧写法是「`if sftp_server_binary().is_none() { eprintln!("跳过…"); return; }`」。
 //! 后果和 ZMODEM 那两条一模一样（见 `crates/term-zmodem/tests/interop.rs` 的头注释，
-//! 审查报告把它判成 P0）：libtest 把这条用例算成 **passed**，`cargo test` 全绿，
+//! 审查报告把它判成最严重的一档）：libtest 把这条用例算成 **passed**，`cargo test` 全绿，
 //! 但一个字节都没验。机器上装了 `sftp-server` 时它真跑，没装时它假装通过了——
 //! 「环境缺失」被伪装成「代码正确」，这是最贵的一种假绿。
 //!
@@ -1300,7 +1300,7 @@ fn a_write_request_with_bad_arguments_fails_locally_without_a_round_trip() {
 }
 
 // ---------------------------------------------------------------------------
-// 收尾（P1-4）：显式 `close()` 而不是「丢句柄」
+// 收尾：显式 `close()` 而不是「丢句柄」
 //
 // 泄漏的形状：每次打开文件面板建一条已认证的 SSH 会话，关面板时只把句柄丢掉。
 // 后台线程会关 SFTP 通道，但**从不发 `SSH_MSG_DISCONNECT`**，服务端因此把这条
@@ -1483,7 +1483,7 @@ fn closing_the_handle_hangs_up_the_server_side_session() {
     while !client_gone.load(Ordering::SeqCst) {
         assert!(
             Instant::now() < deadline,
-            "close() 之后 10 秒，服务端那条连接还开着——这就是 P1-4 的泄漏"
+            "close() 之后 10 秒，服务端那条连接还开着——这就是泄漏"
         );
         std::thread::sleep(Duration::from_millis(10));
     }

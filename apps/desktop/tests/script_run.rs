@@ -165,9 +165,9 @@ fn a_usage_mistake_exits_two_without_opening_a_session() {
     );
 }
 
-// ── `--session`：脚本这条腿开**内置 SSH** 会话（ADR-0019 S3） ─────────────
+// ── `--session`：脚本这条腿开**内置 SSH** 会话（ADR-0019） ─────────────
 //
-// 这一组是 S3 的进程级证据。密码那条不需要网络：`open_session` 在碰 socket
+// 这一组是进程级证据。密码那条不需要网络：`open_session` 在碰 socket
 // 之前就会报「需要保险库」。Agent 那条连一个刚放掉的本地端口——必然
 // ECONNREFUSED，于是它证明的是「真的走了内置客户端，而不是被控制面拒掉」。
 

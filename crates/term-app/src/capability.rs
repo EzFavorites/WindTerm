@@ -1,4 +1,4 @@
-//! 能力注册表（I5）：命令「是否已接线」的唯一判定点。
+//! 能力注册表：命令「是否已接线」的唯一判定点。
 //!
 //! 这里不维护第二份清单。判定就是 `Action::parse(id).is_some()`：
 //! - 能解析 → 该命令有对应能力动作，可以执行；
@@ -69,7 +69,7 @@ fn collect(items: &[Item], out: &mut Vec<Capability<'static>>) {
 
 /// 全部真实可点入口及其状态：菜单树 + 影子入口，按菜单顺序。
 ///
-/// W2-b（D2）：标签右键的 10 个动作不画在菜单栏里，但它们是**真实入口**。
+/// 标签右键的 10 个动作不画在菜单栏里，但它们是**真实入口**。
 /// 以前 `inventory()` 只遍历菜单树，于是「已接线 N 条」少算这一块；
 /// 现在把 `tab::SHADOW_ENTRIES` 并进同一张表，判定仍只用 `Action::parse`，
 /// 不维护第二份清单。加一条影子入口而不给它 `parse`，这里立刻置灰。
@@ -99,7 +99,7 @@ mod tests {
     #[test]
     fn menu_has_no_duplicate_command_ids() {
         // 同一个 surface 里一条命令只能出现一次——那是抄菜单时漏改 ID 的典型症状。
-        // 但**两个 surface 各有一个入口**是正常的：W8 起
+        // 但**两个 surface 各有一个入口**是正常的：起
         // `Session › Open Recent › Reopen Closed View` 与标签右键的「Reopen Closed」
         // 共用一个 ID（`Terminal.TabReopenClosed`），因为它们是同一件事
         // （读者都是 `ui/shell/tab_menu.rs::reopen_closed`），只是入口在菜单栏与
@@ -124,36 +124,35 @@ mod tests {
     #[test]
     fn inventory_matches_the_r3_baseline() {
         // 115 个菜单项、93 个已接线、22 个占位。
-        // 沿革：R3 220 项 / 21 接线 → F1 Text.Copy 22 → F1-b Text.Paste 23 →
-        // R5 审计后 -6（空转开关回退，见 `commands_without_a_visible_effect_stay_planned`）→
-        // R10 **删掉 106 条编辑器语义项**（220 → 114）→
-        // R11 **接通 17 条选择命令**（Selection 能力，鼠标/键盘/菜单共用一条纯函数路径）→
-        // R13-f **接通 Window.TogglePaneFiler**（文件面板，右侧远端目录浏览）→
-        // R14-a **接通 7 条日志命令**（Session › Log 整组）→
-        // R14-b **接通 12 条 A 类便宜货**（循环切标签 / 复制会话名·URL / 帮助 / 在线搜索 /
+        // 沿革：220 项 / 21 接线 → Text.Copy 22 → Text.Paste 23 →
+        // 审计后 -6（空转开关回退，见 `commands_without_a_visible_effect_stay_planned`）→
+        // **删掉 106 条编辑器语义项**（220 → 114）→
+        // **接通 17 条选择命令**（Selection 能力，鼠标/键盘/菜单共用一条纯函数路径）→
+        // **接通 Window.TogglePaneFiler**（文件面板，右侧远端目录浏览）→
+        // **接通 7 条日志命令**（Session › Log 整组）→
+        // **接通 12 条 A 类便宜货**（循环切标签 / 复制会话名·URL / 帮助 / 在线搜索 /
         // 字号缩放 / 从选区查找 / 粘贴选区）→
-        // R14-c **接通 2 条命令面板命令 + 3 条 E 类**（Exit / Close / CloseAllViews）→
-        // R14-d **接通 Goto 两条 + 分屏六条**（共 8 条）→
-        // R14-e **接通六个工具面板开关** → R14-f **接通 v0.1 工作台 15 条** →
-        // V1-3 **接通 Window.LockScreen**（F 类占位改真实锁屏，复用 Vault 主密码）→
-        // P4 **接通 Window.ResetLayout**（停靠 / 浮动面板全部收回默认位置）→
+        // **接通 2 条命令面板命令 + 3 条 E 类**（Exit / Close / CloseAllViews）→
+        // **接通 Goto 两条 + 分屏六条**（共 8 条）→
+        // **接通六个工具面板开关** → **接通 v0.1 工作台 15 条** →
+        // **接通 Window.LockScreen**（F 类占位改真实锁屏，复用 Vault 主密码）→
+        // **接通 Window.ResetLayout**（停靠 / 浮动面板全部收回默认位置）→
         // 2026-11-07 **接通 Window.ToggleSidebar**（会话树标题栏的 × 与可逆回程）→
         // 同日 **接通 4 条 margin 命令**（Blank / Number / Symbol / Timestamp；
         // Fold 当时仍占位——折叠要改视口行映射，v0.3。2026-11-14 已接通，
         // 见下面「接线折叠族九条」那一段）。
         // 同日 **接通 2 条整带开关**（Left / Right Docks，菜单栏布局按钮的下拉）。
         // 增删能力时这组数字必须一起改：它是「能力面」的显式确认，
-        // 不是随手可漂的统计——R5 发现「接了线但没效果」能把这数字撑起来，
-        // R10 则发现「菜单项本身」也能撑起来：220 项里一半是编辑器功能。
-        // 2026-11-08 **UI 对齐 B1-b**：按视觉基线补齐菜单结构，新增 13 条
+        // 不是随手可漂的统计——发现「接了线但没效果」能把这数字撑起来，
+        // 则发现「菜单项本身」也能撑起来：220 项里一半是编辑器功能。
+        // 2026-11-08 **UI 对齐**：按视觉基线补齐菜单结构，新增 13 条
         // 未接线项（Selection 9 条平铺项 + Goto 4 条光标移动），一律 Planned
         // （灰显占位）。已接线数不变，只增占位。
-        // 2026-11-08 **UI 对齐 B1-c**：View 菜单补回 `Text.HighlightCaretLine`
+        // 2026-11-08 **UI 对齐**：View 菜单补回 `Text.HighlightCaretLine`
         // （视觉基线里它是全菜单唯一的勾选行）→ 占位 36→37、总数 136→137。
-        // 它属于 R10 删掉的编辑器语义，所以只是占位，勾选框画空框 + 灰显。
-        // 2026-11-09 **W2 接通 13 条**：Selection 的 9 条集合命令（激活下一份 /
+        // 它属于删掉的编辑器语义，所以只是占位，勾选框画空框 + 灰显。
+        // 2026-11-09 **接通 13 条**：Selection 的 9 条集合命令（激活下一份 /
         // 锁 / 丢 / 取消 / 拆分 / 反选 / 流列互换 / 交换端点）+ Goto 的 4 条光标
-        // 移动（Char Left/Right、Line Up/Down，复用 Shift+方向键那一套位移规则）
         // → 已接线 100→113、占位 37→24、总数 137 不变。
         // 2026-11-09 **接通 5 条传输命令**（Transfer Binary：Send/Receive X Modem、
         // Send/Receive Y Modem、Cancel Modem）→ 已接线 113→118、占位 24→19、总数
@@ -164,26 +163,26 @@ mod tests {
         // `sz` / `rz`，走完 `XferHandle::start` 之后逐字节比对落盘内容
         // （`term-zmodem` 内核本身另有一份与真实 lrzsz 的互通测试）。
         // 所以这次是 +7 而不是 +5：X/Y 三条 + Z 两条，剩下的 17 个占位与传输无关。
-        // 2026-11-09 **W2-a 结构对齐**：18 个空子菜单按 P1 逐行补齐，
+        // 2026-11-09 **结构对齐**：18 个空子菜单逐行补齐，
         // 新增 68 条命令**全部是占位**（一条都没假装接线，判据在
         // `menu_submenus.rs::the_new_rows_are_unique_and_none_is_fake_wired`）。
         // 所以这一刀已接线数一位不涨：120 不变、占位 17→85、总数 137→205。
         // 这不是能力倒退：这 68 条原本连「灰项」都算不上，是点开只有
-        // 一条横线的结构性缺口；现在逐条入册，C1 才有一个可清零的清单。
-        // 2026-11-09 **W2-b 影子入口归册**：标签右键 10 个动作按 D2 提升为
+        // 一条横线的结构性缺口；现在逐条入册，才有一个可清零的清单。
+        // 2026-11-09 **影子入口归册**：标签右键 10 个动作提升为
         // 纯层 `Action::Tab`，由 `inventory()` 并进同一张能力表。
         // 它们本来就在工作（只是没被统计），所以已接线 120→130、
         // 占位保持 85、总数 205→215。三个数字一起改，缺一个都会红。
-        // 2026-11-09 **W2-c tmux 入口**：`Window › Panes › Tmux Control Mode`
+        // 2026-11-09 **tmux 入口**：`Window › Panes › Tmux Control Mode`
         // 是第 131 条已接线命令（读者 `ui/panels/tmux.rs::draw_tmux_panel`），
         // 菜单里多一条 → 总数 215→216，占位仍 85。
-        // 2026-11-10 **W8 接通 11 条**：Goto 的 10 条光标移动（词首 / 词尾 / 翻页 /
+        // 2026-11-10 **接通 11 条**：Goto 的 10 条光标移动（词首 / 词尾 / 翻页 /
         // 行首行尾 / 文首文末）映射到 `selection.rs` 既有的 `Op`，与 Shift+方向键
         // 同一条位移；Open Recent 的 `Reopen Closed View` 改挂 `Terminal.TabReopenClosed`
         // ——它与标签右键那条是同一个实现，所以 `parse` 里**没有**第二个 arm。
         // → 已接线 131→142、占位 85→74，总数 216 不变（菜单项一条没增没删，
         // 只是其中 11 条从「置灰」变成「可点」）。
-        // 2026-11-10 **T02 接通 `Text.ToggleHexEdit`**：`Mode ▸ Hex Edit` 从
+        // 2026-11-10 **接通 `Text.ToggleHexEdit`**：`Mode ▸ Hex Edit` 从
         // 「点了没效果」变成真开关（`Effect::ToggleHex` → 投影层翻 `Tab.mode`）
         // → 已接线 142→143、占位 74→73、总数 216 不变。数字只动两位而总数
         // 不动，正是「接线」与「加菜单项」的区别。
@@ -196,11 +195,11 @@ mod tests {
         // ——改**活动标签**的 `Tab.hex`（不落盘）；渲染器（`ui/terminal/bin.rs`）
         // 与表头读数都从那里取。设置页写的是另一层（`Prefs.hex_*`，默认参数）。
         // → 已接线 143→156、占位 73→60，总数 216 不变（菜单项一条没增没删）。
-        // 2026-11-12 **D3 拆开「地址栏」这一个名字**：`Window.GotoAddressBar`
+        // 2026-11-12 **拆开「地址栏」这一个名字**：`Window.GotoAddressBar`
         // 保留（现在真的是地址栏），原来的工作台页改名成 `Window.GotoCommandLine`
         // 并在 Goto 菜单里占一行 → 已接线 156→157、占位仍 60、总数 216→217。
         // 与上面几次不同，这一刀**真的加了一条菜单项**：两件事本来就是两件事，
-        // 挤在一条命令上正是 D3 要解的语义冲突。
+        // 挤在一条命令上正是要解的语义冲突。
         // 2026-11-13 **接线 26 条光标 / 选区命令**：10 条 `Select Column To` +
         // 词段 / 半页 / 段落 / 命令 / 作用域 / 缩进 / 括号对各 2 条 + 括号对另 2 条
         // → 已接线 157→183、占位 60→34、总数 217 不变（菜单项一条没增没删）。
@@ -225,7 +224,7 @@ mod tests {
         // ——`show_settings = true` + `Effect::FocusOneKeysPage`（设置页翻到
         // OneKeys）。凭据管理器（SSH / Account / Sessions 三标签）在设置页落地。
         // → 已接线 195→196、占位 22→21、总数 217 不变。
-        // 2026-11-13 **D5 补完：接线 4 条窗口透明度命令** → 已接线 196→200、
+        // 2026-11-13 **补完：接线 4 条窗口透明度命令** → 已接线 196→200、
         // 占位 21→17、总数 217 不变（菜单项一条没增没删，四条从「置灰」变成
         // 「点了真的改 Prefs + 屏幕」）。三档预设（Opaque / Translucent /
         // Transparent）共用一条带参数的 `Effect::SetWindowOpacity`；第四条
@@ -264,7 +263,7 @@ mod tests {
         // `Window.ToggleTunnels` → 已接线 213→215、占位 6 不变、总数 219→221。
         // 前者打开配置对话框（`ui/dialogs/tunnel_settings.rs`），后者真的停/起
         // 转发（`set_tunnels_enabled`）。
-        // 2026-11-18（C6）：`Text.MarginFoldColumn` 新增一行且真接线 →
+        // 2026-11-18：`Text.MarginFoldColumn` 新增一行且真接线 →
         // 已接线 215→216、总数 221→222，占位 6 不变（没动任何置灰项）。
         // 2026-11-19 只读查看：`Window.SetLocalMode` 从「置灰占位」变成真开关
         // → 已接线 216→217、占位 6→5、总数 222 不变（菜单项一条没增没删）。
@@ -276,7 +275,7 @@ mod tests {
 
     #[test]
     fn every_implemented_command_has_a_reader() {
-        // R5 的教训：命令「能被 parse」不等于「点了有效果」。
+        // 教训：命令「能被 parse」不等于「点了有效果」。
         // 这条测试列出**允许**出现在已接线集合里的命令；新增一条必须同时回答
         // 「谁读它」。目前分三类：
         //   1) 打开对话框 / 触发副作用（NewSession / OpenSettings / About / 断开 / 重连 / 关闭）；
@@ -301,7 +300,7 @@ mod tests {
             "Text.MarginNumber",
             "Text.MarginSymbol",
             "Text.MarginTimestamp",
-            // 2026-11-18（C6）：第五列。读者与上面四列同一处（`margin.rs`），
+            // 2026-11-18：第五列。读者与上面四列同一处（`margin.rs`），
             // 但它读的是**折叠集合**：`is_fold_head(tab.folds, abs)` 决定在折叠头
             // 那一行画 `▸`。与 `Text.MarginFold` 的差别只有一格语义——
             // 那条折块，这条画「哪里折着」。
@@ -328,10 +327,10 @@ mod tests {
             "Window.ToggleFocusMode",
             "Window.ToggleFullScreen",
             "Window.ToggleAlwaysOnTop",
-            // R13-f：读者是 `ui/filer.rs` 的面板分支——开关一开就画，
+            // 读者是 `ui/filer.rs` 的面板分支——开关一开就画，
             // 并在第一次显示时为当前标签开一条 SFTP 会话。
             "Window.TogglePaneFiler",
-            // R14-a：7 条日志命令。读者是 `ui/logger.rs`——开始/停止/暂停/恢复
+            // 7 条日志命令。读者是 `ui/logger.rs`——开始/停止/暂停/恢复
             // 直接落在 `SupervisorHandle` 上，打开文件/目录走系统默认程序。
             "Terminal.StartLogger",
             "Terminal.StopLogger",
@@ -340,7 +339,7 @@ mod tests {
             "Terminal.OpenLogFile",
             "Terminal.OpenLogFolder",
             "Terminal.OpenLogSettings",
-            // R14-b：12 条 A 类便宜货。`ui/mod.rs` 的 `apply_effect` 装配分派，
+            // 12 条 A 类便宜货。`ui/mod.rs` 的 `apply_effect` 装配分派，
             // 落地在 `ui/effects.rs`——切标签改 `active_tab`、复制取 `tab.config`、
             // 帮助 / 在线搜索用 `sysopen`、字号调 `fonts.zoom`；从选区查找把
             // `SetQuery` + `Next/Previous` 派发回 reducer（投影层只给派生值，
@@ -356,25 +355,25 @@ mod tests {
             "Text.ResetZoom",
             "Text.FindNextSelection",
             "Text.FindPreviousSelection",
-            // R14-b：粘贴选区，与 `Text.Paste` 同一读者（`Effect::PasteSelection`）。
+            // 粘贴选区，与 `Text.Paste` 同一读者（`Effect::PasteSelection`）。
             "Terminal.PasteSelectedText",
-            // R14-c：2 条命令面板命令。读者是 `ui/palette.rs`：面板只在
+            // 2 条命令面板命令。读者是 `ui/palette.rs`：面板只在
             // `ViewState.command_palette.visible` 时画，条目取自菜单树，确认后
             // 由顶层 `reduce` 把选中命令递归派发回同一条纯函数路径。
             "Window.ShowPaletteCommand",
             "Window.ShowPaletteAnything",
-            // R14-c：3 条 E 类。读者是 `ui/effects.rs`——Exit 发
+            // 3 条 E 类。读者是 `ui/effects.rs`——Exit 发
             // `ViewportCommand::Close`；Close / CloseAllViews 经 `ui/tabs.rs`
             // 的 `close_tab` / `close_all_tabs`，与标签栏 × 同一条路径。
             "Application.Exit",
             "Window.Close",
             "Window.CloseAllViews",
-            // R14-d：Goto 两条。读者是 `ui/goto.rs` 与 `ui/effects.rs`——
+            // Goto 两条。读者是 `ui/goto.rs` 与 `ui/effects.rs`——
             // 行号经 `Viewport::jump_to_row` 落到活动标签的视口，会话索引
             // 落到 `active_tab`；解析与失败提示都在 `term-app/goto.rs`。
             "Window.GotoLine",
             "Window.GotoSession",
-            // R14-d：分屏六条。读者是 `ui/layout.rs` 的布局树与递归渲染——
+            // 分屏六条。读者是 `ui/layout.rs` 的布局树与递归渲染——
             // SplitView 新建本地 shell、SplitGroup 复制当前会话配置，
             // 方向决定左右 / 上下；CloseActiveGroup 收起当前窗格，
             // MoveGroupToGroup 把当前会话并入下一个窗格。
@@ -384,7 +383,7 @@ mod tests {
             "Window.SplitGroupVertically",
             "Window.CloseActiveGroup",
             "Window.MoveGroupToGroup",
-            // R14-e：六个工具面板。读者是 `ui/panes.rs`——每个开关开着就画一个
+            // 六个工具面板。读者是 `ui/panes.rs`——每个开关开着就画一个
             // 有真实内容的面板（会话树 / 当前屏行摘要 / 预设命令 / 会话列表 /
             // 会话状态 / 在跑的隧道），不是空转 bool。
             "Window.TogglePaneExplorer",
@@ -394,7 +393,7 @@ mod tests {
             "Window.TogglePaneShell",
             "Window.TogglePaneScript",
             "Window.TogglePaneTransfer",
-            // R14-f：v0.1 工作台 15 条。读者是 `ui/center.rs` 的对应页面——
+            // v0.1 工作台 15 条。读者是 `ui/center.rs` 的对应页面——
             // 每条命令打开一个有真实内容/动作的页面，不是同义开关；
             // `Text.HighlightText` 的读者还包括 `ui/terminal.rs` 的常驻高亮渲染。
             "Terminal.OpenSession",
@@ -405,7 +404,7 @@ mod tests {
             "Application.OpenProfileDialog",
             "Window.ToolbarList",
             "Window.ToolbarCustomize",
-            // D3：这两条此前是同一条命令。现在 `GotoAddressBar` 是地址栏
+            // 这两条此前是同一条命令。现在 `GotoAddressBar` 是地址栏
             // （连接目标输入框：解析 / 候选 / 最近使用在 `term_app::address`，
             // 浮层与 `dispatch_action` 在投影层），`GotoCommandLine` 是那个
             // 「把一行当 shell 命令发出去」的工作台页。两条都算已接线：
@@ -418,12 +417,12 @@ mod tests {
             "Window.WindowManager",
             "Window.OpenFocusModeSettings",
             "Text.HighlightText",
-            // V1-3：锁屏。读者是 `ui/lock.rs` 的全屏遮罩 + `term-vault` 的主密码校验。
+            // 锁屏。读者是 `ui/lock.rs` 的全屏遮罩 + `term-vault` 的主密码校验。
             "Window.LockScreen",
-            // P4：重置布局。读者是 `ui/layout/dock_paint.rs::apply_layout_action`
+            // 重置布局。读者是 `ui/layout/dock_paint.rs::apply_layout_action`
             // ——把拖过 / 浮过的面板全部收回默认停靠位（`DockLayout::reset`）。
             "Window.ResetLayout",
-            // R16：三条。读者分别是——同步输入：`ui/terminal.rs` 的按键扇出
+            // 三条。读者分别是——同步输入：`ui/terminal.rs` 的按键扇出
             // 与状态栏 SYNC 徽标；选中命令：`ui/effects.rs` 按内核 OSC 133
             // 的行号取 `B..C` 那段；隧道管理：`ui/tunnel_manager.rs` 的列表 +
             // 增删规则（规则语法仍只有 `tunnels::parse_rule` 一处）。
@@ -451,7 +450,7 @@ mod tests {
             "Text.FindPrevious",
             "Text.Copy",
             "Text.Paste",
-            // R11：17 条选择命令。读者是 `ui/selection` 的落点（`Effect::Select`
+            // 17 条选择命令。读者是 `ui/selection` 的落点（`Effect::Select`
             // → `selection::apply`），鼠标拖动、Shift+方向键、菜单点选共用它。
             "Text.SelectAll",
             "Text.SelectWord",
@@ -503,7 +502,7 @@ mod tests {
             "Text.GotoPairEnd",
             "Text.GotoPreviousPair",
             "Text.GotoNextPair",
-            // W2：9 条集合命令。读者是 `ui/terminal/pane.rs` 的落点——它们改的是
+            // 9 条集合命令。读者是 `ui/terminal/pane.rs` 的落点——它们改的是
             // 标签上的 `Selections`（活动下标 / 成员 / 锁 / 形状 / 端点），
             // 纯函数在 `term-app/selection.rs::apply_cmd`；非活动选区在
             // `ui/terminal/view.rs` 里淡一档画出来，所以「切到哪一份」看得见。
@@ -516,14 +515,14 @@ mod tests {
             "Text.InvertSelection",
             "Text.SwitchStreamAndColumn",
             "Text.ExchangeCaretAndAnchor",
-            // W2：Goto 的 4 条光标移动。读者与 17 条选择命令同一条路径
+            // Goto 的 4 条光标移动。读者与 17 条选择命令同一条路径
             // （`Effect::Select(Cmd::Move)` → `selection::apply`），
             // 语义是「只挪活动选区的 head」，不是另开一套光标。
             "Text.CharLeft",
             "Text.CharRight",
             "Text.LineUp",
             "Text.LineDown",
-            // W8：Goto 另外 10 条。读者与上面四条**同一个**：`parse` 只把它们映射到
+            // Goto 另外 10 条。读者与上面四条**同一个**：`parse` 只把它们映射到
             // 既有的 `Op`（词首 / 词尾 / 翻页 / 行首行尾 / 文首文末），落地仍是
             // `selection::apply` → `Effect::Select(Cmd::Move)`。没有新增位移规则，
             // 也没有第二套光标——`selection.rs::goto_commands_land_where_the_menu_says`
@@ -554,7 +553,7 @@ mod tests {
             // 真 PTY 里起真 `sz`/`rz`，落盘内容与源文件逐字节相同。
             "Terminal.SendZModem",
             "Terminal.ReceiveZModem",
-            // W2-b / D2：标签右键 10 个影子入口。读者是
+            // 标签右键 10 个影子入口。读者是
             // `ui/effects.rs::apply_tab_action`——它把意图落到
             // `close_tab_with_history` / `reopen_closed` / `duplicate_tab` /
             // 分屏 / 复制 / 上色这些**既有**方法上，不是空转开关。
@@ -570,7 +569,7 @@ mod tests {
             "Terminal.TabCopyName",
             "Terminal.TabCopyUrl",
             "Terminal.TabColor",
-            // W2-c：tmux 控制模式浮层。读者是
+            // tmux 控制模式浮层。读者是
             // `ui/panels/tmux.rs::draw_tmux_panel`（`ui/mod.rs` 每帧调用），
             // 开关由 `ShellAction::TogglePaneTmux` 翻 `ViewState.show_tmux`。
             "Window.TogglePaneTmux",
@@ -596,7 +595,7 @@ mod tests {
             "Window.SetLocalMode",
             // 2026-11-15：`Application.NewWindow`。读者是
             // `apps/desktop/src/new_window.rs` 的 `SpawnPlan::launch`——它拉起一个
-            // 完整的**新进程**（窗口态独立、不恢复布局），R5 的「效果」落在窗口
+            // 完整的**新进程**（窗口态独立、不恢复布局），「效果」落在窗口
             // 系统而不是像素上，与 `Effect::Exit` 同一类。归 `FeatureId::Shell`，
             // 走 `Action::Shell(_)` 的兜底归属，不新增 `FeatureId`。
             "Application.NewWindow",
@@ -641,7 +640,7 @@ mod tests {
             "View.WhiteSpacesShowInLineStart",
             "View.WhiteSpacesShowInLineEnd",
             "Text.HighlightCaretLine",
-            // 2026-11-13 D5：窗口透明度四条。读者分两处——
+            // 2026-11-13：窗口透明度四条。读者分两处——
             //   · 三档预设 `SetWindow{Opaque,Translucent,Transparent}`：
             //     `ui/effects.rs` 落地到 `TerminalWindow::set_window_opacity`
             //     （改运行期副本 + `save_prefs` 写回 `Prefs.window_transparent`
@@ -690,7 +689,7 @@ mod tests {
         assert_eq!(actual, expected, "已接线的命令集合变化需显式确认");
     }
 
-    /// W2-b：影子入口不能只「进了表」而没有动作。
+    /// 影子入口不能只「进了表」而没有动作。
     /// 这条与 `tab.rs::shadow_entries_and_parse_are_the_same_ten_commands`
     /// 从两头夹住同一件事：表、parse、能力归属、真实落地四处都齐。
     #[test]
@@ -744,7 +743,7 @@ mod tests {
 
     #[test]
     fn hex_edit_is_wired_and_owned_by_bin() {
-        // T02：`Mode ▸ Hex Edit` 不再是灰的。三件事一起钉：能点、有归属、
+        // `Mode ▸ Hex Edit` 不再是灰的。三件事一起钉：能点、有归属、
         // 归属是 `Bin` 而不是「因为 ID 以 `Text.` 开头就归 Text」——
         // 它是换一种看法，不是编辑器语义。
         let cap = describe("Text.ToggleHexEdit");
@@ -756,7 +755,7 @@ mod tests {
     fn find_is_registered_as_a_feature() {
         assert_eq!(describe("Text.Find").feature, Some(FeatureId::Find));
         assert_eq!(describe("Text.Find").state, CapState::Implemented);
-        // R14-f 后 `Terminal.Save` 已接线；ZMODEM 也在 2026-11-09 接通了，
+        // 后 `Terminal.Save` 已接线；ZMODEM 也在 2026-11-09 接通了，
         // 所以换一条仍明确属于 v0.3+ 的占位命令来钉「置灰这一侧还有东西」。
         // 2026-11-14：原来钉的是 `Text.MarginFold`，它这一刀接通了；改用
         // `Window.GotoSymbol`——仍然解析不了（符号表要先有「符号」这个概念），
@@ -789,7 +788,7 @@ mod tests {
     /// 十条 ID 里五条带 `Margin`，五条里四条是列开关、一条是折叠内容。判据放在
     /// 这里而不是 `margin.rs`，因为「ID 看起来像」正是最容易混的量：`MarginFold`
     /// 若被解析成 `Toggle(MarginPart::Fold)`，`capability` 照样说「已接线」，
-    /// 但点下去屏幕上什么都不会变——R5 的假开关。
+    /// 但点下去屏幕上什么都不会变——假开关。
     #[test]
     fn the_four_margin_columns_still_toggle_a_column() {
         assert_eq!(
@@ -825,9 +824,8 @@ mod tests {
 
     #[test]
     fn both_clipboard_commands_are_wired() {
-        // F1 接复制（写剪贴板）；F1-b 接粘贴（`ViewportCommand::RequestPaste`
-        // 让框架读，不需要平台依赖）；R14-b 接「粘贴选区」（选区文本直接写给 PTY，
-        // 与粘贴共用编码与写出路径）。三者都必须归到剪贴板能力下。
+        // 接复制（写剪贴板）；接粘贴（`ViewportCommand::RequestPaste`
+        // 让框架读，不需要平台依赖）；接「粘贴选区」（选区文本直接写给 PTY，
         assert_eq!(describe("Text.Copy").state, CapState::Implemented);
         assert_eq!(describe("Text.Paste").state, CapState::Implemented);
         assert_eq!(describe("Terminal.PasteSelectedText").state, CapState::Implemented);

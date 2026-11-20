@@ -7,7 +7,7 @@
 //! | 本文件 | `ask()` / `next()` / `options_for()` | 纯函数，能 |
 //! | `ssh_connect.rs` | 后台线程 + 一步状态机 + 三个对话框 | 靠端到端与肉眼 |
 //!
-//! 拆成两个文件是 4j 的规模要求（`ui/**.rs` ≤ 450 行），不是分层——子模块挂在
+//! 拆成两个文件是规模要求（`ui/**.rs` ≤ 450 行），不是分层——子模块挂在
 //! `ssh_connect` 下，`Connector` 直接用 `super::` 取用，路径也没变：
 //! `ssh_connect.rs` 把这里的东西原样再导出一遍，所以 `crate::ui::dialogs::
 //! ::ssh_connect::options_for` 这类既有引用一处都不用改。
@@ -28,7 +28,7 @@ use term_ssh::{AuthMethod as SshAuth, HostKeyPolicy, OutboundProxy, ProxyKind, S
 pub(in crate::ui) const FIRST_POLICY: HostKeyPolicy = HostKeyPolicy::Strict;
 /// 这个会话现在缺什么。
 ///
-/// D2：`Connect` 只携带**首选**凭据。回退链不进这个枚举——它由 `options_for`
+/// `Connect` 只携带**首选**凭据。回退链不进这个枚举——它由 `options_for`
 /// 从 `config.auth_chain` 现场解析后塞进 `SshOptions::auth_chain`，于是所有
 /// 调用方（界面 / headless）都自动获得链，无需改判 `Ask` 的消费点。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -86,7 +86,7 @@ pub(in crate::ui) fn ask(config: &SessionConfig, password: Option<&str>, home: O
             _ => Ask::Password,
         },
         AuthMethod::Agent => Ask::Connect(SshAuth::Agent),
-        // V1-3：表单里填了 `IdentityFile` 就**只认它**。
+        // 表单里填了 `IdentityFile` 就**只认它**。
         //
         // 以前这里一律往下走默认私钥，于是「Public Keys 页填了路径」这件事对内置
         // 客户端完全不存在——能填、能存、不生效，正是这一批要收拾的病。
@@ -117,7 +117,7 @@ pub(in crate::ui) fn ask(config: &SessionConfig, password: Option<&str>, home: O
         AuthMethod::GssapiWithMic => Ask::Unsupported(
             "内置 SSH 客户端不支持 GSSAPI。请关掉「内置 SSH 客户端」改用系统 ssh".to_string(),
         ),
-        // V1-3：交互认证的第一次提问通常就是密码 / OTP；没带答案先问，
+        // 交互认证的第一次提问通常就是密码 / OTP；没带答案先问，
         // 与 Password 路径共用同一个密码对话框（不新增一套弹窗）。
         AuthMethod::KeyboardInteractive => match password {
             Some(p) if !p.is_empty() => Ask::Connect(SshAuth::KeyboardInteractive {
@@ -241,13 +241,13 @@ pub(in crate::ui) fn options_for(
     opts.keepalive = (config.keep_alive > 0)
         .then(|| std::time::Duration::from_secs(config.keep_alive as u64));
     opts.host_key = policy;
-    // V1-3：跳板链与 agent 转发在这里真正落到连接参数上。此前这两项只存在
+    // 跳板链与 agent 转发在这里真正落到连接参数上。此前这两项只存在
     // `SessionConfig` 里，内置 russh 路径从来没读过——填了等于没填。
     opts.proxy_jump = term_ssh::parse_proxy_jump(&config.proxy_jump)?;
     opts.agent_forward = config.agent_forward;
     opts.x11_forward = config.x11_forward;
     opts.x11_screen = config.x11_screen;
-    // W1-b：出网代理真的落到第一段 TCP 上。选了 HTTP/SOCKS5 却没填主机时
+    // 出网代理真的落到第一段 TCP 上。选了 HTTP/SOCKS5 却没填主机时
     // 直接报错，绝不能退化成直连（那就是「能填、能存、不生效」）。
     if let Some(why) = config.validate_proxy() {
         return Err(SshError::Config(why));
@@ -257,10 +257,10 @@ pub(in crate::ui) fn options_for(
         kind: if kind == ProxyType::Http { ProxyKind::Http } else { ProxyKind::Socks5 },
         host: host.to_string(),
         port,
-        // 凭据不落盘（W4 接表单 + 保险库后再由调用方注入）。
+        // 凭据不落盘（接表单 + 保险库后再由调用方注入）。
         auth: None,
     });
-    // D2：界面路径的回退链。`auth` 里带着用户刚在对话框输入的密码，所以这里
+    // 界面路径的回退链。`auth` 里带着用户刚在对话框输入的密码，所以这里
     // 能把完整的「密码→公钥」OneKey 编进链（headless 路径拿不到密码，只能做
     // Agent / PublicKey）。链长 ≤1 时保持单方法旧行为不变。
     let chain = ui_fallback_chain(config, &auth, dirs::home_dir().as_deref());
@@ -270,7 +270,7 @@ pub(in crate::ui) fn options_for(
     Ok(opts)
 }
 
-/// D2：界面路径的回退链解析。
+/// 界面路径的回退链解析。
 ///
 /// 与 headless 的 `session_open::ssh_fallback_chain` 的差别只有一处：这里
 /// **能拿到密码**（用户刚在密码框输入的那一个，藏在 `primary` 里），所以
@@ -514,7 +514,7 @@ mod tests {
     }
 }
 
-// 跳板链 / agent 转发 / 私钥文件这一批单测单独一个文件：R9（verify 4j）要求
+// 跳板链 / agent 转发 / 私钥文件这一批单测单独一个文件：verify 要求
 // `ui/**/*.rs` ≤ 450 行，全塞进上面那个 `mod tests` 会把本文件顶破。
 // 拆法与 `session_nav_tests.rs` 相同——仍是 `super::*` 的私有作用域。
 #[cfg(test)]

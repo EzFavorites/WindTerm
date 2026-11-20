@@ -1,6 +1,6 @@
-//! B1/B2：会话字节通道。
+//! 会话字节通道。
 //!
-//! S2 把 PTY 的所有权从 `Tab` 搬到这里。UI 不再见到 `MasterPty` / `Child` /
+//! 把 PTY 的所有权从 `Tab` 搬到这里。UI 不再见到 `MasterPty` / `Child` /
 //! `mpsc::Receiver`，只通过 `SupervisorHandle` 发命令、收快照。
 //!
 //! v0.1 保留既定协议策略：本地 shell 与系统 `ssh`/`nc` 都跑在同一个

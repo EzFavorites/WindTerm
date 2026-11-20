@@ -85,7 +85,7 @@ pub fn connect(opts: SshOptions) -> Result<SshChannel, SshError> {
         //
         // **有跳或出网代理时不能这么做**：这两种用法的典型场景恰恰是「目标名字
         // 只在内网 / 代理那一侧能解析」，那时本地 DNS 必然失败；目标主机名该由
-        // 最后一跳或代理去解析（W1-b / 官文「DNS 可走代理」）。
+        // 最后一跳或代理去解析（官文「DNS 可走代理」）。
         resolve(&opts)?;
     }
     let description = opts.description();

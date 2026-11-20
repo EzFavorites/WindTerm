@@ -2,7 +2,7 @@
 //!
 //! # 为什么单独成文件
 //!
-//! 4e（I5）的判据是 `grep '"Xxx.Yyy"' apps/desktop/src/ui` **一处都不许有**，
+//! 判据是 `grep '"Xxx.Yyy"' apps/desktop/src/ui` **一处都不许有**，
 //! 它只放过被 `#[cfg(test)] #[path = …] mod …;` 两行声明拉进来的纯测试模块
 //! （`effects.rs` 里内联的 `mod tests` 不在那条白名单里——判据不靠文件名后缀，
 //! 而是回到声明处，否则随便起个 `_tests.rs` 就能藏 ID）。

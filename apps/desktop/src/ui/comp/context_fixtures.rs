@@ -1,6 +1,6 @@
 //! 视觉基线两份右键菜单的组件夹具：`menu_terminal_context` / `menu_view_context`。
 //!
-//! 从 `comp/mod.rs` 拆出来同样是为了 R9 的 500 行上限。夹具与生产路径共用
+//! 从 `comp/mod.rs` 拆出来同样是为了 500 行上限。夹具与生产路径共用
 //! `terminal::context_rows::draw_context_rows`，所以「夹具好看、真菜单不对」
 //! 这条老问题在这里不会发生。
 

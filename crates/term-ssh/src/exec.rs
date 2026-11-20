@@ -1,4 +1,4 @@
-//! 一次性 `exec` 会话的**同步门面**（W6-C3）。
+//! 一次性 `exec` 会话的**同步门面**。
 //!
 //! 与 `channel.rs::connect` 是同一个笼子：对外一个阻塞的 `Result`，异步只在
 //! 本 crate 内一条专用线程里的 `current_thread` runtime 上跑。第一梯队消费者

@@ -29,12 +29,12 @@
 //! - `log`：会话日志写入端（清洗在 `term_core::ansi`，落盘在这里）
 //! - `local_dir`：本地目录枚举（Filer 的本地数据源；IO 不进 `ui/`）
 //! - `host`：宿主环境事实（当前登录名）——`term-core` 不读环境，值从这里注入
-//! - `preview`：文件头部读取 + 内容类型嗅探（D6 预览窗的数据底座）
+//! - `preview`：文件头部读取 + 内容类型嗅探（预览窗的数据底座）
 //!
 //! # 为什么 `local_dir` / `preview` 在这里
 //!
 //! 它是**本地文件系统的 IO**，与伪终端、串口同类：都要持有 OS 句柄，都不能进
-//! `ui/`（B2）。它不是「用户档案」——不读写配置，只列目录。所以归 IO 层，
+//! `ui/`。它不是「用户档案」——不读写配置，只列目录。所以归 IO 层，
 //! 不归 `term-profile`。`preview` 同理：打开文件句柄、读字节、嗅探魔数，全是
 //! IO 与字节判定，投影层只该拿到一段已经变成 `String` 的文本和一个截断标记。
 
@@ -52,7 +52,7 @@ pub mod telnet_channel;
 
 /// 把 `catch_unwind` 的 payload 变成一句人读得懂的话。
 ///
-/// 崩溃防护（`docs/design/10-crash-hardening.md` L1）在两处 `catch_unwind`：
+/// 崩溃防护（`docs/design/10-crash-hardening.md`）在两处 `catch_unwind`：
 /// 会话监管者线程（本 crate）与界面单帧（`apps/desktop`）。两边都要把 payload 翻成
 /// 文本给用户看，所以这份实现放在这里给两边共用——**不要**再抄第二份。
 ///

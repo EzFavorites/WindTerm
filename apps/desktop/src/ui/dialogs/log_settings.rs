@@ -1,11 +1,11 @@
 //! Session Settings ▸ Logging 配置页的**绘制**（2026-11-08 视觉基线
 //! `clipboard-…e44425d2.png`，1280×1140 @2x ⇒ 640×570 逻辑点）。
 //!
-//! 规格 / 状态 / 单测（含视觉基线逐项与取色表）在 `log_settings_spec.rs`：R9 要求
+//! 规格 / 状态 / 单测（含视觉基线逐项与取色表）在 `log_settings_spec.rs` 要求
 //! `ui/**/*.rs` ≤ 450 行，两边合起来 738 行会一条门禁红掉整个阶段。本文件只画，
 //! 绝不定义第二份状态。
 //!
-//! # 诚实接线（R5 / I5）
+//! # 诚实接线
 //! - 协议条 / 左树 / Log types / 三个输入框 / 步进 / `...` / Cancel / Save 都是真状态；
 //! - `Log options` 两行的禁用判据是 `LogType::Nothing`，出厂态与视觉基线一致；
 //! - 其余叶子明确显示「该配置页尚未接线」，不做点了没反应的开关；
@@ -240,7 +240,7 @@ impl TerminalWindow {
     }
 
     /// 右栏 Logging 表单。所有控件都读 / 写 `log_settings`，没有本地临时变量，
-    /// 所以输入法预编辑不会逐帧丢（R4 的受控输入先例）。
+    /// 所以输入法预编辑不会逐帧丢（受控输入先例）。
     fn draw_logging_form(&mut self, ui: &mut egui::Ui, lang: Lang) {
         ui.spacing_mut().item_spacing.y = 4.0;
         ui.label(underlined(ui, i18n::t(lang, "Log types:"), "Log types:"));

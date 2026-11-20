@@ -1,4 +1,4 @@
-//! 触发器双轨（R 规格 M3）：旧 `term_app::trigger::Matcher` 与新
+//! 触发器双轨：旧 `term_app::trigger::Matcher` 与新
 //! `term_core::automation::Evaluator` 并行求值，默认走旧轨产出副作用。
 //!
 //! - **影子轨**（默认）：新内核只 `eval`，产出 `Effect` 仅用于比对 / 计数，
@@ -31,7 +31,7 @@ pub struct ShadowReport {
 }
 
 impl ShadowReport {
-    /// 两轨是否一致（只看规则 id 集合，不看动作负载——M3 只验「命中集合」）。
+    /// 两轨是否一致（只看规则 id 集合，不看动作负载——只验「命中集合」）。
     pub fn agrees(&self) -> bool {
         let mut a = self.v2_rules.clone();
         let mut b = self.v1_rules.clone();

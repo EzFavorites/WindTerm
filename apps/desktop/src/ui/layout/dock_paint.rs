@@ -1,4 +1,4 @@
-//! P4：把 `DockLayout` 画出来——两条带、浮动窗、以及布局动作的落地。
+//! 把 `DockLayout` 画出来——两条带、浮动窗、以及布局动作的落地。
 //!
 //! 这是 `layout/` 里唯一碰 `Ui` / `Context` 的文件。上面两层分别是纯数据
 //! （`dock.rs`）与纯判定（`dock_drag.rs`），所以这里剩下的活只有「按顺序问
@@ -135,7 +135,7 @@ impl TerminalWindow {
             .into_iter()
             .filter(|id| self.panel_visible(*id))
             .collect();
-        // K3：空带**不再早退**。兼容终端保留一个空壳与齿轮入口（截图 2），
+        // 空带**不再早退**。兼容终端保留一个空壳与齿轮入口（截图 2），
         // 用户可以从「全不勾」的菜单里把面板勾回来；整条带消失等于把入口藏了。
         let band_anchor = PanelId::ALL
             .into_iter()
@@ -252,7 +252,7 @@ impl TerminalWindow {
         // `new_child` 不占父 Ui 空间，末尾必须显式推进光标。
         // 五个位置统一由容器画 chrome：色块 + 标题 + 齿轮 + 文字 ×。
         // 这里不再对 Sidebar 开特例——它原先自绘手绘 ×（right-10），
-        // 与其余四块（文字 ×，right-12）不一致，见 K2。
+        // 与其余四块（文字 ×，right-12）不一致，见容器绘制。
         let avail = ui.available_rect_before_wrap();
         let chrome_rect = egui::Rect::from_min_size(
             avail.min,
@@ -322,7 +322,7 @@ impl TerminalWindow {
         }
     }
 
-    /// 布局动作的落地。**唯一**改 `DockLayout` 的地方（I1 的布局版）。
+    /// 布局动作的落地。**唯一**改 `DockLayout` 的地方（布局版）。
     pub(in crate::ui) fn apply_layout_action(&mut self, action: LayoutAction) {
         match action {
             LayoutAction::Dock { panel, zone, index } => self.dock.insert(panel, zone, index),
@@ -450,7 +450,7 @@ mod tests {
     }
 
     /// 浮动带要真的画得出来（窗内 tab + Filter + 正文），而且切 tab 不把带
-    /// 的归属改掉；收回后原位次照旧。这条是 K3-b 的渲染冒烟测试。
+    /// 的归属改掉；收回后原位次照旧。这条是渲染冒烟测试。
     #[test]
     fn a_floating_band_renders_its_tabs_and_redocks_without_losing_its_members() {
         let ctx = egui::Context::default();

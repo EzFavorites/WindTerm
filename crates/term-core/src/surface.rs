@@ -1,4 +1,4 @@
-//! 会话控制面的**描述层**（ADR-0019 §B.1 + ADR-0023）：方法名、一句话说明、
+//! 会话控制面的**描述层**（ADR-0019 + ADR-0023）：方法名、一句话说明、
 //! 参数与结果的结构、以及该方法对**哪个前端**可见，全部是**纯数据**。
 //!
 //! 为什么描述层要在 `term-core`：外部客户端（JSON-RPC 桥、agent、脚本）需要
@@ -361,7 +361,7 @@ pub static METHODS: &[MethodSpec] = &[
         kind: MethodKind::Read,
         exposure: Exposure::Script,
     },
-    // ── 面向人的两条（S-g） ────────────────────────────────────────────
+    // ── 面向人的两条 ────────────────────────────────────────────
     //
     // 它们不是会话操作，因此只在脚本前端出现：远程调用的「用户」在客户端那一侧，
     // 由服务端弹一句话没有接收者（`desk serve` 是无窗口进程，`notify` 只会在
@@ -747,7 +747,7 @@ pub static METHODS: &[MethodSpec] = &[
         kind: MethodKind::Write,
         exposure: Exposure::Script,
     },
-    // ── 应用面（Q2 刀1，ADR-0027 §9） ────────────────────────────
+    // ── 应用面（ADR-0027） ────────────────────────────
     //
     // 两条都只对脚本可见（`Exposure::Script`）：唯一的 RPC 宿主 `desk serve`
     // 没有窗口，`app_state` 在那里只能返回 `Unsupported`——给它一个永远失败的
@@ -882,7 +882,7 @@ mod tests {
 
     #[test]
     fn the_minimum_method_set_is_covered() {
-        // S-c 的最小能力面：少一个都算没有交付那一刀。
+        // 最小能力面：少一个都算没有交付那一刀。
         for expected in [
             "describe",
             "session_list",
@@ -947,7 +947,7 @@ mod tests {
         // 而远程每次调用自带全部参数，没有地方存这个开关、也没法把它回报给
         // 客户端；notify / ask 是第四种：远程的「用户」在客户端那一侧。
         // app_state / app_panel_set 是第五种：唯一能回答它们的宿主是有窗口的
-        // `desk`，而 RPC 侧的宿主 `desk serve` 没有窗口（ADR-0027 §9.5）。
+        // `desk`，而 RPC 侧的宿主 `desk serve` 没有窗口（ADR-0027）。
         for name in [
             "cursor_pos",
             "terminal_size",

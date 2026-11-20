@@ -15,7 +15,7 @@
 
 // ADR-0014 / 0016：core / pty / persist / session 在 term-core 与 term-runtime，
 // 动作层在 term-app，本 crate 只保留投影层（ui / fonts / clipboard / theme 适配）。
-// 触发器双轨（R 规格 M3）：新内核的影子求值与副作用计划。默认走旧轨，
+// 触发器双轨：新内核的影子求值与副作用计划。默认走旧轨，
 // WINDTERM_AUTOMATION_V2 在场才切新轨，可回退。纯组装层，不读墙钟。
 mod automation;
 mod bridge;
@@ -23,7 +23,7 @@ mod cli;
 mod clipboard;
 mod demo;
 mod fonts;
-// 原始字节 tee 的消费端（B2：`Receiver` 这类资源留在 app 层，界面只拿句柄）。
+// 原始字节 tee 的消费端（`Receiver` 这类资源留在 app 层，界面只拿句柄）。
 mod hex_tap;
 mod shot;
 mod script_app;
@@ -37,27 +37,27 @@ mod script_recorder;
 mod script_run;
 mod script_sftp;
 // 控制面开会话的唯一入口（腿 A 脚本 / 腿 B 桥接共用）：内置 SSH 的通道在这层
-// 注入，控制面本身不认识协议（ADR-0019 §B.14）。
+// 注入，控制面本身不认识协议（ADR-0019）。
 mod session_open;
 mod sysopen;
-// Sysmon 读数条的采样宿主：系统命令在 ui/ 之外跑，界面只读纯值（B2）。
+// Sysmon 读数条的采样宿主：系统命令在 ui/ 之外跑，界面只读纯值。
 mod sysmon_sample;
-// XFER-07：把文件交给系统默认程序（预览窗的「用外部程序打开」）与远端预览的
-// 临时落点。放在 `ui/` 之外是 B2 的要求：拉起进程不是画。
+// 把文件交给系统默认程序（预览窗的「用外部程序打开」）与远端预览的
+// 临时落点。放在 `ui/` 之外是要求：拉起进程不是画。
 mod open_with;
 // `Application.NewWindow`：再起一个完整应用实例（新进程）。与 `open_with.rs`
-// 同一层——拉起进程不是画，B2 只扫 `ui/`，所以放这里。
+// 同一层——拉起进程不是画，门禁只扫 `ui/`，所以放这里。
 mod new_window;
 mod theme;
 mod ui;
 // 文件传输驱动（XMODEM / YMODEM 跑在后台线程上，界面只持不透明句柄）。
 mod xfer_run;
-// XFER-06：目录同步的组装层（两端清单 → `term_xfer::sync` 的计划）。放这里而不是
+// 目录同步的组装层（两端清单 → `term_xfer::sync` 的计划）。放这里而不是
 // 任何一个 crate 里：`term-xfer` 零依赖、`term-sftp` 不认识 `SyncOp`，映射只能在
 // 认识两边的这一层做。纯逻辑，不碰 IO 也不画。
 mod sync_job;
 #[cfg(test)]
-mod golden; // S0 金样本回归集，只在 cargo test 下编译
+mod golden; // 金样本回归集，只在 cargo test 下编译
 
 use eframe::egui;
 
@@ -119,7 +119,7 @@ fn main() {
         } else if args[i] == "--demo" && i + 1 < args.len() {
             let value = args[i + 1].clone();
             // 两种夹具共用一个开关：`--demo <整窗夹具>` 与 `--demo comp:<组件>`。
-            // 后者只画一个组件（P2 的「独立渲染验证」），前者画整窗。
+            // 后者只画一个组件（「独立渲染验证」），前者画整窗。
             if let Some(name) = value.strip_prefix("comp:") {
                 comp_demo = Some(name.to_string());
                 // 夹具模式也得从环境变量看得出来：harness 与状态栏时钟都只看
@@ -146,7 +146,7 @@ fn main() {
         }
     }
 
-    // S2 端到端验收入口：不起窗口，跑一条命令并打印最终网格文本。
+    // 端到端验收入口：不起窗口，跑一条命令并打印最终网格文本。
     //
     // 退出码必须透传（ADR-0020：这是原 `term-cli local exec` 的能力之一，
     // 删掉 CLI 不等于这条能力可以消失）。状态走 stderr，stdout 只留屏幕文本，
@@ -176,12 +176,12 @@ fn main() {
         }
     }
 
-    // P9：默认窗口的逻辑尺寸对齐 WindTerm 视觉基线主窗口（1280×760 @2×
+    // 默认窗口的逻辑尺寸对齐 WindTerm 视觉基线主窗口（1280×760 @2×
     // 之前用框架默认的 800×600：底部快捷命令栏 4 组 15 项有一半被裁在
     // 窗口之外——不是画错了，是画布根本不够宽。改尺寸之后整窗与视觉基线同尺，
     // scripts/compare-golden.py 也不再需要为了对齐而缩放。
     let mut options = eframe::NativeOptions::default();
-    // D5：窗口透明度（默认关，现状不变）。透明开关为真时让 OS 窗口背景透明——
+    // 窗口透明度（默认关，现状不变）。透明开关为真时让 OS 窗口背景透明——
     // eframe 0.29 经 `NativeOptions.viewport.transparent` 转 winit `with_transparency`
     // （`glow_integration.rs:926` / `wgpu_integration.rs:194` 已确认跨平台走通）。
     // 这是**建窗时**的那一半；运行期切换由 `ViewportCommand::Transparent(bool)`
@@ -274,7 +274,7 @@ impl WindTermApp {
             shot: shot.map(shot::Shot::new),
         };
         app.ui.init(cc);
-        // D4：把磁盘上的命令行历史接进窗口，按 `prefs` 的容量 / TTL 收敛一遍
+        // 把磁盘上的命令行历史接进窗口，按 `prefs` 的容量 / TTL 收敛一遍
         // （超出上限或过期的条目在读入时就裁掉，不必等下一次写入）。
         //
         // 拍图运行不接：基线要可复现，而 `command_history.json` 每台机器都不同。
@@ -316,16 +316,16 @@ impl WindTermApp {
 
 impl eframe::App for WindTermApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // D5：按钳制后的 `window_opacity` 让 egui 背景 alpha 生效。只在值变化时
+        // 按钳制后的 `window_opacity` 让 egui 背景 alpha 生效。只在值变化时
         // 应用（`applied_window` 模式），`window_transparent=false` 时整段是
         // no-op——所有既有视觉基线一个字节都不变。放在 `draw` 之前：
         // `draw` 里的 `apply_ui_style` 每帧重建 `Visuals`，会把当前 alpha
         // 读回来原样装回去，所以两处顺序不会互相抹掉。
         self.ui.sync_window_opacity(ctx);
         // Sysmon 展开面板的采样线程只起一次：top / vm_stat 在 ui/ 之外跑，
-        // 面板只读纯值快照（B2；夹具模式下也起线程，但面板不展开、不影响基线）。
+        // 面板只读纯值快照（夹具模式下也起线程，但面板不展开、不影响基线）。
         sysmon_sample::ensure_started();
-        // L1（`docs/design/10-crash-hardening.md`）：**界面单帧 panic
+        // （`docs/design/10-crash-hardening.md`）：**界面单帧 panic
         // 不带走进程**。egui 主循环里一次 `unwrap` 炸掉，在此之前是「窗口直接消失，
         // 十条会话连同未保存的输出一起没」。现在它只丢这一帧。
         //
@@ -351,7 +351,7 @@ impl eframe::App for WindTermApp {
         }
     }
 
-    /// D4：退出时把本次运行积累的命令行历史写回磁盘，并收口所有会话。
+    /// 退出时把本次运行积累的命令行历史写回磁盘，并收口所有会话。
     ///
     /// 三条边界：
     /// - 拍图运行不写——那是一次「只该出现一帧」的运行，不该改动用户的 profile；
@@ -364,7 +364,7 @@ impl eframe::App for WindTermApp {
         if self.shot.is_some() {
             return;
         }
-        // P0-1c（D）：关会话放在读 prefs **之前**，理由只有两条，都不是风格问题：
+        // 关会话放在读 prefs **之前**，理由只有两条，都不是风格问题：
         //
         // 1. 下面读 prefs 有一条 `return`——文件在但读不出来时按「不写」处理。
         //    关会话若放在它后面，一次坏掉的 `prefs.json` 就会让本次运行的所有
@@ -378,7 +378,7 @@ impl eframe::App for WindTermApp {
         // 有人换回 `close_all_tabs()`，`Drop for Tab` 也会把那条补出来的会话一起
         // 收口，不会泄漏——两层都堵上了。
         self.ui.close_all_sessions();
-        // L3（O 设计稿 §3e）：给这次运行盖一个「正常退出」的戳。理由与做法都见
+        // 给这次运行盖一个「正常退出」的戳。理由与做法都见
         // `TerminalWindow::mark_clean_exit`——**只改元信息，不重写布局**：上面刚
         // 把所有会话收口，此刻的 `SavedLayout` 是一份空布局。
         self.ui.mark_clean_exit();

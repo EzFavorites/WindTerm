@@ -2,7 +2,7 @@
 //!
 //! 这一层只做「给定可见性 + 可用宽度 → 各组宽度与缩放系数」的数学，不画任何像素、
 //! 不持有状态、不依赖 `TerminalWindow`。从 `quick_command_bar.rs` 拆出来是为了让
-//! `ui/shell/quick_command_bar.rs` 回到 R9（单文件 ≤ 450 行）的约束内，也顺便让
+//! `ui/shell/quick_command_bar.rs` 回到单文件 ≤ 450 行的约束内，也顺便让
 //! `Metrics` / `scale_for` / `plan_overflow` 这些纯函数集中一处、各自可独立验证。
 //!
 //! 数据（`groups(lang)` / `QuickGroup`）仍归 `quick_command_bar.rs` 所有——本文件

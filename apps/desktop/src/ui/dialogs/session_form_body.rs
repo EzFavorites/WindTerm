@@ -1,13 +1,13 @@
 //! New Session 右侧**表单本体**：按 `selected_page` 分派到各内容页。
 //!
-//! R9 / verify 4j 要求单文件代码行（非空非注释）≤ 500——**不是 450**，那个
-//! 旧阈值早在 2026-11-09 就并成一档了（见 `scripts/verify.sh` 里 4j 的注释）。
+//! verify 要求单文件代码行（非空非注释）≤ 500——**不是 450**，那个
+//! 旧阈值早在 2026-11-09 就并成一档了（见 `scripts/verify.sh` 里的注释）。
 //! 本文件现在 467 行。窗口外框 / 协议条 /
 //! 导航树在 `new_session.rs`，纯静态与半静态页在 `session_pages.rs`，
 //! SSH 算法页在 `session_ssh_pages.rs`；本文件只放**要写真实字段**的
 //! 四页（Session / Connection / Authentication / Tunnels）。
 //!
-//! P8 之前这四页里的 Authentication 与 Tunnels 控件是硬塞在 Connection
+//! 之前这四页里的 Authentication 与 Tunnels 控件是硬塞在 Connection
 //! 页底部的两段「extras」——视觉基线 `session-property.png` 里它们各自是
 //! `SSH ▾` 下的独立二级项。现在一棵树一个叶子、一个下标一页，点进去
 //! 不会再几项内容雷同，也没有任何已接线字段被删。
@@ -48,7 +48,7 @@ pub(in crate::ui) const LABEL_W: f32 = 93.0;
 pub(in crate::ui) const ROW_H: f32 = 22.0;
 pub(in crate::ui) const ROW_GAP: f32 = 7.4;
 
-/// Grid 的标签列：右对齐到同一条竖线上（视觉基线 G4 的 `Host:` / `Port:` 就是右对齐）。
+/// Grid 的标签列：右对齐到同一条竖线上（视觉基线的 `Host:` / `Port:` 就是右对齐）。
 /// 用 `with_layout` 包一层而不是直接 `ui.label`——后者会左对齐，网格列宽再准也散。
 pub(in crate::ui) fn form_row(ui: &mut egui::Ui, label: &str) {
     // 固定 LABEL_W 标签列并右对齐：只靠 with_layout 不指定宽度时 Grid 列宽
@@ -526,7 +526,7 @@ impl TerminalWindow {
             return;
         }
         ui.label("Automatic authentication methods:");
-        // D2：多勾选 = OneKey 回退链。勾选里排第一的是首选（`auth`），其余进
+        // 多勾选 = OneKey 回退链。勾选里排第一的是首选（`auth`），其余进
         // `auth_chain`；连接时按这个顺序逐个尝试（例如密码被拒后自动改试公钥）。
         // 至少保留一个——取消最后一个不生效，否则这条会话没有任何认证方式。
         let all = [
@@ -624,7 +624,7 @@ impl TerminalWindow {
                 .wrap(),
             );
         }
-        // R13-b2：凭据保险库的解锁 / 创建。放在这里而不是弹窗，
+        // 凭据保险库的解锁 / 创建。放在这里而不是弹窗，
         // 是因为用完密码就要连，嵌套两个模态窗口最容易「关不掉」。
         self.draw_vault_section(ui);
     }

@@ -1,4 +1,4 @@
-//! `Drop for Tab` 的会话收口回归单测（P0-1c 的 E）。
+//! `Drop for Tab` 的会话收口回归单测。
 //!
 //! 缺陷形态：`Tab` 只持一个 `SessionId`（`Copy`），丢掉它什么都不会发生——
 //! `SessionPool` 的 Entry 不 remove，PTY、监管者线程、tee 槽位、正在写的日志

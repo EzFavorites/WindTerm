@@ -1,4 +1,4 @@
-//! W1-c 的真机闭环：`desk script` 经**控制面通道工厂**连上真 sshd。
+//! 真机闭环：`desk script` 经**控制面通道工厂**连上真 sshd。
 //!
 //! 与 `script_run.rs` 的分工：那边只连「一个刚放掉的本地端口」，证明的是
 //! 「没有被控制面拒掉」；这边连的是容器里发行版自带的 sshd，证明的是
@@ -57,7 +57,7 @@ fn desk_script_opens_a_builtin_ssh_session_through_the_control_plane() {
     config.identity_file = var("WINDTERM_DOCKER_KEY");
     config.connection_timeout = 10;
     // `session_open::ssh_options` 会把端口、私钥、策略都带到连接参数上；
-    // `builtin_ssh` 保持出厂的 true，才会走 W1-c 新接的工厂路径。
+    // `builtin_ssh` 保持出厂的 true，才会走新接的工厂路径。
     assert!(config.builtin_ssh, "这条用例验的就是内置客户端");
     // `persist::save` 会拿走 config，后面断言还要用主机名，先留一份。
     let host = config.host.clone();

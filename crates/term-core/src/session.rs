@@ -85,7 +85,7 @@ impl fmt::Display for AuthMethod {
     }
 }
 
-/// 会话走哪一种代理（W1-b / D8）。
+/// 会话走哪一种代理。
 ///
 /// 四档与 New Session ▸ Proxy 页的四个单选**一一对应**：配置里存的就是
 /// 控件显示的那一个。用字符串 tag 落盘（见 [`ProxyType::from_tag`]）而不是
@@ -177,9 +177,9 @@ pub struct SessionConfig {
     pub group: String,
     /// `ssh.authPassword` / `authPublicKey` / `authAgent` / `authGssapiWithMic`
     ///
-    /// D2：这是**首选**方法。回退链见 `auth_chain`。
+    /// 这是**首选**方法。回退链见 `auth_chain`。
     pub auth: AuthMethod,
-    /// D2 OneKey：认证回退链（有序的**方法种类**，空 = 不回退，旧行为）。
+    /// OneKey：认证回退链（有序的**方法种类**，空 = 不回退，旧行为）。
     ///
     /// 执行顺序是 `auth` 在前、`auth_chain` 依次在后并去重，见
     /// [`SessionConfig::auth_chain_with_primary`]。这里只存种类不含凭据：
@@ -225,14 +225,14 @@ pub struct SessionConfig {
     pub tcp_keep_alive: bool,
     /// `session.tcpLowDelay`
     pub tcp_low_delay: bool,
-    /// R13-d2：走进程内的 russh 客户端，而不是拉系统 `ssh`。
+    /// 走进程内的 russh 客户端，而不是拉系统 `ssh`。
     ///
     /// `#[serde(default)]` 是**迁移策略**，不是偷懒：已经存在的 `user.sessions`
     /// 里没有这个字段，读出来是 `false`（继续用系统 `ssh`）；`SessionConfig::new`
     /// 给新会话写 `true`。于是「老会话不变、新会话默认原生」不需要写任何迁移代码。
     #[serde(default)]
     pub builtin_ssh: bool,
-    /// R13-e2：这条会话在连接时一并要起的 SSH 转发（每人一行，`L` / `R` / `D` 开头）。
+    /// 这条会话在连接时一并要起的 SSH 转发（每人一行，`L` / `R` / `D` 开头）。
     ///
     /// 存的是**用户写的那一行**，不是解析后的结构：会话配置属于 `term-core`，
     /// 而规则语法由 `term-tunnel` 定义——把 `Forward` 搬进语义层等于让核心认识网络。
@@ -244,14 +244,14 @@ pub struct SessionConfig {
     pub forwards: Vec<String>,
     /// `window.scrollbackLimit`
     pub scrollback: usize,
-    /// V1-1：`ssh_config` 的 `ProxyJump` 链（系统 `ssh -J` 直接认这个形状）。
+    /// `ssh_config` 的 `ProxyJump` 链（系统 `ssh -J` 直接认这个形状）。
     /// 空串 = 没有跳板。`#[serde(default)]` 让老会话库读出来是空串。
     #[serde(default)]
     pub proxy_jump: String,
-    /// V1-1：导入器带过来的 `IdentityFile` 路径，只记路径不记内容。
+    /// 导入器带过来的 `IdentityFile` 路径，只记路径不记内容。
     #[serde(default)]
     pub identity_file: String,
-    /// V1-3：允许把本地 ssh-agent 转发到远端（系统 `ssh -A`）。
+    /// 允许把本地 ssh-agent 转发到远端（系统 `ssh -A`）。
     #[serde(default)]
     pub agent_forward: bool,
     /// X11 转发（系统 `ssh -X`）。`#[serde(default)]`：老会话库读出来是 false，
@@ -261,15 +261,15 @@ pub struct SessionConfig {
     /// X11 screen number，随 `x11-req` 下发给服务端（`-X` 的 `:<host>.<screen>`）。
     #[serde(default)]
     pub x11_screen: u32,
-    /// W1-b：出网代理档位（tag 见 [`ProxyType::tag`]）。空串 = 老配置，
+    /// 出网代理档位（tag 见 [`ProxyType::tag`]）。空串 = 老配置，
     /// 由 [`SessionConfig::effective_proxy_type`] 按 `proxy_jump` 推断。
     #[serde(default)]
     pub proxy_type: String,
-    /// W1-b：HTTP / SOCKS5 代理主机。选了这两档却留空 = 「填了不生效」，
+    /// HTTP / SOCKS5 代理主机。选了这两档却留空 = 「填了不生效」，
     /// 表单保存与 `SshOptions::validate` 都会挡下来。
     #[serde(default)]
     pub proxy_host: String,
-    /// W1-b：代理端口。`0` 会被判为非法而不是悄悄取 1080。
+    /// 代理端口。`0` 会被判为非法而不是悄悄取 1080。
     #[serde(default)]
     pub proxy_port: u16,
     /// `window.columns`：New Session `Window ▸ Selection` 页设置的初始终端网格列数。
@@ -344,12 +344,12 @@ impl SessionConfig {
             //
             // 以前 Shell 走 `whoami()` 读 `$USER`，于是同一份代码在两台机器上
             // 产出的默认会话不同——`term-core` 的契约是「给定输入与状态，
-            // 产物是什么」，读环境变量等于把宿主状态塞进纯函数（R0）。
+            // 产物是什么」，读环境变量等于把宿主状态塞进纯函数。
             // 想要「新本地 Shell 带上当前登录名」的调用方读环境后走
             // [`SessionConfig::new_local_shell`]，值从参数进来。
             username: String::new(),
             auth: AuthMethod::Password,
-            // D2：默认没有回退链（旧行为：只用上面这一个 `auth`）。
+            // 默认没有回退链（旧行为：只用上面这一个 `auth`）。
             auth_chain: Vec::new(),
             group: crate::config::DEFAULT_GROUP.to_string(),
             term: crate::config::DEFAULT_TERM.to_string(),
@@ -369,7 +369,7 @@ impl SessionConfig {
             connection_timeout: crate::config::CONNECTION_TIMEOUT,
             tcp_keep_alive: crate::config::TCP_KEEP_ALIVE,
             tcp_low_delay: crate::config::TCP_LOW_DELAY,
-            // 新会话默认走原生 SSH（R13-d2）。老会话读出来是 false，保持系统 `ssh`。
+            // 新会话默认走原生 SSH。老会话读出来是 false，保持系统 `ssh`。
             builtin_ssh: matches!(protocol, Protocol::Ssh),
             // 不给任何默认转发规则：一条隧道要用户明确写出来才存在。
             forwards: Vec::new(),
@@ -401,7 +401,7 @@ impl SessionConfig {
     ///
     /// `term-core` 不读 `$USER`：读环境的是允许有副作用的层（`term_io::host::login`），
     /// 这一层只收值。同样两次 `new_local_shell("alice")` 必须逐字段相等——
-    /// 这是 R0 在会话模型上的判据，也是把「同一输入不同产物」这条缺陷关掉的地方。
+    /// 这是在会话模型上的判据，也是把「同一输入不同产物」这条缺陷关掉的地方。
     ///
     /// 只对 `Shell` 有意义：其余协议的 `username` 是用户填的远端账号，
     /// 不能拿本机登录名去冒充，所以那条路仍走 [`SessionConfig::new`]。
@@ -411,7 +411,7 @@ impl SessionConfig {
         config
     }
 
-    /// D2：实际要尝试的**有序**认证方法链 = 首选 `auth` 在前 + 回退链依次在后，
+    /// 实际要尝试的**有序**认证方法链 = 首选 `auth` 在前 + 回退链依次在后，
     /// 去重（同一种方法只出现一次）。
     ///
     /// 回退链为空时返回单元素 `[auth]`，于是「没有回退」与「只有一个方法」在
@@ -495,7 +495,7 @@ impl SessionConfig {
             ("Protocol", self.protocol.label().to_string()),
             ("Group", self.group.clone()),
             ("Label", self.name.clone()),
-            // W1-b：这三行以前恒为空 / 只认 Jump，会话树 tooltip 于是
+            // 这三行以前恒为空 / 只认 Jump，会话树 tooltip 于是
             // 永远说「None」——用户填了代理也看不出来。现在与实际生效的
             // 档位同源（effective_proxy_type 是唯一判定入口）。
             ("Proxy Type", self.effective_proxy_type().label().to_string()),
@@ -526,11 +526,11 @@ impl SessionConfig {
                 if self.keep_alive > 0 {
                     argv.extend(["-o".to_string(), format!("ServerAliveInterval={}", self.keep_alive)]);
                 }
-                // V1-1 / V1-3：ProxyJump 单跳链、IdentityFile、agent 转发。
-                // W1-b：出网代理走官文给出的 `nc` 等价式
+                // ProxyJump 单跳链、IdentityFile、agent 转发。
+                // 出网代理走官文给出的 `nc` 等价式
                 // （官方 `proxy-http-socks5` 文档：`nc -X 5 -x 127.0.0.1:7777 %h %p`，
                 // HTTP 用 `-X connect`）。**这不是**「ProxyCommand 用户字段」：
-                // 那一栏兼容终端本身未实现（D8），仍保持灰显；这里只是让「用系统
+                // 那一栏兼容终端本身未实现，仍保持灰显；这里只是让「用系统
                 // ssh」这条路径也真的走代理，与内置客户端行为一致。
                 // 四档互斥：单选说是 Http 就不能还偷偷带上 `-J`。
                 match self.effective_proxy_type() {
@@ -579,7 +579,7 @@ impl SessionConfig {
                 // （`Bad configuration option: tcp_nodelay`），整条会话就起不来。
                 // 而 ssh 客户端本来就会给自己的 socket 设 NODELAY，这个开关在
                 // 「用系统 ssh」这条路径上没有可表达的位置。字段保留给内置客户端；
-                // 界面上勾不勾都不影响系统 ssh 的行为——见 R17 阶段记录。
+                // 界面上勾不勾都不影响系统 ssh 的行为——见阶段记录。
                 argv.push(self.host.trim().to_string());
                 Ok(SpawnPlan::External(argv))
             }
@@ -606,7 +606,7 @@ impl SessionConfig {
             Protocol::Serial => {
                 // 设备路径就是 `host` 字段（表单上那一格问的是「设备/主机」）。
                 // 曾经这里写死 `/dev/tty.usbserial`：界面填什么都连到同一个口，
-                // 属于 R5 意义上的假入口——点了有效果，但效果与填写内容无关。
+                // 属于意义上的假入口——点了有效果，但效果与填写内容无关。
                 if self.host.trim().is_empty() {
                     return Err(ConfigError::MissingHost(self.protocol));
                 }
@@ -689,7 +689,7 @@ impl Default for SessionManager {
     }
 }
 
-// ── 打开会话的统一请求（ADR-0027 D4） ──────────────────────────────────
+// ── 打开会话的统一请求（ADR-0027） ──────────────────────────────────
 //
 // 在 ADR-0025 决策 6 里，脚本与 RPC 各有两条打开路径：引用会话库里的名字，
 // 或直接交一份完整配置。此前三个调用方（桥接 `/ 脚本 / CLI`）各自写一遍
@@ -751,7 +751,7 @@ impl OpenRequest {
     }
 }
 
-/// 会话库的**只读 + 保存**面（ADR-0027 S1）。
+/// 会话库的**只读 + 保存**面（ADR-0027）。
 ///
 /// 为什么是 trait 而不是直接读 `term_profiles`：脚本能看见哪些会话属于应用策略
 /// （界面读窗口里的库，CLI 读磁盘上那份），`term-script` 不该认识 SQLite。
@@ -802,7 +802,7 @@ mod tests {
 
     #[test]
     fn a_new_session_carries_no_host_identity() {
-        // P1-5：`new()` 曾经给 Shell 读 `$USER`，于是同一份代码在两台机器上
+        // `new()` 曾经给 Shell 读 `$USER`，于是同一份代码在两台机器上
         // 产出的默认会话不同。现在用户名一律空串——与跑测机器的环境无关。
         for p in Protocol::ALL {
             assert_eq!(SessionConfig::new(p).username, "", "{p:?}");
@@ -979,7 +979,7 @@ mod tests {
 
     #[test]
     fn auth_chain_defaults_to_empty_and_prepends_the_primary() {
-        // D2：默认没有回退链 → 链就是 [auth] 一项。
+        // 默认没有回退链 → 链就是 [auth] 一项。
         let mut s = SessionConfig::new(Protocol::Ssh);
         assert!(s.auth_chain.is_empty());
         assert_eq!(s.auth_chain_with_primary(), vec![AuthMethod::Password]);

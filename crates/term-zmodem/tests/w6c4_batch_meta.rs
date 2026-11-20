@@ -1,4 +1,4 @@
-//! W6-C4 的内核侧闭环证据：多文件批处理 + `ZCRCG` 连发 + 非零 mtime。
+//! 内核侧闭环证据：多文件批处理 + `ZCRCG` 连发 + 非零 mtime。
 //!
 //! 全在内存字节流里跑，**不依赖 `lrzsz` / PTY**。产品侧（`apps/desktop`）的真端到端
 //! 用例在 `apps/desktop/tests/xfer_zmodem.rs`；这里负责钉住「即便没有外部程序，

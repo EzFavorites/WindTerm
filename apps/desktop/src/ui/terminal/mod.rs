@@ -1,6 +1,6 @@
 //! 终端窗格：绘制 / 逐行缓存 / margin 边栏 / 键盘选择 / 右键菜单 / 标签构造。
 //!
-//! B3 / F1 的落点：这里只收 `&ScreenImage` 与只读快照，一切写入经 `Action`。
+//! 落点：这里只收 `&ScreenImage` 与只读快照，一切写入经 `Action`。
 
 mod context_menu;
 /// 视觉基线两份右键菜单的逐字清单 + 与菜单栏同源的四栏手绘。
@@ -12,7 +12,7 @@ mod margin;
 /// `View ▸ Toggle Line Endings / Column Marker / Indent Guides / Wrap Symbols`、
 /// `View ▸ White Spaces` 五档、`Text ▸ Highlight Caret Line` 一共十一个开关的
 /// 「这一行该画哪些标记、画在第几列」全在这里回答；把它们变成像素的是
-/// `marks_paint.rs`。拆成两个文件是 4j 的老规矩：`view.rs` 已贴着单文件上限，
+/// `marks_paint.rs`。拆成两个文件是单文件上限的老规矩：`view.rs` 已贴着单文件上限，
 /// 而这些判据要能被没有窗口的单测钉死。
 mod marks;
 /// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
@@ -23,7 +23,7 @@ mod marks_paint;
 /// 与 `marks_paint::paint` 同一个形状，理由也同一条：`LineCache` 只缓存
 /// `spans` / `bg_runs`，所有标记都追加在 span 循环之后，天然是「另一个文件的事」。
 /// 单独一个文件还有第二个理由：九种颜色的常量 + 六个区的纯几何 + 七条单测，
-/// `view.rs` 只剩 24 行余量（4j 上限 500），一行都放不下。本文件 404 代码行。
+/// `view.rs` 只剩 24 行余量（单文件上限 500），一行都放不下。本文件 404 代码行。
 ///
 /// 开关本身是每条会话的 `Tab::debug`，唯一的调用点是
 /// `pane_overlays.rs` 的第三与第四段之间（`if !bin && tab.debug`）。
@@ -34,7 +34,7 @@ mod pane;
 /// 正文**二选一**：字符网格（`view::paint_rows`）还是 hex 转储（`bin::paint`），
 /// 含 `Text ▸ Highlight Caret Line` 那个视口行号的算法。
 ///
-/// ws-wrap：从 `pane.rs` 拆出——搬之前那边 492 代码行（4j 上限 500），
+/// 从 `pane.rs` 拆出——搬之前那边 492 代码行（单文件上限 500），
 /// 而段驱动渲染 / reflow / 坐标系联动三批工作都要往 `draw_tab` 里加代码。
 /// 本文件 65 代码行。它是自由函数：`draw_tab` 握着借自 `self.tabs` 的 `&mut Tab`，
 /// 写成方法会同时要 `&mut self`（E0499），所以只收拆分好的借用，字形缓存那一句
@@ -43,10 +43,10 @@ mod pane_body;
 /// 正文之后的**全部叠层**：查找高亮 / 常驻词高亮 / 空白与符号标记 / 调试覆盖层 /
 /// 回看药丸 / 光标。
 ///
-/// ws-wrap：与 `pane_body` 同一因同一刀——从 492 代码行的 `pane.rs` 里切出去，
+/// 与 `pane_body` 同一因同一刀——从 492 代码行的 `pane.rs` 里切出去，
 /// 拆完 `pane.rs` 降到 378 代码行。本文件 135 代码行。同样是自由函数（理由见上，
 /// E0499），而且它只往 `painter` 上追加图形、一个状态都不写——这正是它能被整块
-/// 搬走的原因。六段的**顺序决定像素**：ws-wrap 搬过来的五段一段都没换位，
+/// 搬走的原因。六段的**顺序决定像素**：搬过来的五段一段都没换位，
 /// 调试覆盖层（`Mode ▸ Debug Mode`）是后来**插进**第三与第四段之间的第六段——
 /// 它的几何全在 `debug_paint.rs`，本文件只多一个调用点。
 mod pane_overlays;
@@ -59,22 +59,22 @@ mod pane_overlays;
 pub(in crate::ui) mod tab_slot;
 /// 鼠标 → 选区的全部手势与它要的窗格几何（`pointer_selection` / `GridGeom`）。
 ///
-/// R9：2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
-/// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（4j 上限 500）。
+/// 2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
+/// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
 /// 搬走的这一块本来就是自由函数，行为一行未改。
 mod pane_pointer;
-/// P3 · 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
+/// 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
 ///
-/// 浮动叠加（D1）：不改 `avail_w` / `cols`，贴底视觉基线零 diff。纯几何在
+/// 浮动叠加：不改 `avail_w` / `cols`，贴底视觉基线零 diff。纯几何在
 /// `crates/term-app/src/scrollbar.rs`，这里只做像素投影与交互。
 mod pane_scrollbar;
-/// P4 · 悬停预览窗：轨道 hover → 第二事实窗口（独立槽）→ 半透明历史快照框。
+/// 悬停预览窗：轨道 hover → 第二事实窗口（独立槽）→ 半透明历史快照框。
 ///
 /// 第 7 段 chrome（在 `pane_scrollbar` 之后）；只读 `tab.preview_screen`，不动
-/// `tab.view` / `tab.viewport` / `tab.last_request`（§5.6 不变式）。
+/// `tab.view` / `tab.viewport` / `tab.last_request`（不变式）。
 mod pane_preview;
-/// 粘贴的落地路径（`commit_paste`）与它的判据。R9 从 `pane.rs` 拆出来：
-/// ws-b1 把这 129 行塞进那边，把 `pane.rs` 顶到 518（上限 500）。
+/// 粘贴的落地路径（`commit_paste`）与它的判据。从 `pane.rs` 拆出来：
+/// 把这 129 行塞进那边，把 `pane.rs` 顶到 518（上限 500）。
 mod paste;
 mod script;
 /// 「运行脚本」窗口的两份清单：脚本库（读盘）与最近用过（读 prefs）。
@@ -105,7 +105,7 @@ pub(in crate::ui) mod bin_spec;
 /// 传输：进度状态行 + 起点接线（弹层确认 → `XferHandle::start` → 画一行）。
 /// `pub(in crate::ui)` 让 `ui/mod.rs` 的 `draw()` 直接调 `terminal::xfer`。
 pub(in crate::ui) mod xfer;
-// R9：`xfer.rs` 只画与接线，`xfer_spec.rs` 持有状态 / 措辞 / 单测。
+// `xfer.rs` 只画与接线，`xfer_spec.rs` 持有状态 / 措辞 / 单测。
 mod xfer_spec;
 
 pub(in crate::ui) use pane::draw_caret;
@@ -136,20 +136,20 @@ mod zebra_scope_tests;
 /// **菜单路径**的判据：十条栅格可视化命令 `dispatch(id)` 之后，活动标签的
 /// `Tab.marks` 真的变了、且菜单的勾（`marks_knob_on`）说的是同一句话。
 ///
-/// 单独成文件的两个理由：`marks_tests.rs` 已到 476 代码行（4j 上限 500），
+/// 单独成文件的两个理由：`marks_tests.rs` 已到 476 代码行（单文件上限 500），
 /// 而这条用例要的是真窗口夹具（`lifecycle_test_support`），与那边零 `egui`
 /// 的纯函数夹具不是一类东西。
 #[cfg(test)]
 #[path = "marks_menu_tests.rs"]
 mod marks_menu_tests;
 
-/// B2：控制行经 tap 字节流自动 feed 的回归判据。单独成文件是因为
-/// `bin_spec.rs` 已顶到 R9 上限附近，新测试再塞进去会踩 500 行红线。
+/// 控制行经 tap 字节流自动 feed 的回归判据。单独成文件是因为
+/// `bin_spec.rs` 已顶到上限附近，新测试再塞进去会踩 500 行红线。
 #[cfg(test)]
 #[path = "tmux_feed_tests.rs"]
 mod tmux_feed_tests;
 
-/// ADR-0025 阶段 5 的对账判据：被外部（脚本 / 桥接的 `session_close`）关掉的会话，
+/// ADR-0025 的对账判据：被外部（脚本 / 桥接的 `session_close`）关掉的会话，
 /// 标签必须自己认出来并转成断开形态。
 ///
 /// 单独成文件：`session.rs` 是事件泵本体，判据要的是「真会话 + 关掉再看」的夹具

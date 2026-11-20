@@ -1,11 +1,11 @@
-//! R16：隧道管理面板（`Terminal.ManageTunnels` 的读者）。
+//! 隧道管理面板（`Terminal.ManageTunnels` 的读者）。
 //!
 //! 内容全部来自 `ui/tunnels.rs` 已有的「在跑的隧道」：面板只是把它们列出来，
 //! 再给两件真事——停一条、改规则后重起。没有第二条隧道实现，也没有第二份
 //! 规则语法：`parse_rules` 仍是唯一入口。
 //!
 //! 为什么不放在 `ui/tunnels.rs` 里：那个文件管「起 / 轮询 / 收摊」的生命周期，
-//! 这个文件管「给人看的界面」，两者规模都够一个文件了（R9）。
+//! 这个文件管「给人看的界面」，两者规模都够一个文件了。
 
 use crate::ui::harness::AnchoredWindow;
 use crate::ui::*;

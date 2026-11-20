@@ -25,7 +25,7 @@
 //!   ├── term-io       会话 IO 与线程：pty / serial / channel / supervisor / log / local_dir
 //!   ├── term-profile  用户档案：persist / layout_state / prefs / quickbar / search
 //!   ├── term-paths    路径规则：profile_dir（只依赖 dirs）
-//!   └── term-import   外部配置导入的纯解析（C4 之后）
+//!   └── term-import   外部配置导入的纯解析
 //! ```
 //!
 //! 反向边一条都没有，四条都由 `scripts/verify.sh` 第 4d 项的依赖黑名单守着。
@@ -35,7 +35,7 @@
 //!
 //! # 已经全搬完了
 //!
-//! C4 把最后两个模块（外部会话导入 / 主题文件读取）搬到了 `term-import`，
+//! 把最后两个模块（外部会话导入 / 主题文件读取）搬到了 `term-import`，
 //! 那是用户要求的「独立配置导入模块」。本 crate 现在**没有任何实现**，
 //! 全部内容都是 `pub use`。
 //!
@@ -44,7 +44,7 @@
 //! 见上文第 2 条）。
 //! 等那一层重新校对采集完，可以把它删掉，把 import 改成新 crate 名。
 
-// ── 配置导入层：实现已搬到 `term-import`（2026-11-12 收敛 C4）───────────────
+// ── 配置导入层：实现已搬到 `term-import`（2026-11-12 收敛）───────────────
 //
 // 模块改名了（`import_sessions` → `sessions`，`theme_load` → `theme`），
 // 这里用旧名再导出，旧路径照旧解析。
@@ -55,10 +55,10 @@ pub mod theme_load {
     pub use term_import::theme::*;
 }
 
-// ── 会话 IO 与线程层：实现已搬到 `term-io`（2026-11-12 收敛 C3）─────────────
+// ── 会话 IO 与线程层：实现已搬到 `term-io`（2026-11-12 收敛）─────────────
 //
 // 保留同名模块做再导出，调用路径不变。trait `TermChannel` 与 `SpawnError`
-// 的类型本体更下一层，在 `term_core::channel`（C1）——传输层不该为了它们
+// 的类型本体更下一层，在 `term_core::channel`——传输层不该为了它们
 // 依赖带 PTY 与线程的 crate。
 pub mod channel {
     pub use term_io::channel::*;
@@ -85,7 +85,7 @@ pub mod supervisor {
     pub use term_io::supervisor::*;
 }
 
-// ── 用户档案层：实现已搬到 `term-profile`（2026-11-12 收敛 C2）──────────────
+// ── 用户档案层：实现已搬到 `term-profile`（2026-11-12 收敛）──────────────
 pub mod layout_state {
     pub use term_profile::layout_state::*;
 }

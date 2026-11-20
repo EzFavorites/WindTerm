@@ -21,50 +21,50 @@ pub enum Effect {
     OpenNewSession,
     OpenSettings,
     ShowAbout,
-    /// F1：把当前选区文本写入系统剪贴板（文本由投影从事实窗口提取）。
+    /// 把当前选区文本写入系统剪贴板（文本由投影从事实窗口提取）。
     CopySelection,
-    /// R11：在选区头部执行一次移动/选中。
+    /// 在选区头部执行一次移动/选中。
     ///
     /// 这里只传意图，不传结果：位置取决于「此刻画在屏上的事实窗口」，
     /// 而 reducer 拿到的 `window` 只用于查找。投影层拿 `Op` 调
     /// `selection::apply(op, &tab.view, tab.selection)` 得到新选区——
     /// 菜单点「下一行」与 Shift+↓ 走的是同一条纯函数。
     ///
-    /// W2：`Move` 与 `Set`（集合命令）共用这一个变体——投影层的待办只有一个
+    /// `Move` 与 `Set`（集合命令）共用这一个变体——投影层的待办只有一个
     /// 槽位，两种命令不会互相顶掉，也不会各走一条会漂的路径。
     Select(Cmd),
-    /// F1-b：读系统剪贴板并粘贴进终端。
+    /// 读系统剪贴板并粘贴进终端。
     ///
     /// reducer 只声明意图，**不携带内容**：本层是纯函数，拿不到也没必要拿剪贴板；
     /// 文本由投影向框架索取（`ViewportCommand::RequestPaste`），再交给
     /// `term_core::vt::paste_bytes_for` 按终端模式编码。
     Paste,
-    /// R14-a：会话日志的开始 / 停止 / 暂停 / 恢复 / 打开文件 / 打开目录。
+    /// 会话日志的开始 / 停止 / 暂停 / 恢复 / 打开文件 / 打开目录。
     ///
     /// 不携带路径：文件名的最终形态（会话名 + 时间戳 + 重名序号）由写入端
     /// 决定——只有它知道同一秒里是不是已经有同名文件。界面从
     /// `supervisor::LogStatus` 拿回报的路径。
     Log(LogAction),
-    /// R14-b：循环切到相对位置的标签（+1 / −1，到头回绕）。
+    /// 循环切到相对位置的标签（+1 / −1，到头回绕）。
     ///
     /// 真正改 `active_tab` 的是投影层——它才有标签列表；这里只带位移意图。
     ActivateTab(i32),
-    /// R14-b：把活动会话的名字写入系统剪贴板。
+    /// 把活动会话的名字写入系统剪贴板。
     CopySessionName,
-    /// R14-b：把活动会话的连接串（`ssh://user@host:port`）写入系统剪贴板。
+    /// 把活动会话的连接串（`ssh://user@host:port`）写入系统剪贴板。
     CopySessionUrl,
-    /// R14-b：打开帮助（静态 URL，由投影层用系统默认程序拉起）。
+    /// 打开帮助（静态 URL，由投影层用系统默认程序拉起）。
     OpenHelp,
-    /// R14-b：用当前选区文本发起一次网络搜索。查询词由投影层取并 URL 编码。
+    /// 用当前选区文本发起一次网络搜索。查询词由投影层取并 URL 编码。
     SearchOnline,
-    /// R14-b：终端字号缩放。+1 放大 / −1 缩小 / 0 复位；目标字号由投影层算。
+    /// 终端字号缩放。+1 放大 / −1 缩小 / 0 复位；目标字号由投影层算。
     Zoom(i8),
-    /// R14-b：以当前选区文本为查询词，跳到下一个（+1）/ 上一个（−1）匹配。
+    /// 以当前选区文本为查询词，跳到下一个（+1）/ 上一个（−1）匹配。
     ///
     /// 查询词来自每帧推导的 `selection_text`，reducer 没有选区，所以这一条
     /// 必须落到投影层——`Action::Find(SelectionNext/Prev)` 在此被翻译成它。
     FindSelection(i8),
-    /// R14-b：把当前选区文本写给 PTY（等同于「复制选区 + 粘贴」一步完成）。
+    /// 把当前选区文本写给 PTY（等同于「复制选区 + 粘贴」一步完成）。
     PasteSelection,
     /// 再起一个**独立应用实例**（新进程）。
     ///
@@ -73,40 +73,40 @@ pub enum Effect {
     /// 新窗口不恢复布局（`ui/construct.rs::init` 按角色变量跳过），所以出厂就是
     /// 「一个干净的本地 shell 标签」；`prefs.json` / SQLite 会话库仍与应用级共享。
     NewWindow,
-    /// R14-c：请求窗口系统关闭本窗口（应用级退出）。
+    /// 请求窗口系统关闭本窗口（应用级退出）。
     Exit,
-    /// R14-c：关掉当前标签页（标签列表由投影层持有）。
+    /// 关掉当前标签页（标签列表由投影层持有）。
     CloseActiveTab,
-    /// R14-c：关掉全部标签页（关空后按既有约定补一个本地 shell）。
+    /// 关掉全部标签页（关空后按既有约定补一个本地 shell）。
     CloseAllTabs,
-    /// R14-d：把某个回看绝对行号放到视口顶部（数值由 reducer 从状态里解析）。
+    /// 把某个回看绝对行号放到视口顶部（数值由 reducer 从状态里解析）。
     GotoLine(i64),
-    /// R14-d：切到第几个已打开的标签（索引由投影层落地时钳制）。
+    /// 切到第几个已打开的标签（索引由投影层落地时钳制）。
     GotoSession(usize),
-    /// R14-d：左右（true）/ 上下（false）二分当前窗格，新窗格开一条本地 shell。
+    /// 左右（true）/ 上下（false）二分当前窗格，新窗格开一条本地 shell。
     SplitView(bool),
-    /// R14-d：同上，但新窗格复制当前会话配置（同协议 / 主机，名字加序号）。
+    /// 同上，但新窗格复制当前会话配置（同协议 / 主机，名字加序号）。
     SplitGroup(bool),
-    /// R14-d：关掉当前窗格，兄弟顶上来。
+    /// 关掉当前窗格，兄弟顶上来。
     CloseActiveGroup,
-    /// R14-d：把当前会话并入下一个窗格，当前窗格收起。
+    /// 把当前会话并入下一个窗格，当前窗格收起。
     MoveGroupToGroup,
-    /// V1-1：导入外部会话（字符串是来源名，由投影层读文件后交给纯解析器）。
+    /// 导入外部会话（字符串是来源名，由投影层读文件后交给纯解析器）。
     ImportSessions(&'static str),
-    /// V1-1：把当前标签 / 分屏结构写进布局库（退出或结构变化时）。
+    /// 把当前标签 / 分屏结构写进布局库（退出或结构变化时）。
     SaveLayout,
-    /// V1-2：打开快捷键绑定表。
+    /// 打开快捷键绑定表。
     OpenShortcuts,
-    /// V1-4：把一条 tmux 反向控制命令写给当前 PTY。
+    /// 把一条 tmux 反向控制命令写给当前 PTY。
     TmuxCommand(String),
-    /// V1-4：喂一段控制模式输出给解析器（面板调试 / 降级路径）。
+    /// 喂一段控制模式输出给解析器（面板调试 / 降级路径）。
     TmuxFeed(String),
-    /// R16：选中最近一条命令（`B..C` 那段）。块边界来自内核的 OSC 133 记录，
+    /// 选中最近一条命令（`B..C` 那段）。块边界来自内核的 OSC 133 记录，
     /// 选区要事实窗口的行，所以只在投影层落地。
     SelectCommand,
-    /// P4：停靠 / 浮动。布局树活在投影层，这一条只是把意图送到它手里。
+    /// 停靠 / 浮动。布局树活在投影层，这一条只是把意图送到它手里。
     Layout(LayoutAction),
-    /// P9：把命令文本写进活动会话的输入行。文本由 reducer 从 `Action` 带出，
+    /// 把命令文本写进活动会话的输入行。文本由 reducer 从 `Action` 带出，
     /// 但**何时写、写不写得进去**由投影层决定（它才持有 PTY 句柄）。
     /// 与 `PasteSelection` 同一条落地路径，且不追加换行。
     SendCommand(String),
@@ -114,15 +114,15 @@ pub enum Effect {
     ///
     /// 读者是 `apps/desktop/src/ui/effects.rs` 的 `Effect::Xfer` 两个 arm
     /// （`XferCmd::Cancel` 特例 + 通用分支）。原文写「这一变体目前没有消费者」
-    /// 是 2026-11-09 的状态，2026-11-13 架构审查（D10）按实测订正。
+    /// 是 2026-11-09 的状态，2026-11-13 架构审查按实测订正。
     /// 驱动仍在 `apps/desktop/src/xfer_run.rs`，进度状态行在
     /// `apps/desktop/src/ui/terminal/xfer.rs`，两边的连线由投影层主线程做一处胶水
     /// （它才拿得到 PTY 与会话句柄）。reducer 只把口令原样抛上去——协议选择与
     /// 文件选择都不在这一层。
     Xfer(XferCmd),
-    /// W2-b：标签右键的一个动作。读者是 `ui/effects.rs::apply_tab_action`——
+    /// 标签右键的一个动作。读者是 `ui/effects.rs::apply_tab_action`——
     /// 它把意图落到 `close_tab_with_history` / `reopen_closed` / 分屏等
-    /// **既有**方法上，不新开第二条路径（R5：点了有效果）。
+    /// **既有**方法上，不新开第二条路径（点了有效果）。
     Tab(TabAction),
     /// 显示模式：文本网格 ↔ 十六进制（`Mode ▸ Hex Edit`）。
     ///
@@ -180,7 +180,7 @@ pub enum Effect {
     /// 落在屏幕上的东西在 `ui/terminal/marks_paint.rs`（`$` / 参考线 / 折行勾 /
     /// 空格点 / Tab 箭头）与 `ui/terminal/view.rs`（光标行底色，它压在字形之下）。
     SetMarks(MarksKnob),
-    /// P2：打开「默认会话设置」对话框（`Session ▸ Preferences ▸ Default Session
+    /// 打开「默认会话设置」对话框（`Session ▸ Preferences ▸ Default Session
     /// Settings…`）。读者是 `apps/desktop/src/ui/effects.rs::apply_effect`——它调
     /// `TerminalWindow::open_default_session_settings()`，把默认模板填进那个
     /// 与 New/Edit 共用的会话弹窗，保存时只写回默认模板、不连接。

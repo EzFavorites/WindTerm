@@ -83,7 +83,7 @@ impl TerminalWindow {
         }
     }
 
-    /// Log 子菜单的可用性由**写入端状态**决定，不是能力台账（I5）。
+    /// Log 子菜单的可用性由**写入端状态**决定，不是能力台账。
     /// 视觉基线出厂态：`Start...` / `Open Log Folder` / `Settings...` 可用，
     /// `Stop` / `Pause` / `Resume` / `Open Log File` 全灰。能力台账回答
     /// 「这条命令接没接」，这里回答「此刻点了有没有意义」——两者是 AND。
@@ -93,7 +93,7 @@ impl TerminalWindow {
             .get(self.active_slot())
             .map(|t| t.log_status())
             .unwrap_or_default();
-        // 命令 ID → 语义动作**只经** `term_app::log::parse`（I5：ID 字符串不许
+        // 命令 ID → 语义动作**只经** `term_app::log::parse`（ID 字符串不许
         // 出现在 `ui/` 里）。`None` = 这条 ID 不是日志命令，本谓词管不着，
         // 交给能力台账去判，所以这里返回 `true`（即「不因日志状态而灰」）。
         match term_app::log::parse(id) {
@@ -130,7 +130,7 @@ impl TerminalWindow {
     }
 
     /// 状态栏上的日志标记。没在记录时返回 `None`——空转的「Logging: off」
-    /// 只会占位置（R5：不留没有信息量的开关）。
+    /// 只会占位置（不留没有信息量的开关）。
     pub(in crate::ui) fn log_label(&self) -> Option<String> {
         let tab = self.tabs.get(self.active_slot())?;
         if !tab.is_live() {

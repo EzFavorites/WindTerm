@@ -1,25 +1,25 @@
-//! 窗口的初始状态（R13-e2 从 `ui/mod.rs` 拆出，4j：那里的行数上限）。
+//! 窗口的初始状态（从 `ui/mod.rs` 拆出，那里的行数上限）。
 //!
 //! 这里只回答一个问题：**一个刚启动的窗口长什么样**。出厂默认会话、
 //! 工具按钮、表单初值、从会话库读回来的会话树——都在这一个函数里。
 //! 拆出来还有个好处：`mod.rs` 只留「每帧做什么」，不用在两百行字段初值里翻。
 
 use super::*;
-// 目录树里的两个新模块（P2）：`use super::*` 看不到私有 `mod`，要显式引入。
+// 目录树里的两个新模块：`use super::*` 看不到私有 `mod`，要显式引入。
 use crate::ui::{comp, harness};
 use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
 
 impl TerminalWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        // 控制面先建：下面每一条 tab 都要经它开会话（ADR-0019 档 1.1）。
-        // 一个窗口一个池——`desk serve` 是另一个进程、另一个池（ADR-0022 §决策 7）。
+        // 控制面先建：下面每一条 tab 都要经它开会话。
+        // 一个窗口一个池——`desk serve` 是另一个进程、另一个池。
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
-        // R13-b2：会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
+        // 会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
         // 就退回出厂默认值，让一台新机器打开就有个能用的本地 shell。
         let (groups, sessions) = term_runtime::persist::load().unwrap_or_else(|| {
             let g = vec!["Servers".to_string()];
-            // P1-5：登录名由宿主注入。`term-core` 自己不读 `$USER`，
+            // 登录名由宿主注入。`term-core` 自己不读 `$USER`，
             // 读环境的动作落在 `term-io` 这层（它本来就持有本机事实）。
             let mut s = vec![SessionConfig::new_local_shell(&term_io::host::login())];
             let mut ssh = SessionConfig::new(Protocol::Ssh);
@@ -54,11 +54,11 @@ impl TerminalWindow {
         // 「上一次激活」的历史从当前标签开始：没有它时那一档只能退到前一条。
         // 先算好——`tabs` 在下面的结构体字面量里被移走了。
         let tab_focus = tabs.first().map(|t| vec![t.id]).unwrap_or_default();
-        // ADR-0025 阶段 0：恒在身份顺序与活动身份，从刚建好的 tabs 反推。
+        // 恒在身份顺序与活动身份，从刚建好的 tabs 反推。
         let open_order = tabs.iter().map(|t| t.identity).collect();
         let active = tabs.first().map(|t| t.identity);
 
-        // ④-0：初始单窗格 = 一个 PaneId + 一片只含当前会话的 group。
+        // 初始单窗格 = 一个 PaneId + 一片只含当前会话的 group。
         let init_pane = mint_pane_identity();
         let mut pane_groups: std::collections::HashMap<PaneId, PaneGroup> = Default::default();
         if let Some(s) = active {
@@ -112,7 +112,7 @@ impl TerminalWindow {
                 tcp_low_delay: term_core::config::TCP_LOW_DELAY,
                 // 新会话默认用内置客户端（与 `SessionConfig::new` 一致）。
                 builtin_ssh: true,
-                // W6：新建会话的光标样式初值取 `Text ▸ Caret` 的偏好。
+                // 新建会话的光标样式初值取 `Text ▸ Caret` 的偏好。
                 caret_style: prefs.caret_style_index(),
                 term: term_core::config::TERM_TYPES
                     .iter()
@@ -165,7 +165,7 @@ impl TerminalWindow {
                 font_size: prefs.font_size_value(),
                 groups_open: [true; 3],
             },
-            // W6：光标样式偏好（0 哨兵 = 老文件没这项 → 出厂 Block）。
+            // 光标样式偏好（0 哨兵 = 老文件没这项 → 出厂 Block）。
             caret_style: prefs.caret_style_index(),
             // 2026-11-19：光标周期 / 宽度，同一份 prefs（构造时读一次，设置页同步）。
             caret_period: prefs.caret_period_value(),
@@ -181,7 +181,7 @@ impl TerminalWindow {
             // 设置页改完写回并同步窗口副本 + 活动标签的 marks）。
             wrap_symbols: prefs.view_wrap_symbols,
             column_marker_col: prefs.view_column_marker,
-            // I-AC：补全偏好一次读入运行期副本，与 wrap 两项同一写法。
+            // 补全偏好一次读入运行期副本，与 wrap 两项同一写法。
             completion: prefs.completion.clone(),
             completion_state: Default::default(),
             // hex 的**默认参数**（设置 ▸ Binary 页那四个数 + 一格斑马线）：
@@ -203,7 +203,7 @@ impl TerminalWindow {
             tab_activate_after_close: prefs.tab_activate_after_close_kind(),
             tab_double_click: prefs.tab_double_click_action(),
             tab_elide: prefs.tab_elide_mode(),
-            // D1：触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
+            // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
             triggers: prefs.triggers.clone(),
             // OneKey 登录方案：构造时从同一份 prefs 读一次，OneKeys 编辑页负责同步。
@@ -219,7 +219,7 @@ impl TerminalWindow {
             // 重启回默认——与菜单栏 / 状态栏 / 快捷栏三个开关同一条边界。
             view: ViewState {
                 lang,
-                // D6：「要不要打开首次启动引导」的初值来自**这一处已经读好的**
+                // 「要不要打开首次启动引导」的初值来自**这一处已经读好的**
                 // `prefs`（本函数开头那次 `load()`），不另读一遍——同一个文件在
                 // 同一毫秒里读两次只会得到两个可能不同的答案，而它们没有理由不同。
                 // 真正的 `open_onboarding()`（探测 + 置位）在 `init()` 里，
@@ -231,14 +231,14 @@ impl TerminalWindow {
             term_view_shell: crate::ui::terminal::LineCache::default(),
             selection_text: String::new(),
             selection_text_shell: String::new(),
-            // W5-I：命令行历史容量 / TTL 取自同一份 prefs（0 哨兵回落 30 天 / 10000 条）。
+            // 命令行历史容量 / TTL 取自同一份 prefs（0 哨兵回落 30 天 / 10000 条）。
             command_history: prefs.command_history_store(),
             ctx: cc.egui_ctx.clone(),
             // N：首次周期留存立即触发（0 表示「从没留存过」）。
             last_periodic_save: 0.0,
-            // A2：结构变化即时落盘标志（默认 false = 本帧无待存结构变化）。
+            // 结构变化即时落盘标志（默认 false = 本帧无待存结构变化）。
             pending_save_layout: false,
-            // A3：拖拽态（默认无拖拽、本帧未松手）。
+            // 拖拽态（默认无拖拽、本帧未松手）。
             drag_session: None,
             drag_released_this_frame: false,
             restore_focus: false,
@@ -249,7 +249,7 @@ impl TerminalWindow {
             goto_input: String::new(),
             center_input: String::new(),
             lock_password: String::new(),
-            // D7：重绑定的快捷键从同一份 prefs 读（构造时一次，之后由编辑器写回）。
+            // 重绑定的快捷键从同一份 prefs 读（构造时一次，之后由编辑器写回）。
             // 空 = 全部用出厂和弦；下标越界时派发侧会自然跳过。
             shortcut_overrides: prefs.shortcut_overrides.clone(),
             shortcut_capture: None,
@@ -270,7 +270,7 @@ impl TerminalWindow {
             log_note: None,
             // 同一份 prefs 也带着 Logging 配置页的五个字段（老文件缺项回落视觉基线默认值）。
             log_settings: dialogs::LogSettingsData::from_prefs(Some(&prefs)),
-            // W8：Filer 的隐藏项开关初值取同一份 prefs（与 `caret_style` 同一条
+            // Filer 的隐藏项开关初值取同一份 prefs（与 `caret_style` 同一条
             // 写法：prefs 只在构造时读一次，之后由设置页写回并同步这份副本）。
             filer: {
                 let mut filer = crate::ui::panels::Filer::default();
@@ -280,7 +280,7 @@ impl TerminalWindow {
             script: None,
             // 脚本停靠面板：常驻状态（路径 / 在跑的线程 / 结果 / 错误）。
             script_panel: crate::ui::panels::ScriptPanelState::default(),
-            // 脚本新开会话的交接队列（ADR-0025 阶段 5）：出厂空队列，脚本线程往里
+            // 脚本新开会话的交接队列：出厂空队列，脚本线程往里
             // 推一条，`absorb_script_opened` 下一帧就把它变成标签页。
             script_opened: Default::default(),
             script_activated: Default::default(),
@@ -312,7 +312,7 @@ impl TerminalWindow {
             demo: None,
             demo_preview_hover_y: None,
             comp_demo: None,
-            // W1-a：启动会话策略从同一份 prefs 读。老文件缺键 → 空串 →
+            // 启动会话策略从同一份 prefs 读。老文件缺键 → 空串 →
             // parse_tag 回落 LastSessions（视觉基线出厂态），不需要 migration。
             startup: term_app::startup::StartupPolicy::from_tags(
                 &prefs.startup_mode,
@@ -321,7 +321,7 @@ impl TerminalWindow {
             // 恢复流程在 init() 里登记待连标签；构造时还没有恢复任何东西。
             pending_activation: Vec::new(),
             dock: DockLayout::new(),
-            // 应用控制面：脚本请求队列与两个版本号（Q2 刀1）。
+            // 应用控制面：脚本请求队列与两个版本号。
             app_queue: Default::default(),
             app_rev: 0,
             prefs_rev: 0,
@@ -347,13 +347,13 @@ impl TerminalWindow {
             settings_page: crate::ui::dialogs::SettingsPage::default(),
             onekeys_edit: None,
             onekeys_password_draft: None,
-            // L1/L3：出厂没有话说、也没有崩过。两条都只由 `announce_recovery`
+            // 出厂没有话说、也没有崩过。两条都只由 `announce_recovery`
             // 与 `main.rs` 的 `catch_unwind` 写入。
             notice: None,
             frame_panics: 0,
             dock_rects: Vec::new(),
             toolbar_pos: None,
-            // D5：运行期副本从盘上接过来。`transparent` 的「已应用值」初始化成
+            // 运行期副本从盘上接过来。`transparent` 的「已应用值」初始化成
             // 同一个值——`main.rs` 建窗时用的就是 `with_transparent(它)`，
             // 所以第一帧不该再发一次重复的视口命令。alpha 那一侧分两种：
             //   · 存过半透明 → 留 None，第一帧由 `sync_window_opacity` 把
@@ -370,37 +370,37 @@ impl TerminalWindow {
                 }
             },
             window_opacity: WindowOpacity::from_prefs(&prefs),
-            // D3：地址栏浮层出厂关闭（没有任何锚点、没有待显示的报错）。
+            // 地址栏浮层出厂关闭（没有任何锚点、没有待显示的报错）。
             // `recent` 也留空——它每次打开时从 `prefs.json` 读一次。
             address: crate::ui::address::AddressBar::new(),
-            // D6：引导状态机出厂「关着、停在 Welcome、零探测结果」。
+            // 引导状态机出厂「关着、停在 Welcome、零探测结果」。
             // 探测要读文件（IO），所以不在这里做——由 `init()` 的
             // `open_onboarding()` 一次性完成，且只在真的要显示时才做。
             onboarding: term_app::onboarding::OnboardingState::new(),
-            // D6：预览窗出厂「关着、没有内容」。不在构造时读任何文件——真读文件
+            // 预览窗出厂「关着、没有内容」。不在构造时读任何文件——真读文件
             // 是 `open_preview_local` 的事，而那是用户点了才发生的。
             preview: crate::ui::overlays::PreviewState::default(),
-            // D8-3：脚本编辑器出厂「没开过」。不开窗口不读任何文件。
+            // 脚本编辑器出厂「没开过」。不开窗口不读任何文件。
             script_editor: None,
         }
     }
 
     pub fn init(&mut self, cc: &eframe::CreationContext<'_>) {
         self.fonts.install(&cc.egui_ctx);
-        // V1-1：还原上次的标签 / 分屏结构（不还原进程态）。
+        // 还原上次的标签 / 分屏结构（不还原进程态）。
         // 截图基线用一次性 profile 目录，那里没有 layout.json，不会触发。
         // `Application.NewWindow` 拉起的第二实例**不还原**：layout.json 是单份
         // 全局状态，照常恢复会长成旧窗口的副本。此时 `new()` 已建好的那一条
         // live 本地 shell 标签就是干净的出厂窗口，不用另造默认态。
         if !harness::secondary_window() {
             self.restore_layout();
-            // L3（O 设计稿 §3e）：上次没走正常退出就说一声。与 `restore_layout`
+            // 上次没走正常退出就说一声。与 `restore_layout`
             // 分开放，是因为「恢复出几条标签」和「上次崩没崩」是两件事——会话库
             // 被清空、Startup 落在 No session 时前者啥也不恢复，后者照样成立。
             // 第二实例（`Application.NewWindow`）不碰：它会消费掉那条事实。
             self.announce_recovery();
         }
-        // K3-b 出图入口：`WINDTERM_FLOAT_BAND=right` 让整条带首帧就浮起来。
+        // 出图入口：`WINDTERM_FLOAT_BAND=right` 让整条带首帧就浮起来。
         // 判据只有环境变量、没有任何默认值——生产路径不设它就零变化；这里不能
         // 挂在 `fixture_mode()` 上，因为浮窗现在是**系统原生窗口**，看它必须起
         // 真实进程（`--demo dock` 不带 `--screenshot`），那种进程不是夹具态。
@@ -418,7 +418,7 @@ impl TerminalWindow {
                 self.dock.band_float(zone, rect);
             }
         }
-        // D6：首次启动引导。判据是 `Prefs::onboarded`（`new()` 里从同一份
+        // 首次启动引导。判据是 `Prefs::onboarded`（`new()` 里从同一份
         // prefs 取到的初值），**不是**「布局文件不存在」——后者把「删过布局」
         // 误当成「第一次用」，也会让「从没改过设置但用了半年」的用户被重新引导。
         //
@@ -466,7 +466,7 @@ impl TerminalWindow {
         true
     }
 
-    /// D1：从 `prefs.json` 重新读入触发器规则，同步到运行期缓存。
+    /// 从 `prefs.json` 重新读入触发器规则，同步到运行期缓存。
     ///
     /// 设置页「保存」后调用：把编辑器里那份（已写回 prefs）重新读回来，保证
     /// 内存副本与磁盘一致。`load()` 失败回落空规则集（等于「没有规则」），不崩。
@@ -483,7 +483,7 @@ impl TerminalWindow {
     /// 设置对话框按 `Ok` 之后把草稿装回窗口，并按新配置重起转发。
     ///
     /// **不重读盘**：`save_prefs` 刚写进去的就是这一份，再读一次只会多一条
-    /// 门面引用（4s 只许减不许增）和一次多余 IO——而且读写之间如果有人手改了
+    /// 门面引用（只许减不许增）和一次多余 IO——而且读写之间如果有人手改了
     /// `prefs.json`，读回来的会是「盘上的」，与用户刚点的 `Ok` 不一致。
     pub(in crate::ui) fn apply_tunnels(&mut self, profiles: Vec<term_core::tunnel::TunnelProfile>) {
         self.tunnel_profiles = profiles;
@@ -539,15 +539,15 @@ fn default_tools() -> Vec<ToolButton> {
 }
 
 impl TerminalWindow {
-    /// W6：**新开**一条会话的出厂配置。
+    /// **新开**一条会话的出厂配置。
     ///
     /// 与 `SessionConfig::new` 的唯一区别是补上窗口级偏好——目前只有光标样式。
     /// 只在「凭空造一条会话」的地方用（标签栏兜底标签、分屏新开本地 shell）；
     /// 从会话库打开的那条**不能**走这里：它带着自己的 `caret_style`，改偏好
     /// 不该回头改用户的会话属性。
     ///
-    /// P1-5：本地 Shell 的用户名在这里注入（`term_io::host::login`）。
-    /// core 不读 `$USER`——同一个入参必须得到同一条会话配置（R0）。
+    /// 本地 Shell 的用户名在这里注入（`term_io::host::login`）。
+    /// core 不读 `$USER`——同一个入参必须得到同一条会话配置。
     pub(in crate::ui) fn fresh_session(&self, protocol: Protocol) -> SessionConfig {
         let mut cfg = if protocol == Protocol::Shell {
             SessionConfig::new_local_shell(&term_io::host::login())
@@ -561,7 +561,7 @@ impl TerminalWindow {
         cfg
     }
 
-    /// D4：用磁盘上读回来的历史替换启动时那份空历史。
+    /// 用磁盘上读回来的历史替换启动时那份空历史。
     ///
     /// 为什么由宿主（`main.rs`）调而不是在这里自己读文件：文件 IO 在
     /// `term-runtime::persist`，窗口层不认识路径；窗口只领一份已经
@@ -573,7 +573,7 @@ impl TerminalWindow {
         self.command_history = history;
     }
 
-    /// D4：退出时给宿主读的只读视图（宿主负责落盘）。
+    /// 退出时给宿主读的只读视图（宿主负责落盘）。
     pub fn command_history(&self) -> &term_core::command_history::CommandHistory {
         &self.command_history
     }

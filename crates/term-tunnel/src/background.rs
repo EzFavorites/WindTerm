@@ -3,7 +3,7 @@
 //! 为什么需要：`Tunnel::start()` 是同步的，最长等 `START_TIMEOUT`（15 秒）——
 //! 握手、认证、逐个建监听都在里面。桌面端一帧都不能挂，所以要「起了线程、
 //! 立刻返回」。线程与队列都收在本 crate，调用方只轮询一个不透明句柄
-//! （S2 起的规矩：投影层不接触线程与 `mpsc`，见 verify 第 5 项）。
+//! （规矩：投影层不接触线程与 `mpsc`，见 verify 第 5 项）。
 
 use std::sync::mpsc::{Receiver, TryRecvError};
 

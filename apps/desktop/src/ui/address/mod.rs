@@ -1,4 +1,4 @@
-//! D3：地址栏（Address Bar）—— 投影层。
+//! 地址栏（Address Bar）—— 投影层。
 //!
 //! # 这是什么
 //!
@@ -8,7 +8,7 @@
 //! 逻辑判定全在 `term_app::address`（字符串层）与本模块的 [`plan`]（映射层），
 //! 本文件只做三件事：**开合**、**绘制**、**把激活意图落到窗口上**。
 //!
-//! # ADDR-05（文本选择）由 `TextEdit` 原生能力满足
+//! # 文本选择由 `TextEdit` 原生能力满足
 //!
 //! 光标、拖动选择、双击选词、`Ctrl/Cmd + A`、`Ctrl/Cmd + C/V` 全部是
 //! `egui::TextEdit` 自带的。自己画一个输入框去对齐这些行为，只会得到一份
@@ -30,7 +30,7 @@ mod plan;
 mod rows;
 
 // 单测单独一个文件：`plan.rs` 的纯函数要逐条钉住（名字里的 `:port`、去重、
-// 三种激活意图），而 `mod.rs` 已经贴着 R9 的 500 行上限。挂载写法照
+// 三种激活意图），而 `mod.rs` 已经贴着 500 行上限。挂载写法照
 // `dialogs/session_form.rs` 的 `#[path = ...]`。
 #[cfg(test)]
 #[path = "address_tests.rs"]
@@ -68,7 +68,7 @@ const MENU_W: f32 = 168.0;
 /// - `problem`：上一帧的解析错误，画在输入框下面一行。不进 `ViewState`
 ///   （那是领域状态），也不弹 toast（地址栏自己的报错应该长在自己身上）；
 /// - `recent`：`prefs.recent_targets` 的**渲染期副本**。每帧都要拿它拼候选，
-///   而拼候选在一个帧循环里——不能每帧读一次 `prefs.json`（S4 的空闲 0 CPU
+///   而拼候选在一个帧循环里——不能每帧读一次 `prefs.json`（空闲 0 CPU
 ///   会当场变成空话）。打开那一刻读一次，之后只在本模块内增删。
 pub(in crate::ui) struct AddressBar {
     /// 开没开 / 输入 / 选中下标（判定都在 `term_app::address` 里）。
@@ -198,7 +198,7 @@ impl TerminalWindow {
         };
         let selected = self.address.state.selected;
         if enter {
-            // ADDR-03：输入能解析就**直接连**，优先级高于选中项。地址栏的
+            // 输入能解析就**直接连**，优先级高于选中项。地址栏的
             // 主动作是「我敲了一个地址，回车」；下拉只是顺手的第二条路。
             match parse_target(&self.address.state.input) {
                 Ok(target) => {
@@ -393,7 +393,7 @@ struct DrawInput<'a> {
 ///
 /// 是个自由函数而不是 `TerminalWindow` 的方法：它只需要一个
 /// `&mut AddressState`、一条待显示的报错与一份候选表，拿到整个窗口反而会
-/// 诱使后来的人在这里顺手改领域状态（I1 的边界）。
+/// 诱使后来的人在这里顺手改领域状态（守住边界）。
 ///
 /// `problem` 是 `&mut`：用户一改动输入就把上一帧的报错擦掉——「刚刚那句
 /// 报错说的是我改之前那半截地址」，留着它只会误导。
@@ -483,7 +483,7 @@ fn draw_input_row(
         });
 }
 
-/// `▾` 按钮与它的三行菜单（ADDR-01）。
+/// `▾` 按钮与它的三行菜单。
 fn draw_menu_button(
     ui: &mut egui::Ui,
     lang: Lang,
@@ -515,7 +515,7 @@ fn draw_menu_button(
 }
 
 /// 菜单里的一行。`enabled == false` 时画成 `Disabled`——**点了没反应的空转
-/// 开关**是 R5 明确禁止的，宁可让它看起来就不能点。
+/// 开关**是明确禁止的，宁可让它看起来就不能点。
 fn menu_row(ui: &mut egui::Ui, text: &str, enabled: bool) -> bool {
     let look = RowLook {
         state: if enabled {

@@ -148,7 +148,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Goto Session" => "跳到会话",
         "Goto Symbol" => "跳到符号",
         "Goto Address Bar" => "跳到地址栏",
-        // D3：这一行此前也叫「地址栏」，与上一行是同一个名字下的两件事。
+        // 这一行此前也叫「地址栏」，与上一行是同一个名字下的两件事。
         // 它做的是「把一行字当 shell 命令发出去」，所以叫命令行。
         "Command Line" => "命令行",
         // ── 视图 ──
@@ -466,7 +466,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Remove" => "删除",
         "Property" => "属性",
         "Move" => "移动",
-        // ── W2：18 个子菜单按 P1 补齐后的 56 条新文案 ──
+        // ── 18 个子菜单补齐后的 56 条新文案 ──
         // 纯数字标签（2 / 7 / 8 / 10 / 16）没有可翻译内容，
         // 由 `every_visible_label_has_a_translation` 的字母判据豁免（见下方注释）。
         "Reopen Closed View" => "重新打开关闭的视图",
@@ -525,7 +525,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Unfold Inside" => "展开内部",
         "Fold All" => "全部折叠",
         "Unfold All" => "全部展开",
-        // W2-b/c：命令面板的影子入口分组名与 tmux 面板菜单项。
+        // 命令面板的影子入口分组名与 tmux 面板菜单项。
         "Tab" => "标签",
         "Tmux Control Mode" => "tmux 控制模式",
         // hex 视图（`ui/terminal/bin.rs`）。整句那条必须整句进词表：它是一句
@@ -542,7 +542,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Selection and Find are unavailable in Bin mode (Mode ▸ Hex Edit to switch back)" => {
             "二进制模式下不能用选区与查找（菜单 模式 ▸ 十六进制编辑 可切回）"
         }
-        // P9 快捷命令栏（`ui/shell/quick_command_bar.rs`）：配置弹层、溢出
+        // 快捷命令栏（`ui/shell/quick_command_bar.rs`）：配置弹层、溢出
         // 下拉与按钮提示。带 `{cmd}` 的那条整句进表，占位符交给调用方替换。
         "Configure command groups" => "配置快捷命令分组",
         "Show command groups" => "显示快捷命令分组",
@@ -566,10 +566,10 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Enable Symbol Preview" => "启用符号预览",
         "switch to tab" => "切换到标签页",
         "Opened" => "已打开",
-        // D3：地址栏下拉第三段的分组名（`AddressKind::Host`）。
+        // 地址栏下拉第三段的分组名（`AddressKind::Host`）。
         // 另外两段 `Opened` / `Session` 已在上面 / 菜单词表里。
         "Host" => "主机",
-        // ── D3：地址栏浮层（`apps/desktop/src/ui/address/`）──
+        // ── 地址栏浮层（`apps/desktop/src/ui/address/`）──
         // 输入框占位、动作提示、`▾` 菜单三行、以及四条地址解析报错。
         // 报错里带 `{raw}` 的两条由 `plan::problem_text` 把用户敲的原话填回去。
         "Host, user@host, or pick a session" => "主机、user@host，或选一个会话",
@@ -582,7 +582,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "This address has no host name." => "这个地址没有主机名。",
         "'{raw}' is not a port number (0-65535)." => "“{raw}”不是端口号（0-65535）。",
         "'{raw}' is not a valid user name." => "“{raw}”不是合法的用户名。",
-        // ── D6：首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
+        // ── 首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
         // 两页的全部文案。带 `{n}` / `{path}` 的两条整句进表：中文语序拼不出来，
         // 占位符由调用方替换（与 `… {n} items` 同一写法）。
         "Welcome" => "欢迎",
@@ -599,7 +599,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "No SSH hosts found — you can still add sessions from the sidebar later." => {
             "没有找到 SSH 主机 —— 之后仍可以从侧栏新建会话。"
         }
-        // ── D6：预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
+        // ── 预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
         // 字符集名 / 图片格式 / `MiB` 单位 / 文件名 / 路径都是数据，不进词表。
         "Preview" => "预览",
         "Open Externally" => "用外部程序打开",
@@ -613,7 +613,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Downloading to a temporary file" => "正在下载到临时文件",
         "Could not download the file" => "无法下载这个文件",
         "Not connected to SFTP" => "未连接 SFTP",
-        // ── D8-3：脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
+        // ── 脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
         // 语法高亮的颜色与 token 名是数据，不进词表；这里是窗口 chrome 与按钮。
         "Script Editor" => "脚本编辑器",
         "Run" => "运行",
@@ -625,7 +625,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Done" => "完成",
         "Failed" => "失败",
         "Go to line {n}" => "跳到第 {n} 行",
-        // ── D8-4：「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
+        // ── 「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
         // 列头 + 两种空态。文件名是**数据**，不进词表。
         "Library" => "脚本库",
         "Recent" => "最近",

@@ -4,7 +4,7 @@ version = "1.0.0"
 rust-version = "1.94"
 edition = "2021"
 
-# SSH 连接层（R13-d）：russh 0.65 + tokio。
+# SSH 连接层：russh 0.65 + tokio。
 #
 # **这是仓库里唯一允许出现异步运行时的地方**（ADR-0017 §决策 2）。
 # 对外一律同步：调用方拿到的是 `SshChannel`，`drain/write/resize/poll/close`

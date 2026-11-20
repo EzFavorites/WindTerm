@@ -125,7 +125,7 @@ impl Pending {
 ///
 /// 历史：早期版本在续传时回 `ZSKIP(N)`（借用它的 4 字节头数据承载偏移）。那是一个
 /// 自洽但不符合协议的设计——真实 `sz` 会把 `ZSKIP` 理解成「放弃这个文件」，于是
-/// 续传从未真正生效。W6-C4b 纠正为 `ZRPOS(N)`；发送方对 `ZSKIP(offset > 0)` 的
+/// 续传从未真正生效。纠正为 `ZRPOS(N)`；发送方对 `ZSKIP(offset > 0)` 的
 /// 容忍分支作为兼容兜底保留（真实对端不会这么发）。
 #[derive(Debug)]
 pub struct Receiver {

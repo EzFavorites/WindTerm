@@ -2,7 +2,7 @@
 //!
 //! 三件事放在一起，是因为它们共用**同一条判据**：「这一行现在能不能传」。
 //! 判据只要写两遍就一定会漂移，而漂移的表现恰好是最难查的那种——菜单亮着，
-//! 点下去什么也没发生（项目铁律 I5）。所以这里给出 [`transfer_blocker`]，
+//! 点下去什么也没发生（项目铁律）。所以这里给出 [`transfer_blocker`]，
 //! `filer_view.rs` 拿它决定菜单项灰不灰、灰的话写哪句话，本文件拿它决定要不要
 //! 真的入队。
 //!
@@ -62,7 +62,7 @@ pub(in crate::ui) enum XferPick {
 ///
 /// 第三个参数 `_is_dir` 不再是判据：目录与文件同样放行，由 `start_filer_transfer`
 /// 按它选树传输。参数留在签名上，是为了让「这一行能不能传」的调用点与测试
-/// 仍能就目录表态（W5-B3 之前这里明确挡掉目录），而不是留一个未用参数警告。
+/// 仍能就目录表态（之前这里明确挡掉目录），而不是留一个未用参数警告。
 pub(in crate::ui) fn transfer_blocker(
     connected: bool,
     remote_dir: &str,
@@ -148,7 +148,7 @@ impl TerminalWindow {
     /// 每帧推进队列：退避到点的退回排队，然后**最多**起一项。
     ///
     /// `now` 由 `poll_filer` 从 `ctx.input(|i| i.time)` 取整到秒后传进来——
-    /// 队列不读墙钟，界面层读时钟是允许的（B2 只禁 `term-core`）。
+    /// 队列不读墙钟，界面层读时钟是允许的（只禁 `term-core`）。
     pub(in crate::ui) fn pump_transfer(&mut self, now: u64) {
         self.filer.xfer_queue.retry(now);
         if let Some(task) = self.filer.xfer_queue.next_to_run(now) {
@@ -156,7 +156,7 @@ impl TerminalWindow {
         }
         // 队列里还有活的时候要自己叫醒自己：SFTP 只在**有事件**时叫醒界面，
         // 而「等退避」「等前一项结束」都不产生事件。少了这一行，队列会停在
-        // 上一帧的样子，直到用户碰一下鼠标（S4 之后空闲不重绘）。
+        // 上一帧的样子，直到用户碰一下鼠标（之后空闲不重绘）。
         if !self.filer.xfer_queue.all_settled() {
             self.ctx
                 .request_repaint_after(std::time::Duration::from_millis(200));
@@ -222,7 +222,7 @@ mod tests {
             Err("未连接 SFTP")
         );
         assert_eq!(transfer_blocker(true, "", false), Err("远端目录未知"));
-        // W5-B3：目录不再被拒——发起方会按 is_dir 选 download_tree / upload_tree，
+        // 目录不再被拒——发起方会按 is_dir 选 download_tree / upload_tree，
         // 事件由 xfer_queue 按前缀归到同一行。
         assert_eq!(transfer_blocker(true, "/srv", true), Ok(()));
         assert_eq!(transfer_blocker(true, "/srv", false), Ok(()));

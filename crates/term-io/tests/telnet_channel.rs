@@ -1,4 +1,4 @@
-//! W6-C1：原生 Telnet 通道的进程内集成测试。
+//! 原生 Telnet 通道的进程内集成测试。
 //!
 //! 夹具只在 `127.0.0.1:0` 上 bind 一个 `TcpListener`（回环、不对外提供服务），
 //! 客户端与服务端都在本测试进程里：不需要真 telnet 服务端，也不需要任何新依赖。
@@ -391,7 +391,7 @@ fn description_counters_and_status_note_reflect_the_wire() {
 
 #[test]
 fn spawn_plan_still_builds_the_system_telnet_argv() {
-    // W6-C1 只改 open_channel() 的分派；spawn_plan() 的 CLI / 无窗口路径原样保留。
+    // 只改 open_channel() 的分派；spawn_plan() 的 CLI / 无窗口路径原样保留。
     let mut config = SessionConfig::new(Protocol::Telnet);
     config.host = "example.net".to_string();
     match config

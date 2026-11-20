@@ -1,4 +1,4 @@
-//! 桌面宿主的应用控制面实现（ADR-0027 §9，Q2 刀1）。
+//! 桌面宿主的应用控制面实现（ADR-0027）。
 //!
 //! 形状与 `script_human.rs` 的问答队列**一模一样**：脚本线程把请求连同一条
 //! 容量 1 的回信通道塞进队列，界面每帧取**一条**执行、执行完回信。不发明第二
@@ -75,7 +75,7 @@ impl DeskApp {
     fn roundtrip(&self, request: AppRequest) -> Result<AppReply, AppError> {
         let (tx, rx) = sync_channel(1);
         match self.queue.lock() {
-            // 队列非空 = 上一帧那条还没落地。**不排第二条**（Q2 §10 刀2 验收 5）：
+            // 队列非空 = 上一帧那条还没落地。**不排第二条**：
             // 置位是幂等的、读是本帧的，两条一起等在队里只会让「谁先谁后」
             // 变得不可解释；脚本拿 `Busy` 自己决定要不要重试，比让它盲等 2 秒好。
             Ok(queue) if !queue.is_empty() => return Err(AppError::Busy),
@@ -152,7 +152,7 @@ mod tests {
 
     #[test]
     fn a_second_request_while_one_is_still_pending_reports_busy() {
-        // Q2 §10 刀2 验收 5：队列非空 → Busy（不排第二条）。
+        // 队列非空 → Busy（不排第二条）。
         let (app, queue, _cancel) = headless();
         let (tx, _rx) = sync_channel(1);
         queue.lock().expect("队列锁").push(PendingApp {

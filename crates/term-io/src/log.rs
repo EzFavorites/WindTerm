@@ -94,7 +94,7 @@ impl SessionLog {
         Self::create_for(dir, session, "", cols, rows, opts)
     }
 
-    /// 带宿主名的一档（ADR-0027 §S5）：`%{host}` 只在真的知道主机时才有值。
+    /// 带宿主名的一档（ADR-0027）：`%{host}` 只在真的知道主机时才有值。
     pub fn create_for(
         dir: &Path,
         session: &str,

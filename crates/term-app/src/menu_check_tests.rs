@@ -170,7 +170,7 @@ fn a_wired_command_must_read_live_state() {
     for m in menus() {
         walk(&m.items, &mut fixed_rows, &mut live_rows);
     }
-    // W2：按 P1 补齐的 18 个子菜单里原本有 11 条勾选行，勾是截图里的出厂态
+    // 按视觉基线补齐的 18 个子菜单里原本有 11 条勾选行，勾是截图里的出厂态
     // （Indent Guides / Hide All 打勾），且这些命令一条都还没接线——那时它们
     // 全落在 `Fixed` 这一侧，靠「Fixed ⇒ 未接线」这条准入条件自证。
     //

@@ -7,7 +7,7 @@
 //！这一层的价值在于：解析器第一次吃到不认识的输出时，是**降级透传**而不是
 //！吞掉（见 `tmux.rs` 的 `Passthrough`）。
 //！
-//! **B2 Step 9 双向闭环**：attach → send `split-window -h` → 观察 `%layout-change` 含两个窗格
+//! **双向闭环**：attach → send `split-window -h` → 观察 `%layout-change` 含两个窗格
 //! → send `detach-client` → 观察 `%exit`。这才是「真机闭环」，不是只看不说。
 
 use std::io::{BufRead, BufReader, Write};
@@ -156,7 +156,7 @@ fn real_tmux_control_mode_is_parsed_into_events() {
 #[test]
 #[ignore = "需要 Docker 里的真 sshd + tmux：bash scripts/docker-verify.sh tmux"]
 fn real_tmux_bidirectional_split_then_detach() {
-    // B2 Step 9：真机双向闭环
+    // 真机双向闭环
     // 1) attach，拿到首屏 %session-changed + %layout-change（单窗格）
     // 2) 发送 `split-window -h`，等待 %layout-change 包含 2 个 pane
     // 3) 发送 `detach-client`，等待 %exit

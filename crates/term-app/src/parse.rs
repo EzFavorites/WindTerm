@@ -37,7 +37,7 @@ pub(crate) fn shell_parse(id: &str) -> Option<ShellAction> {
         "Window.TogglePaneShell" => ShellAction::TogglePaneShell,
         "Window.TogglePaneScript" => ShellAction::TogglePaneScript,
         "Window.TogglePaneTransfer" => ShellAction::TogglePaneTransfer,
-        // W2-c：tmux 浮层的菜单入口（不是 dock 面板，所以没有 PanelId）。
+        // tmux 浮层的菜单入口（不是 dock 面板，所以没有 PanelId）。
         "Window.TogglePaneTmux" => ShellAction::TogglePaneTmux,
         "Window.ToggleFocusMode" => ShellAction::ToggleFocusMode,
         "Window.ToggleFullScreen" => ShellAction::ToggleFullScreen,
@@ -190,7 +190,7 @@ pub(crate) fn center_parse(id: &str) -> Option<CenterAction> {
         "Application.OpenProfileDialog" => CenterAction::Open(CenterPage::Profile),
         "Window.ToolbarList" => CenterAction::Open(CenterPage::ToolbarList),
         "Window.ToolbarCustomize" => CenterAction::Open(CenterPage::ToolbarCustomize),
-        // D3：这一条曾指向「地址栏」页，现在指向**命令行**页——它做的本来就是
+        // 这一条曾指向「地址栏」页，现在指向**命令行**页——它做的本来就是
         // 「把一行字当 shell 命令发出去」。地址栏（连接目标输入框）另有命令 ID。
         "Window.GotoCommandLine" => CenterAction::Open(CenterPage::GotoCommandLine),
         "Terminal.CompleteHistory" => CenterAction::Open(CenterPage::CompleteHistory),
@@ -215,7 +215,7 @@ pub(crate) fn margin_parse(id: &str) -> Option<MarginAction> {
     let part = match id {
         "Text.MarginBlank" => MarginPart::Blank,
         "Text.MarginNumber" => MarginPart::Number,
-        // `Text.MarginFoldColumn`：画不画**折叠标记列**（2026-11-18 C6 接线）。
+        // `Text.MarginFoldColumn`：画不画**折叠标记列**（2026-11-18 接线）。
         "Text.MarginFoldColumn" => MarginPart::Fold,
         "Text.MarginSymbol" => MarginPart::Symbol,
         "Text.MarginTimestamp" => MarginPart::Timestamp,
@@ -230,7 +230,7 @@ pub(crate) fn margin_parse(id: &str) -> Option<MarginAction> {
 /// 折叠族九条：`View ▸ Folds` 六条 + `Text ▸ Margin Fold` +
 /// `Goto ▸ Fold ▸ Previous / Next Fold`。
 ///
-/// 九条 ID 只在 `"ID" => …` 分支里出现（4e 的 I5 判据按这个形状判），
+/// 九条 ID 只在 `"ID" => …` 分支里出现（判据按这个形状判），
 /// 语义与取舍写在 [`FoldCmd`] 各变体的文档里，这里只管 ID → 意图。
 ///
 /// 九条**同一张表**，不是按菜单归属分三处写：它们的落地是同一条
@@ -303,7 +303,7 @@ pub(crate) fn selection_parse(id: &str) -> Option<Op> {
         "Text.CharRight" => Op::CharNext,
         "Text.LineUp" => Op::LinePrev,
         "Text.LineDown" => Op::LineNext,
-        // W8：Goto 另外 10 条。同样是「挪 head」，同样没有新位移规则——词首 / 词尾 /
+        // Goto 另外 10 条。同样是「挪 head」，同样没有新位移规则——词首 / 词尾 /
         // 翻页 / 行首行尾 / 文首文末在 `apply` 里早就各有一个分支（`Text.SelectTo*`
         // 一直在用），这一刀补的只是 ID → `Op` 这一层映射。
         //
@@ -328,7 +328,7 @@ pub(crate) fn selection_parse(id: &str) -> Option<Op> {
         "Text.GotoDocumentStart" => Op::ToDocumentStart,
         "Text.GotoDocumentEnd" => Op::ToDocumentEnd,
         // 2026-11-13：又接通 26 条（词段 / 半页 / 段落 / 命令 / 作用域 / 缩进 /
-        // 括号对 + 10 条按列选）。这 26 条与 W8 那 10 条不同 —— W8 是纯映射
+        // 括号对 + 10 条按列选）。这 26 条与那 10 条不同 —— 是纯映射
         // （复用既有的 17 条 `Op`），这 26 条**各有自己的位移规则**，所以每条都有
         // 独立变体、边界判定落在纯层（`geometry.rs` / `words.rs`）。
         // 逐条语义见 `vocab.rs::Op` 的分族注释与 `selection/ops.rs::apply`。
@@ -376,7 +376,7 @@ pub(crate) fn selection_parse(id: &str) -> Option<Op> {
     Some(op)
 }
 
-// 2026-11-12 R2：`palette::parse` 的两个分支搬到这里。
+// 2026-11-12：`palette::parse` 的两个分支搬到这里。
 // 它留在 `palette.rs` 时形成 `action → palette → capability → action` 的三角环：
 // 面板要按「是否已接线」过滤条目（那是 `capability` 的职责），而「是否接线」
 // 又只能在入口层回答。把入口集中到这一层，环就断了。
@@ -426,9 +426,9 @@ pub(crate) fn parse_xfer(id: &str) -> Option<XferCmd> {
     })
 }
 
-/// D3：地址栏。`Action::AddressBar` 没有子枚举（见它自己的注释），所以单独
+/// 地址栏。`Action::AddressBar` 没有子枚举（见它自己的注释），所以单独
 /// 一条 `parse`，形态与本文件其余能力一致——**命令 ID 只允许出现在
-/// `"ID" => …` 这种分支里**（`scripts/verify.sh` 4e 的 I5 判据按这个形状判）。
+/// `"ID" => …` 这种分支里**（`scripts/verify.sh` 4e 的判据按这个形状判）。
 pub(crate) fn address_parse(id: &str) -> Option<Action> {
     Some(match id {
         "Window.GotoAddressBar" => Action::AddressBar,
@@ -439,7 +439,7 @@ pub(crate) fn address_parse(id: &str) -> Option<Action> {
 impl Action {
     /// 命令 ID → 能力动作的唯一入口。未接线的命令返回 `None`。
     pub fn parse(id: &str) -> Option<Action> {
-        // D3：地址栏是本层唯一**没有子枚举**的动作——它没有 reducer，也不产
+        // 地址栏是本层唯一**没有子枚举**的动作——它没有 reducer，也不产
         // `Effect`（见 `Action::AddressBar` 的注释），所以走自己那个
         // [`address_parse`]。放在链首：它的 ID 与 `center_parse` 里那批
         // `Window.*` 挨着，万一以后有人把那条命令加进中心页表，这里先命中，
@@ -492,12 +492,12 @@ impl Action {
         if let Some(cmd) = parse_xfer(id) {
             return Some(Action::Xfer(cmd));
         }
-        // W2-b：标签右键的 10 个影子入口。与菜单命令走同一个 `parse`，
-        // `capability` 不需要维护第二份判定（D2）。
+        // 标签右键的 10 个影子入口。与菜单命令走同一个 `parse`，
+        // `capability` 不需要维护第二份判定。
         if let Some(a) = tab_parse(id) {
             return Some(Action::Tab(a));
         }
-        // P4：布局动作排在最后——它只有一条命令 ID（重置布局），
+        // 布局动作排在最后——它只有一条命令 ID（重置布局），
         // 其余三个动作由拖拽产生，没有字符串入口。
         if let Some(a) = dock_parse(id) {
             return Some(Action::Layout(a));
@@ -526,7 +526,7 @@ impl Action {
             Action::Log(_) => FeatureId::Log,
             Action::Palette(_) => FeatureId::Palette,
             Action::Goto(_) => FeatureId::Goto,
-            // D3：地址栏归 `Goto`。它和 `Goto Line` / `Goto Session` 是同一类东西
+            // 地址栏归 `Goto`。它和 `Goto Line` / `Goto Session` 是同一类东西
             // ——「跳到某处」的浮层入口（一个跳到回看行，一个跳到标签，一个跳到
             // 一台主机）。归 `Shell` 会让这组入口在能力面上散成两处。
             Action::AddressBar => FeatureId::Goto,

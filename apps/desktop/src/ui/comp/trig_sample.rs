@@ -1,6 +1,6 @@
 //! 触发器编辑器组件夹具的样例规则。
 //!
-//! 从 `comp/mod.rs` 拆出（R9 单文件 500 行上限）。只在
+//! 从 `comp/mod.rs` 拆出（单文件 500 行上限）。只在
 //! `--demo comp:dialog_settings_triggers` 这条测试路径上被调用，产品代码不引用。
 
 pub(super) fn sample_triggers() -> Vec<term_app::trigger::Rule> {

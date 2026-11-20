@@ -1,7 +1,7 @@
 //! 一个打开的终端 tab 的全部状态。
 //!
-//! 为什么单独一个文件：`mod.rs` 已经顶到验收 4o 的 500 行上限（`scripts/verify.sh`），
-//! 而 `Tab` 是它里面唯一「只描述数据、不带绘制逻辑」的块（R9 之后 `mod.rs` 只剩装配与
+//! 为什么单独一个文件：`mod.rs` 已经顶到验收的 500 行上限（`scripts/verify.sh`），
+//! 而 `Tab` 是它里面唯一「只描述数据、不带绘制逻辑」的块（之后 `mod.rs` 只剩装配与
 //! `draw`）。搬出来属于纯移动：字段一字未改，`mod.rs` 用 `pub use tab::Tab;` 保持
 //! `crate::ui::Tab` 这个路径不变，20 处调用点一个都不用改。
 //!
@@ -20,14 +20,14 @@ use term_core::session::SessionConfig;
 use term_core::session_runtime::SessionId;
 use term_session::SessionPool;
 
-/// An open terminal tab. S2: 只留标识 + 只读快照，零 OS 资源。
+/// An open terminal tab. 只留标识 + 只读快照，零 OS 资源。
 pub struct Tab {
-    /// 控制面（ADR-0019 档 1.1）。此前这里是 `Option<SupervisorHandle>`，tab 直接握
+    /// 控制面（ADR-0019）。此前这里是 `Option<SupervisorHandle>`，tab 直接握
     /// 线程 / 队列 / 邮箱；现在动作一律经它落到同一个会话对象上。
     pub(in crate::ui) pool: Arc<SessionPool>,
     /// 本 tab 绑定的会话；`None` = 已断开或夹具要静态画面（对应旧 `handle.is_some()`）。
     pub(in crate::ui) session: Option<SessionId>,
-    /// ADR-0025 阶段 0：本 tab 的**恒在逻辑身份**，独立于存活态铸造。
+    /// 本 tab 的**恒在逻辑身份**，独立于存活态铸造。
     ///
     /// 断连 / 重连都不改变；是窗口态 `open_order` / `active` / `pending_activation`
     /// 的身份键。`Tab.session` 是 `Option`（存活态）、`Tab.id` 是 egui 焦点 id
@@ -37,39 +37,39 @@ pub struct Tab {
     pub(in crate::ui) config: SessionConfig,
     /// 只读屏幕快照，由 [`Tab::poll`] 更新。
     pub snapshot: GridSnapshot,
-    /// R1：最近一次按范围请求的只读事实窗口（回看/选区/搜索共用通道）。
-    /// F1 起它是回看时的渲染来源。
+    /// 最近一次按范围请求的只读事实窗口（回看/选区/搜索共用通道）。
+    /// 此后它是回看时的渲染来源。
     pub screen: Option<ScreenImage>,
-    /// F2：本帧真正画在屏上的事实窗口（贴底 = 快照派生，回看 = 范围窗口裁切）。
+    /// 本帧真正画在屏上的事实窗口（贴底 = 快照派生，回看 = 范围窗口裁切）。
     ///
     /// 它是一份**派生值**，不是权威状态：每帧由 `ensure_view` 重算。
     /// 之所以留在 tab 上，是因为查找与 reducer 也要读同一个窗口——
     /// 「用户看到的那一屏」只能有一个定义，否则搜索与渲染会各算一屏。
     pub view: ScreenImage,
-    /// F1：回看视口（贴底时跟随输出）。
+    /// 回看视口（贴底时跟随输出）。
     pub viewport: Viewport,
-    /// F1：选区锚在内容行号上，滚动不跟着漂。
+    /// 选区锚在内容行号上，滚动不跟着漂。
     ///
-    /// W2 起这里是**一批**选区（`Selections`：若干段区间 + 活动下标 + 锁位）。
+    /// 此后这里是**一批**选区（`Selections`：若干段区间 + 活动下标 + 锁位）。
     /// 它不进 `ViewState`：选区是每帧从事实窗口推导的视图数据（拖动时每帧都变），
     /// 而 `ViewState` 只装领域语义、只能由 `reduce` 写。9 条集合命令改的正是它，
     /// 落地在 `ui/terminal/pane.rs`（那里才拿得到本帧的事实窗口）。
     pub selections: Selections,
-    /// F1：最近一次范围请求与当时的版本，避免每帧重复上行。
+    /// 最近一次范围请求与当时的版本，避免每帧重复上行。
     ///
     /// 存 [`ViewRange`](term_core::coords::ViewRange) 而不是裸 `Range<i64>`：
     /// 这个值唯一的作用就是和下一帧算出的 `viewport.rows()` 比较，
     /// 两边同一套类型，「拿绝对行号跟视口行比」这种错装配不进去。
     pub(in crate::ui) last_request: Option<(term_core::coords::ViewRange, u64)>,
-    /// P：预览用事实窗口槽（悬停滚动条时的历史快照），与 `screen` **物理隔离**
+    /// 预览用事实窗口槽（悬停滚动条时的历史快照），与 `screen` **物理隔离**
     /// （ADR-0028）。绝不与 `screen` / `view` / `last_request` 共用：否则一帧内
     /// 两份 `Event::Screen` 只剩一份，真实视口会退化成空白帧。
     pub(in crate::ui) preview_screen: Option<ScreenImage>,
-    /// P：预览请求的去重键（range + version），与 `last_request` **并列、独立判据**
+    /// 预览请求的去重键（range + version），与 `last_request` **并列、独立判据**
     /// （ADR-0028）。不跟着 `last_request` 的复位点（goto / fold）走——预览是
     /// 临时 chrome，它有自己的 staleness 生命周期。
     pub(in crate::ui) preview_last_request: Option<(term_core::coords::ViewRange, u64)>,
-    /// R13-f：这条会话连接时用过的凭据（内存里，不落盘）。
+    /// 这条会话连接时用过的凭据（内存里，不落盘）。
     ///
     /// 文件面板与隧道都是「连上之后还要再开一条连接」的消费者，没有它就得
     /// 再问用户一次密码——而那时用户正在看文件列表，问密码等于说「刚才那次不算」。
@@ -78,7 +78,7 @@ pub struct Tab {
     /// 类型是 `term_ssh::AuthMethod`（**带凭据**的那份），不是 `term_core` 里
     /// 同名的那个：后者只描述「打算用哪种方式认证」，不含密码与私钥路径。
     pub(in crate::ui) auth: Option<term_ssh::AuthMethod>,
-    /// W5-I：本 tab 的输入行缓冲。把按键字节重建成「回车前那一行」，
+    /// 本 tab 的输入行缓冲。把按键字节重建成「回车前那一行」，
     /// 回车时吐出，由窗口级 `CommandHistory` 记录。纯内存，不落盘（落盘见后续）。
     pub(in crate::ui) input_line: term_core::input_line::InputLine,
     /// Focus id so keyboard events reach this tab only.
@@ -186,20 +186,20 @@ pub struct Tab {
     /// 想改成「切到 Bin 才挂 / 才清」的，先读 `bin_spec` 模块头那段：那正是
     /// 「切过去屏幕是空的」那个 bug 的成因。
     pub(in crate::ui) raw: crate::ui::terminal::bin_spec::RawLog,
-    /// B2：本 tab 的 tmux 控制模式状态。只喂本会话的字节流，
+    /// 本 tab 的 tmux 控制模式状态。只喂本会话的字节流，
     /// 普通会话全 Passthrough 不进 active，tmux 会话 `%begin` 自动置位。
     pub(in crate::ui) tmux: term_app::tmux::ControlMode,
     /// 跨 chunk 行缓冲：tmux 控制行可能被任意切成块，这里攒到 `\n` 才算一行。
     pub(in crate::ui) tmux_pending: Vec<u8>,
-    /// D1：本 tab 的触发器求值器。与会话同生命周期（`poll` 里按 Connect/Disconnect
+    /// 本 tab 的触发器求值器。与会话同生命周期（`poll` 里按 Connect/Disconnect
     /// 事件 reset），跨 chunk 的尾巴 / 冷却表 / 一次性事件都留在这里。规则本身
     /// 来自 `Prefs`（经窗口缓存成 `TerminalWindow.triggers`），不进 per-tab 状态。
     pub(in crate::ui) triggers: Matcher,
-    /// R-M3：触发器双轨的影子求值器。默认只 eval 不 dispatch（零副作用），
+    /// 触发器双轨的影子求值器。默认只 eval 不 dispatch（零副作用），
     /// `WINDTERM_AUTOMATION_V2` 在场时新轨的 Effect 才会经 dispatcher 执行。
     /// 规则在 `poll` 首帧由旧规则转换装入，与会话同生命周期。
     pub(in crate::ui) shadow: crate::automation::Shadow,
-    /// D1：上一帧会话是否存活。仅用于在 `poll` 里检测 Connect / Disconnect 跳变——
+    /// 上一帧会话是否存活。仅用于在 `poll` 里检测 Connect / Disconnect 跳变——
     /// 跳变时 reset 求值器，保证「重连后 Connect 再次触发、断开后 Disconnect 再次触发」。
     pub(in crate::ui) was_live: bool,
     /// 本帧是不是「刚刚连上」的那一帧。`poll` 在 Connect 跳变处置位，窗口层
@@ -377,7 +377,7 @@ impl Tab {
 ///
 /// # 为什么现在才加
 ///
-/// 蓝图 §4.2 定的是「先保留可证伪回归、后上 RAII」。P0-1 / P0-1b / P0-1c(D) 已经
+/// 定的是「先保留可证伪回归、后上 RAII」。已经
 /// 把四条显式关闭路径（`close_tab` / `close_all_tabs` / `delete_session_config` /
 /// `replace_tabs`）逐一改成「先 `close()` 再丢」，每条都有自己的可证伪测试，前提
 /// 因此成立：这一层只负责「以后谁写了第五条路径、忘了 `close()`」。

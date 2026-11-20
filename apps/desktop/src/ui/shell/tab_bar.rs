@@ -17,11 +17,11 @@
 //! 与主题的 `focus` (`#1E90FF`) 不是同一个色，就近定义，不污染令牌。
 //! 标签左侧那枚粉红四环 `#C48D8E` 是会话类型图标；`×` 是两条斜线、不是带框按钮。
 //!
-//! # R5：右端三件都有真实效果
+//! # 右端三件都有真实效果
 //!
 //! `A` 弹字体缩放菜单、`＋` 派发新建会话、`≡` 弹标签列表并切换活动标签。
 //! 命令 ID 全部来自 `app/menu.rs`（`TAB_TOOLS` / `TAB_NEW_TAB_ID` / `ZOOM_ITEMS`），
-//! 投影层一个字面量都不写（I5）。
+//! 投影层一个字面量都不写。
 
 use crate::ui::*;
 use crate::ui::layout::pane_group_name;
@@ -146,7 +146,7 @@ impl TerminalWindow {
             } else if resp.clicked() {
                 self.set_active_slot(i);
             }
-            // A3：标签本身也是拖拽源。按下移动 = 拖起这条会话，松手落在某片窗格上即
+            // 标签本身也是拖拽源。按下移动 = 拖起这条会话，松手落在某片窗格上即
             // 与那片窗格交换（见 `draw_node`）。`dragged()` 在拖拽全程为真（含起手帧），
             // 每帧续上 `drag_session`；松手那帧 `dragged()` 为假、`drag_stopped()` 为真，
             // 置 `drag_released_this_frame` 交给帧末 flush 清拖拽态（若没被落点消费）。
@@ -260,7 +260,7 @@ impl TerminalWindow {
             self.dispatch(id);
         }
         if let Some(i) = close_tab {
-            // R14-c：标签栏 × 与菜单「Close」共用同一条关闭路径，右键
+            // 标签栏 × 与菜单「Close」共用同一条关闭路径，右键
             // Reopen Closed 才能开回来。
             self.close_tab_with_history(i);
             self.save_layout();

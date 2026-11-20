@@ -1,4 +1,4 @@
-//! D6：预览窗（`docs/design/05-files-and-transfer.md` 的「从 Filer 看一眼文件」）。
+//! 预览窗（`docs/design/05-files-and-transfer.md` 的「从 Filer 看一眼文件」）。
 //!
 //! 三件事，各占一段：
 //!
@@ -357,7 +357,7 @@ impl TerminalWindow {
         let title = self.preview.title.clone();
         let mut action: Option<Action> = None;
         // 状态只读、动作收集：窗口闭包持有 `self.preview` 的不可变借用，
-        // 施加动作要等它结束（R4 的受控契约）。
+        // 施加动作要等它结束（受控契约）。
         let open = DialogWindow::new(DialogId::Preview, &title).show(ctx, |ui| {
             draw_body(ui, lang, &self.preview, &mut action);
         });

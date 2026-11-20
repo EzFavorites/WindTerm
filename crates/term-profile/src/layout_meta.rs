@@ -1,4 +1,4 @@
-//! L3（`docs/design/10-crash-hardening.md`）：`layout.json` 的
+//! （`docs/design/10-crash-hardening.md`）：`layout.json` 的
 //! **落盘元信息**——最近一次写盘的时间与上一次的退出形态。
 //!
 //! # 为什么它们不进 `SavedLayout`
@@ -9,7 +9,7 @@
 //!
 //! # 为什么不和 `layout_state` 放一个文件
 //!
-//! 那一份已经顶到 R9 的单文件行数上限，而这两件事的关注点本来就不同：一个是
+//! 那一份已经顶到单文件行数上限，而这两件事的关注点本来就不同：一个是
 //! 「布局长什么样」，一个是「这份文件什么时候写的、上次是不是正常退出」。
 //!
 //! 调用方仍然只认 `term_profile::layout_state` 一个入口——它在 `layout_state.rs`
@@ -155,7 +155,7 @@ mod tests {
         dir.join(crate::layout_state::LAYOUT_FILE)
     }
 
-    /// L3（O 设计稿 §3d/§3e）：带戳落盘 + 「要不要提示」的判定。
+    /// 带戳落盘 + 「要不要提示」的判定。
     ///
     /// 三个分支都要钉：非 clean 且新鲜 → 提示；clean → 不提示（用户是正常退出，
     /// 不该被吓一跳）；太旧 → 不提示（三天前的崩溃与今天的启动无关）。

@@ -20,7 +20,7 @@
 //! 循环还原成旧代码，测试必挂（见 `/tmp/falsify-p01b.log`）。
 
 use crate::ui::*;
-// ④-0：造窗夹具要建「窗格身份 + group」配对。
+// 造窗夹具要建「窗格身份 + group」配对。
 use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
 use std::collections::HashMap;
@@ -161,10 +161,10 @@ pub(in crate::ui) fn window_with(
     ctx: &egui::Context,
     tabs: Vec<Tab>,
 ) -> TerminalWindow {
-    // ADR-0025 阶段 0：从入参 tabs 反推恒在身份顺序与活动身份。
+    // 从入参 tabs 反推恒在身份顺序与活动身份。
     let open_order = tabs.iter().map(|t| t.identity).collect();
     let active = tabs.first().map(|t| t.identity);
-    // ④-0：初始单窗格 = 一个 PaneId + 一片只含当前会话的 group。
+    // 初始单窗格 = 一个 PaneId + 一片只含当前会话的 group。
     let init_pane = mint_pane_identity();
     let mut pane_groups: HashMap<PaneId, PaneGroup> = HashMap::new();
     if let Some(s) = active {
@@ -227,7 +227,7 @@ pub(in crate::ui) fn window_with(
         tunnels_enabled: true,
         onekeys_edit: None,
         onekeys_password_draft: None,
-        // L1/L3：测试窗口从「没话说、没崩过」开始。
+        // 测试窗口从「没话说、没崩过」开始。
         notice: None,
         frame_panics: 0,
         tab_focus: Vec::new(),
@@ -239,11 +239,11 @@ pub(in crate::ui) fn window_with(
         selection_text_shell: String::new(),
         command_history: Default::default(),
         ctx: ctx.clone(),
-        // N：周期留存测试字段（0 = 从没留存过）。
+        // 周期留存测试字段（0 = 从没留存过）。
         last_periodic_save: 0.0,
-        // A2：结构变化即时落盘标志（测试窗口默认 false = 本帧无待存结构变化）。
+        // 结构变化即时落盘标志（测试窗口默认 false = 本帧无待存结构变化）。
         pending_save_layout: false,
-        // A3：拖拽态（测试窗口默认无拖拽、本帧未松手）。
+        // 拖拽态（测试窗口默认无拖拽、本帧未松手）。
         drag_session: None,
         drag_released_this_frame: false,
         restore_focus: false,
@@ -320,17 +320,17 @@ pub(in crate::ui) fn window_with(
         startup: Default::default(),
         pending_activation: Vec::new(),
         applied_window: Default::default(),
-        // D5：夹具窗口一律出厂不透明（这些生命周期用例不碰窗口透明度）。
+        // 夹具窗口一律出厂不透明（这些生命周期用例不碰窗口透明度）。
         window_opacity: Default::default(),
-        // D3：地址栏默认关闭；这些生命周期用例不碰它。
+        // 地址栏默认关闭；这些生命周期用例不碰它。
         address: Default::default(),
-        // D6：首次启动引导默认关着；生命周期用例不碰它（探测要读家目录，
+        // 首次启动引导默认关着；生命周期用例不碰它（探测要读家目录，
         // 用例里也不该依赖那台机器上有没有 `~/.ssh/config`）。
         onboarding: term_app::onboarding::OnboardingState::new(),
-        // D6：预览窗默认关着；这些生命周期用例不碰它（打开要读真实文件，
+        // 预览窗默认关着；这些生命周期用例不碰它（打开要读真实文件，
         // 用例里不该依赖那台机器上有哪个文件）。
         preview: Default::default(),
-        // D8-3：脚本编辑器默认没开；生命周期用例不碰它。
+        // 脚本编辑器默认没开；生命周期用例不碰它。
         script_editor: None,
     }
 }
@@ -339,7 +339,7 @@ pub(in crate::ui) fn window_with(
 mod phase0_identity_tests {
     use super::*;
 
-    /// ADR-0025 阶段 0 验收：窗口态 `open_order` / `active` 从 `tabs` 反推且一致。
+    /// 验收：窗口态 `open_order` / `active` 从 `tabs` 反推且一致。
     #[test]
     fn open_order_tracks_tab_identities_and_active_points_first() {
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
@@ -389,7 +389,7 @@ mod a2_save_layout_tests {
         win
     }
 
-    /// A2：关掉当前窗格（剪叶，结构变化）后必须置「待落盘」标志，由帧末 flush
+    /// 关掉当前窗格（剪叶，结构变化）后必须置「待落盘」标志，由帧末 flush
     /// 派发 `Action::SaveLayout`——旧实现靠 30s 周期 / 退出兜底，结构变化不即时落盘。
     #[test]
     fn closing_an_active_group_flags_pending_save_layout() {
@@ -403,7 +403,7 @@ mod a2_save_layout_tests {
         assert!(win.layout.is_single(), "关掉 active 窗格后树应收成单叶");
     }
 
-    /// A2：把当前会话并入下一窗格（合并，结构变化）后同样置「待落盘」标志。
+    /// 把当前会话并入下一窗格（合并，结构变化）后同样置「待落盘」标志。
     #[test]
     fn merging_into_next_group_flags_pending_save_layout() {
         let mut win = two_pane_window();
@@ -420,7 +420,7 @@ mod a2_save_layout_tests {
 mod a3_drag_swap_tests {
     use super::*;
 
-    /// 与 A2 同款的造窗助手：两片真本地 shell 叶子并排，活动身份落在第一片。
+    /// 与上面同款的造窗助手：两片真本地 shell 叶子并排，活动身份落在第一片。
     fn two_pane_window() -> TerminalWindow {
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
         let ctx = egui::Context::default();
@@ -429,7 +429,7 @@ mod a3_drag_swap_tests {
         let id0 = t0.identity;
         let id1 = t1.identity;
         let mut win = window_with(pool, &ctx, vec![t0, t1]);
-        // ④-0：两片窗格各自一个 `PaneId` + 一个只含本会话的 group。先清掉
+        // 两片窗格各自一个 `PaneId` + 一个只含本会话的 group。先清掉
         // `window_with` 留下的单窗格 init_pane 条目，避免 stale group 污染 `tabs()`。
         let p0 = mint_pane_identity();
         let p1 = mint_pane_identity();
@@ -446,8 +446,8 @@ mod a3_drag_swap_tests {
         win
     }
 
-    /// A3：把会话 A 拖到显示会话 B 的窗格上，两格内容交换，且置「待落盘」标志
-    /// （A2 即时落盘链路复用）。
+    /// 把会话 A 拖到显示会话 B 的窗格上，两格内容交换，且置「待落盘」标志
+    /// （即时落盘链路复用）。
     #[test]
     fn dropping_a_tab_on_another_pane_swaps_the_two_panes() {
         let mut win = two_pane_window();
@@ -472,7 +472,7 @@ mod a3_drag_swap_tests {
         assert_eq!(set.len(), 2, "身份集合不变、不重复");
     }
 
-    /// A3：拖回自己那片（同身份）是空操作，不算命中、不触发落盘、不清拖拽态
+    /// 拖回自己那片（同身份）是空操作，不算命中、不触发落盘、不清拖拽态
     /// （拖拽态交给帧末 flush，与「落空」同口径）。
     #[test]
     fn dropping_a_tab_on_its_own_pane_is_a_no_op() {

@@ -1,6 +1,6 @@
 //! 底部两条工具条与页脚 `Cancel` / `Ok`，以及 `Rename` 内联输入行。
 //!
-//! 从 `mod.rs` 拆出（R9 单文件 500 行上限）。
+//! 从 `mod.rs` 拆出（单文件 500 行上限）。
 
 use super::fields::{self, mono, place, rgb, text_w};
 use super::list::display_name;

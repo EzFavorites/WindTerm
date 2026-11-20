@@ -7,12 +7,12 @@
 //! 任何客户端不得自持远端会话（那就是「静默执行」，本 crate 的存在
 //! 正是为了让这类分叉在类型层面不可能）。
 //!
-//! 协议无关（ADR-0019 §B.14 最高原则）：本 crate 的公开 API 里**不出现**
+//! 协议无关（ADR-0019 最高原则）：本 crate 的公开 API 里**不出现**
 //! SSH / SFTP / 隧道等协议专有概念。本地 PTY 会话由 [`SessionPool::open`]
 //! 直接拉起；其余协议由应用层建好 `TermChannel` 经 [`SessionPool::open_with_channel`]
 //! 注入——协议差异只存在于通道实现里，控制面对此一无所知。
 //!
-//! 线程模型（ADR-0019 §B.3）：[`SessionPool`] 是 `&self` 的、可跨线程
+//! 线程模型（ADR-0019）：[`SessionPool`] 是 `&self` 的、可跨线程
 //! 共享（UI 线程 / 脚本线程 / 桥接线程各持 `Arc<SessionPool>`）；
 //! 每个 `Session` 包在自己的 `Mutex` 里，与 `term-io` 的
 //! `Arc<Mutex>` 风格一致。零 `.await`、不声明 tokio（ADR-0017 笼子）。
@@ -38,7 +38,7 @@ use term_io::supervisor::{
     spawn, spawn_exec, spawn_with_channel, RawControl, SupervisedSession, SupervisorHandle,
 };
 
-/// 应用层通道工厂的失败分类（W1-c）。
+/// 应用层通道工厂的失败分类。
 ///
 /// 控制面**不认识** SSH / SFTP / 隧道，但必须能把「为什么没建出通道」按
 /// 类别送回调用方：这三类分别对应「去解锁」「改会话」「查网络」三种动作，
@@ -70,7 +70,7 @@ impl std::error::Error for ChannelFailure {}
 
 /// 通道工厂：把「按这份配置建一条字节通道」这件事交给应用层。
 ///
-/// W1-c 之前控制面只会说 `BuiltinChannelNeedsInjection`，于是每个客户端
+/// 之前控制面只会说 `BuiltinChannelNeedsInjection`，于是每个客户端
 /// 都得自己 `match` 协议、自己拿凭据、自己调 `open_with_channel`——控制面
 /// 号称「唯一会话所有者」，却把最重要的那类会话推给了调用方。
 /// 现在工厂由应用层在启动时注册一次；控制面依旧零协议知识（签名里只有
@@ -92,7 +92,7 @@ pub enum OpenError {
     Spawn(String),
     /// 需要应用层注入通道、但工厂没装上来。
     ///
-    /// W1-c 起它只在「客户端还没注册工厂」时出现；脚本 / 桥接靠这一臂
+    /// 它只在「客户端还没注册工厂」时出现；脚本 / 桥接靠这一臂
     /// 明确报告「装忘了一步」，而不是看到一句含糊的连接失败。
     BuiltinChannelNeedsInjection,
     /// 工厂建通道失败，原因保留分类（见 [`ChannelFailure`]）。
@@ -118,7 +118,7 @@ impl std::error::Error for OpenError {}
 struct Entry {
     name: String,
     session: Arc<Mutex<dyn Session>>,
-    /// W3：原始字节旁路的控制端。会话本体在这里是 `dyn Session`，借不回
+    /// 原始字节旁路的控制端。会话本体在这里是 `dyn Session`，借不回
     /// `SupervisorHandle`；这一份在 `insert` 时就取好，透传旁路登记用。
     raw: RawControl,
     /// 非破坏性 tee 的控制端（hex 视图的字节来源）。与 `raw` 是同一个
@@ -133,7 +133,7 @@ struct Entry {
 /// 脚本线程、桥接线程同时持有（各持 `Arc`），无需外部加锁。
 pub struct SessionPool {
     sessions: Mutex<HashMap<SessionId, Entry>>,
-    /// W1-c：应用层注册的通道工厂，只装一次、装完只读（无需表锁）。
+    /// 应用层注册的通道工厂，只装一次、装完只读（无需表锁）。
     factory: OnceLock<Arc<ChannelFactory>>,
 }
 
@@ -393,7 +393,7 @@ impl SessionPool {
     /// 的全局函数闭包捕获会话后逐个调用，中间隔着解释器，没法折成
     /// `&self` 的控制面调用。
     ///
-    /// 边界（ADR-0019 §B.3）：拿到的仍是**注册表里那一个**会话对象（同一个
+    /// 边界（ADR-0019）：拿到的仍是**注册表里那一个**会话对象（同一个
     /// `Arc`），不是副本；关闭、列举、状态查询仍然只有控制面能做。
     /// 换句话说这条缝让脚本线程**用**会话，不让它**拥有**会话。
     /// 会话不存在返回 `None`——不悄悄新建一个来顶替。
@@ -445,7 +445,7 @@ impl SessionPool {
         lock_or_recover(&self.sessions)
     }
 
-    // ── 驱动界面需要的门面（ADR-0019 档 1.1：desk 不再自己持句柄） ─────
+    // ── 驱动界面需要的门面（ADR-0019：desk 不再自己持句柄） ─────
     //
     // 这一组是「只有界面要」的方法：脚本与桥接读屏幕事实就够，不需要推事件、
     // 不需要开日志、不需要每帧读缓存快照。它们放在控制面上，是为了让
@@ -690,7 +690,7 @@ mod tests {
         assert!(!pool.clear(999));
         assert!(!pool.stop_log(999));
         assert!(!pool.close(999));
-        // W3：原始字节旁路对未知会话同样是诚实的 false（不是「登记失败」）。
+        // 原始字节旁路对未知会话同样是诚实的 false（不是「登记失败」）。
         let (sink, _rx) = std::sync::mpsc::channel();
         assert!(!pool.attach_raw(999, sink));
         assert!(!pool.detach_raw(999));
@@ -808,7 +808,7 @@ mod tests {
         );
     }
 
-    // ── W1-c：控制面本体认「需要注入通道」的会话 ──────────────────────
+    // ── 控制面本体认「需要注入通道」的会话 ──────────────────────
 
     /// 测试用的假通道：只在第一次 `drain` 给一行字，之后安静。
     /// 它不认识任何协议——控制面就该只见到这种东西。
@@ -848,7 +848,7 @@ mod tests {
 
     #[test]
     fn the_pool_opens_a_builtin_session_through_the_registered_factory() {
-        // W1-c 的正题：客户端不必自己 match 协议、不必自己调
+        // 正题：客户端不必自己 match 协议、不必自己调
         // `open_with_channel`，`open()` 一个入口就能把内置会话开起来。
         let pool = SessionPool::new();
         pool.set_channel_factory(stub_factory()).expect("首次注册");

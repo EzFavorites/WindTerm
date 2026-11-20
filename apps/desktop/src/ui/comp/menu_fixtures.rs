@@ -1,5 +1,5 @@
 //! Session / Log 两个菜单展开态夹具：从 `comp/mod.rs` 外迁以满足
-//! R9 的 500 代码行上限。绘制仍走 `shell::draw_menu_items_static`，
+//! 500 代码行上限。绘制仍走 `shell::draw_menu_items_static`，
 //! 与生产菜单弹层同一套三态色 / 快捷键列 / 自适应宽度。
 
 use eframe::egui;

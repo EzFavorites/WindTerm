@@ -4,7 +4,7 @@ version = "1.0.0"
 rust-version = "1.94"
 edition = "2021"
 
-# 凭据保险库（R13-a）：主密码 → Argon2id → XChaCha20-Poly1305 加密的条目文件。
+# 凭据保险库：主密码 → Argon2id → XChaCha20-Poly1305 加密的条目文件。
 #
 # 这一层**同步、无运行时、无 IO**：加密解密是纯函数式的字节变换，读写文件由
 # 调用方（term-runtime / apps/*）负责。依赖表里没有 tokio、没有 UI、没有 term-core

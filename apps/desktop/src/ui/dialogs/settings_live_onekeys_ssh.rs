@@ -1,4 +1,4 @@
-//! OneKeys 对话框的 `SSH` 页（从 `settings_live_onekeys` 拆出，满足 4j 单文件上限）。
+//! OneKeys 对话框的 `SSH` 页（从 `settings_live_onekeys` 拆出，满足单文件上限）。
 //!
 //! 右栏各元素的 y 均为视觉基线（1408×1314 @2×）物理像素 ÷2 的实测值，
 //! 相对右栏内容原点；绘制走 `place` 绝对定位，不用 flow。

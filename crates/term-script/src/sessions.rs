@@ -2,7 +2,7 @@
 //!
 //! # 为什么要这一层
 //!
-//! 单会话原语只认 [`Session`]（协议无关，ADR-0019 §B.14），但全局层
+//! 单会话原语只认 [`Session`]（协议无关，ADR-0019），但全局层
 //! （`session_list` / `session_open` / `session_close` / `session_use`）必须
 //! 回答两个单会话看不见的问题：「现在有哪些会话」「再开一个」。
 //!
@@ -26,7 +26,7 @@
 //!
 //! 这两件事的答案属于**应用层**（`term-session` 的 `SessionPool` 是登记表，
 //! 内置 SSH 的通道工厂、凭据、保险库都是应用策略）。`term-script` 不能依赖
-//! 它——那会把「脚本引擎」和「会话登记表」焊在一起，也不符合 I4 单向依赖。
+//! 它——那会把「脚本引擎」和「会话登记表」焊在一起，也不符合单向依赖。
 //!
 //! 所以这里只**声明** trait，由调用方实现：
 //! - `apps/desktop/src/script_host.rs` 的 `PooledSessions`（`SessionPool` 之上）；
@@ -169,7 +169,7 @@ pub trait Sessions: Send + Sync {
     /// [`Session`]；本集合不认识就返回 `None`（调用方报 `NotFound`）。
     fn attach(&self, id: SessionId) -> Option<Arc<Mutex<dyn Session>>>;
 
-    // ── 会话面的扩展（ADR-0027 S5）：默认全部显式拒绝 ──────────────────
+    // ── 会话面的扩展（ADR-0027）：默认全部显式拒绝 ──────────────────
     //
     // 这些方法只有界面宿主能真做（把标签带到前台、复制一条会话、问哪个是
     // 当前激活的）。默认实现一律 Unsupported/None，于是 CLI 与单测不必假装
@@ -243,7 +243,7 @@ pub trait Sessions: Send + Sync {
     // ── 面向人的两条已迁走 ──────────────────────────────────────────
     //
     // `notify` / `ask` 曾经在这条 trait 上（默认写 stderr / 返回 None）。
-    // ADR-0027 S3 起它们属于 [`HumanChannel`](crate::HumanChannel) 这个**独立
+    // ADR-0027 之后，它们属于 [`HumanChannel`](crate::HumanChannel) 这个**独立
     // 端口**：会话集合回答「有哪些会话」，人机端口回答「怎么问人」。两件事
     // 混在一条 trait 上，进程级宿主想换「问人的方式」就得连会话集合一起换。
 }

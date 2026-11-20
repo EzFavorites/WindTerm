@@ -1,4 +1,4 @@
-//! `Preferences ▸ Highlight`：五行里**两行**有真实消费者，其余三行按 I5 保持
+//! `Preferences ▸ Highlight`：五行里**两行**有真实消费者，其余三行保持
 //! 灰显空框 + 悬停说明。
 //!
 //! # 为什么前两行能接真
@@ -28,7 +28,7 @@
 //!
 //! caret word / current fold / current pair 都没有状态位，也没有渲染读者
 //! （终端只画「常驻词表」与上面的 Find 命中，那是另外两件事）。
-//! 摆成能点的勾就是假开关（R5），所以画空框 + hover 理由。
+//! 摆成能点的勾就是假开关，所以画空框 + hover 理由。
 
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
@@ -38,7 +38,7 @@ use crate::ui::*;
 use term_app::shell::MarksKnob;
 
 /// 三行灰显的共同理由：点名缺的是「编辑器侧的高亮状态」，
-/// 不说「尚未实现」这种对下一个人没有信息量的话（S4）。
+/// 不说「尚未实现」这种对下一个人没有信息量的话。
 const HIGHLIGHT_NOTE: &str = "Not wired: the caret word, current fold and current pair rules have no \
      state to store and no renderer. Caret line and search matching are live (search matching is \
      the same pass that paints find hits).";
@@ -107,7 +107,7 @@ mod tests {
     #[test]
     fn the_search_row_is_no_longer_described_as_missing() {
         // 这一行从「没有渲染器」变成真勾选。说明里若还留着
-        // "incremental search" 作缺项，就是反着的谎（S4），而且是**我们刚
+        // "incremental search" 作缺项，就是反着的谎，而且是**我们刚
         // 亲手确认过渲染早就在画**的那一项。
         assert!(
             !HIGHLIGHT_NOTE.contains("incremental search"),

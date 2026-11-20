@@ -1,11 +1,11 @@
-//! V1-1 / W1-a：布局**结构**的恢复、保存，以及「激活即连」。
+//! 布局**结构**的恢复、保存，以及「激活即连」。
 //!
 //! `05-feature-scope.md §2.2` 的边界：恢复标签 / 分屏 / 会话引用，不恢复
 //! 进程内状态（回滚内容、运行中的进程、选区）。`layout_state` 里存的是会话
 //! 名字与一棵二分树，所以重启后按名字去会话库里重新查配置——用户后来改过
 //! 的密码 / 分组不会被旧布局覆盖回去。
 //!
-//! # W1-a：摆回结构，但只在视图被激活时连
+//! # 摆回结构，但只在视图被激活时连
 //!
 //! 官方公开文档 `windterm-docs-md/2020/01/22/restore-sessions/index.md:27`：
 //! 「All last sessions will be restored after restart, and the session only
@@ -163,7 +163,7 @@ impl TerminalWindow {
 
     /// 把当前结构写进布局库。失败不崩（可用性资产），由 `layout_state` 报 stderr。
     ///
-    /// W1-a：**只有 LastSessions 档写 tabs/tree/active**。其余两档启动时并没有
+    /// **只有 LastSessions 档写 tabs/tree/active**。其余两档启动时并没有
     /// 读那份布局，退出时却把「此刻只有一条默认 shell」写回去，等于把上次的
     /// 会话记录抹掉——临时切到 `No session` 再切回 `Last sessions`，昨天的
     /// 标签就全没了。那两档只更新 `dock`（面板位置与会话恢复无关，仍要记住）。
@@ -200,13 +200,13 @@ impl TerminalWindow {
             previous.dock = self.dock.to_saved();
             previous
         };
-        // L3（O 设计稿 §3d）：运行期落盘一律**盖时间戳**。下次启动靠它判断
+        // 运行期落盘一律**盖时间戳**。下次启动靠它判断
         // 「上次的留存点是不是刚发生的」——没有这一格，三小时前的一次崩溃与
         // 三秒前的崩溃长得一模一样。
         layout_state::save_run(&saved, crate::now_secs());
     }
 
-    /// L3（O 设计稿 §3e）：上次没走正常退出的，启动时出一行提示。
+    /// 上次没走正常退出的，启动时出一行提示。
     ///
     /// 与 [`Self::restore_layout`] 分开调用：恢复标签为空（会话库被清、Startup
     /// 档位是 No session）时布局没有恢复，但「上次是崩的」这条事实仍然成立。
@@ -273,7 +273,7 @@ fn keep_tab_snapshot(mode: StartupMode) -> bool {
 /// 策略给出的会话名 → 会话库里**真的还找得到**的那些。
 ///
 /// 用户在设置页选完之后删掉过会话，或 `layout.json` 来自另一台机器，都会
-/// 出现「点名的会话不存在」。这里静默跳过而不是凭空造一个配置（与 V1-1
+/// 出现「点名的会话不存在」。这里静默跳过而不是凭空造一个配置（与
 /// 原行为一致），也**不改顺序、不去重**：用户真的开过两条同名会话时，
 /// 恢复出来就该是两条。
 fn resolve_restore(wanted: &[String], library: &[String]) -> Vec<String> {

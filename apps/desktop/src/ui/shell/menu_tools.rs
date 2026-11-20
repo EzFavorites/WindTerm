@@ -169,7 +169,7 @@ fn tunnels_menu_body(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let on = win.tunnels_enabled;
     let font = egui::TextStyle::Button.resolve(ui.style());
     // 两行：(文案, 访问字母下标, 是不是那条带开关的行, 命令 ID)。
-    // **名单在数据层**（`TUNNEL_ITEMS`）：命令 ID 出现在 `ui/` 里就算硬编码（4e / I5），
+    // **名单在数据层**（`TUNNEL_ITEMS`）：命令 ID 出现在 `ui/` 里就算硬编码，
     // 这里只负责把表里的四项搬上手绘的行。
     let rows: Vec<(&str, usize, bool, &'static str)> = term_app::menu::TUNNEL_ITEMS
         .iter()

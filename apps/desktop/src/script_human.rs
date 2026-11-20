@@ -49,7 +49,7 @@ pub struct UiHuman {
     queue: AskQueue,
     /// 文件框的落点（界面同一套队列，多一个变体）。
     picks: Arc<Mutex<Vec<PendingPick>>>,
-    /// 授权信封：用户手选的路径要**当场**加进来（ADR-0027 D2.3）。
+    /// 授权信封：用户手选的路径要**当场**加进来（ADR-0027）。
     caps: Option<Envelope>,
     /// `notify` 的落点（界面每帧取走显示在状态栏）。`None` = 写 stderr。
     notes: Option<Arc<Mutex<Vec<String>>>>,

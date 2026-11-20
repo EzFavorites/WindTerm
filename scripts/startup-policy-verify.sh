@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# W1-a：Startup 三档策略的实机回归（出图比哈希，不抢前台）。
+# Startup 三档策略的实机回归（出图比哈希，不抢前台）。
 #
 #   scripts/startup-policy-verify.sh
 #   CARGO_TARGET_DIR=/tmp/zterm-check scripts/startup-policy-verify.sh

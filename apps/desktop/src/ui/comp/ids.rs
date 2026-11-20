@@ -1,6 +1,6 @@
 //! `CompId` 的名字与判定表：`ALL` 名单、`name()` / `has_baseline()` / `page()` / `parse()`。
 //!
-//! 从 `comp/mod.rs` 拆出来是为了 R9（`ui/` 单文件代码行 ≤ 500，不含注释）：
+//! 从 `comp/mod.rs` 拆出来是为了行数约束（`ui/` 单文件代码行 ≤ 500，不含注释）：
 //! `mod.rs` 767 行里 566 行是代码，越线了。拆分只挪位置，`CompId` 仍然只活在
 //! `ui` 内部（可见性一个字没改）。
 
@@ -43,7 +43,7 @@ impl CompId {
         CompId::SessionTree,
         // New Session 按**页**登记，不登记"整张弹窗"：弹窗整体由
         // `screenshot-dialog.png` 守位置；组件图逐页守内容。
-        // P8：注册数必须等于 session_nav::PAGE_COUNT，多一个少一个都会
+        // 注册数必须等于 session_nav::PAGE_COUNT，多一个少一个都会
         // 让「每页都有独立基线」这句契约失效（round_trips 单测守）。
         CompId::NewSessionPage(0),
         CompId::NewSessionPage(1),
@@ -93,7 +93,7 @@ impl CompId {
         CompId::SettingsPage(19),
         CompId::SettingsPage(20),
         CompId::SettingsPage(21),
-        // D1 新增的 Triggers 页：下标 = `SettingsPage::ALL` 里 Triggers 的位置（22）。
+        // 新增的 Triggers 页：下标 = `SettingsPage::ALL` 里 Triggers 的位置（22）。
         CompId::SettingsPage(22),
         // `Terminal.ManageOneKeys`：凭据管理器页，下标 = 23。
         CompId::SettingsPage(23),
@@ -114,7 +114,7 @@ impl CompId {
     ];
 
     /// 视觉基线专用夹具：快捷命令 2 个 + 右键菜单 2 个 + 未挂接弹层 3 个。
-    /// 装配文件用一个 arm 收口它们，避免 R9 的 500 行上限。
+    /// 装配文件用一个 arm 收口它们，避免 500 行上限。
     pub(in crate::ui) fn is_reference_popup(self) -> bool {
         matches!(
             self,
@@ -148,7 +148,7 @@ impl CompId {
             CompId::SshReplaceKey => "dialog_ssh_replace_key",
             CompId::FilerPrompt => "dialog_filer_prompt",
             CompId::ScriptRun => "dialog_script_run",
-            // D8-3 的窗口 2026-11-18 首次冻结：编辑器只能从运行窗口的 `Edit`
+            // 窗口 2026-11-18 首次冻结：编辑器只能从运行窗口的 `Edit`
             // 进（两级入口），不单独出图就永远没人看过它的像素。
             CompId::ScriptEditor => "dialog_script_editor",
             CompId::Palette => "overlay_palette",
@@ -215,7 +215,7 @@ impl CompId {
             | CompId::ConfirmCloseSession
             | CompId::MenuSession
             | CompId::MenuLog => true,
-            // 十页的现状就是「当前实现的事实」，先冻结住，P5 逐页比对时
+            // 十页的现状就是「当前实现的事实」，先冻结住，逐页比对时
             // 任何改动都会立刻显形——这比"改完再看有没有变丑"可靠。
             //
             // 2026-11-08：17..21 是视觉基线补页（Bell / Mode / Security / SFTP /
@@ -227,7 +227,7 @@ impl CompId {
             CompId::NewSessionPage(_) => true,
             // OneKeys：组件名单里**从来没有** `dialog_settings_onekeys.png`
             // （git 无记录；整批基线在 2026-11-16 窗口容器改造后有意清空，
-            // 等 D1/K1/K2/K3 落定再重冻，见 docs/facts.txt 的 `baselines=0`）。
+            // 等这些模块落定再重冻，见 docs/facts.txt 的 `baselines=0`）。
             // 标成 gated 会让 `--components` 每次都报「基线不存在」——那是假红：
             // 不是图坏了，是这个组件从未冻结过。名单保留（夹具出图照样能看），
             // 但不进逐字节比对；重冻时 PNG 落进 git 再并回 gated。
@@ -240,7 +240,7 @@ impl CompId {
             // Preferences 的 24 页：首轮出图即冻结，之后「哪一页被改坏」是
             // 逐字节问题，不再需要在一整张默认页截图里靠肉眼找。
             CompId::SettingsPage(_) => true,
-            // 2026-11-08 B1-c：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
+            // 2026-11-08：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
             // 对过（勾选栏几何见 visual-golden §7.23），纳入比对。
             CompId::MenuMode => true,
             CompId::MenuEdit

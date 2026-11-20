@@ -33,7 +33,7 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
     match action {
         Action::Shell(a) => shell_feature::reduce(state, a),
         Action::Find(a) => match a {
-            // R14-b：以选区为查询词的查找——reducer 打开栏并复位，把「填选区 + 跳一步」
+            // 以选区为查询词的查找——reducer 打开栏并复位，把「填选区 + 跳一步」
             // 留给投影层（查询词来自 `selection_text`，本层没有选区）。
             find_feature::FindAction::SelectionNext => {
                 find_feature::reduce(&mut state.find, a, window);
@@ -52,9 +52,9 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         Action::Select(op) => vec![Effect::Select(Cmd::Move(op))],
         Action::SelectSet(op) => vec![Effect::Select(Cmd::Set(op))],
         Action::Log(a) => log_feature::reduce(state, a),
-        // R14-c：确认时把「选中命令」翻译成 Action，再走一次同一条纯函数路径。
-        // 面板自己不执行任何副作用，也没有字符串派发的旁路（B4）；未接线项
-        // 的 confirm_id 是 None，点了只会安静地关掉面板，不会假装成功（R5）。
+        // 确认时把「选中命令」翻译成 Action，再走一次同一条纯函数路径。
+        // 面板自己不执行任何副作用，也没有字符串派发的旁路；未接线项
+        // 的 confirm_id 是 None，点了只会安静地关掉面板，不会假装成功。
         Action::Palette(a) => {
             let confirm = matches!(a, PaletteAction::Confirm);
             let id = if confirm {
@@ -72,7 +72,7 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
             }
         }
         Action::Goto(a) => goto_feature::reduce(&mut state.goto, a),
-        // D3：地址栏。**没有 reducer、没有 Effect、一行 `ViewState` 都不写**：
+        // 地址栏。**没有 reducer、没有 Effect、一行 `ViewState` 都不写**：
         // 输入框的开合、候选与最近使用都活在投影层（`apps/desktop` 的
         // `dispatch_action` 认得这个变体就直接开地址栏）。
         //
@@ -95,7 +95,7 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
             Vec::new()
         }
         Action::Lock(a) => lock_feature::reduce(state, a),
-        // P4：布局动作不写 `ViewState`——与分屏树同类，布局是投影层的视图结构。
+        // 布局动作不写 `ViewState`——与分屏树同类，布局是投影层的视图结构。
         Action::Layout(a) => dock::reduce(a),
         // 2026-11-07：margin 只翻一位 bool，没有 Effect——列宽与颜色由投影层现算。
         Action::Margin(a) => {
@@ -110,9 +110,9 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         Action::Fold(cmd) => vec![Effect::Fold(cmd)],
         // 2026-11-09：传输只带口令，状态全在投影层（那里才有会话句柄）。
         Action::Xfer(cmd) => vec![Effect::Xfer(cmd)],
-        // W2-b：标签右键只带意图，标签列表 / 最近关闭 / 颜色表全在投影层。
+        // 标签右键只带意图，标签列表 / 最近关闭 / 颜色表全在投影层。
         Action::Tab(a) => vec![Effect::Tab(a)],
-        // V1-1 / V1-2 / V1-4：投影层的 IO 意图，reducer 不碰状态。
+        // 投影层的 IO 意图，reducer 不碰状态。
         Action::ImportSessions(source) => vec![Effect::ImportSessions(source)],
         Action::SaveLayout => vec![Effect::SaveLayout],
         Action::OpenShortcuts => {
@@ -126,9 +126,9 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         }
         Action::TmuxCommand(cmd) => vec![Effect::TmuxCommand(cmd)],
         Action::TmuxFeed(line) => vec![Effect::TmuxFeed(line)],
-        // P9：纯 reducer 只把静态文本提升为 Effect；不碰 ViewState、不碰 PTY。
+        // 纯 reducer 只把静态文本提升为 Effect；不碰 ViewState、不碰 PTY。
         Action::QuickCommand(text) => vec![Effect::SendCommand(text)],
-        // P9：配置菜单切分组可见性——只翻一位 `bool`，无 Effect。index 越界时
+        // 配置菜单切分组可见性——只翻一位 `bool`，无 Effect。index 越界时
         // 用取模兜底，菜单永远给的是合法下标，这里只是不让 reducer panic。
         Action::QuickGroupToggle(i) => {
             let slot = i % state.quick_groups_visible.len();

@@ -1,21 +1,21 @@
 //! 组件注册表 —— 一个组件一张出图，一个名字一次调用。
 //!
-//! # 契约（P3 起强制，P2 先立脚手架）
+//! # 契约（自上而下强制）
 //!
 //! 每个组件 = 一个私有状态 struct + 一个 `show()`（纯绘制）+ 一个 `Props`
 //! 结构（每帧只读输入）。三条硬规矩：
 //!
 //! 1. **Props 进、Action 出**：`show()` 不返回 `&mut` 任何东西，写入一律
-//!    打包成 `Vec<Action>` 回给调用方，走同一条 `reduce()`（B3 / B4）。
+//!    打包成 `Vec<Action>` 回给调用方，走同一条 `reduce()`。
 //! 2. **不挂 `&mut TerminalWindow`**：那会把「画一个组件」变成「持有整个世界」，
-//!    于是没法脱离整窗渲染——这正是组件化的出发点（方案文档 §1.2 P1）。
+//!    于是没法脱离整窗渲染——这正是组件化的出发点（方案文档 §1.2）。
 //! 3. **组件私有状态不回流**：滚动位置、hover、输入缓冲可以留在组件里
-//!    （`find_input` 的先例，R4），领域状态只能由 `reduce` 写（I1）。
+//!    （沿用 `find_input` 的先例），领域状态只能由 `reduce` 写。
 //!
 //! # 现在的状态
 //!
-//! P2 只登记 `dialog_new_session`：它是弹窗皮肤与 `sizing_pass` 补丁的主战场，
-//! 先把「能单独出图」这条链打通。P3 起按同一形状迁入其余弹窗——**外框一律走
+//! 先只登记 `dialog_new_session`：它是弹窗皮肤与 `sizing_pass` 补丁的主战场，
+//! 先把「能单独出图」这条链打通。此后按同一形状迁入其余弹窗——**外框一律走
 //! `harness::StableWindow`**，没有它，弹窗在截图第一帧是空的（sizing pass 的
 //! 形状全是 `Noop`），冻结出来的基线就是一张「空窗口」。
 //! 未迁移的组件**也**要能登记——所以 [`CompId`] 是唯一的名单，脚本按它遍历，
@@ -65,7 +65,7 @@ pub(in crate::ui) enum CompId {
     FilerPrompt,
     /// 「运行脚本」窗口。同样只能从右键菜单打开，理由同上。
     ScriptRun,
-    /// D8-3 的脚本编辑器窗口。
+    /// 脚本编辑器窗口。
     ///
     /// 它比运行窗口还深一层：入口挂在运行窗口的 `Edit` 按钮上，而运行窗口本身
     /// 就进不了截图。不在这里登记，这个窗口的像素直到发布都没人核对过。
@@ -81,7 +81,7 @@ pub(in crate::ui) enum CompId {
     /// 2026-11-17：Tunnels **设置对话框**（与上面那块浮窗面板不是一回事）。
     TunnelSettings,
     Tmux,
-    /// P4：**浮动态**的面板。停靠态的侧栏在整窗图里已经有了，但「浮起来之后
+    /// **浮动态**的面板。停靠态的侧栏在整窗图里已经有了，但「浮起来之后
     /// 长什么样」整窗图看不出来（那时它盖在终端上，背景全是字）。
     ///
     /// 浮动窗的矩形来自 `DockLayout`，不是这里临时摆的——出图走的就是真实路径。
@@ -93,7 +93,7 @@ pub(in crate::ui) enum CompId {
     ///
     /// 为什么要拆到页：所有页共用同一套窗口外壳，外壳对了不等于每页都对。
     /// 一页一张图之后，「这一页少了哪个字段 / 顺序不对」是逐字节问题，
-    /// 不再需要在整屏截图里靠肉眼找。P8 起视觉基线 SSH 树 13 个叶子各占一页，
+    /// 不再需要在整屏截图里靠肉眼找。此后视觉基线 SSH 树 13 个叶子各占一页，
     /// 加上其余协议的专属页，共 `session_nav::PAGE_COUNT` 页。
     NewSessionPage(u8),
     /// Preferences 的**单页**：`--demo comp:dialog_settings_<页名>`。
@@ -103,7 +103,7 @@ pub(in crate::ui) enum CompId {
     /// 下标是 `SettingsPage::ALL` 的**组件夹具页序**（含 5 个不在左栏显示的
     /// 管理页，见 `settings.rs::NAV_TOP` 注释），共 24 页。
     SettingsPage(u8),
-    /// P9：窗口底部两条整宽横栏。整窗图里它们被终端内容包围，
+    /// 窗口底部两条整宽横栏。整窗图里它们被终端内容包围，
     /// 单独出图才能逐字核对 4 组 15 项与状态栏右区 5 段。
     QuickCommandBar,
     StatusBar,
@@ -118,7 +118,7 @@ pub(in crate::ui) enum CompId {
     MenuSession,
     /// Log 子菜单展开态：同时摆出启用 / 禁用 / 选中三态（2026-11-08 视觉基线）。
     MenuLog,
-    /// Mode 菜单展开态（2026-11-08 B1-c）。
+    /// Mode 菜单展开态（2026-11-08）。
     ///
     /// 勾选栏只在菜单真的展开时才存在，整窗图拍不到；而「框多大、离左边
     /// 多远、无框行的文字要不要跟着右移」全是像素问题。出图走的是生产同一个
@@ -137,18 +137,18 @@ pub(in crate::ui) enum CompId {
     MenuHelp,
 }
 
-// R9：名字表（`ALL` / `name` / `has_baseline` / `page` / `parse`）在 `ids.rs`。
+// 名字表（`ALL` / `name` / `has_baseline` / `page` / `parse`）在 `ids.rs`。
 // 它是一张长得像数据的表，与「注册表 + 出图入口」混在一个文件里会让代码行（不含
 // 注释）越线；拆出去只挪位置，`CompId` 仍然只活在 `ui` 内部。
 mod ids;
-/// 触发器编辑器组件夹具的样例规则（R9：`mod.rs` 行数上限）。
+/// 触发器编辑器组件夹具的样例规则（`mod.rs` 行数上限）。
 mod trig_sample;
 mod quick_fixtures;
 mod context_fixtures;
 mod reference_popup;
 mod menu_fixtures;
 /// 脚本两窗（运行窗口 / 编辑器）的夹具。与 `reference_popup` 同一条理由：
-/// 本文件卡在 4j 上限，再添一个 arm 就越线。
+/// 本文件贴近 500 行上限，再添一个 arm 就越线。
 mod script_fixtures;
 
 /// 页组件的最大合法下标。页表是唯一来源，不在这里再写一个 9 / 16。
@@ -179,14 +179,14 @@ use crate::ui::harness;
 use crate::ui::*;
 
 impl TerminalWindow {
-    /// P2：只画一个组件的出图路径。
+    /// 只画一个组件的出图路径。
     ///
     /// 与 `draw()` 共用同一套样式与字体（否则图上的字不是屏幕上那几个字），
     /// 但**不画任何窗口框架**：没有菜单栏、没有状态栏、没有终端网格、也没有
     /// 分屏树。画布是纯色，组件之外的一切都是噪音。
     ///
-    /// 组件本体在 P3 之前仍挂在 `TerminalWindow` 上（`draw_new_session_dialog`
-    /// 读的是 `self.new_session`）——这一层拆开是 P3 的活，本阶段先把
+    /// 组件本体此前仍挂在 `TerminalWindow` 上（`draw_new_session_dialog`
+    /// 读的是 `self.new_session`）——这一层拆开放到以后处理，本阶段先把
     /// 「能单独出图、能逐字节比对」这条链打通。
     pub(in crate::ui) fn draw_component_demo(&mut self, ctx: &egui::Context, comp: comp::CompId) {
         apply_ui_style(ctx, &self.palette);
@@ -197,7 +197,7 @@ impl TerminalWindow {
         harness::freeze_clock(ctx);
 
         harness::show_canvas(ctx, |_ui| {});
-        // 视觉基线夹具（7 弹层 + 2 菜单展开态）走独立文件，避免 R9 超限。
+        // 视觉基线夹具（7 弹层 + 2 菜单展开态）走独立文件，避免超限。
         if comp.is_reference_popup() || matches!(comp, comp::CompId::MenuSession | comp::CompId::MenuLog) {
             if matches!(comp, comp::CompId::MenuSession | comp::CompId::MenuLog) {
                 menu_fixtures::draw(self, ctx, comp);
@@ -339,15 +339,15 @@ impl TerminalWindow {
                 self.draw_filer_prompt(ctx);
             }
             // 脚本两窗（运行窗口 / 编辑器）：状态摆法在 `script_fixtures.rs`，
-            // 这里只留一个转发——两个 arm 的注释与摆位代码会顶破 4j 上限。
+            // 这里只留一个转发——两个 arm 的注释与摆位代码会顶破行数上限。
             comp::CompId::ScriptRun | comp::CompId::ScriptEditor => {
                 self.draw_script_fixture(ctx, comp);
             }
             comp::CompId::NewSessionPage(n) => {
                 // 页夹具只改「表单停在哪一页」——`selected_page` 是受控输入缓冲
-                // （同 `find_input` 的先例），不是领域状态，夹具写它不越 I1。
+                // （沿用 `find_input` 的先例），不是领域状态，夹具写它不越界。
                 //
-                // P6：二级导航随协议变，所以还要把协议设成**真的包含这一页**
+                // 二级导航随协议变，所以还要把协议设成**真的包含这一页**
                 // 的那个（例如 Ciphers 只属于 SSH、Serial Port 只属于串口）。
                 // 否则单页出图里左侧树没有高亮项，看不出「这一页归哪个协议」。
                 let page = (n as usize).min(last_page()); let mut protocol = dialogs::session_nav::protocol_for_page(page);
@@ -673,7 +673,7 @@ mod tests {
             .position(|p| *p == dialogs::SettingsPage::OneKeys)
             .expect("OneKeys 必须在 Preferences 页表里");
         assert!(!CompId::SettingsPage(onekeys as u8).has_baseline());
-        // P9：两条底部横栏各自受一张逐字节基线保护。
+        // 两条底部横栏各自受一张逐字节基线保护。
         assert!(CompId::QuickCommandBar.has_baseline());
         assert!(CompId::StatusBar.has_baseline());
     }
@@ -691,7 +691,7 @@ mod tests {
         );
         assert_eq!(CompId::parse("dialog_about"), Some(CompId::About));
         assert_eq!(CompId::parse("dialog"), None);
-        // 旧名（整张弹窗、以及 P8 之前的自造页名）都不再是合法组件。
+        // 旧名（整张弹窗、以及先前的自造页名）都不再是合法组件。
         assert_eq!(CompId::parse("dialog_new_session"), None);
         assert_eq!(CompId::parse("dialog_new_session_general"), None);
         assert_eq!(CompId::parse(""), None);

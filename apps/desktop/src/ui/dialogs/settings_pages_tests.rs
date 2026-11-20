@@ -1,6 +1,6 @@
 //! `settings_pages` 的单测：规格表本身的一致性。
 //!
-//! 与数据分文件是为了 R9；`#[path]` 挂回 `settings_pages` 的私有作用域。
+//! 与数据分文件是为了单文件行数；`#[path]` 挂回 `settings_pages` 的私有作用域。
 
 use super::*;
 
@@ -101,7 +101,7 @@ use super::*;
 
     #[test]
     fn the_pages_that_cannot_be_wired_say_what_is_missing() {
-        // W6：Wrap 仍走数据表、说明要写清「缺的是软换行引擎」；Highlight
+        // Wrap 仍走数据表、说明要写清「缺的是软换行引擎」；Highlight
         // 2026-11-19 已搬去 live 页（caret line 接真），它的说明在
         // `settings_live_highlight::HIGHLIGHT_NOTE`，不在这里。
         assert!(
@@ -133,7 +133,7 @@ use super::*;
         );
         // 2026-11-10：`Proxy` 等八页也换了专句，通用那句不再有任何有内容的页在用。
         // 这里改成**反向**判据：凡是有内容可画的灰页，都不许退回套话——
-        // 「没有配置字段」只说了一半（缺哪一层？），S4 要求点名缺口。
+        // 「没有配置字段」只说了一半（缺哪一层？），要求点名缺口。
         // 还剩 `Widgets` 走 `DISABLED_NOTE`，但它 `blocks` 为空、`draw` 提前返回，
         // 那句话一个像素都不会上屏，所以不在这里的判据范围内。
         for page in SettingsPage::ALL_PAGES {
@@ -217,7 +217,7 @@ use super::*;
         // 原先这五行是编的（`Copy Ctrl+Ins` 这类绑定真表里根本没有）。现在
         // 页面数据必须逐条等于 `DEFAULT_SHORTCUTS`：标签与出厂和弦都不许走样。
         let rows = effective_chords(&[]);
-        // 条数不再写死魔数：D3 往表里加了一条 `Alt+D`（地址栏，命令面
+        // 条数不再写死魔数：往表里加了一条 `Alt+D`（地址栏，命令面
         // `Window.GotoAddressBar`），一行硬编码就会把「表不许增长」变成一条
         // 假门禁——而这张表本来就该随命令面一起长。真正要守的是「逐条一致」，
         // 由下面这条与 `DEFAULT_SHORTCUTS.len()` 相等的断言负责。

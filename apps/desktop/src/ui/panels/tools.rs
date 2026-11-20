@@ -1,6 +1,6 @@
-//! R14-e 的六个工具面板 + 2026-11-08 新增的 Sysmon。
+//! 六个工具面板 + 2026-11-08 新增的 Sysmon。
 //!
-//! R5 的教训是「面板开关不能是空转 bool」——Filer 之所以能接，是因为它背后
+//! 教训是「面板开关不能是空转 bool」——Filer 之所以能接，是因为它背后
 //! 真有一条 SFTP 连接。这六个也一样：每个开关开着就画一个**有真实数据**的面板，
 //! 数据全部每帧从事实状态现算，不在投影层存第二份。
 //!
@@ -31,7 +31,7 @@ fn snippet(s: &str, max: usize) -> String {
 }
 
 impl TerminalWindow {
-    /// 把一行命令经终端编码写给 PTY（R14-f 工作台的地址栏 / 历史补全也复用它）。
+    /// 把一行命令经终端编码写给 PTY（工作台的地址栏 / 历史补全也复用它）。
     pub(in crate::ui) fn send_snippet(&mut self, cmd: &str) {
         let Some(tab) = self.tabs.get(self.active_slot()) else {
             return;
@@ -182,7 +182,7 @@ pub(in crate::ui) fn draw_session(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// system 绿 `#009E00`、mem 红 `#FF0000`。
 ///
 /// 三个字母方块是**真开关**（点一下藏/显对应读数，`sysmon_sample` 的原子位），
-/// 中间的 `-` 只是静态分隔符。读数来自宿主层的后台采样（B2：ui/ 不碰 OS 资源），
+/// 中间的 `-` 只是静态分隔符。读数来自宿主层的后台采样（ui/ 不碰 OS 资源），
 /// 采样失败时画 `—`，不编假数字。
 const SYSMON_ROW_H: f32 = 25.0;
 const SYSMON_CHIP: f32 = 16.0;

@@ -1,4 +1,4 @@
-//! Trigger 对话框的通用绘制件（R3）：绝对定位的 field / combo / 标签 / 开关 / 按钮。
+//! Trigger 对话框的通用绘制件：绝对定位的 field / combo / 标签 / 开关 / 按钮。
 //!
 //! 与 `dialog_chrome.rs` 的同名件刻意分开：那边尺寸是为 745 宽旧对话框钉死的，
 //! 这里全部按 `ui::view::trigger_spec` 的 768×562 新坐标系。颜色来自同一份色板 token。

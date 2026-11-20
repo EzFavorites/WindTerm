@@ -3,7 +3,7 @@
 //! 形状照抄 `term_tunnel::start_in_background`：一条专用线程 + `current_thread`
 //! 运行时，异步只活在里头。区别只有一处——隧道是**开起来就完了**（`FnOnce` 叫醒一次），
 //! 而浏览目录是**一直来回**的，所以 `on_wake` 是 `Fn`：每发一个事件都要叫醒 UI。
-//! 忘了叫醒的表现是「点了刷新，界面一直停在上一份列表」——S4 之后空闲不重绘，
+//! 忘了叫醒的表现是「点了刷新，界面一直停在上一份列表」——之后空闲不重绘，
 //! 这不是小概率，是必然。
 //!
 //! 为什么不给每个请求起一条线程：SFTP 是**一条会话**上的多路请求，`SftpSession`
@@ -61,7 +61,7 @@ pub enum Request {
         resume: bool,
         preserve: bool,
     },
-    /// 递归扫一棵远端目录树，**只出清单不传文件**（XFER-06 目录同步的输入）。
+    /// 递归扫一棵远端目录树，**只出清单不传文件**（目录同步的输入）。
     ///
     /// 与 [`Request::List`] 的区别：那个列一层、给浏览用；这个递归到底、每条带
     /// `mtime`，是 `term_xfer::sync::plan` 要的形状。应答是一条
@@ -159,7 +159,7 @@ const CLOSE_POLL: Duration = Duration::from_millis(5);
 /// 旧实现只靠「丢句柄」隐式收尾：`req` 一断，后台线程关掉 SFTP 通道就结束，
 /// 但它**从不发 `SSH_MSG_DISCONNECT`**，服务端因此留着一条半死的会话（要到
 /// 自己的超时或 `MaxSessions` 顶满才回收）。用户在界面里反复开关文件面板，
-/// 会话就一层层堆上去，堆满之后连不上——这就是 P1-4 记的那条泄漏。
+/// 会话就一层层堆上去，堆满之后连不上——这就是记的那条泄漏。
 ///
 /// 现在收尾由 [`SftpHandle::close`] 显式完成：断请求通道 → 等线程收敛（有上限）
 /// → 后台线程 `sftp.close()` + `auth.disconnect()`。`Drop` 里也调它，因为
@@ -344,7 +344,7 @@ impl SftpHandle {
         self.send(Request::Mkdir { path: path.into() });
     }
 
-    /// 递归扫一棵远端目录树，只要清单（XFER-06 目录同步用）。
+    /// 递归扫一棵远端目录树，只要清单（目录同步用）。
     ///
     /// 成功 → 一条 `Event::Scanned { path, entries }`；不是目录或读不下去 → `Failed`。
     /// **不报进度**：一趟遍历只发一次事件，大目录期间界面靠自己画的「扫描中」兜住。
@@ -701,7 +701,7 @@ pub fn start_in_background(
             // 两步缺一不可：
             // 1. `sftp.close()` 关掉 SFTP 这一条**通道**（SSH_FXP 层的收尾）；
             // 2. `auth.disconnect()` 发 `SSH_MSG_DISCONNECT` 挂断**整条 SSH 会话**。
-            //    只做第 1 步就是 P1-4 记的那条泄漏：通道关了，会话还在服务端挂着，
+            //    只做第 1 步就是记的那条泄漏：通道关了，会话还在服务端挂着，
             //    反复开关文件面板会一层层堆上去，直到 sshd 的 `MaxSessions` 顶满。
             let _ = sftp.close().await;
             auth.disconnect().await;

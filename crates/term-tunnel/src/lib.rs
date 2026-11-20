@@ -1,4 +1,4 @@
-//! `term-tunnel` — SSH 隧道（R13-e）：本地转发 / 远程转发 / SOCKS5。
+//! `term-tunnel` — SSH 隧道：本地转发 / 远程转发 / SOCKS5。
 //!
 //! ```text
 //! 本地程序 ──TCP──▶ [本机监听] ──direct-tcpip──▶ [服务器] ──▶ 目标

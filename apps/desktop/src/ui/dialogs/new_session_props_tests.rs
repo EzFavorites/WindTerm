@@ -33,7 +33,7 @@ fn only_new_and_edit_reconnect_after_save() {
     // 老行为：新建即连、改完重连。这两条是回归红线，改动前后必须一致。
     assert!(SessionDialogKind::New { group: None }.should_connect());
     assert!(SessionDialogKind::Edit { index: 0 }.should_connect());
-    // 死代码转正：`should_connect()` 在 D3 之前无人调用，`save_session_dialog`
+    // 死代码转正：`should_connect()` 在之前无人调用，`save_session_dialog`
     // 尾部无条件连接。现在它是那一段唯一的开关。
     assert!(
         !SessionDialogKind::Properties { index: 0 }.should_connect(),

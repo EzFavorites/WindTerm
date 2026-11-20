@@ -37,7 +37,7 @@
 //! - 抓手、三颗按钮、面板空白处**都能拖**（按钮用 `Sense::click_and_drag`：
 //!   按下不动是点击，按下移动是拖动，两者不打架）。
 //! - 松手时整条的顶边落在工具行这条带里 → 重新停靠（`toolbar_pos = None`）。
-//!   这是 R5 要求的回程：拖出去必须能拖回来。
+//!   这是要求的回程：拖出去必须能拖回来。
 //! - 位置存在 `TerminalWindow.toolbar_pos`，是**投影态**（和 `find_input` 同层），
 //!   不进 `ViewState`——布局位置不是领域状态。
 //!
@@ -54,7 +54,7 @@
 //! # 右端三件（2026-11-08 补上）
 //!
 //! 视觉基线面板右端还有 `>`、`∨` 与行右端那颗 `⋮`。早期版本刻意**没画**：程序里
-//! 没有对应动作，画出来就是 R5 禁止的假按钮。现在三件各接了一颗真菜单
+//! 没有对应动作，画出来就是禁止的假按钮。现在三件各接了一颗真菜单
 //! （Goto / 会话列表 / 窗格动作），见 `tool_bar_tail.rs`；面板段因此收窄
 //! [`tool_bar_tail::TAIL_W`] 给 `⋮` 让出井位，拖动热区也避开右端按钮。
 
@@ -62,7 +62,7 @@ use crate::ui::*;
 use term_core::session_runtime::SessionId;
 use term_core::theme::CHROME_SCALE;
 
-/// 画哪一条工具栏（ADR-0026 ④-1）。
+/// 画哪一条工具栏（ADR-0026）。
 ///
 /// 单窗格：一条全窗工具栏，`salt = None`、`float = true`（保留整条拖走/回停）。
 /// 分屏：每片 pane 各画一条，`salt = Some(pane)` 让所有 `egui` id 唯一、
@@ -178,7 +178,7 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
     let mut drag = Drag::default();
     let mut picked: Option<ToolAction> = None;
     let mut tail_work = TailWork::default();
-    // D3：面板段被**点**了一下（而非拖动）。记下它本帧的矩形，画完再开地址栏
+    // 面板段被**点**了一下（而非拖动）。记下它本帧的矩形，画完再开地址栏
     // ——地址栏要拿它当锚点，而这个矩形只有 `Area` 内部才算得出来。
     let mut panel_clicked: Option<egui::Rect> = None;
 
@@ -262,7 +262,7 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
                 panel.min,
                 egui::pos2(panel.right() - 46.0, panel.bottom()),
             );
-            // D3：`click_and_drag`（而不是 `drag`）——按下不动是「开地址栏」，
+            // `click_and_drag`（而不是 `drag`）——按下不动是「开地址栏」，
             // 按下移动是「拖动整条」。两个 sense 在 egui 里本来就互斥判定，
             // `clicked()` 只在「按下又松开且没移动」时为真，所以整条工具栏
             // 照旧拖得动（下面那句 `drag.track(&resp)` 一行没改）。
@@ -310,7 +310,7 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
     if let Some(id) = tail_work.dispatch {
         win.dispatch(id);
     }
-    // D3：面板段点了一下 → 从它的左下角展开地址栏，输入框为空
+    // 面板段点了一下 → 从它的左下角展开地址栏，输入框为空
     // （打开即览全部候选，这是地址栏该有的行为）。
     if let Some(panel) = panel_clicked {
         win.open_address_bar("", Some(panel));
@@ -400,7 +400,7 @@ fn paint_button(p: &egui::Painter, resp: &egui::Response, rect: egui::Rect, styl
 /// 下拉菜单的条目：`self.tools` 里**已接线**且未被隐藏的那些。
 ///
 /// 为什么不写死一张表：工作台的「工具栏定制」页改的是 `hidden_tools`，写死一张
-/// 表就等于让那个开关对着空气生效（R5）。同理，`Refresh` / `SFTP` / `Serial`
+/// 表就等于让那个开关对着空气生效。同理，`Refresh` / `SFTP` / `Serial`
 /// 三个动作在 `handle_tool_action` 里是 `_ => {}`，列出来就是点了没反应的假条目。
 fn menu_entries(win: &TerminalWindow) -> Vec<(ToolAction, &'static str)> {
     win.tools

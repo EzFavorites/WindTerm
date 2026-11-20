@@ -1,6 +1,6 @@
 //! 对话框：会话表单 / 设置 / 关于 / SSH / 日志 / 快捷键。
 //!
-//! 所有弹窗都经 `crate::ui::harness::show_stable_window`（P2 起）绘制，
+//! 所有弹窗都经 `crate::ui::harness::show_stable_window`（起）绘制，
 //! 保证截图夹具与交互路径共用同一套 sizing / fade_in / 关闭按钮处理。
 
 mod about;
@@ -22,7 +22,7 @@ mod settings;
 // 2026-11-11：独立的快捷命令配置弹窗（命令表不放在 Preferences 那一页）。
 mod quick_commands;
 mod settings_live;
-// 2026-11-10：`settings_live.rs` 已贴着 R9 的代码行上限，Font 与 Tabs 各开一个
+// 2026-11-10：`settings_live.rs` 已贴着代码行上限，Font 与 Tabs 各开一个
 // 文件（前者接字号，后者接三项标签行为）。
 mod settings_live_binary;
 mod settings_live_font;
@@ -37,21 +37,21 @@ mod settings_live_wrap;
 // 其余三行仍灰（caret word / current fold / current pair）。
 mod settings_live_highlight;
 // 2026-11-19：Caret 页 Period / Width 接成真数字框后，那一页自带写回，
-// 从 `settings_live.rs` 拆出来（那个文件已贴着 R9 的 500 代码行上限）。
+// 从 `settings_live.rs` 拆出来（那个文件已贴着 500 代码行上限）。
 mod settings_live_caret;
 // 2026-11-10：「部分真控件」的三页（Text / Behaviour / Toolbar / Menu）。
 mod settings_live_text;
 // 2026-11-10：Terminal 页从数据表改手绘——两个粘贴确认开关接了字段，
 // 其余两行由同一份 `draw_row` 画成灰的。
 mod settings_live_terminal;
-// 2026-11-11：D1 触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的接线——
+// 2026-11-11：触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的接线——
 // 编辑结果直接写回 `prefs.triggers`，每帧 `poll` 喂给求值器。
 mod settings_live_triggers;
 // 2026-11-13：OneKeys 登录方案编辑器（Tool ▸ OneKeys…）。编辑结果写回
 // `prefs.onekeys`，连接流程按会话的 `onekey` 宏名消费；凭据走 vault。
 // `pub(in crate::ui)`：`OneKeysEdit` 是窗口上的字段类型，`ui/mod.rs` 要声明。
 pub(in crate::ui) mod settings_live_onekeys;
-// 2026-11-17：OneKeys 的 Account / Sessions 两页拆出来（R9 单文件行数），顺手把
+// 2026-11-17：OneKeys 的 Account / Sessions 两页拆出来（单文件行数），顺手把
 // 它们从 egui 默认控件换成对话框那一套（`dark_field` / `toggle` / `tiny_button`）。
 mod settings_live_onekeys_pages;
 // 2026-11-17：SSH 页同理拆出（本轮新增 readonly / Modify 编辑态后主文件越线）。
@@ -78,7 +78,7 @@ pub(in crate::ui) mod vault;
 /// 2026-11-09：文件传输的路径输入弹层（发要文件、收要目录）。
 pub(in crate::ui) mod xfer;
 
-// R9：`log_settings.rs` 只画，`log_settings_spec.rs` 持有规格 / 状态 / 单测。
+// `log_settings.rs` 只画，`log_settings_spec.rs` 持有规格 / 状态 / 单测。
 // `LogSettingsData` 从后者导出，`ui/mod.rs` 与 `construct.rs` 的引用路径不变。
 pub(in crate::ui) use log_settings_spec::LogSettingsData;
 // 一次 load-modify-save 的唯一入口（`settings_live::save_prefs`）。
@@ -88,10 +88,10 @@ pub(in crate::ui) use log_settings_spec::LogSettingsData;
 // `View ▸ Hex *` / `Mode ▸ Hex Edit` 改的是 `Tab` 上的内存状态、不落盘，
 // 所以那个再导出没了读者，删掉——留着会让人以为菜单那条路也写盘。
 //
-// D6：**那句话又被打破了，这次是有真读者的**。首次启动引导
+// **那句话又被打破了，这次是有真读者的**。首次启动引导
 // （`ui/overlays/onboarding.rs`）走完 / 跳过时要写 `prefs.onboarded`，它不是
 // 设置页上的一项，也不可能塞进设置页（引导要先于任何设置存在）。
-// D5 又添一例：窗口透明度三档预设从菜单落下时也要写
+// 又添一例：窗口透明度三档预设从菜单落下时也要写
 // `prefs.window_transparent` / `window_opacity`（`ui/window_opacity.rs`）。
 // 规矩不变：load-modify-save 仍然只有这一个实现，这里只是把它再开出去，
 // 而不是在引导 / 菜单落地里另写一遍「读盘 → 改一个字段 → 写盘」。

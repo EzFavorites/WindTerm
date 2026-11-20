@@ -1,6 +1,6 @@
-//! R13-d2：原生 SSH 的四个对话框与收线（把 `Connector` 的结果落到 tab 上）。
+//! 原生 SSH 的四个对话框与收线（把 `Connector` 的结果落到 tab 上）。
 //!
-//! 从 `ssh_connect.rs` 拆出（4j：那个文件只留纯逻辑与 `Connector` 状态机，
+//! 从 `ssh_connect.rs` 拆出（那个文件只留纯逻辑与 `Connector` 状态机，
 //! 「谁画谁」仍然各归各的文件）。这里全部是 `TerminalWindow` 的方法：
 //! 开始连接 / 每帧收结果 / 四个窗口（Connecting / Unknown host / Password / Failed）。
 
@@ -19,7 +19,7 @@ impl TerminalWindow {
     /// 开始用内置客户端连一个 SSH 会话。
     ///
     /// `password` 是调用方手上已有的（比如刚在表单里填的）；没有就去保险库拿
-    /// ——R13-b2 起「密码存在库里」是正常情况，而不是特例。
+    /// ——「密码存在库里」是正常情况，而不是特例。
     pub(in crate::ui) fn begin_builtin_ssh(&mut self, config: SessionConfig, password: Option<String>) {
         // 默认落在标签栏末尾——侧栏「连接」与表单「Create & Connect」都是这个落点。
         self.begin_builtin_ssh_with(config, password, PendingOpen::Append);
@@ -27,7 +27,7 @@ impl TerminalWindow {
 
     /// 同 [`begin_builtin_ssh`](Self::begin_builtin_ssh)，但指定**连上之后落在哪儿**。
     ///
-    /// S1：Duplicate / Reopen / Split Group / 断线重连都要在连接完成之后才建 tab
+    /// Duplicate / Reopen / Split Group / 断线重连都要在连接完成之后才建 tab
     /// （内置 SSH 的握手是异步的），所以「落在哪儿」必须跟着这条连接一起存着，
     /// 不能在调用点当场拍一个下标——那时 tab 还不存在。
     pub(in crate::ui) fn begin_builtin_ssh_with(
@@ -71,14 +71,14 @@ impl TerminalWindow {
             return;
         };
         // 结果到了没有由句柄回答（`None` = 还在连）；线程死了没留话这种事
-        // 也由句柄翻译成错误，这里不接触队列细节（B2）。
+        // 也由句柄翻译成错误，这里不接触队列细节。
         let outcome = connector.rx.as_mut().and_then(|rx| rx.try_result());
         match outcome {
             Some(Ok(channel)) => {
                 let connector = self.connector.take().expect("connector 刚还在");
                 // 隧道要用同一份凭据再连一次，所以把 auth 一起带过去。
                 let auth = connector.auth.clone();
-                // 「连上之后落在哪儿」跟着这条连接一起走过来的（S1）。
+                // 「连上之后落在哪儿」跟着这条连接一起走过来的。
                 self.adopt_channel(connector.config, channel, auth, connector.pending);
             }
             Some(Err(e)) => {
@@ -122,12 +122,12 @@ impl TerminalWindow {
         let tab = self.build_ssh_tab(config.clone(), Box::new(channel), pending);
         let slot = self.place_tab(tab, pending);
         self.set_active_slot(slot);
-        // R13-f：把这次用的凭据留在 tab 上，文件面板等下要用它再开一条连接。
+        // 把这次用的凭据留在 tab 上，文件面板等下要用它再开一条连接。
         // 只在内存里（`SessionConfig` 不存密码，落盘的那份在保险库里）。
         if let (Some(tab), Some(auth)) = (self.tabs.get_mut(slot), auth.clone()) {
             tab.auth = Some(auth);
         }
-        // R13-e2：会话配置里写了转发规则，就在这一刻起隧道。
+        // 会话配置里写了转发规则，就在这一刻起隧道。
         //
         // 放在「连上之后」而不是「连接之前」：主机密钥已经由这次连接裁决过了，
         // 隧道那条连接不用再问一遍指纹；而且连不上时不该留一个只转发不干活的进程。
@@ -159,7 +159,7 @@ impl TerminalWindow {
 
     /// 把建好的 tab 放进标签栏，返回它**实际**占的下标。
     ///
-    /// 这是 S1 的落地点：所有「连上之后才存在」的入口（复制 / 重开 / 分屏 /
+    /// 这是落地点：所有「连上之后才存在」的入口（复制 / 重开 / 分屏 /
     /// 重连）都在这里收口，不再各自去猜一个下标。
     fn place_tab(&mut self, tab: Tab, pending: PendingOpen) -> usize {
         match pending {
@@ -213,7 +213,7 @@ impl TerminalWindow {
         }
     }
 
-    /// 「重新连接会话」落到**当前标签**上（S1 的另一半）。
+    /// 「重新连接会话」落到**当前标签**上（另一半）。
     ///
     /// 以前它调 `connect_selected_session`——连的是**侧栏里选中**的那一条。
     /// 于是用户在一个断开的标签上点 Reconnect，连的却是侧栏高亮的另一台机器；

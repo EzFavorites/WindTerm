@@ -1,4 +1,4 @@
-//! 运行时会话的**协议无关抽象**（ADR-0019 §B.14 最高原则）。
+//! 运行时会话的**协议无关抽象**（ADR-0019 最高原则）。
 //!
 //! 「会话」在这里只有一个形状：**双向字节流 + 终端模型 + 生命周期**。
 //! 底下是 SSH、Telnet、Serial、本地 PTY 还是容器 exec，本模块不知道，
@@ -38,7 +38,7 @@ pub enum SessionState {
     Finished(Option<String>),
 }
 
-/// 一个会话**可能**暴露的可发现能力（ADR-0019 §B.14：能力即 facet，
+/// 一个会话**可能**暴露的可发现能力（ADR-0019：能力即 facet，
 /// 不是协议假定）。文件传输、端口转发这类东西是否存在于某个会话，
 /// 由 [`Session::facets`] 报告，调用方不得按协议硬编码假设。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -87,7 +87,7 @@ impl std::fmt::Display for WaitError {
 
 impl std::error::Error for WaitError {}
 
-/// 取消信号的抽象（ADR-0027 S1）。
+/// 取消信号的抽象（ADR-0027）。
 ///
 /// 为什么在 `term-core` 而不是直接收 `term-script` 的 `CancelToken`：
 /// 阻塞点住在 `term-io`，它不该依赖脚本引擎。这个 trait 只有一个只读方法，
@@ -240,7 +240,7 @@ pub trait Session: Send {
     ///
     /// # 避免
     /// 不要用「轮询屏幕文本」实现等待：洪水输出下，两次轮询之间的
-    /// 行会被屏幕滚动冲掉，必漏匹配（ADR-0019 §B.13）。
+    /// 行会被屏幕滚动冲掉，必漏匹配（ADR-0019）。
     fn wait_register(&self, pattern: &str) -> Result<Box<dyn WaitRegistration>, WaitError>;
 
     /// 登记一个输出读取器：返回后即生效，登记点之后的输出保证可被
@@ -339,7 +339,7 @@ pub trait Session: Send {
     /// 全在 `opts` 里（`crate::log_opts` 是配置面的唯一定义）。
     fn start_log(&self, _dir: PathBuf, _session: &str, _opts: &LogOptions) {}
 
-    /// 同上，额外带**宿主名**（ADR-0027 §S5 的 `%{host}`）。
+    /// 同上，额外带**宿主名**（ADR-0027 的 `%{host}`）。
     ///
     /// 默认转给 [`start_log`](Session::start_log)：不认识的实现照样能记日志，
     /// 只是文件名模板里的 `%{host}` 展开成空串。实现方（本地 PTY / 内置 SSH 的

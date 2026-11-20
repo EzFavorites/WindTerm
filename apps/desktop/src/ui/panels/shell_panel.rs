@@ -87,7 +87,7 @@ pub(in crate::ui) fn draw_shell(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 一帧连着判——放到终端之后再画，同一帧里点 `≡` 打开就得多等一帧。
     draw_list(win, ui, list_btn, toggle);
     let active = win.shell_active_index();
-    // ADR-0025 阶段 3：槽位按身份；`shell_active_index` 只是夹过范围的序号。
+    // ADR-0025：槽位按身份；`shell_active_index` 只是夹过范围的序号。
     let active_id = win.shell_tabs[active].identity;
     win.draw_tab(ui, TabSlot::Shell(active_id));
 }
@@ -228,7 +228,7 @@ fn draw_strip(
 
     // 交互统一在画完之后落地：标签条这一帧的像素已经画好，改状态只影响下一帧。
     if let Some(i) = activate {
-        // ADR-0025 阶段 3：活动位存身份；`i` 是画条时的面板序号，这里翻成身份。
+        // ADR-0025：活动位存身份；`i` 是画条时的面板序号，这里翻成身份。
         win.shell_active = win.shell_tabs.get(i).map(|t| t.identity);
         win.ctx.request_repaint();
     }
@@ -370,7 +370,7 @@ fn draw_list(win: &mut TerminalWindow, ui: &mut egui::Ui, anchor: egui::Rect, to
         });
 
     if let Some(i) = activate {
-        // ADR-0025 阶段 3：活动位存身份；`i` 是下拉行对应的面板序号。
+        // ADR-0025：活动位存身份；`i` 是下拉行对应的面板序号。
         win.shell_active = win.shell_tabs.get(i).map(|t| t.identity);
         win.shell_list_open = false;
         win.ctx.request_repaint();

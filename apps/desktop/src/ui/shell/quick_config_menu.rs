@@ -1,6 +1,6 @@
 //! Quick 命令栏左侧 `Config` 弹层 + 弹层的「点外收起」判定。
 //!
-//! 从 `quick_command_bar.rs` 拆出是为 R9（单文件代码行 ≤ 500）。弹层结构按
+//! 从 `quick_command_bar.rs` 拆出是为单文件代码行 ≤ 500。弹层结构按
 //! 真图 `quick-popup-clear.png`（196×364 物理像素，2× Retina → 98×182pt）
 //! 逐行还原，详见 [`config_menu`] 的注释。绘制逻辑与生产/夹具共用。
 

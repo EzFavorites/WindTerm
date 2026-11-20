@@ -3,7 +3,7 @@
 //! 这些值取自会话/窗口默认配置（设计令牌源于兼容终端与本项目实测），是
 //! 「对话框里那一堆默认值」的唯一来源：新建会话表单、设置页、状态栏都从这里取。
 //!
-//! 为什么单独一个模块而不是塞在 `theme`：它们与颜色、调色板无关。R12 之前
+//! 为什么单独一个模块而不是塞在 `theme`：它们与颜色、调色板无关。之前
 //! 两组常量混在 `theme.rs` 里，于是「新增一个会话默认值」看起来像在改主题。
 //! 分开之后依赖方向也更干净——`session` / `config` 里的数值不需要主题模块参与。
 
@@ -44,7 +44,7 @@ pub const CARET_STYLES: [&str; 8] = [
     "Blinking Underline",
 ];
 
-/// W4/P2：把会话偏好的 `caret_style` 索引（§2.5 八选一，见 `CARET_STYLES`）
+/// 把会话偏好的 `caret_style` 索引（§2.5 八选一，见 `CARET_STYLES`）
 /// 映射到渲染层真正认识的「形状 + 是否闪烁」二元组。
 ///
 /// 索引顺序与 `CARET_STYLES` 严格对齐：0-3 为非闪烁（Block/Line/Rectangle/
@@ -171,7 +171,7 @@ pub const TAB_COLOR_NAMES: [&str; 12] = [
 /// `theme::DESIGN_TOKENS.tab_colors` 的实测色值。
 ///
 /// 色值**唯一真相源**是 `DESIGN_TOKENS.tab_colors`：这里只按比例拆出 RGB 三元组，
-/// 不另写一份十六进制——否则两套 12 色迟早漂移（B3 单一转换点）。
+/// 不另写一份十六进制——否则两套 12 色迟早漂移（单一转换点）。
 pub const TAB_COLORS: [(&str, u8, u8, u8); 13] = {
     let tk = crate::theme::DESIGN_TOKENS.tab_colors;
     let mut arr: [(&str, u8, u8, u8); 13] = [("Default", 0, 0, 0); 13];
@@ -219,7 +219,7 @@ mod tests {
     use super::*;
     use crate::grid::CursorShape;
 
-    /// W4/P2：八种 `CARET_STYLES` 必须一一映射到「4 形状 × 2 闪烁」，
+    /// 八种 `CARET_STYLES` 必须一一映射到「4 形状 × 2 闪烁」，
     /// 且前四非闪烁、后四闪烁，形状按 Block/Line/Rectangle/Underline 循环。
     #[test]
     fn caret_style_maps_to_eight_shapes_and_blink() {

@@ -1,4 +1,4 @@
-//! `term-store` — SQLite 会话库（R13-b）。
+//! `term-store` — SQLite 会话库。
 //!
 //! ```text
 //! sessions.db

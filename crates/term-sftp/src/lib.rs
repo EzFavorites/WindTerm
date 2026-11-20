@@ -1,4 +1,4 @@
-//! `term-sftp`：远端文件浏览与传输（R13-f）。
+//! `term-sftp`：远端文件浏览与传输。
 //!
 //! 两条边界：
 //!
@@ -7,7 +7,7 @@
 //!    SFTP 列不出来只是这个目录不可读，终端照常能敲命令。
 //! 2. **对外同步**。`start_in_background` 返回 `SftpHandle`，调用方发请求、
 //!    每帧收事件；`apps/*` 的源码里零 `.await`（ADR-0017 §决策 2 的笼子，
-//!    R13-f 起这个笼子有第三处：`term-ssh` / `term-tunnel` / `term-sftp`）。
+//!    这个笼子有第三处：`term-ssh` / `term-tunnel` / `term-sftp`）。
 //!
 //! 浏览与传输共用一条会话：列目录、下载、上传都是同一条 `SftpSession` 上的请求，
 //! 每次重连要额外付认证与 subsystem 的钱。传输的**规则**（续传偏移、目标路径、

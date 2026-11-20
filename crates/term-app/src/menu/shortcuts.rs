@@ -7,7 +7,7 @@
 
 /// 一条默认快捷键绑定：`chord` 是和弦文本，`id` 是菜单命令 ID。
 ///
-/// 为什么放在 `menu.rs`：I5 要求命令 ID 只出现在数据层与各能力的 `parse()`，
+/// 为什么放在 `menu.rs`：命令 ID 只出现在数据层与各能力的 `parse()`，
 /// 投影层一个字面量都不许有。绑定表是纯数据，正是数据层的职责。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Shortcut {

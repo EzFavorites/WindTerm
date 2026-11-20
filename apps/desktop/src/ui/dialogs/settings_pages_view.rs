@@ -1,6 +1,6 @@
 //! `settings_pages` 的**画法**：分组框、两列栅格、灰显控件、只读快捷键表。
 //!
-//! 与数据分开是为了 R9（`ui/` 下非 `mod.rs` 文件 ≤ 450 行）：十六页的规格表
+//! 与数据分开是为了 `ui/` 下非 `mod.rs` 文件 ≤ 450 行：十六页的规格表
 //! 自己就三百多行，画法再挤进去就超了。两边按「数据 / 画法」切，
 //! 加一页只动数据文件，改外观只动这个文件。
 
@@ -52,7 +52,7 @@ pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage, overrides: &[(u
         }
     }
     // 说明文字不画在页底：视觉基线的 19 张设置截图里没有任何页脚小字，
-    // 灰显理由一律挂在控件的 hover 上（同一份 `note`），既守住 I5 又保持 1:1。
+    // 灰显理由一律挂在控件的 hover 上（同一份 `note`），既守住规则又保持 1:1。
     let _ = note;
 }
 
@@ -189,7 +189,7 @@ pub(in crate::ui) fn draw_row(ui: &mut egui::Ui, row: &Row, note: &str, col: f32
                 .on_disabled_hover_text(note);
         }
         Row::DisabledCheck(text) => {
-            // W2：形状照旧（灰复选框），但绝不打勾——勾代表「已生效」，
+            // 形状照旧（灰复选框），但绝不打勾——勾代表「已生效」，
             // 而这一项既没落盘字段也没有读者。悬停给出与页底同一句理由。
             let mut checked = false;
             ui.add_enabled(false, egui::Checkbox::new(&mut checked, *text))
@@ -213,7 +213,7 @@ pub(in crate::ui) fn draw_row(ui: &mut egui::Ui, row: &Row, note: &str, col: f32
                     // **不能闭眼用视觉基线的 230**：egui 会把窗口顶宽，而窗口尺寸是
                     // 钉死的，最后裁掉的是页脚与 `Close`。
                     let width = ui.available_width();
-                    // W2：只读 Combo 不能再让人以为「点一下就能改」。
+                    // 只读 Combo 不能再让人以为「点一下就能改」。
                     // 形状不变，但悬停明确给出「尚未落盘、故意灰显」的理由，
                     // 与页底那行说明同一份文案，避免两处说法打架。
                     egui::ComboBox::from_id_salt(*label)

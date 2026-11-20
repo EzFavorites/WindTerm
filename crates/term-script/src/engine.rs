@@ -70,7 +70,7 @@ impl ScriptEngine {
         self.run_in_workspace(script, Arc::new(workspace))
     }
 
-    /// 在给定工作区里执行（S-d 起的正式入口：多会话脚本走这条）。
+    /// 在给定工作区里执行（正式入口：多会话脚本走这条）。
     ///
     /// 与 [`run`](Self::run) 的区别只有一处：**谁能被看见**。`run` 把调用方
     /// 递来的那条会话包成单会话工作区（`session_open` / `session_close` 会报
@@ -104,7 +104,7 @@ impl ScriptEngine {
         // CRT 兼容门面（`crt.Screen` / `crt.Session` …）单独注册：它属于
         // 迁移层，不是能力面的一部分，因此不参与
         // `registered_primitives_match_the_script_projection_of_the_surface_table`
-        // 的对账，也不出现在 ADR-0019 §B.14 的 schema 里。
+        // 的对账，也不出现在 ADR-0019 的 schema 里。
         crate::compat::register(&mut engine, workspace.as_ref().clone());
 
         let ast = engine
@@ -395,7 +395,7 @@ impl ScriptEngine {
                 s.log_status().map(|status| log_status_to_map(&status)).map_err(primitive_to_rhai)
             });
         }
-        // ── 全局层（S-d）：选绑定 / 增删会话 ────────────────────────────
+        // ── 全局层：选绑定 / 增删会话 ────────────────────────────
         //
         // 一律按**会话名**寻址（ADR-0024）：`SessionId` 是进程内自增，存下来的
         // 脚本明天再跑就失效了；名字跨进程稳定，且池内唯一。
@@ -466,7 +466,7 @@ impl ScriptEngine {
                         map
                     })
             });
-            // ── 上下文动词（ADR-0027 S1） ────────────────────────────
+            // ── 上下文动词（ADR-0027） ────────────────────────────
             let s = ws.clone();
             engine.register_fn("version", move || -> Dynamic {
                 Dynamic::from(s.env().context.version.clone())
@@ -509,7 +509,7 @@ impl ScriptEngine {
                 s.script_session_name().map(Dynamic::from).map_err(primitive_to_rhai)
             });
 
-            // ── 会话面扩展（S5） ───────────────────────────────────
+            // ── 会话面扩展 ───────────────────────────────────
             let s = ws.clone();
             engine.register_fn("session_at", move |index: i64| -> Result<Dynamic, Box<EvalAltResult>> {
                 if index < 1 {
@@ -561,7 +561,7 @@ impl ScriptEngine {
             engine.register_fn("session_activate", move |name: &str| -> Result<Dynamic, Box<EvalAltResult>> {
                 s.session_activate(name).map(|()| ok_map()).map_err(session_to_rhai)
             });
-            // `session_open(#{profile|config|command|local})`：ADR-0027 D4 的脚本形态。
+            // `session_open(#{profile|config|command|local})`：ADR-0027 的脚本形态。
             let s = ws.clone();
             engine.register_fn("session_open", move |spec: Map| -> Result<Dynamic, Box<EvalAltResult>> {
                 let request = open_request_from_map(&spec, DEFAULT_OPEN_COLS, DEFAULT_OPEN_ROWS)?;
@@ -614,7 +614,7 @@ impl ScriptEngine {
                 },
             );
 
-            // ── 人机（S3） ────────────────────────────────────────
+            // ── 人机 ────────────────────────────────────────
             let s = ws.clone();
             engine.register_fn("confirm", move |text: &str| -> Result<Dynamic, Box<EvalAltResult>> {
                 let answer = s
@@ -701,7 +701,7 @@ impl ScriptEngine {
                 ))
             });
 
-            // ── 剪贴板 / 选区 / 窗口（S3） ────────────────────────
+            // ── 剪贴板 / 选区 / 窗口 ────────────────────────
             let s = ws.clone();
             engine.register_fn("clipboard_get", move || -> Result<Dynamic, Box<EvalAltResult>> {
                 s.clipboard_get().map(Dynamic::from).map_err(primitive_to_rhai)
@@ -725,7 +725,7 @@ impl ScriptEngine {
                     .map_err(primitive_to_rhai)
             });
 
-            // ── 应用面（Q2 刀1，ADR-0027 §9） ─────────────────────
+            // ── 应用面（ADR-0027） ─────────────────────
             //
             // 读也走往返（`script_app.rs` 的队列），所以这两个闭包拿到的是
             // **界面线程刚算出来的**状态，不是某个共享槽里可能晚一帧的副本。
@@ -752,7 +752,7 @@ impl ScriptEngine {
                 },
             );
 
-            // ── 本地文件 / 进程（S4） ─────────────────────────────
+            // ── 本地文件 / 进程 ─────────────────────────────
             let s = ws.clone();
             engine.register_fn("fs_read", move |path: &str| -> Result<Dynamic, Box<EvalAltResult>> {
                 s.fs_read(path)
@@ -814,7 +814,7 @@ impl ScriptEngine {
                 },
             );
 
-            // ── 远端文件（S5） ────────────────────────────────────
+            // ── 远端文件 ────────────────────────────────────
             let s = ws.clone();
             engine.register_fn("sftp_list", move |path: &str| -> Result<Dynamic, Box<EvalAltResult>> {
                 let entries = s.sftp_list(None, path).map_err(session_to_rhai)?;
@@ -852,7 +852,7 @@ impl ScriptEngine {
                 Ok(file_stat_map(stat))
             });
 
-            // ── 会话库（S5） ──────────────────────────────────────
+            // ── 会话库 ──────────────────────────────────────
             let s = ws.clone();
             engine.register_fn("profile_list", move || -> Result<Dynamic, Box<EvalAltResult>> {
                 let sessions = s.profile_list().map_err(session_to_rhai)?;
@@ -877,7 +877,7 @@ impl ScriptEngine {
                 Ok(count_map(total as i64))
             });
 
-            // ── 日志（S1 开参） ───────────────────────────────────
+            // ── 日志 ───────────────────────────────────
             let s = ws.clone();
             engine.register_fn("log_start", move |dir: &str, spec: Map| -> Result<Dynamic, Box<EvalAltResult>> {
                 let (name, host, opts) = log_spec_from_map(&spec)?;
@@ -1033,7 +1033,7 @@ fn flag_map(value: bool) -> Dynamic {
 }
 
 /// 一块面板 → Rhai `Map`。`app_state` 的 `panels` 一项与 `app_panel_set` 回执的
-/// `panels` 一项共用这一个函数——两处形状本就该一模一样（Q2 §4.1 / §4.2），
+/// `panels` 一项共用这一个函数——两处形状本就该一模一样，
 /// 各写一份的结果是「写完接着按快照的键读」时才发现的键名漂移。
 fn app_panel_map(panel: &PanelState) -> Dynamic {
     let mut row = Map::new();
@@ -1060,7 +1060,7 @@ fn app_panel_map(panel: &PanelState) -> Dynamic {
     Dynamic::from(row)
 }
 
-/// `app_state` 的结果（Q2 §4.1 的形状）：`panels` / `rev` / `prefs_rev` 平铺，
+/// `app_state` 的结果（形状）：`panels` / `rev` / `prefs_rev` 平铺，
 /// `layout` / `window` / `prefs` 各成一段。分段的理由见设计稿：三层数据的
 /// 变化频率不同，需要靠 `rev` / `prefs_rev` 分开判断要不要重取。
 fn app_snapshot_map(snapshot: AppSnapshot) -> Dynamic {
@@ -1104,7 +1104,7 @@ fn app_delta_map(delta: AppDelta) -> Dynamic {
     Dynamic::from(map)
 }
 
-/// `#{action: "dock", …}` → [`LayoutOp`]（Q2 §4.3）。
+/// `#{action: "dock", …}` → [`LayoutOp`]。
 ///
 /// 与 `session_open` 同一套纪律：未知 `action`、缺必填、**多给键**都报错。
 /// 多给键尤其要拦：`dock` 传了 `index: 3` 但 `redock` 只认 `panel` 时，
@@ -1774,7 +1774,7 @@ mod tests {
         let body = parts.next().unwrap_or("");
         let tail = parts.next().unwrap_or("");
         // 最早命中在噪声行 "noise END_MARK decoy"：命中照常发生，
-        // 命中文本止于命中串（无换行）按 §4f-3 透传；消费推到命中结尾，
+        // 命中文本止于命中串（无换行）按约定透传；消费推到命中结尾，
         // read 取走该行余段 + 后续全部（并按 grep_v 清掉噪声行）。
         assert_eq!(body, "noise END_MARK", "命中不受 grep 影响：{body:?}");
         assert!(tail.contains("keep1"), "消费停在命中结尾，其余在尾部：{tail:?}");
@@ -1962,7 +1962,7 @@ mod tests {
 
     #[test]
     fn a_syntax_error_carries_its_line_and_column_from_rhai() {
-        // 错误必须能被定位到具体行——这是 D8 脚本编辑器「点错误跳行」的前提。
+        // 错误必须能被定位到具体行——这是脚本编辑器「点错误跳行」的前提。
         let (session, _manip) = fake_session(1);
         let engine = ScriptEngine::new(SandboxConfig::default());
         // 三个语句，语法错在「第 3 行」。

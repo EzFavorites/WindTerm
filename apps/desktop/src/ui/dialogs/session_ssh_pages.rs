@@ -1,11 +1,11 @@
 //! `SSH ▾` 下的算法 / 密钥 / X11 五页（页 7..11）。
 //!
-//! P8 之前 `session_pages.rs` 只有一页 `Algorithms`，却要在视觉基线树的九个
+//! 之前 `session_pages.rs` 只有一页 `Algorithms`，却要在视觉基线树的九个
 //! SSH 二级项里撑场面；现在 `Ciphers / Key Exchange / MAC Hashes /
 //! Public Keys / X11` 各占一页，点进去不会再看到同一段说明。
 //!
 //! 算法清单是**只读事实陈述**：内置客户端（russh 0.65）自己协商，
-//! 这里没有可勾选但不起作用的开关（R5：已接线＝有效果）。
+//! 这里没有可勾选但不起作用的开关（已接线＝有效果）。
 //! `Public Keys` 是这五页里唯一带真实可编辑字段的（IdentityFile / -A）。
 
 use super::session_form_body::{form_row, FIELD_W};

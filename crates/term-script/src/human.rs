@@ -1,4 +1,4 @@
-//! 人机通道（ADR-0027 D1 ②）：脚本向**人**要一样东西的唯一边界。
+//! 人机通道（ADR-0027 ②）：脚本向**人**要一样东西的唯一边界。
 //!
 //! # 为什么不是「`ask(prompt) -> String` 一个方法」
 //!
@@ -191,7 +191,7 @@ pub trait HumanChannel: Send + Sync {
     }
 
     /// 打开文件框。用户选中的路径由调用方追加进本次 `fs` 授权
-    /// （「用户亲手选的就是用户同意的那一个」，ADR-0027 D2.3）。
+    /// （「用户亲手选的就是用户同意的那一个」，ADR-0027）。
     fn pick_file(&self, _request: &PickFile) -> Result<Option<PathBuf>, AskError> {
         Err(AskError::Unsupported(
             "当前宿主没有文件选择框（无头运行 / 没有窗口）".to_string(),

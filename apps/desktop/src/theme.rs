@@ -1,6 +1,6 @@
 //! 外壳适配层：把 `core/theme.rs` 的纯调色板数据转成绘图框架的类型。
 //!
-//! S1 把常量、Palette、解析逻辑全部搬进了 `core/`（零 UI 依赖）；本文件只保留
+//! 把常量、Palette、解析逻辑全部搬进了 `core/`（零 UI 依赖）；本文件只保留
 //! 两件与窗口系统有关的事：颜色类型转换、egui 视觉样式安装。
 //! 业务代码请直接引用 `term_core::theme::*`。
 
@@ -8,7 +8,7 @@ use term_core::grid::Rgb;
 use term_core::theme::{self, ChromeScale, DesignTokens, Palette};
 use eframe::egui;
 
-/// B3 边界上的唯一颜色转换点：`Rgb`（内核）→ 绘图框架颜色（外壳）。
+/// 边界上的唯一颜色转换点：`Rgb`（内核）→ 绘图框架颜色（外壳）。
 pub fn to_color32(c: Rgb) -> egui::Color32 {
     egui::Color32::from_rgb(c.r, c.g, c.b)
 }
@@ -19,7 +19,7 @@ pub fn chrome(v: u32) -> egui::Color32 {
     to_color32(theme::rgb(v))
 }
 
-/// D5：给一个已存在的颜色**换 alpha**，RGB 原样保留。
+/// 给一个已存在的颜色**换 alpha**，RGB 原样保留。
 ///
 /// `alpha = 1.0` 直接原样返回：出厂态（不透明窗口）下这个函数连一次
 /// `to_srgba_unmultiplied` 都不做，所有既有视觉基线一个字节都不变。
@@ -44,7 +44,7 @@ fn recolour_surface(color: egui::Color32, alpha: f32) -> egui::Color32 {
     }
 }
 
-/// D5：把整份 `Visuals` 的**背景 / 控件表面**设成同一个 alpha。
+/// 把整份 `Visuals` 的**背景 / 控件表面**设成同一个 alpha。
 ///
 /// egui 0.29 没有数值型窗口 opacity 命令（`ViewportCommand` 只有
 /// `Transparent(bool)`，且它只管 OS 窗口能不能透），所以「60% 不透明」只能由
@@ -95,7 +95,7 @@ pub fn window_alpha_of(ctx: &egui::Context) -> f32 {
 /// 终端黑 `#1C1C1C` 铺输入框，三套色系互相打架——这是「背景不协调」的根因。
 /// `palette` 不再参与控件配色：它只描述终端 ANSI/默认色，由网格绘制自己读。
 pub fn apply_ui_style(ctx: &egui::Context, _palette: &Palette) {
-    // D5：先读回上一帧装上的窗口 alpha。本函数每帧都重建一整份 `Visuals`，
+    // 先读回上一帧装上的窗口 alpha。本函数每帧都重建一整份 `Visuals`，
     // 不把 alpha 带过来就会在下一帧把半透明悄悄抹回不透明。出厂态是 1.0，
     // 下面 `set_window_alpha` 会直接返回，这一段对现状零影响。
     let carried_alpha = window_alpha_of(ctx);
@@ -150,7 +150,7 @@ pub fn apply_ui_style(ctx: &egui::Context, _palette: &Palette) {
     visuals.menu_rounding = egui::Rounding::same(t.radius);
     visuals.window_shadow = egui::Shadow::NONE;
     visuals.window_stroke = egui::Stroke::new(1.0, chrome(s.border));
-    // D5：把上一帧的窗口 alpha 原样装回重建后的皮肤。出厂态（1.0）必须
+    // 把上一帧的窗口 alpha 原样装回重建后的皮肤。出厂态（1.0）必须
     // **整段跳过**：`set_window_alpha(_, 1.0)` 会走一遍颜色反预乘的还原，
     // 那不是 no-op，会让既有视觉基线漂掉一两个色阶。
     if carried_alpha < 1.0 {

@@ -110,7 +110,7 @@ pub struct WaitAnyHit {
 /// 脚本驱动的会话句柄：`Arc<Mutex<dyn Session>>` 的薄包装，可克隆、
 /// 跨线程共享（Send + Sync）。
 ///
-/// 协议无关（ADR-0019 §B.14）：只认 [`Session`] trait，不出现
+/// 协议无关（ADR-0019）：只认 [`Session`] trait，不出现
 /// SSH / PTY 等任何协议专有分支。
 #[derive(Clone)]
 pub struct ScriptSession {
@@ -119,7 +119,7 @@ pub struct ScriptSession {
     capture: Arc<Mutex<Capture>>,
     /// 单次阻塞（wait / read_until 等新数据）的钳制上限（沙箱墙钟预算）。
     max_wait: Duration,
-    /// 取消令牌（ADR-0027 S1）。`None` = 这次运行没接取消（老 API 与单测）；
+    /// 取消令牌（ADR-0027）。`None` = 这次运行没接取消（老 API 与单测）；
     /// 有它时每个阻塞点都走 `*_cancellable`，50ms 切片看一次。
     cancel: Option<CancelToken>,
 }
@@ -143,7 +143,7 @@ impl ScriptSession {
         Self::with_cancel(session, max_wait, None)
     }
 
-    /// 带取消令牌的一档（ADR-0027 S1）：工作区从 `HostEnv` 取出令牌交给每个
+    /// 带取消令牌的一档（ADR-0027）：工作区从 `HostEnv` 取出令牌交给每个
     /// `ScriptSession`，于是任何会话上的 `wait` / `read` 都能被「停止」打断。
     pub fn with_cancel(
         session: Arc<Mutex<dyn Session>>,
@@ -253,7 +253,7 @@ impl ScriptSession {
             return Err(PrimitiveError::EmptyPattern);
         }
         // 分隔符按字面量编译：旧实现是 `str::find`，元字符本就不生效；
-        // 现在统一走 `Pattern`，与 `re()` / 触发器同一编译器（D1 收尾）。
+        // 现在统一走 `Pattern`，与 `re()` / 触发器同一编译器（收尾）。
         let pat = Pattern::compile(delimiter, Syntax::Literal, true)
             .map_err(|_| PrimitiveError::EmptyPattern)?;
         let timeout = self.effective_timeout(timeout_secs);
@@ -289,7 +289,7 @@ impl ScriptSession {
     ///
     /// 与 [`read_until`](Self::read_until) 共用捕获游标：命中后游标推进到
     /// 命中串结尾，之后的文本不丢，留给 [`read`](Self::read) /
-    /// `read_until` 续读。`filter` 是**结果后处理**（见 §4f），不参与匹配。
+    /// `read_until` 续读。`filter` 是**结果后处理**，不参与匹配。
     ///
     /// **超时显式失败**（[`PrimitiveError::Timeout`]），游标不动、文本不丢。
     /// 这里有意偏离 SecureCRT 的「索引 0 = 超时」：0 太容易被脚本忘判而
@@ -618,7 +618,7 @@ impl ScriptSession {
 
     /// 带选项的入口（桥接 / agent 用）。背后是同一个用户在设置页里配过的
     /// 那份 `LogOptions`——无头调用不该写出另一种格式的日志。
-    /// 带宿主名的一档（ADR-0027 §S5）：`%{host}` 只在真的知道主机时才有值。
+    /// 带宿主名的一档（ADR-0027）：`%{host}` 只在真的知道主机时才有值。
     pub fn log_start_full(
         &self,
         dir: &str,
@@ -918,7 +918,7 @@ use term_core::session_runtime::{FacetKind, SessionId, WaitError, WaitRegistrati
     fn filtering_after_matching_hits_sentinels_in_noise_lines() {
         // 2026-11-19 用户裁定：过滤是结果后处理。哨兵在噪声行里**照样命中**，
         // 消费照常推进——这是本测试钉住的核心。返回文本止于命中串（无换行），
-        // 按 §4f-3「最后不完整行透传不判」保留；grep 只清理完整行。
+        // 按约定「最后不完整行透传不判」保留；grep 只清理完整行。
         let (session, manip) = fake_session(1);
         let s = ScriptSession::new(session);
         prime(&s);

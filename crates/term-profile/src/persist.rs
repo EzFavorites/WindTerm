@@ -1,6 +1,6 @@
-//! 会话持久化：SQLite 会话库（R13-b2 起产品里只有这一条路）。
+//! 会话持久化：SQLite 会话库（产品里只有这一条路）。
 //!
-//! R13-b 之前这里是「一个 `user.sessions` 明文 JSON 文件」。那个形状的三个问题
+//! 之前这里是「一个 `user.sessions` 明文 JSON 文件」。那个形状的三个问题
 //! 在 `term-store` 的文档里写着（不可查、整写整读、没地方放凭据引用）；这一层
 //! 现在只是把 `Store` 接到「profile 目录在哪」这件事上。
 //!
@@ -331,7 +331,7 @@ mod tests {
         assert_eq!(s2[0].host, "10.0.0.1");
         assert_eq!(s2[0].port, 2222);
         assert_eq!(s2[0].auth, AuthMethod::PublicKey);
-        // R13-e2：转发规则跟着会话一起活下来。
+        // 转发规则跟着会话一起活下来。
         assert_eq!(s2[0].forwards, vec!["L 8080:db.internal:5432".to_string()]);
     }
 

@@ -117,7 +117,7 @@ impl LogOptions {
         self.file_name_at(session, None, LogStamp::from_secs(secs))
     }
 
-    /// 文件名（带宿主名与毫秒，ADR-0027 §S5）。
+    /// 文件名（带宿主名与毫秒，ADR-0027）。
     ///
     /// `host` 只喂 `%{host}`——不传就是空串（**不**回落到会话名：那会让
     /// 「文件名里有没有主机名」变成运气）。
@@ -174,7 +174,7 @@ impl LogOptions {
 
 /// 日志时间戳：秒（文件名模板的老口径）+ 毫秒（`%{ms}`）。
 ///
-/// 为什么不让 `expand` 自己去取钟：`term-core` 零墙钟（I3），模板展开必须是
+/// 为什么不让 `expand` 自己去取钟：`term-core` 零墙钟，模板展开必须是
 /// 纯函数——同一份模板 + 同一个 stamp 展开出同一个名字，文件名才可复现。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LogStamp {
@@ -189,7 +189,7 @@ impl LogStamp {
     }
 }
 
-/// 模板展开（ADR-0027 §S5 的兼容扩展）。
+/// 模板展开（ADR-0027 的兼容扩展）。
 ///
 /// 既有语义**一个都不改**（改了会破坏用户已存的模板）：`%Y %y %m %d %H %M %S %n %v %%`。
 /// 新增的是花括号形态，与 CRT 的单字母宏不冲突：
@@ -458,7 +458,7 @@ mod tests {
     #[test]
     fn a_session_name_that_is_not_filename_safe_is_folded_but_never_escapes_the_dir() {
         let opts = LogOptions::default();
-        // 中文整段折掉 → `session` 兜底（与 R14-a 的取值一致）。
+        // 中文整段折掉 → `session` 兜底（与取值一致）。
         assert_eq!(opts.file_name_for("生产库", T), "session_2026-11-05_08-24-12.log");
         // 斜杠不能变成路径分隔符。
         let name = opts.file_name_for("prod/db 备份", T);

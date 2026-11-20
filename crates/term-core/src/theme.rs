@@ -306,7 +306,7 @@ pub fn rgb(v: u32) -> Rgb {
 ///
 /// 纯数据、零 UI 依赖；投影层 `apps/desktop/src/theme.rs` 再把它转成绘制用的颜色
 /// 与尺寸（`to_color32` / `apply_ui_style`）。这里只认 `u32` 色值与点数，
-/// 不认任何绘制框架的类型——B1 的判据是按整个文件 grep 的，注释里点名也不行。
+/// 不认任何绘制框架的类型——判据是按整个文件 grep 的，注释里点名也不行。
 /// 每个值都可回溯到 `reference-spec/extract_design.py` 的输出或 `SPEC.md`：
 /// - 强调蓝 `#047CCC`、弹窗底 `#343434`、面板底 `#1C1C1C`、文字灰阶 `#FCFCFC→#A4A4A4`：
 ///   跨 657 张图累计主色（见 `extracted-palette.json`）。
@@ -363,7 +363,7 @@ pub const DESIGN_TOKENS: DesignTokens = DesignTokens {
 };
 
 /// 控件表面的**一条**中性灰阶，逐点采自
-/// Session Property 弹窗，L2 只读视觉基线，永不重冻结）。
+/// Session Property 弹窗，只读视觉基线，永不重冻结）。
 ///
 /// # 为什么单开一组，而不是继续用 `DESIGN_TOKENS`
 ///
@@ -448,7 +448,7 @@ pub const CHROME_SCALE: ChromeScale = ChromeScale {
     focus: 0x1E90FF,
 };
 
-/// P9：快捷命令栏四组的**标记色**，逐点采自
+/// 快捷命令栏四组的**标记色**，逐点采自
 ///
 /// 与 `CHROME_SCALE` 的分工：灰阶管的是「控件表面」，这里管的是「十五个小图形」。
 /// 视觉基线主窗口里饱和色几乎只出现在这 15 个图形上——`session-property.png`
@@ -675,7 +675,7 @@ mod quick_bar_tests {
     #[test]
     fn file_group_reuses_the_one_focus_blue() {
         // 主窗口里出现的蓝与焦点环是同一个值；再引入第二种蓝会立刻回到
-        // P7 修掉的「三套色系打架」。
+        // 修掉的「三套色系打架」。
         assert_eq!(QUICK_BAR.file, CHROME_SCALE.focus);
     }
 }

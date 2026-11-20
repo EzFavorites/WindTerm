@@ -89,7 +89,7 @@ pub(in crate::ui) fn draw_transfer(win: &mut TerminalWindow, ui: &mut egui::Ui) 
     let running = win.filer_xfer().running();
     let len = win.filer_xfer().len();
     let rows = win.filer_xfer().rows();
-    // XFER-06：目录同步是「另一件事」，与队列不共用一张表（设计稿明确不复用
+    // 目录同步是「另一件事」，与队列不共用一张表（设计稿明确不复用
     // `xfer_queue`），但它搬的字节同样是「这次运行在动什么」，所以画在同一块
     // 面板的最上面。取一次、两处用（空态判定与绘制），避免算两遍。
     let sync = win.filer_sync_progress();

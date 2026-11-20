@@ -1,18 +1,18 @@
 //! 标签栏与快捷按钮：会话的唯一入口，以及它们的点击动作。
 //!
-//! R9：从 `ui/mod.rs` 拆出（2026-11-05）。**只搬代码，不改行为**——
+//! 从 `ui/mod.rs` 拆出（2026-11-05）。**只搬代码，不改行为**——
 //! 五张视觉基线逐字节一致是这次拆分唯一的判据。
 //!
-//! P9-f：快捷按钮的画法搬到了 [`super::tool_bar`]（视觉基线里那一行从「8 个
+//! 快捷按钮的画法搬到了 [`super::tool_bar`]（视觉基线里那一行从「8 个
 //! emoji 按钮」变成了「抓手 + 三颗几何图标 + 工具栏面板」），原来的
 //! `draw_tools` 因此删除。2026-11-08 标签条的绘制也搬到了 [`super::tab_bar`]
 //! （无框标签 + 顶部蓝线 + 右端三件）。这个文件仍持有**按钮的定义**
 //! （`ToolButton` / `ToolAction`）、**标签的关闭语义**（`close_tab` 系列）与
-//! **动作的落地**（`handle_tool_action`）——按 R5，按钮长什么样可以改，
+//! **动作的落地**（`handle_tool_action`）——按钮长什么样可以改，
 //! 点下去发生什么必须只有一处。
 
 use crate::ui::*;
-// ④-0：关标签 / 关窗格要按「窗格身份」操作，而不是会话身份。
+// 关标签 / 关窗格要按「窗格身份」操作，而不是会话身份。
 use crate::ui::layout::{remove_from_group, GroupRemoval, PaneGroup};
 use crate::ui::layout::mint_pane_identity;
 use term_core::session_runtime::SessionId;
@@ -38,7 +38,7 @@ pub(in crate::ui) enum ToolAction {
 }
 
 impl TerminalWindow {
-    /// R14-c：关掉一条标签，并维护 `active_tab` 与「至少留一条可用 shell」的约定。
+    /// 关掉一条标签，并维护 `active_tab` 与「至少留一条可用 shell」的约定。
     ///
     /// 关完之后激活哪一条由 `Tabs ▸ Activate the tab after closing:` 决定
     /// （`prefs.tab_activate_after_close`，0 = 本文件接线之前的「夹到末位」）。
@@ -53,12 +53,12 @@ impl TerminalWindow {
         let closed_identity = self.tabs[index].identity;
         let mut closed = self.tabs.remove(index);
         closed.close(); // 先摘 tee 再关会话；Tab::close 已定义好这条顺序
-        // ADR-0025 阶段 1：摘掉一条标签后，恒在身份顺序要立刻跟着重算。
+        // ADR-0025：摘掉一条标签后，恒在身份顺序要立刻跟着重算。
         self.sync_open_order();
-        // ④-1：按「组里还有没有会话」决定剪不剪叶子（用户拍板 ⑥）。
+        // 按「组里还有没有会话」决定剪不剪叶子。
         // 一个 `SessionId` 只属于一个 group（ADR-0026），按会话反查窗格精确处理：
         // · 组里还有别的 tab → 只更新该组 order/active，**不剪叶子**（pane 保留）；
-        // · 组已空           → 剪掉这片窗格并摘掉 group（与 ④-0 旧行为一致）。
+        // · 组已空           → 剪掉这片窗格并摘掉 group（与旧行为一致）。
         // 当前每组只有一条会话，所以现有生命周期断言走的全是第二条分支，行为不变。
         let mut kept_in_pane: Option<SessionId> = None;
         if let Some(pane) = self.pane_of_session(closed_identity) {
@@ -161,9 +161,9 @@ impl TerminalWindow {
         for mut tab in self.tabs.drain(..) {
             tab.close();
         }
-        // ADR-0025 阶段 1：标签全清后，恒在身份顺序置空。
+        // ADR-0025：标签全清后，恒在身份顺序置空。
         self.sync_open_order();
-        // 关掉全部标签后布局回到单窗格，不能留着指向旧下标的树。④-0：用新窗格身份、
+        // 关掉全部标签后布局回到单窗格，不能留着指向旧下标的树。用新窗格身份、
         // 清空 group 映射（退出路径不渲染，不给空 group 留悬空条目）。
         self.layout = Layout::single(mint_pane_identity());
         self.pane_groups.clear();
@@ -172,7 +172,7 @@ impl TerminalWindow {
         self.set_active_slot(0);
     }
 
-    /// R14-c：关掉全部标签（菜单「Close All Views」）。
+    /// 关掉全部标签（菜单「Close All Views」）。
     ///
     /// 「关掉视图」在界面上要留一个能继续敲的窗格，所以关空之后补一条本地 shell；
     /// 退出路径不需要这个补位，见 [`Self::close_all_sessions`]。
@@ -184,7 +184,7 @@ impl TerminalWindow {
     /// 窗口里始终留一条能用的本地 shell——标签栏、菜单关闭都遵守同一约定。
     fn ensure_tab(&mut self) {
         if self.tabs.is_empty() {
-            // W6：新标签是**新会话**，光标样式取 Caret 页的偏好（不是 `SessionConfig::new` 的写死 0）。
+            // 新标签是**新会话**，光标样式取 Caret 页的偏好（不是 `SessionConfig::new` 的写死 0）。
             let shell_cfg = self.fresh_session(Protocol::Shell);
             self.add_tab(make_tab(
                 &self.pool,
@@ -338,7 +338,7 @@ mod tests {
 }
 
 // 生命周期回归单测单独放一个文件：夹具要手写一份完整的 TerminalWindow
-// 结构体字面量，塞进本文件会顶到门禁 4j 的 500 行上限。
+// 结构体字面量，塞进本文件会顶到门禁的 500 行上限。
 #[cfg(test)]
 #[path = "tab_strip_lifecycle_tests.rs"]
 mod lifecycle_tests;

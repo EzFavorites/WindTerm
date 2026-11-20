@@ -1,4 +1,4 @@
-//! 菜单命令与应用面动词的**分类表**（Q2 §6，取代「不暴露清单」）。
+//! 菜单命令与应用面动词的**分类表**（取代「不暴露清单」）。
 //!
 //! 每个能点的入口都要回答一个问题：它为什么不在脚本 API 里？
 //!
@@ -41,7 +41,7 @@ pub enum ApiClass {
 /// 2. `Window.TogglePaneTmux` 归 `Interactive`：tmux 面板不在 `PanelId::ALL` 里
 ///    （`shell.rs` 的已知偏差），`app_panel_set` 不认识它。
 /// 3. `Application.SetWindowOpacity*` 归 `Interactive`：本版没有窗口写动词
-///    （Q2 §4.1 的「不做」清单）。
+///    （的「不做」清单）。
 static CLASSES: &[(&str, ApiClass)] = &[
     ("Application.Exit", ApiClass::Verb("app_quit")),
     ("Application.NewWindow", ApiClass::Interactive),

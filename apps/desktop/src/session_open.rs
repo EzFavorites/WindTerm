@@ -2,13 +2,13 @@
 //!
 //! # 为什么需要这一层
 //!
-//! W1-c 之前 `SessionPool::open` 遇到内置 SSH（russh）只会报
+//! 之前 `SessionPool::open` 遇到内置 SSH（russh）只会报
 //! [`OpenError::BuiltinChannelNeedsInjection`]，通道得由应用层建好后经
 //! `open_with_channel` 注入；界面路径（`ui/dialogs/ssh_connect.rs`）有一整套
 //! 连接状态机，脚本与桥接这两条**无窗口**路径却没有。这个文件补的就是
 //! 那条缝：认证怎么解析、通道怎么建、失败怎么分类，只在这里写一遍。
 //!
-//! W1-c 起控制面本体认了这条会话：本文件把那段逻辑注册成**通道工厂**
+//! 此后控制面本体认了这条会话：本文件把那段逻辑注册成**通道工厂**
 //! （`install_channel_factory`），`SessionPool::open` 自己调工厂并走同一套
 //! 监管路径。于是脚本 / 桥接只调一个 `open()`，界面仍用自己的对话框
 //! （它要问密码、问指纹，工厂不该替它做这些决定）。
@@ -95,7 +95,7 @@ impl std::error::Error for OpenFailure {}
 
 /// 开一条会话。**脚本与桥接都必须走这里**，不许各自 `match` 协议。
 ///
-/// W1-c 之后控制面本体（`SessionPool::open`）就能开内置 SSH：这里只负责
+/// 此后控制面本体（`SessionPool::open`）就能开内置 SSH：这里只负责
 /// 「把工厂装上去」和「把错误分类翻回应用层的说法」，会话本身仍由控制面
 /// 唯一登记。非内置 SSH 那条支路与这一层出现之前完全一致。
 pub(crate) fn open_session(
@@ -216,7 +216,7 @@ pub(crate) fn ssh_options_for(
     );
     let auth = ssh_auth(&config, dirs::home_dir().as_deref())?;
     let mut opts = ssh_options(&config, auth.clone(), cols, rows)?;
-    // D2：接上无凭据回退链。空链 = 保持单方法行为不变；非空则把首选排在最前，
+    // 接上无凭据回退链。空链 = 保持单方法行为不变；非空则把首选排在最前，
     // 由 `term_ssh::authenticate` 按顺序逐个尝试。
     let fallbacks = ssh_fallback_chain(&config, dirs::home_dir().as_deref())?;
     if !fallbacks.is_empty() {
@@ -336,7 +336,7 @@ fn ssh_auth(config: &SessionConfig, home: Option<&Path>) -> Result<SshAuth, Open
     }
 }
 
-/// D2：把会话的回退链（`SessionConfig.auth_chain`，不含首选）解析成内置客户端
+/// 把会话的回退链（`SessionConfig.auth_chain`，不含首选）解析成内置客户端
 /// 能执行的方法。
 ///
 /// **只含无凭据方法**：Agent / PublicKey。密码与键盘交互的答案在保险库 / 对话框，
@@ -428,7 +428,7 @@ fn ssh_options(
     // 而用户看到的是「连接失败」——那是沉默的撒谎。语法错误在碰网络之前报出来。
     opts.proxy_jump = term_ssh::parse_proxy_jump(&config.proxy_jump)
         .map_err(|e| OpenFailure::Unsupported(format!("这条会话的 ProxyJump 写不对：{e}")))?;
-    // W1-b：脚本 / 桥接这两条无窗口路径也真的走出网代理。配不全时明确报
+    // 脚本 / 桥接这两条无窗口路径也真的走出网代理。配不全时明确报
     // 「改会话配置」，不偷偷直连（ADR-0018 的行为分叉禁令）。
     if let Some(why) = config.validate_proxy() {
         return Err(OpenFailure::Unsupported(why));
@@ -593,7 +593,7 @@ mod tests {
 
 #[test]
     fn a_fallback_chain_keeps_only_credential_free_methods_deduped_in_order() {
-        // D2：回退链只收 Agent / PublicKey；密码 / 键盘交互 / GSSAPI 在 headless
+        // 回退链只收 Agent / PublicKey；密码 / 键盘交互 / GSSAPI 在 headless
         // 这条路上跳过（不报错——勾了密码不该让能用的 Agent 一起挂）。
         let home = scratch_home("chain");
         std::fs::write(home.join(".ssh/id_ed25519"), b"x").expect("写 key");
@@ -788,7 +788,7 @@ mod tests {
 
     #[test]
     fn the_control_plane_itself_opens_builtin_ssh_once_the_factory_is_installed() {
-        // W1-c 的判据：不经过 `open_session`，直接 `pool.open` 也不再是
+        // 判据：不经过 `open_session`，直接 `pool.open` 也不再是
         // 「需要注入」，而是真的走工厂（这里连不上一个没人监听的端口，
         // 所以拿到的是带分类的连接失败）。
         let pool = SessionPool::new();

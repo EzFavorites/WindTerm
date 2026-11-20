@@ -43,7 +43,7 @@ def load_golden(name: str) -> Image.Image:
     if digest != expected:
         sys.exit(
             f"视觉基线被改动了！\n  {path}\n  期望 {expected}\n  实际 {digest}\n"
-            "L2 视觉基线只读，不允许重冻结（见 docs/design/11-theme-and-visual-baseline.md）。"
+            "视觉基线只读，不允许重冻结（见 docs/design/11-theme-and-visual-baseline.md）。"
         )
     return Image.open(path).convert("RGB")
 

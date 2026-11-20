@@ -1,13 +1,13 @@
-//! S0 金样本回归集：固定字节流 → 网格快照 JSON。
+//! 金样本回归集：固定字节流 → 网格快照 JSON。
 //!
-//! 这是整个一次性地基改造的「保险丝」。S1/S2 最容易静默改变 VT 行为，
+//! 这是整个一次性地基改造的「保险丝」。最容易静默改变 VT 行为，
 //! 任何阶段只要 `cargo test golden` 与本目录下的基线 JSON 出现逐行差异，
 //! 就说明语义被改动了，必须回滚，不得进入下一阶段。
 //!
 //! 用法：
 //!   cargo test --manifest-path app/Cargo.toml golden       # 与基线比对
 //!   GOLDEN_UPDATE=1 cargo test --manifest-path app/Cargo.toml golden -- --nocapture
-//!                                                          # 重新生成基线（仅 S0 允许）
+//!                                                          # 重新生成基线（仅本文件允许）
 //!
 //! 快照只记录确定性字段：网格字符、非默认 cell 属性、光标、标题、备用屏、
 //! scrollback 行数、设备应答、OSC 52 剪贴板状态。BEL 抑制属于宿主表现逻辑，
@@ -190,7 +190,7 @@ fn golden_matches_baseline() {
         }
 
         let expected = std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("缺少金样本 {}: {e}（S0 需先 GOLDEN_UPDATE=1 生成）", path.display()));
+            .unwrap_or_else(|e| panic!("缺少金样本 {}: {e}（需先 GOLDEN_UPDATE=1 生成）", path.display()));
         if expected != actual {
             let a = expected.lines().collect::<Vec<_>>();
             let b = actual.lines().collect::<Vec<_>>();

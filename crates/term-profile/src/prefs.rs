@@ -43,7 +43,7 @@ use crate::quickbar::QuickBarDisplay;
 
 pub const PREFS_FILE: &str = "prefs.json";
 
-/// D3：地址栏「最近使用」保留几条。
+/// 地址栏「最近使用」保留几条。
 ///
 /// 20 条是**下拉高度与可用性**之间的折中：地址栏下拉一屏约十行，20 条刚好
 /// 「翻两下能看到全部」；再多就变成一份需要搜索的清单，而它本来只是「顺手再用
@@ -82,7 +82,7 @@ pub enum DisplayMode {
     Bin,
 }
 
-/// 「最近跑过的脚本」最多留几条（ADR-0027 §S6 说「最近 10 条」）。
+/// 「最近跑过的脚本」最多留几条（ADR-0027 说「最近 10 条」）。
 ///
 /// 超过之后丢最旧的一条。定死一个数而不是做成可配：这是一份**备忘**，不是
 /// 历史记录，列表长了反而找不到。
@@ -122,7 +122,7 @@ pub struct Prefs {
     pub log_max_size_mb: u32,
     #[serde(default)]
     pub log_content_pattern: String,
-    /// W1-a：Application ▸ Startup 的三档策略。规范值 `none` / `last` /
+    /// Application ▸ Startup 的三档策略。规范值 `none` / `last` /
     /// `specific`；**空串 = 老文件没有这项**，由 `term_app::startup::parse_tag`
     /// 回落到 `last`（视觉基线出厂态）。用字符串而非序号，是为了让 serde 的
     /// 缺省值（空串）天然等于「没设置过」，不需要 migration。
@@ -132,20 +132,20 @@ pub struct Prefs {
     /// 与语言、日志设置同属一份 `prefs.json`，写回必须 load-modify-save。
     #[serde(default, deserialize_with = "de_sessions")]
     pub startup_sessions: [String; 4],
-    /// W5.1：命令行历史 TTL（天）。`0` = 老文件没这项 / 用户未设，由
+    /// 命令行历史 TTL（天）。`0` = 老文件没这项 / 用户未设，由
     /// `command_history_store` 回落出厂默认 30 天（与灰显设置页一致）。
     /// 不为 `0` 时直接采用该值；`0` 是「未设置」哨兵，不是「永久保留」
     /// （永久保留请设大数，如 36500）。
     #[serde(default)]
     pub command_history_days: u64,
-    /// W5.1：命令行历史容量（条）。`0` = 回落出厂默认 10000（与灰显设置页一致）。
+    /// 命令行历史容量（条）。`0` = 回落出厂默认 10000（与灰显设置页一致）。
     #[serde(default)]
     pub command_history_size: usize,
-    /// W5.1：是否把命令行历史落盘。灰显设置页出厂态为**开**，故反序列化默认 `true`
+    /// 是否把命令行历史落盘。灰显设置页出厂态为**开**，故反序列化默认 `true`
     /// （老文件缺键 = 沿用出厂态）；UI 接线后由设置页改写。落盘由 `term-runtime::persist` 负责。
     #[serde(default = "default_true")]
     pub command_history_save: bool,
-    /// W6：`Text ▸ Caret` 页选的光标样式，取值是
+    /// `Text ▸ Caret` 页选的光标样式，取值是
     /// `term_core::config::CARET_STYLES` 的下标（0 = Block … 7 = Blinking Underline）。
     ///
     /// **这是新会话的初值，不是所有会话的节目单**：每条会话带着自己的
@@ -317,7 +317,7 @@ pub struct Prefs {
     /// `Preferences ▸ Highlight ▸ Highlight the incremental search`：查找命中铺底色。
     ///
     /// 出厂 **`true`**，与同页其余四项不同——那四项是**还没做**，这一项是
-    /// **本来就在做、只是没有开关**：`ui/terminal/pane_overlays.rs` 从 F2 起
+    /// **本来就在做、只是没有开关**：`ui/terminal/pane_overlays.rs` 一直
     /// 就无条件把命中画成底色（当前命中用前景色、其余金黄）。
     /// 出厂给 `false` 等于升级一次就把既有的查找高亮关掉，属于行为倒退。
     ///
@@ -379,7 +379,7 @@ pub struct Prefs {
     pub quickbar_show_group_title: bool,
     #[serde(default)]
     pub quickbar_alphabetical: bool,
-    /// D1：触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
+    /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
     /// 规则类型定义在 `term_core::trigger::Rule`：数据层下放到最低 crate，
@@ -416,7 +416,7 @@ pub struct Prefs {
     /// 配好的人以为「为什么点了启用还是不通」。
     #[serde(default = "default_true")]
     pub tunnels_enabled: bool,
-    /// D7：重绑后的快捷键落盘。元素是 `(DEFAULT_SHORTCUTS 下标, 新和弦文本)`，
+    /// 重绑后的快捷键落盘。元素是 `(DEFAULT_SHORTCUTS 下标, 新和弦文本)`，
     /// 空 = 全部用出厂绑定。
     ///
     /// 下标而非命令 ID：运行期派发本就按下标取 `DEFAULT_SHORTCUTS[i]`，
@@ -430,7 +430,7 @@ pub struct Prefs {
     /// 构造时一次 `clone()` 就能接上，不需要格式转换。
     #[serde(default)]
     pub shortcut_overrides: Vec<(usize, String)>,
-    /// D5：窗口透明度 —— 透明开关。开 = 让 OS 窗口背景透明（eframe 0.29 经
+    /// 窗口透明度 —— 透明开关。开 = 让 OS 窗口背景透明（eframe 0.29 经
     /// `NativeOptions.viewport.transparent` 转 winit `with_transparency`，
     /// `glow_integration.rs:926` / `wgpu_integration.rs:194` 已确认跨平台走通）。
     ///
@@ -439,7 +439,7 @@ pub struct Prefs {
     /// 现有行为 100% 不变；这是「功能优先、基线后置」策略下的安全默认值。
     #[serde(default)]
     pub window_transparent: bool,
-    /// D5：窗口不透明度（1.0 = 完全不透明）。仅在 `window_transparent` 为真时
+    /// 窗口不透明度（1.0 = 完全不透明）。仅在 `window_transparent` 为真时
     /// 生效；设太低（<0.3）恐整窗不可读，故渲染侧钳制到 [0.3, 1.0]。
     ///
     /// 落盘允许任意 f32，钳制放在读取/渲染侧，避免「存了一个非法值就再也救不回」。
@@ -448,7 +448,7 @@ pub struct Prefs {
     /// 所以这里用 `default = "default_opacity_one"` 显式指定，老文件缺键回落 1.0。
     #[serde(default = "default_opacity_one")]
     pub window_opacity: f32,
-    /// D3：地址栏的「最近使用」目标串（`user@host:port` 形态），MRU 在队首。
+    /// 地址栏的「最近使用」目标串（`user@host:port` 形态），MRU 在队首。
     ///
     /// # 为什么不放 `term-store`
     ///
@@ -467,14 +467,14 @@ pub struct Prefs {
     /// 且不连坐同文件里的任何其它设置。
     #[serde(default)]
     pub recent_targets: Vec<String>,
-    /// ADR-0027 §S6：最近跑过的脚本路径（MRU，最多 [`RECENT_SCRIPTS_MAX`] 条）。
+    /// ADR-0027：最近跑过的脚本路径（MRU，最多 [`RECENT_SCRIPTS_MAX`] 条）。
     ///
     /// 与 `recent_targets` 同一套规矩：只留「最近用过的」，不存脚本内容。
     /// 空表不序列化——老 `prefs.json` 里没有这个键时读出来也是空表，两种情况
     /// 在磁盘上一样，不需要区分。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_scripts: Vec<String>,
-    /// D6：首次启动引导（Welcome → 探测 SSH 主机）是否已经走完，或者用户主动跳过。
+    /// 首次启动引导（Welcome → 探测 SSH 主机）是否已经走完，或者用户主动跳过。
     ///
     /// # 为什么是「已看过」而不是「首次运行」
     ///
@@ -495,7 +495,7 @@ pub struct Prefs {
     /// 不预选——逐项对齐视觉基线 `08-terminal-auto-completion.png` 的出厂态。
     ///
     /// 类型直接复用 `term-core::completion::Settings`：引擎读的与实际落盘的
-    /// 是同一份结构，设置页就不必在两套字段之间做转换（R5：每个字段都有
+    /// 是同一份结构，设置页就不必在两套字段之间做转换（每个字段都有
     /// 真实读者）。`#[serde(default)]` 让老 `prefs.json` 缺这个键时回落到
     /// 上面的出厂值，不影响同文件里的其它设置。
     #[serde(default)]
@@ -507,7 +507,7 @@ fn default_true() -> bool {
     true
 }
 
-/// D5：窗口不透明度的出厂默认（1.0 = 完全不透明）。f32 的 `Default` 是 0.0，
+/// 窗口不透明度的出厂默认（1.0 = 完全不透明）。f32 的 `Default` 是 0.0，
 /// 不能用在 serde `default` 上，否则老文件缺键会回落成「全透明」——那比「回落成
 /// 出厂不透明」危险得多（整窗可能直接看不见）。见 `window_opacity` 字段注释。
 fn default_opacity_one() -> f32 {
@@ -525,7 +525,7 @@ fn default_caret_width() -> f32 {
     term_core::config::DEFAULT_CARET_WIDTH
 }
 
-/// D5：渲染侧窗口不透明度的上下限。`window_opacity` 允许落盘任意 `f32`
+/// 渲染侧窗口不透明度的上下限。`window_opacity` 允许落盘任意 `f32`
 /// （含用户手改的越界值），**钳制只发生在读取 / 渲染侧**，不回写盘：
 /// 存了一个非法值就再也救不回来，比一时看不清更糟。见字段注释。
 pub const WINDOW_OPACITY_MIN: f32 = 0.3;
@@ -608,22 +608,22 @@ impl Default for Prefs {
             quickbar_show_multiple_groups: true,
             quickbar_show_group_title: true,
             quickbar_alphabetical: false,
-            // D1：出厂没有任何触发器规则。
+            // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
             // 2026-11-17：出厂没有命名隧道；总线开关默认开着（见字段注释）。
             tunnels: Vec::new(),
             tunnels_enabled: true,
-            // D7：出厂没有任何重绑定的快捷键（全部用出厂和弦）。
+            // 出厂没有任何重绑定的快捷键（全部用出厂和弦）。
             shortcut_overrides: Vec::new(),
-            // D5：出厂是不透明窗口（透明开关默认关，现状不变）。
+            // 出厂是不透明窗口（透明开关默认关，现状不变）。
             window_transparent: false,
             window_opacity: 1.0,
-            // D3：出厂没有任何「最近使用」的目标（等于「还没用过地址栏」）。
+            // 出厂没有任何「最近使用」的目标（等于「还没用过地址栏」）。
             recent_targets: Vec::new(),
-            // ADR-0027 §S6：出厂 = 还没跑过脚本。
+            // ADR-0027：出厂 = 还没跑过脚本。
             recent_scripts: Vec::new(),
-            // D6：出厂 = 还没走过首次启动引导。**这一项必须是 `false`**：
+            // 出厂 = 还没走过首次启动引导。**这一项必须是 `false`**：
             // 出厂值写成 `true` 等于给所有新装机器关掉引导，而引导是本刀唯一的
             // 入口；写成随 `Default` 派生的 `false` 与 serde 默认一致，不需要特判。
             onboarded: false,
@@ -684,7 +684,7 @@ impl Prefs {
         self.log_content_pattern = opts.content_pattern.clone();
     }
 
-    /// W5.1：由偏好构造命令行历史存储（读取三字段）。
+    /// 由偏好构造命令行历史存储（读取三字段）。
     ///
     /// `0` 是「未设置」哨兵：回落出厂默认（`days = 30`、`size = 10000`），
     /// 与灰显 `CommandHistory` 设置页一致；老文件读到 `0` 不会变成「不保留」。
@@ -712,7 +712,7 @@ impl Prefs {
         }
     }
 
-    /// W6：`caret_style` 的生效值。越界（手改过的文件写了个 `9`）回落 `0` =
+    /// `caret_style` 的生效值。越界（手改过的文件写了个 `9`）回落 `0` =
     /// Block——与 `term_core::config::caret_style_to_shape_blink` 的兜底一致，
     /// 读取方不必各自再夹一次。
     pub fn caret_style_index(&self) -> usize {
@@ -1315,7 +1315,7 @@ mod tests {
 
     #[test]
     fn caret_period_and_width_round_trip_on_their_own() {
-        // W7：Caret 页把 Period / Width 从灰文本改成真 DragValue，落盘同样是
+        // Caret 页把 Period / Width 从灰文本改成真 DragValue，落盘同样是
         // load-modify-save——拖这两根滑条不许把光标样式或语言改回默认值。
         let path = tmp();
         let prefs = Prefs {
@@ -1868,7 +1868,7 @@ mod tests {
 
     #[test]
     fn shortcut_overrides_round_trip_and_default_to_empty() {
-        // D7：重绑定的快捷键必须能从 prefs 读回来，否则「改完重启就丢」，
+        // 重绑定的快捷键必须能从 prefs 读回来，否则「改完重启就丢」，
         // 用户会以为那个编辑器是假的。出厂态是空覆盖集（全部用出厂和弦）。
         assert!(Prefs::default().shortcut_overrides.is_empty());
         let path = tmp();
@@ -1906,7 +1906,7 @@ mod tests {
 
     #[test]
     fn an_old_prefs_file_without_recent_targets_reads_as_empty() {
-        // D3：地址栏「最近使用」。老文件根本没有这个键，`#[serde(default)]` 让
+        // 地址栏「最近使用」。老文件根本没有这个键，`#[serde(default)]` 让
         // 它回落成空列表（= 还没用过地址栏），并且不许连坐同文件里的其它设置。
         let path = tmp();
         std::fs::write(&path, r#"{"language":"zh-CN","caret_style":5}"#).unwrap();
@@ -1940,7 +1940,7 @@ mod tests {
 
     #[test]
     fn window_transparency_defaults_to_opaque_and_survives_a_missing_key() {
-        // D5：出厂是不透明窗口（透明关 + 不透明度 1.0）。老文件缺这两个键时
+        // 出厂是不透明窗口（透明关 + 不透明度 1.0）。老文件缺这两个键时
         // 必须回落出厂值，不能因为「角落里多两个字段」就让整窗突然变透明。
         assert!(!Prefs::default().window_transparent, "默认不透明窗口");
         assert_eq!(Prefs::default().window_opacity, 1.0);
@@ -1963,7 +1963,7 @@ mod tests {
         assert_eq!(back2.window_opacity, 0.6);
     }
 
-    /// D5 钳制边界：下限 / 上限 / 区间内 / 非有限值四档逐项钉死。
+    /// 钳制边界：下限 / 上限 / 区间内 / 非有限值四档逐项钉死。
     ///
     /// 为什么这里而不是渲染层：钳制是**读取侧的语义**，与 egui 无关，
     /// 放在 `term-profile` 才能让纯测试不拉起任何 UI 依赖。
@@ -2004,7 +2004,7 @@ mod tests {
 
     #[test]
     fn onboarded_is_false_for_an_older_file_without_the_key() {
-        // D6：老文件里没有 `onboarded`。回落值必须是 `false`（= 还没走过引导），
+        // 老文件里没有 `onboarded`。回落值必须是 `false`（= 还没走过引导），
         // 不是 `true`。差别是这个字段唯一的语义：`true` 会让升级上来的用户
         // **永远看不到**引导，而那正是本刀唯一新增的入口。
         let path = tmp();
@@ -2091,7 +2091,7 @@ mod tests {
     /// 查找命中高亮：老文件**没有这个键**时必须当「开着」，不能当「关着」。
     ///
     /// 这是本仓唯一一个「出厂 `true` 的渲染开关」——它出厂开不是因为视觉基线
-    /// 画着勾，而是因为效果本来就无条件在画（`pane_overlays.rs` 的 F2 那段）。
+    /// 画着勾，而是因为效果本来就无条件在画（`pane_overlays.rs` 的那段）。
     /// 少写 `#[serde(default = "default_true")]` 的后果是**升级即关**：
     /// 用户会以为「查找高亮坏了」，而代码里没有任何东西会报错。
     #[test]

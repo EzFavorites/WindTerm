@@ -118,7 +118,7 @@ pub struct Terminal {
     pub cmd_marks: Vec<(i64, Mark)>,
     /// 每行的「这一段字节到达的时刻」：绝对行号 → epoch 秒。margin 时间戳列读它。
     ///
-    /// I3 的字面要求是「语义平面不得**读**墙钟」——这里一次都不调
+    /// 字面要求是「语义平面不得**读**墙钟」——这里一次都不调
     /// `SystemTime::now()`，只**收下**宿主（`term-runtime`）写入前递进来的时刻
     /// （`stamp_row`）。时刻的产权在宿主，语义层只负责把它和行对齐，并在历史
     /// 裁剪时跟着一起左移，规则与 `cmd_marks` 完全一致。
@@ -318,7 +318,7 @@ impl Terminal {
     /// 给**当前光标所在行**记一个到达时刻（epoch 秒），宿主在写入前调用。
     ///
     /// 同一行只认第一次：一行是被逐字符写出来的，每次都覆盖会让「行首时间」
-    /// 变成「行尾时间」。时刻由宿主给，语义层不读钟（I3）。
+    /// 变成「行尾时间」。时刻由宿主给，语义层不读钟。
     ///
     /// 记下的时刻会被 `touch_row` 沿用：宿主一次喂进来的字节往往写穿好几行，
     /// 那些行都属于同一批到达的输出，理应共享同一个时刻——否则边栏上会出现
@@ -453,7 +453,7 @@ impl Terminal {
         }
     }
 
-    /// R1 / I2：从当前状态切出任意行窗口。纯函数，不读墙钟、不起线程、不持锁。
+    /// 从当前状态切出任意行窗口。纯函数，不读墙钟、不起线程、不持锁。
     ///
     /// `range` 用相对当前可视区的行号：负数 = 回看（-1 为最近一行历史），
     /// `0..rows` = 当前屏。越界行以空白补齐，保证 `lines.len() == range.len()`，
@@ -764,7 +764,7 @@ pub fn arrow_bytes_for(arrow: Arrow, application_cursor_keys: bool) -> &'static 
     }
 }
 
-/// 粘贴文本 → 送往 PTY 的字节（F1-b）。
+/// 粘贴文本 → 送往 PTY 的字节。
 ///
 /// 与 `arrow_bytes_for` 同样是「只要一个模式位」的纯函数：投影层手里只有
 /// 快照，拿不到 `Terminal`，但粘贴同样需要按终端状态编码。三件事：
@@ -937,7 +937,7 @@ impl vte::ansi::Handler for Terminal {
     }
 
     fn bell(&mut self) {
-        // I3：语义平面不得读墙钟。响铃抑制属于宿主/投影层的表现逻辑，
+        // 语义平面不得读墙钟。响铃抑制属于宿主/投影层的表现逻辑，
         // 这里只保留 trait 要求的空实现，不改变任何网格状态（零可见行为变化）。
     }
 
@@ -1527,7 +1527,7 @@ mod tests {
         assert_eq!(base64_decode(b"aGVsbG8gd29ybGQ="), b"hello world");
     }
 
-    // ── I3 确定性语义（R0）────────────────────────────────────────────
+    // ── 确定性语义────────────────────────────────────────────
 
     #[test]
     fn bell_has_no_observable_effect() {
@@ -1564,7 +1564,7 @@ mod tests {
         assert_eq!(sa.version, sb.version);
     }
 
-    // ── R1 / I2：按范围请求的只读事实窗口 ───────────────────────────
+    // ── 按范围请求的只读事实窗口 ───────────────────────────
 
     #[test]
     fn slice_range_current_screen_matches_snapshot() {
@@ -1646,7 +1646,7 @@ mod tests {
 
     #[test]
     fn slice_range_is_rebuildable() {
-        // I2：投影被销毁（blank）后，用同一 version + range 重新请求事实，
+        // 投影被销毁（blank）后，用同一 version + range 重新请求事实，
         // 得到的图像与未销毁时逐项一致；重建不依赖任何投影侧状态。
         let mut t = Terminal::new(20, 3, 100);
         t.process(b"L1\r\nL2\r\nL3\r\nL4\r\nL5");
@@ -1661,7 +1661,7 @@ mod tests {
 
     #[test]
     fn slice_range_reports_history_length_for_clamping() {
-        // F1：投影靠 `history` 钳制回看上限，不自己猜；仍只是数字，不含历史缓冲。
+        // 投影靠 `history` 钳制回看上限，不自己猜；仍只是数字，不含历史缓冲。
         let mut t = Terminal::new(20, 3, 100);
         t.process(b"L1\r\nL2\r\nL3\r\nL4\r\nL5");
         assert_eq!(t.scrollback.len(), 2, "前置：5 行内容在 3 行屏内应留 2 行历史");
@@ -1675,7 +1675,7 @@ mod tests {
 
     #[test]
     fn to_screen_image_matches_the_live_screen() {
-        // F1：贴底渲染走 `GridSnapshot::to_screen_image()`，必须与原快照逐 cell 一致。
+        // 贴底渲染走 `GridSnapshot::to_screen_image()`，必须与原快照逐 cell 一致。
         let mut t = Terminal::new(12, 3, 100);
         t.process(b"abc\r\ndef");
         let snap = t.snapshot(7);
@@ -1694,7 +1694,7 @@ mod tests {
 
     #[test]
     fn screen_image_crop_refuses_windows_it_cannot_cover() {
-        // F1：投影靠 crop 判断手上的事实够不够，不够就再请求，不硬画。
+        // 投影靠 crop 判断手上的事实够不够，不够就再请求，不硬画。
         let mut t = Terminal::new(20, 3, 100);
         t.process(b"L1\r\nL2\r\nL3\r\nL4\r\nL5");
         let img = t.slice_range(1, -2..3);
@@ -1728,7 +1728,7 @@ mod tests {
         assert!(img.line_at(-3).is_none());
     }
 
-    // ------------------------------------------- F3：宽字符的文本口径
+    // ------------------------------------------- 宽字符的文本口径
 
     #[test]
     fn cjk_rows_read_back_without_inserted_spaces() {
@@ -1746,7 +1746,7 @@ mod tests {
         assert_eq!(Terminal::row_text(&t.grid[0]), "你好 world");
     }
 
-    // ------------------------------------------------------ F1-b：粘贴编码
+    // ------------------------------------------------------ 粘贴编码
 
     #[test]
     fn paste_normalises_every_kind_of_line_break_to_cr() {

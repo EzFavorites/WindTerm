@@ -1,7 +1,7 @@
 //! 视觉基线里三个尚未挂接的弹层：shell 类型下拉 / Outline ⋮ 菜单 / 地址栏下拉。
 //!
 //! 挂载点由用户后续提供，本模块只做**逐字对齐 + 可独立出图**的组件，不接
-//! `Action`——没有生产入口就不会出现「点了没反应」的空转开关（R5）。
+//! `Action`——没有生产入口就不会出现「点了没反应」的空转开关。
 //! 前两个复用 `shell::menu_style::draw_menu_row` 的四栏手绘，和菜单栏 / 右键
 //! 菜单同一套色与列；地址栏下拉是另一类控件（分组名 + 彩色图标 + 链接色地址
 //! + 右侧动作），单独画。
@@ -100,7 +100,7 @@ pub(in crate::ui) fn draw_outline_menu(lang: Lang, ui: &mut egui::Ui) {
 /// 分组名绿 `#3CB371`、地址链接蓝 `#4D90FE`、动作青蓝 `#6AC8F2`、
 /// 快捷键灰 `#BBBBBB`（与菜单快捷键列同档）。
 ///
-/// D3：四个取色函数与 [`draw_session_glyph`] / [`paint_right`] 放宽成
+/// 四个取色函数与 [`draw_session_glyph`] / [`paint_right`] 放宽成
 /// `pub(in crate::ui)`，让**真**地址栏（`ui/address/rows.rs`）画同一套颜色与
 /// 图标。只动可见性，`draw_address_dropdown` 的任何绘制行为一个字节都没变
 /// ——它是 `components/menu_address_bar.png` 的渲染源。

@@ -9,7 +9,7 @@
 //! 与 `settings_live.rs` 那七页唯一的差别：那七页整页都真，这三页只真一半。
 //!
 //! 规矩没变：不许把灰行画成能点（假装有读者），也不许把真控件画成灰的
-//! （假装没接线）；**灰行永远是空框**——勾代表「这项已生效」（S4 的假勾选）。
+//! （假装没接线）；**灰行永远是空框**——勾代表「这项已生效」（假勾选）。
 //!
 //! # 三页各自真在哪
 //!
@@ -61,8 +61,8 @@ const TOOLBAR_NOTE: &str = "Show toolbar takes effect immediately, but the switc
      (it is back on the next launch). There is no address bar in this build, and auto-hiding the \
      menu bar would need hover / Alt-key detection over the menu strip.";
 
-/// 多光标：R10 已把编辑器语义删掉，连状态都没有。
-const MULTI_CARET_NOTE: &str = "Multiple carets were removed with the editor semantics (R10); \
+/// 多光标：已把编辑器语义删掉，连状态都没有。
+const MULTI_CARET_NOTE: &str = "Multiple carets were removed with the editor semantics; \
      there is no caret collection to store.";
 
 /// 自动复制：会覆盖系统剪贴板，本轮不做。
@@ -287,7 +287,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
 
     if toggled {
-        // `ViewState` 只由 reducer 写（I1）：这里派发动作，不直接赋值。
+        // `ViewState` 只由 reducer 写：这里派发动作，不直接赋值。
         // 勾选是「翻一下」，与 `ShellAction::ToggleToolbar` 的语义正好对齐。
         win.dispatch_action(Action::Shell(ShellAction::ToggleToolbar));
     }

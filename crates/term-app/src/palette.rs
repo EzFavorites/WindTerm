@@ -1,8 +1,8 @@
-//! R14-c：命令面板能力——「所有可执行项 + 搜索 + 选中」的纯函数注册表。
+//! 命令面板能力——「所有可执行项 + 搜索 + 选中」的纯函数注册表。
 //!
-//! 设计要点（B4 / I5 / R5）：
+//! 设计要点：
 //! - **注册表不另建一份清单**：条目递归取自 `menu::menus()`，再并上
-//!   `tab::SHADOW_ENTRIES`（W2-b：标签右键 10 个真实入口虽不在菜单栏里，
+//!   `tab::SHADOW_ENTRIES`（标签右键 10 个真实入口虽不在菜单栏里，
 //!   也应能被搜到、被执行）；是否可执行仍由 `capability::is_implemented` 判定。
 //!   命令 ID 只活在菜单数据与各能力的 `parse`，这里一个字面量都不存——
 //!   任何一边加一条命令，面板自动多一条，台账也自动对齐。
@@ -10,7 +10,7 @@
 //!   匹配数、当前条目全是 `(mode, query)` 的纯函数值，不缓存、不会过期（F2 教训）。
 //! - **执行不经过字符串派发的旁路**：`Confirm` 在顶层 `reduce` 里被翻译成
 //!   「选中命令的 `Action`」，再走一次同一条纯函数 reducer（见 `action.rs`）。
-//!   投影层只负责把键鼠事件派发进来，不碰领域状态（R4）。
+//!   投影层只负责把键鼠事件派发进来，不碰领域状态。
 //!
 //! 两种范围有真实差别，不是两个同义开关：
 //! - `Command`：只列已接线命令，选中即可执行；
@@ -80,7 +80,7 @@ pub fn entries(mode: PaletteMode) -> Vec<Entry> {
     for menu in menu::menus() {
         collect(&menu.items, menu.label, &mut out);
     }
-    // W2-b：影子入口不画在菜单栏里，但它们是真实可点命令。
+    // 影子入口不画在菜单栏里，但它们是真实可点命令。
     // 分组名单独叫 `Tab`，面板显示时才知道这一组来自标签右键。
     for entry in crate::tab::SHADOW_ENTRIES {
         out.push(Entry {
@@ -136,7 +136,7 @@ pub fn confirm_id(state: &PaletteState) -> Option<&'static str> {
 /// 纯函数：只改 `PaletteState`。执行本身由顶层 `reduce` 递归派发。
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<PaletteAction> {
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn anything_shows_planned_items_but_they_are_not_executable() {
         let mut s = open(PaletteMode::Anything);
-        // 锁定一条确定未接线的项：Goto Symbol 仍是占位（R14-d 只接了 Line / Session）。
+        // 锁定一条确定未接线的项：Goto Symbol 仍是占位（只接了 Line / Session）。
         let idx = entries(PaletteMode::Anything)
             .iter()
             .position(|e| e.id == "Window.GotoSymbol")

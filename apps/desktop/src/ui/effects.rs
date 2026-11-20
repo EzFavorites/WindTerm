@@ -1,9 +1,9 @@
-//! R14-b：Effect 落地（副作用只在这里发生）。
+//! Effect 落地（副作用只在这里发生）。
 //!
 //! `ui/mod.rs` 只负责装配与 draw 顺序；这里承接窗口 / 会话 / 缩放 / 选区
-//! 相关的副作用，避免新增命令把 mod.rs 重新堆回 R9 之前的规模。
+//! 相关的副作用，避免新增命令把 mod.rs 重新堆回之前的规模。
 //!
-//! R4：FindState 只由 reducer 写。`find_from_selection` 拿到的是每帧从事实
+//! FindState 只由 reducer 写。`find_from_selection` 拿到的是每帧从事实
 //! 窗口推导的 `selection_text`（派生值，不是状态），它把「填词 + 跳一步」
 //! 派发回 `dispatch_action`，由 term-app 的 find reducer 落状态。
 
@@ -20,7 +20,7 @@ use term_core::session::{Protocol, SessionConfig};
 use term_core::vt::paste_bytes_for;
 
 // 折叠族九条的决策与落地在子模块里：它自带约 280 行（含注释），留在本文件
-// 会把这里顶过 4j 的 500 代码行上限（见 `scripts/verify.sh` 第 4j 项）。
+// 会把这里顶过 500 代码行上限。
 mod fold;
 
 impl TerminalWindow {
@@ -104,7 +104,7 @@ impl TerminalWindow {
         self.dispatch_action(Action::Find(step));
     }
 
-    /// R16：同步输入。把一批字节写给**除当前标签外**所有活着的会话。
+    /// 同步输入。把一批字节写给**除当前标签外**所有活着的会话。
     ///
     /// 只写有 PTY 句柄的标签：断开的、只剩快照的标签没有输入目标，
     /// 静默跳过比报错更合适（用户看到的 `SYNC` 徽标说明的是「生效范围」）。
@@ -117,10 +117,10 @@ impl TerminalWindow {
         }
     }
 
-    /// R16：选中最近一条命令（`Text.SelectCommand`）。
+    /// 选中最近一条命令（`Text.SelectCommand`）。
     ///
     /// 边界来自内核记下的 OSC 133 行号；没有集成就什么都不选，并给一句提示——
-    /// 猜一个「大概是这一行」的边界比不做事更糟（R5）。
+    /// 猜一个「大概是这一行」的边界比不做事更糟。
     pub(super) fn select_command(&mut self) {
         let active = self.active_slot();
         let Some(tab) = self.tabs.get_mut(active) else {
@@ -149,7 +149,7 @@ impl TerminalWindow {
             .find(|line| line.row == end)
             .map(|line| line.cells.len())
             .unwrap_or(0);
-        // W2：这是一次「新选一段」——集合换成这一份，旧的几份让位。
+        // 这是一次「新选一段」——集合换成这一份，旧的几份让位。
         tab.selections
             .set_active(Some(Selection::span(Pos::new(start, 0), Pos::new(end, last_col))));
     }
@@ -193,7 +193,7 @@ impl TerminalWindow {
         }
     }
 
-    /// R14-c：应用级退出。只向窗口系统发一次 Close，不在这里 process::exit——
+    /// 应用级退出。只向窗口系统发一次 Close，不在这里 process::exit——
     /// 那样会跳过 eframe 的收尾（会话句柄、隧道、日志写入端都要正常 drop）。
     ///
     /// 2026-11-08：本入口已被 `dialogs::confirm` 拦截过一次（Yes 之后才到这），
@@ -205,9 +205,9 @@ impl TerminalWindow {
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 
-    /// R14-c：关掉当前标签。与标签栏 × 共用 `ui/tabs.rs` 的 `close_tab`。
+    /// 关掉当前标签。与标签栏 × 共用 `ui/tabs.rs` 的 `close_tab`。
     ///
-    /// 2026-11-08：先经关闭确认弹窗（R5：Yes 才真关，No 就地返回）；
+    /// 2026-11-08：先经关闭确认弹窗（Yes 才真关，No 就地返回）；
     /// 勾了「不再提示」的直接走。2026-11-10：门控与另外两处共用
     /// `confirm::should_confirm_close`（`Behaviour ▸ Confirm before closing
     /// multiple tabs` 的粒度只在该函数里判一次）。
@@ -226,7 +226,7 @@ impl TerminalWindow {
         self.save_layout();
     }
 
-    /// R14-c：关掉全部标签（关空后按既有约定补一条本地 shell）。
+    /// 关掉全部标签（关空后按既有约定补一条本地 shell）。
     ///
     /// 同一条判据：`tabs.len() > 1` 时才看「关多标签要不要确认」那个字段；
     /// 只剩一条时它管的不是 multiple，仍按「不再提示」那一位决定。
@@ -243,7 +243,7 @@ impl TerminalWindow {
         self.confirm_close_all_views();
     }
 
-    /// R14-d：把回看绝对行号放到活动标签视口顶部。
+    /// 把回看绝对行号放到活动标签视口顶部。
     ///
     /// 行号由 reducer 从状态里解析（`goto::parse_line`），这里只负责把它交给
     /// `Viewport::jump_to_row`——上限来自内核报告的 `snapshot.history`，不自己猜。
@@ -258,7 +258,7 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// R14-d：切到第几个已打开的标签。索引越界时安静忽略（列表可能刚变短）。
+    /// 切到第几个已打开的标签。索引越界时安静忽略（列表可能刚变短）。
     pub(super) fn goto_session(&mut self, idx: usize) {
         if idx < self.tabs.len() {
             self.set_active_slot(idx);
@@ -266,7 +266,7 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// P9：快捷命令栏把命令文本送进活动会话的输入行。
+    /// 快捷命令栏把命令文本送进活动会话的输入行。
     ///
     /// **不追加回车**：这一栏是「送文本」，不是「执行」，见 `Action::QuickCommand`。
     /// 编码走 `paste_bytes_for`，与 `Effect::PasteSelection` 同一条路径——括号
@@ -276,7 +276,7 @@ impl TerminalWindow {
         if text.is_empty() {
             return;
         }
-        // ADR-0027 §S6「按钮栏」：快速命令里写一条 `Script.RunFile:<路径>`，点它就
+        // 「按钮栏」：快速命令里写一条 `Script.RunFile:<路径>`，点它就
         // 是一个脚本按钮——与映射键同一个命令 ID，三条入口一套写法。
         //
         // 在这里拦而不是在快速命令栏那一层：那一层只产出 `Action`（`ui/` 里也不许
@@ -296,7 +296,7 @@ impl TerminalWindow {
     pub(super) fn apply_effect(&mut self, effect: Effect) {
         match effect {
             Effect::Disconnect => self.disconnect_active_tab(),
-            // S1：「重新连接会话」指的就是眼前这条。以前它连侧栏选中的那一条
+            // 「重新连接会话」指的就是眼前这条。以前它连侧栏选中的那一条
             // ——用户在一个断开的标签上点 Reconnect，连的却是另一台机器。
             Effect::Reconnect => self.reconnect_active_tab(),
             Effect::OpenNewSession => {
@@ -327,14 +327,14 @@ impl TerminalWindow {
                     self.ctx.copy_text(self.selection_text.clone());
                 }
             }
-            // W2：`Cmd::Move` 与 `Cmd::Set`（集合命令）共用一个待办槽位——
+            // `Cmd::Move` 与 `Cmd::Set`（集合命令）共用一个待办槽位——
             // 落地在 `ui/terminal/pane.rs`：只有那一处手上有本帧的事实窗口。
             Effect::Select(cmd) => {
                 self.pending_select = Some(cmd);
             }
             Effect::Log(action) => self.apply_log(action),
             Effect::Paste => {
-                // F1-b：平台剪贴板读由框架代劳。egui 0.29 只暴露写接口，
+                // 平台剪贴板读由框架代劳。egui 0.29 只暴露写接口，
                 // 但 `RequestPaste` 会让 eframe 去读系统剪贴板，并在下一帧
                 // 把结果作为 `Event::Paste` 投回输入队列——和用户按 Cmd+V
                 // 完全同一条路径，因此换行/控制字符的处理也只有一份。
@@ -343,17 +343,17 @@ impl TerminalWindow {
                 // 点菜单已经让终端失去焦点，而粘贴事件下一帧才到。
                 self.restore_focus = true;
             }
-            // ── R14-d：Goto 的两条跳转意图 ──
+            // ── Goto 的两条跳转意图 ──
             Effect::GotoLine(row) => self.goto_line(row),
             Effect::GotoSession(idx) => self.goto_session(idx),
-            // ── R14-d：分屏六条命令，落地都在 `ui/layout.rs` ──
+            // ── 分屏六条命令，落地都在 `ui/layout.rs` ──
             Effect::SplitView(horizontal) => self.split_view(horizontal, false),
             Effect::SplitGroup(horizontal) => self.split_view(horizontal, true),
             Effect::CloseActiveGroup => self.close_active_group(),
             Effect::MoveGroupToGroup => self.move_active_to_next_group(),
-            // ── R14-c：应用级退出与标签页关闭 ──
+            // ── 应用级退出与标签页关闭 ──
             // `Application.NewWindow`：`#[must_use]` 保证 plan 一定被 `launch()`
-            // 消费，失败落到状态栏的 `log_note`（R5：不许静默失败）。
+            // 消费，失败落到状态栏的 `log_note`（不许静默失败）。
             Effect::NewWindow => match crate::new_window::new_window_plan().launch() {
                 Ok(()) => {}
                 Err(err) => {
@@ -364,14 +364,14 @@ impl TerminalWindow {
             Effect::Exit => self.exit_application(),
             Effect::CloseActiveTab => self.close_active_view(),
             Effect::CloseAllTabs => self.close_all_views(),
-            // ── R14-b：窗口 / 会话 / 缩放 / 选区相关副作用 ──
+            // ── 窗口 / 会话 / 缩放 / 选区相关副作用 ──
             Effect::ActivateTab(delta) => self.activate_tab(delta),
             Effect::CopySessionName => self.copy_session_name(),
             Effect::CopySessionUrl => self.copy_session_url(),
             Effect::OpenHelp => self.open_help(),
             Effect::SearchOnline => self.search_online(),
             Effect::Zoom(dir) => self.zoom_font(dir),
-            // R4：FindState 只由 reducer 写；查询词是每帧推导的派生值，
+            // FindState 只由 reducer 写；查询词是每帧推导的派生值，
             // 因此把「填词 + 跳一步」派发回 dispatch_action 落状态。
             Effect::FindSelection(dir) => self.find_from_selection(dir),
             Effect::PasteSelection => {
@@ -384,20 +384,20 @@ impl TerminalWindow {
                     }
                 }
             }
-            // ── V1-1：导入与布局持久化 ──
+            // ── 导入与布局持久化 ──
             Effect::ImportSessions(source) => self.import_sessions(source),
             Effect::SaveLayout => self.save_layout(),
-            // V1-2：窗口开关已由 reducer 写进 ViewState，这里没有额外副作用。
+            // 窗口开关已由 reducer 写进 ViewState，这里没有额外副作用。
             Effect::OpenShortcuts => {}
-            // R16：选中最近一条命令（块边界来自内核的 OSC 133 记录）。
+            // 选中最近一条命令（块边界来自内核的 OSC 133 记录）。
             Effect::SelectCommand => self.select_command(),
-            // ── V1-4：tmux 反向控制命令，编码与粘贴同一条路径 ──
+            // ── tmux 反向控制命令，编码与粘贴同一条路径 ──
             Effect::TmuxCommand(cmd) => self.tmux_send(&cmd),
             Effect::TmuxFeed(line) => self.tmux_feed(&line),
-            // P4：布局。`DockLayout` 是投影层的视图结构，reducer 不认识它，
+            // 布局。`DockLayout` 是投影层的视图结构，reducer 不认识它，
             // 所以停靠 / 浮动的落地只能在这里（与 `SplitView` 同一条分工）。
             Effect::Layout(action) => self.apply_layout_action(action),
-            // P9：快捷命令栏。
+            // 快捷命令栏。
             Effect::SendCommand(text) => self.send_command(&text),
             // ── 2026-11-09：文件传输 ──
             // 取消没有输入要填，直接落到句柄；发 / 收要先问路径，开弹层。
@@ -411,9 +411,9 @@ impl TerminalWindow {
             Effect::Xfer(cmd) => {
                 self.xfer_prompt = crate::ui::dialogs::xfer::XferPrompt::from(cmd);
             }
-            // W2-b：标签右键只发 `Action::Tab`，落地全在这一处。
+            // 标签右键只发 `Action::Tab`，落地全在这一处。
             Effect::Tab(action) => self.apply_tab_action(action),
-            // T02：显示模式。reducer 只声明「切一下」（它不认识会话），
+            // 显示模式。reducer 只声明「切一下」（它不认识会话），
             // 翻哪一位、存哪儿都在这里——见 `toggle_hex_mode`。
             Effect::ToggleHex => self.toggle_hex_mode(),
             // 调试覆盖层：与上一条同构——reducer 只声明「切一下」，翻哪一位、
@@ -449,7 +449,7 @@ impl TerminalWindow {
             // `Terminal.ClearRecentUrls`：与地址栏右键「Clear Recent」同一个函数
             // （清内存副本 + load-modify-save 落盘），不另写一份清理逻辑。
             Effect::ClearRecentUrls => self.clear_recent_targets(),
-            // D5：三档预设共用这一条带参数的 `Effect`。`from_permille` 是
+            // 三档预设共用这一条带参数的 `Effect`。`from_permille` 是
             // 千分比 → f32 的唯一换算点；`set_window_opacity` 再一并改运行期
             // 副本与 `Prefs`（重启仍生效）。此处不碰 `Visuals`：那是每帧
             // `sync_window_opacity` 按钳制后的值做的事。
@@ -462,7 +462,7 @@ impl TerminalWindow {
                     opacity_permille,
                 ));
             }
-            // D5：第四条命令不设值——reducer 已把 `show_settings` 打开，
+            // 第四条命令不设值——reducer 已把 `show_settings` 打开，
             // 这里只把左栏翻到 `Appearance`（那一页有开关 + 滑杆真控件）。
             Effect::FocusAppearancePage => {
                 self.settings_page = crate::ui::dialogs::SettingsPage::Appearance;
@@ -516,7 +516,7 @@ impl TerminalWindow {
     /// `request_repaint` 不能省：不开的时候屏幕上什么都不会变，而 egui 空闲时
     /// 不重画——不请求一次，用户会看到「关掉之后标记还在」。
     fn toggle_debug_mode(&mut self) {
-        // 与 `toggle_hex_mode` 同形：ADR-0025 阶段 2 之后活动位是身份（`active`），
+        // 与 `toggle_hex_mode` 同形：之后活动位是身份（`active`），
         // 下标必须经 `active_slot()` 派生；先取值再 `get_mut` 是为了拆开两次借。
         let active = self.active_slot();
         let Some(tab) = self.tabs.get_mut(active) else {
@@ -620,7 +620,7 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// W2-b：标签右键 10 个动作的**唯一**落地点。
+    /// 标签右键 10 个动作的**唯一**落地点。
     ///
     /// `target = None` 是命令 ID 路径（命令面板 / 快捷键），取当前活动标签；
     /// `Some(i)` 是右键点中的那个标签，两者在这里合流，不下沉到纯层。
@@ -680,7 +680,7 @@ impl TerminalWindow {
 
 }
 
-/// R14-b：Help 的落点。本项目是 WindTerm 的 Rust 重写，指向上游仓库。
+/// Help 的落点。本项目是 WindTerm 的 Rust 重写，指向上游仓库。
 const HELP_URL: &str = "https://github.com/kingToolbox/WindTerm";
 
 /// 新标签建好之后 `active_tab` 该取什么值（`Behaviour ▸ Focus the new tab`）。
@@ -701,7 +701,7 @@ pub(in crate::ui) fn next_active_tab(
     active.min(tab_count.saturating_sub(1))
 }
 
-/// R14-b：把会话配置拼成连接串（`ssh://user@host:port`），Shell 退化成名字。
+/// 把会话配置拼成连接串（`ssh://user@host:port`），Shell 退化成名字。
 fn session_url(cfg: &SessionConfig) -> String {
     if matches!(cfg.protocol, Protocol::Shell) {
         return cfg.name.clone();

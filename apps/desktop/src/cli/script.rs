@@ -5,13 +5,13 @@
 //! 于是「脚本能跑」这句话一直没有无人值守的证据。这里把它接到 `desk` 上，
 //! 一次跑通就同时钉住三件事：控制面能开会话、控制面能借出会话、引擎能吃文件。
 //!
-//! 会话从哪来：本命令是**独立进程**，不共享 GUI 的会话池（ADR-0022 §决策 7
+//! 会话从哪来：本命令是**独立进程**，不共享 GUI 的会话池（ADR-0022
 //! 记的同一个限制）。所以它自己开一个：
 //!
 //! - 默认开本地 `$SHELL`（脚本里 `send("ls\n")` 那种交互式用法）
 //! - `--exec <cmd>` 改开一次性命令（CI 与排障现场：`--exec 'echo hi'`）
-//! - `--session <名字>` 改开会话库里那条会话——包括**内置 SSH**（ADR-0019 腿 A
-//!   的 S3）。开法只有一条：`crate::session_open::open_session`，与桥接共用。
+//! - `--session <名字>` 改开会话库里那条会话——包括**内置 SSH**（ADR-0019）。
+//!   的开法只有一条：`crate::session_open::open_session`，与桥接共用。
 //!
 //! 密码认证的会话在这里打不开：密码在保险库里，而本命令是无窗口的、从不解锁
 //! 保险库。遇到那一档就明说「去解锁」或「改用 Agent/私钥」，退出码 1——
@@ -280,7 +280,7 @@ pub fn run(rest: &[String]) -> i32 {
     let sandbox = budget.sandbox();
 
     let pool = Arc::new(SessionPool::new());
-    // W1-c：控制面本体认内置 SSH 的前提是把通道工厂装上；`open_session`
+    // 控制面本体认内置 SSH 的前提是把通道工厂装上；`open_session`
     // 也会幂等装一次，这里显式装是让「这个池子从一开始就是完整的」。
     crate::session_open::install_channel_factory(&pool);
     // 开出来的会话要连「它怎么连的」一起带出来：控制面的 `remote_files()`（脚本
@@ -309,7 +309,7 @@ pub fn run(rest: &[String]) -> i32 {
                 }
             },
             (None, None) => {
-                // P1-5：登录名由宿主注入（core 不读 `$USER`）。
+                // 登录名由宿主注入（core 不读 `$USER`）。
                 let mut config = SessionConfig::new_local_shell(&term_io::host::login());
                 config.name = "script".to_string();
                 (
@@ -457,7 +457,7 @@ fn start_failure_line(failure: &OpenFailure) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // P1-5 之后默认 shell 走 `new_local_shell`，bin 目标不再需要 `Protocol`；
+    // 之后默认 shell 走 `new_local_shell`，bin 目标不再需要 `Protocol`；
     // 只有这里的夹具按协议造会话，所以导入落在测试模块里。
     use term_core::session::Protocol;
 

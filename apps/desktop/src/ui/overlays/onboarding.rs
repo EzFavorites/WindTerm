@@ -1,4 +1,4 @@
-//! D6：首次启动引导的绘制层（`docs/design/09-session-import-and-onboarding.md`）。
+//! 首次启动引导的绘制层（`docs/design/09-session-import-and-onboarding.md`）。
 //!
 //! 两页：
 //!
@@ -35,7 +35,7 @@ use term_app::onboarding::{DetectedHost, OnboardingState, Step};
 // 全仓唯一那份 ssh config / WindTerm profiles 解析器。desk 已直接依赖
 // `term-runtime`，其 `import_sessions` 把解析层整个再导出（`sidebar.rs` 的
 // `Import ▸ OpenSSH` 走同一条路径）。放在投影层而不是 `term-app`：后者要保住
-// 「依赖表只有 term-core」这条编译期边界（ADR-0016 / P0-2）。
+// 「依赖表只有 term-core」这条编译期边界（ADR-0016）。
 use term_runtime::import_sessions::{
     parse_ssh_config as parse_ssh, parse_windterm, ImportedSession,
 };
@@ -58,7 +58,7 @@ const ROW_H: f32 = 34.0;
 /// （见 `term_app::i18n` 模块文档：会话名 / 分组名 / 终端输出都不是界面文案）。
 const IMPORT_GROUP: &str = "Imported";
 
-/// 绘制期间收集的意图。闭包外统一施加——绘制时不写领域状态（R4 / I1）。
+/// 绘制期间收集的意图。闭包外统一施加——绘制时不写领域状态。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Intent {
     Next,
@@ -497,10 +497,10 @@ mod tests {
     }
 }
 
-// P0-2：解析适配的 11 条单测随包装函数一起从 `term-app::onboarding` 搬到这里。
-// 单独成文件而不是塞进上面的 `mod tests`：4j 按「非空非注释行」数 ui/ 单文件，
+// 解析适配的 11 条单测随包装函数一起从 `term-app::onboarding` 搬到这里。
+// 单独成文件而不是塞进上面的 `mod tests`：按「非空非注释行」数 ui/ 单文件，
 // 本文件已经装了读文件 / 绘制 / 落地三段。挂载方式与 `preview_tests.rs` 同一套
-// （`#[cfg(test)]` + `#[path = …]` 两行声明，4e 会把整份文件当纯测试模块跳过）。
+// （`#[cfg(test)]` + `#[path = …]` 两行声明，会把整份文件当纯测试模块跳过）。
 #[cfg(test)]
 #[path = "onboarding_tests.rs"]
 mod parse_tests;

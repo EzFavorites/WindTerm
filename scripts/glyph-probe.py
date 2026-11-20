@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""M0 / G6：字形样张的像素判据。
+"""字形样张的像素判据。
 
 配套夹具是 `--demo glyph`（`apps/desktop/src/demo.rs`）：它往真实的
 `Terminal::process` 里喂一段固定字节流，用 truecolor 绿色 `|` 当列标尺，
@@ -9,7 +9,7 @@
 
 # 为什么不数 PNG 哈希
 
-G6 要量的是「占了几格、有没有颜色、有没有字形」。逐字节基线只能告诉你
+要量的是「占了几格、有没有颜色、有没有字形」。逐字节基线只能告诉你
 「变了没有」，答不出这三件事，而且字体一升级就会全红。这里输出的是数值。
 
 # 标尺为什么能自足算出宽度（不需要 Rust 告诉脚本 cell_w）
@@ -297,7 +297,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("png", help="`--demo glyph --screenshot` 产出的 PNG")
     ap.add_argument("--json", dest="json_out", help="把完整数值写进 JSON")
-    ap.add_argument("--crop", help="导出放大的人眼样张（供 M0 报告取证）")
+    ap.add_argument("--crop", help="导出放大的人眼样张（供报告取证）")
     args = ap.parse_args()
 
     png = Path(args.png)

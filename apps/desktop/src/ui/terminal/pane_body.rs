@@ -2,7 +2,7 @@
 //!
 //! # 为什么从 `pane.rs` 拆出来
 //!
-//! ws-wrap：从 `pane.rs` 拆出，理由与前两次同因（`pane_pointer.rs` 的 R9、
+//! 从 `pane.rs` 拆出，理由与前两次同因（`pane_pointer.rs` 的行数上限、
 //! `paste.rs` 的 ws-b1）——4j 的单文件 500 代码行上限。搬之前 `pane.rs` 是 492
 //! 代码行，接下来三批工作（段驱动渲染 / reflow / 坐标系联动）都要往 `draw_tab`
 //! 里加代码。这一段是「本帧画什么」的全部决策，切出来之后 `pane.rs` 只留一个

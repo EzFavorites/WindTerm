@@ -1,7 +1,7 @@
-//! L1 / L3（`docs/design/10-crash-hardening.md`）的一行提示条。
+//! （`docs/design/10-crash-hardening.md`）的一行提示条。
 //!
-//! 两件事共用这一条：**界面某帧内部出错**（L1，说明进程还活着、只是跳过了一帧）
-//! 与**上次没走正常退出**（L3，说明恢复自最近留存点、可能丢了几行输出）。
+//! 两件事共用这一条：**界面某帧内部出错**（说明进程还活着、只是跳过了一帧）
+//! 与**上次没走正常退出**（说明恢复自最近留存点、可能丢了几行输出）。
 //!
 //! # 为什么是浮层而不是界面上的一条固定带
 //!
@@ -11,7 +11,7 @@
 //!
 //! # 为什么画在最前而不是最后
 //!
-//! L1 的提示条**必须**在可能崩溃的那段代码之前画出来：`catch_unwind` 吞掉 panic
+//! 提示条**必须**在可能崩溃的那段代码之前画出来：`catch_unwind` 吞掉 panic
 //! 之后本帧剩下的一半不会再执行，画在最后的提示条就永远不会出现。前景层保证它
 //! 就算先画也在最上面。
 
@@ -20,9 +20,9 @@ use crate::ui::*;
 /// 提示的性质决定配色与措辞的分量。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum NoticeKind {
-    /// L3：上次没走正常退出，已恢复最近一次留存。
+    /// 上次没走正常退出，已恢复最近一次留存。
     Recovered,
-    /// L1：界面某帧内部出错，已跳过该帧。
+    /// 界面某帧内部出错，已跳过该帧。
     UiPanic,
 }
 
@@ -64,7 +64,7 @@ impl Notice {
 const REPAINT_BACKOFF_AFTER: u32 = 10;
 
 impl TerminalWindow {
-    /// L1（§3b②）：界面这一帧没画完。记账 + 出提示条 + 要下一帧。
+    /// 界面这一帧没画完。记账 + 出提示条 + 要下一帧。
     pub(crate) fn note_ui_panic(&mut self, ctx: &egui::Context, reason: &str) {
         self.frame_panics = self.frame_panics.saturating_add(1);
         self.notice = Some(Notice::ui_panic(self.frame_panics, reason));
@@ -161,7 +161,7 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, notice: &Notice) -> bool {
 mod tests {
     use super::*;
 
-    /// L1 的语义坑：**一帧画好了不等于没出过错**。错一次、之后全好是最常见的情形，
+    /// 语义坑：**一帧画好了不等于没出过错**。错一次、之后全好是最常见的情形，
     /// 也正是最容易变成「什么都没发生过」的情形——所以提示条只能由用户点 × 撤掉。
     #[test]
     fn a_panicking_frame_leaves_a_notice_that_outlives_good_frames() {

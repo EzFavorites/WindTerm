@@ -16,7 +16,7 @@ PRINT=0
 
 # ── 实测值 ──────────────────────────────────────────────────────────────
 count_tests() {
-  # W1-b 口径修正：`#[tokio::test]` 也是一条真实会跑的用例，此前只数
+  # 口径修正：`#[tokio::test]` 也是一条真实会跑的用例，此前只数
   # `#[test]`，于是「协议层 10 条真代理测试」全部落在台账之外。
   # 用 ERE 一次覆盖两种 attribute（本机 toybox grep 不认 BRE 的 `\|`）。
   grep -rcE '#\[(tokio::)?test\]' "$1/src" --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}'
@@ -35,7 +35,7 @@ tests_io=$(count_tests crates/term-io)
 # 单测归零——所以 `tests_runtime` 这个键**被删掉了**，不再是一个恒为 0 的噪音项。
 tests_import=$(count_tests crates/term-import)
 tests_app=$(count_tests crates/term-app)
-# 2026-11-12 app-split R1：`term-app` 的四个零生产读者模块收进了 `planned`
+# 2026-11-12 app-split：`term-app` 的四个零生产读者模块收进了 `planned`
 # feature，**默认不编译**。台账口径跟着改成「默认 `cargo test --workspace` 真的
 # 会跑多少条」，另外单列 `tests_app_planned`。两个数相加仍是源码里的 `#[test]`
 # 总数。只数文件不改 `count_tests`：那函数是「某目录下所有 .rs」，改它会影响
@@ -59,8 +59,8 @@ tests_session=$(count_tests crates/term-session)
 # 才发现只数 src/ 漏了后者）。凡是 tests/ 里有 .rs 的目录都得数上。
 tests_desk=$(( $(count_tests apps/desktop) + $(grep -rcE '#\[(tokio::)?test\]' apps/desktop/tests --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}') ))
 tests_ssh=$(( $(count_tests crates/term-ssh) + $(grep -rcE '#\[(tokio::)?test\]' crates/term-ssh/tests --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}') ))
-# R13-e / R13-f 也是同一类：隧道的真握手与 SFTP 的端到端都在 `tests/` 里。
-# （R13-b 曾经有 5 个迁移用例，拍板「不留历史包袱」后整块删掉了。）
+# 隧道的真握手与 SFTP 的端到端也是同一类：都在 `tests/` 里。
+# （曾经有 5 个迁移用例，拍板「不留历史包袱」后整块删掉了。）
 tests_store=$(count_tests crates/term-store)
 tests_tunnel=$(( $(count_tests crates/term-tunnel) + $(grep -rcE '#\[(tokio::)?test\]' crates/term-tunnel/tests --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}') ))
 tests_sftp=$(( $(count_tests crates/term-sftp) + $(grep -rcE '#\[(tokio::)?test\]' crates/term-sftp/tests --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}') ))
@@ -88,7 +88,7 @@ commands_planned=$(grep -oE 'assert_eq!\(planned, *[0-9]+' crates/term-app/src/c
 
 baselines=$(ls apps/desktop/tests/baseline/screenshot-*.png 2>/dev/null | wc -l | tr -d ' ')
 golden_cases=$(ls apps/desktop/tests/golden/*.json 2>/dev/null | wc -l | tr -d ' ')
-# 按目录数，不按 workspace 成员数：R12 起 `apps/` 也在 members 里，
+# 按目录数，不按 workspace 成员数：`apps/` 也在 members 里，
 # 用引号数会把 6 个成员全算成 crate，于是「4 个 crate」这句话就假了。
 crates=$(ls -d crates/*/ 2>/dev/null | wc -l | tr -d ' ')
 apps=$(ls -d apps/*/ 2>/dev/null | wc -l | tr -d ' ')

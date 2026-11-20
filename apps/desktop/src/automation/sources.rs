@@ -1,4 +1,4 @@
-//! 信号源（R 规格 §6）：把宿主事实转成新内核的 `Signal` / `Rule`。
+//! 信号源：把宿主事实转成新内核的 `Signal` / `Rule`。
 //!
 //! 纯转换，无副作用、不读时钟：旧 `term_app::trigger::Rule` → 新
 //! `term_core::automation::Rule`，连接/断开/输出/空闲边沿 → `Signal`。
@@ -18,7 +18,7 @@ use term_core::trigger::{Rule as LegacyRule, TriggerAction, TriggerOn};
 /// - `on` 六通道一一映射到 `When`（不再有不可达通道）。
 /// - `literal` / `case_sensitive` 映射到 `Pattern` 的 `Syntax` / 大小写开关。
 /// - `cooldown_secs` → `Guard.cooldown`；一次性语义默认 `Never`（旧规则没有
-///   Session/Connection 的显式区分，M4 迁移时才按 kind 细化）。
+///   Session/Connection 的显式区分，迁移时才按 kind 细化）。
 /// - `actions` 原样映射：`SendText/SendLine` 走 `write` 动词（SendLine 在文本
 ///   末尾拼 CR），`Beep` → `AppAction::Alert`，`RunCommand` → `Dispatch`。
 ///   `Highlight` 无渲染基底，映射成空动作（保留规则但不产生效果）。

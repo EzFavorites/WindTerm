@@ -1,6 +1,6 @@
 //! ADR-0026 ④-0/④-1：窗格（组）级别的会话操作——开新窗格 / 关窗格 / 并入下一窗格 /
 //! 拖拽落子 / **组内增删与切换**。从 `split.rs` 拆出来，避免单文件代码行超限
-//! （R9 / 4j 门禁）。
+//! （门禁）。
 //!
 //! 这些方法是 `TerminalWindow` 的 `impl`，但只动 `self.layout`（布局树）与
 //! `self.pane_groups`（每窗格的会话集合），不碰终端绘制的细节——绘制在
@@ -93,10 +93,10 @@ impl TerminalWindow {
                 None => return,
             }
         } else {
-            // W6：分屏新开的是**新会话**，光标样式取 Caret 页的偏好。
+            // 分屏新开的是**新会话**，光标样式取 Caret 页的偏好。
             self.fresh_session(Protocol::Shell)
         };
-        // S1：复制一个内置 SSH 会话时，新窗格要等握手完成才存在，所以
+        // 复制一个内置 SSH 会话时，新窗格要等握手完成才存在，所以
         // 「切哪一格、往哪个方向切」要交给连接一起带去落地（`PendingOpen::Split`）。
         // 以前这里直接 `make_tab`：窗格立刻出现，但内容是「(disconnected)」。
         if copy_config && panels::sidebar::uses_builtin_ssh(&cfg) {
@@ -142,7 +142,7 @@ impl TerminalWindow {
         );
         // ADR-0025 阶段 3：布局叶子按身份寻址，直接用新窗格的身份，不再传下标。
         self.layout.split(active_pane, horizontal, new_pane);
-        // A2：结构变了，本帧末即时落盘（经 `Action::SaveLayout` 死路径复活）。
+        // 结构变了，本帧末即时落盘（经 `Action::SaveLayout` 死路径复活）。
         self.pending_save_layout = true;
         // 新窗格获得焦点，敲键盘立刻进新会话——除非 `Behaviour ▸ Focus the new
         // tab` 关着（那时焦点留在原来的窗格，新标签照样建出来了）。
@@ -160,7 +160,7 @@ impl TerminalWindow {
             // 关掉后活动身份落到树上还剩的第一个叶子（可能为空 = 无活动标签）。
             self.active = self.layout.tabs(&self.pane_groups).first().copied();
             self.ctx.request_repaint();
-            // A2：结构变了，本帧末即时落盘。
+            // 结构变了，本帧末即时落盘。
             self.pending_save_layout = true;
         }
     }
@@ -173,12 +173,12 @@ impl TerminalWindow {
         };
         if self.layout.merge_into_next(active_pane) {
             self.ctx.request_repaint();
-            // A2：结构变了，本帧末即时落盘。
+            // 结构变了，本帧末即时落盘。
             self.pending_save_layout = true;
         }
     }
 
-    /// A3：把正在拖拽的会话落进 `target` 这片窗格——交换两格内容并清掉拖拽态。
+    /// 把正在拖拽的会话落进 `target` 这片窗格——交换两格内容并清掉拖拽态。
     ///
     /// 纯逻辑，不读 egui 输入，便于单测直接驱动（落点命中判定在 `draw_node` 里读
     /// 指针位置完成）。返回是否真的发生了落子：`drag_session` 为空（没在拖）或

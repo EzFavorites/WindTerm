@@ -1,12 +1,12 @@
-//! V1-2：全局快捷键与可重绑定的绑定表（U-CMDPAL）。
+//! 全局快捷键与可重绑定的绑定表（U-CMDPAL）。
 //!
-//! 绑定表的数据在 `term_app::menu::DEFAULT_SHORTCUTS`（I5：命令 ID 只在数据层），
+//! 绑定表的数据在 `term_app::menu::DEFAULT_SHORTCUTS`（命令 ID 只在数据层），
 //! 这里一个命令 ID 字面量都没有：`dispatch(id)` 拿的是表里的 `&'static str`。
 //! 键 → 动作的匹配交给纯层 `term_app::shortcuts`，投影只负责收 egui 的按键事件。
 //!
 //! 「可绑定」是真的可改：点某一行的 `Rebind` 进入捕获态，下一次按下的组合键
-//! 覆盖该条。覆盖表活在投影层（控件状态，不进 ViewState，R4 同款），但 **会**
-//! 落盘到 `prefs.json` 的 `shortcut_overrides`：重绑一次、重启仍生效（D7）。
+//! 覆盖该条。覆盖表活在投影层（控件状态，不进 ViewState，同款），但 **会**
+//! 落盘到 `prefs.json` 的 `shortcut_overrides`：重绑一次、重启仍生效。
 //! 清空覆盖（Reset to defaults）同样写回，之后所有条目回到出厂和弦。
 //!
 //! **两段式键**（`Alt+W, Alt+H`）走第二条通路：`DEFAULT_SHORTCUT_SEQS` 经
@@ -126,7 +126,7 @@ impl TerminalWindow {
                 if press.chord.cmd || press.chord.alt {
                     self.shortcut_overrides.retain(|(i, _)| *i != idx);
                     self.shortcut_overrides.push((idx, press.chord.text()));
-                    // D7：重绑立即落盘，重启后仍生效。
+                    // 重绑立即落盘，重启后仍生效。
                     self.persist_shortcut_overrides();
                 }
                 self.shortcut_capture = None;
@@ -250,7 +250,7 @@ fn eat_shortcut_events(ctx: &egui::Context, eaten: &[(egui::Modifiers, egui::Key
 }
 
 impl TerminalWindow {
-    /// D7：把当前重绑定的快捷键写回 `prefs.json`，使重启后仍生效。
+    /// 把当前重绑定的快捷键写回 `prefs.json`，使重启后仍生效。
     ///
     /// 只改 `shortcut_overrides` 这一个字段，不碰语言 / 启动策略 / 光标样式等
     /// 其它偏好——这是 `save_prefs` 的 load-modify-save 纪律（见
@@ -301,7 +301,7 @@ impl TerminalWindow {
                 if ui.button("Reset to defaults").clicked() {
                     self.shortcut_overrides.clear();
                     self.shortcut_capture = None;
-                    // D7：清空覆盖同样写回，之后所有条目回到出厂和弦。
+                    // 清空覆盖同样写回，之后所有条目回到出厂和弦。
                     self.persist_shortcut_overrides();
                 }
                 if ui.button("Close").clicked() {
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn every_binding_targets_a_wired_command() {
-        // 绑定表里不能挂着点了没反应的置灰命令（R5）。
+        // 绑定表里不能挂着点了没反应的置灰命令。
         for s in term_app::menu::DEFAULT_SHORTCUTS {
             assert!(term_app::capability::is_implemented(s.id), "{}", s.id);
         }
@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn command_palette_shortcut_is_cmd_shift_p() {
         let p = term_app::shortcuts::chord(true, false, true, false, "P");
-        // 4e：ui/ 不得出现命令 ID 字面量，连测试里也不行。
+        // ui/ 不得出现命令 ID 字面量，连测试里也不行。
         // 用数据层的查询函数反查，比写字面量更经得起菜单改名。
         let id = term_app::menu::shortcut_for("Cmd+Shift+P").unwrap();
         assert_eq!(term_app::capability::describe(id).feature, Some(term_app::action::FeatureId::Palette));
@@ -379,7 +379,7 @@ mod tests {
     ///
     /// 未接线的那三条若也装进来，它们的第一段（如 `Cmd+T`）会进前缀态白吞按键，
     /// 而且永远等不到后继动作。这里用 `DEFAULT_SHORTCUT_SEQS` + `is_implemented`
-    /// 现算，不写命令 ID 字面量（4e）。
+    /// 现算，不写命令 ID 字面量。
     #[test]
     fn the_runtime_table_leaves_out_the_unwired_sequences() {
         let table = super::runtime_sequence_table();

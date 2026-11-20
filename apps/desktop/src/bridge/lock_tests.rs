@@ -1,10 +1,10 @@
-//! P0-4 回归：锁屏探测三态语义、fail-open 可审计性、1.0 平台声明。
+//! 回归：锁屏探测三态语义、fail-open 可审计性、1.0 平台声明。
 //!
 //! 单独成文件（由 `lock.rs` 的 `#[cfg(test)] #[path = "lock_tests.rs"]` 引入），
 //! 是为了让「判据本身」与「怎么问系统」分开测：这里全部用注入的探针或纯函数，
 //! 不依赖机器是否真的锁了屏，也不需要人工介入。
 //!
-//! 注意 P0-4 的裁定：`None` 仍然**放行**（有意的产品决策），所以这些用例钉的是
+//! 注意裁定：`None` 仍然**放行**（有意的产品决策），所以这些用例钉的是
 //! 「放行 + 留痕 + 平台事实」，不是把 fail-open 翻成拒绝服务。
 
 use super::*;
@@ -28,7 +28,7 @@ fn three_states_have_explicit_allow_deny_meanings() {
     assert!(permits(Some(false)), "Some(false)：没锁，必须放行");
     assert!(
         permits(None),
-        "None：探测失败按 1.0 产品决策放行；P0-4 不得把它翻成拒绝服务"
+        "None：探测失败按 1.0 产品决策放行；不得把它翻成拒绝服务"
     );
     // 与 `bridge/mod.rs` 里 `handle` / `LockedGate` 现行的 `== Some(true)` 等价：
     // 收口函数不能悄悄改变线上语义。

@@ -6,13 +6,13 @@
 //! 其余页是纯排版（控件没有字段可绑），全部走 `settings_pages` 的数据表；
 //! 这几页不行——它们的控件会真的改东西：
 //!
-//! - **Application ▸ Startup**（W1-a）：三档单选 + Session 1–4 下拉，
+//! - **Application ▸ Startup**：三档单选 + Session 1–4 下拉，
 //!   绑 `TerminalWindow::startup`，改完写 prefs；启动时由 `restore_layout`
 //!   决定摆回哪些标签，被激活时才连（见 `term_app::startup` 模块文档）。
 //! - **Application ▸ Close And Exit**：两个勾选就是关闭确认弹窗里「不再提示」
 //!   的同两个位（`confirm.suppress_session` / `suppress_window`），改完写 prefs。
 //! - **Appearance ▸ Language**：`SetLanguage` 走 reducer，界面当场换语言。
-//! - **Appearance ▸ Window opacity**（D5）：开关 + 滑杆是真控件，绑
+//! - **Appearance ▸ Window opacity**：开关 + 滑杆是真控件，绑
 //!   `Prefs.window_transparent` / `Prefs.window_opacity`，改完当场改窗口上的
 //!   运行期副本并 `save_prefs` 落盘；`main.rs::update` 每帧按钳制后的 alpha
 //!   把 `egui::Visuals` 背景与终端区底色画成半透明。
@@ -22,7 +22,7 @@
 //! - **Filer ▸ Show hidden items**：勾选绑 `win.filer.show_hidden`，列本地目录
 //!   时按它过滤（`local_dir::list`），改完当场重列并落 prefs。
 //!
-//! 从 `settings.rs` 拆出来是因为 R9（`ui/` 下非 `mod.rs` 代码行 ≤ 500），
+//! 从 `settings.rs` 拆出来是因为 `ui/` 下非 `mod.rs` 代码行 ≤ 500，
 //! 顺便把「哪几页是真的」这件事集中到一个文件里，一眼看得完。
 
 use super::settings_pages_view::{field_box, field_label, group_box, label_col};
@@ -153,7 +153,7 @@ pub(in crate::ui) struct AppearanceEdit {
 ///
 /// - Language：选了立刻生效（reducer + 落盘都由调用方接手）；
 /// - Theme：只有 `dige-black` 一项，是真数据源但没有第二种选择；
-/// - Window opacity（D5）：**真控件**——开关管 OS 窗口能不能透，滑杆管
+/// - Window opacity：**真控件**——开关管 OS 窗口能不能透，滑杆管
 ///   `[0.3, 1.0]` 的数值，改完调用方一并写回 `Prefs` 与运行期副本。
 ///   滑杆两端直接用 `prefs::WINDOW_OPACITY_MIN/MAX`，与渲染侧钳制同一份口径。
 pub(in crate::ui) fn appearance(
@@ -196,7 +196,7 @@ pub(in crate::ui) fn appearance(
                     let _ = ui.selectable_label(true, "dige-black");
                 });
         });
-        // D5 Window opacity：真控件。视觉基线这一行就是和上面两行对齐的单个
+        // Window opacity：真控件。视觉基线这一行就是和上面两行对齐的单个
         // 数值框 `1.00`；这里保留真值编辑 + 透明开关，但排成**单行**：
         // 数值框占满与前两行相同的宽度（field_w），透明开关压成一个紧凑勾选
         // 贴在框右侧，不让 vertical 堆叠把这一行撑高、破坏三行栅格的整齐。
@@ -427,7 +427,7 @@ pub(in crate::ui) struct SettingsChange {
 }
 
 /// `Application` 页：视觉基线 `视觉基线` 的两个分组框。
-/// W1-a 之前这里六个控件全是 `add_enabled(false)`：样子像参考布局，点下去什么也
+/// 之前这里六个控件全是 `add_enabled(false)`：样子像参考布局，点下去什么也
 /// 不发生。现在三档与四个下拉都绑 `win.startup`，真正决定下次启动摆回哪些
 /// 会话；填的是**会话库里的名字**，不是自由文本——填一个库里不存在的名字
 /// 在恢复时会被跳过，那才是「静默失效」。

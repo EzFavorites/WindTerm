@@ -6,7 +6,7 @@ edition = "2021"
 
 # 腿 A 脚本引擎（ADR-0019 S-a）：Rhai 沙箱 + 原语（write/keys/wait/read_until/read/screen）
 # + 行级类 grep 过滤（grep/grep_v）。
-# 运行时依赖仅 term-core（I4 单向）：只认 `session_runtime::Session` 抽象，
+# 运行时依赖仅 term-core（单向）：只认 `session_runtime::Session` 抽象，
 # 不出现 SSH/PTY 等协议专有概念（§B.14 协议无关最高原则）。
 # regex 只进本 crate（行级过滤的正则逻辑不进 term-core 抽象层）。
 # 零 tokio、零 `.await`（ADR-0017 笼子）；不依赖 UI 框架——脚本线程绝不直写

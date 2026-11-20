@@ -3,9 +3,9 @@
 //! 这几件是**固定框架**：它们不参与停靠与浮动（布局上钉死），
 //! 所以单独成组，和 `panels`（可停靠面板）分开。
 //!
-//! P5：标签条与窗格工具行是**两条**独立的 `TopBottomPanel`，见 `pane_tools.rs`
+//! 标签条与窗格工具行是**两条**独立的 `TopBottomPanel`，见 `pane_tools.rs`
 //! 的模块头——视觉基线里从来不是一行。
-//! P9：快捷命令栏与状态栏是窗口底部**相邻的两条整宽横栏**，见
+//! 快捷命令栏与状态栏是窗口底部**相邻的两条整宽横栏**，见
 //! `docs/design/13-ui-shell.md`；声明顺序决定谁贴最底边（状态栏先声明）。
 
 mod find_bar;
@@ -13,7 +13,7 @@ mod find_bar;
 /// 同一个窗口右下角能量出三种尺寸——见模块头那张对照表。
 mod glyph;
 mod menu_bar;
-// 2026-11-08：菜单绘制按「顶栏 / 一棵树 / 一行」三分（R9）。
+// 2026-11-08：菜单绘制按「顶栏 / 一棵树 / 一行」三分。
 // `menu_bar` 摆顶级按钮，`menu_items` 遍历菜单树，`menu_style` 画单行。
 mod menu_items;
 mod menu_style;
@@ -54,7 +54,7 @@ pub(in crate::ui) use menu_style::{
     SHORTCUT_COL,
 };
 pub(in crate::ui) use popup_lists::{draw_address_dropdown, draw_outline_menu, draw_shell_list};
-// D3：真地址栏（`ui/address/rows.rs`）复用参考夹具那一套颜色与图标——单一份
+// 真地址栏（`ui/address/rows.rs`）复用参考夹具那一套颜色与图标——单一份
 // 定义，两处画出来才是同一个组件。`draw_address_dropdown` 本身一个字节没动。
 pub(in crate::ui) use popup_lists::{
     action_cyan, address_blue, draw_session_glyph, group_green, paint_right,
@@ -71,7 +71,7 @@ pub(in crate::ui) use glyph::{paint_cross, paint_gear};
 // 一并放开给 `panels/shell_panel.rs`——底带 Shell 面板的内标签条画的**就是**
 // 这一套（活动标记 / 图标 / ＋、≡），只放宽可见性，颜色与几何一个字节都没动。
 pub(in crate::ui) use tab_bar::{paint_right_tool, paint_tab_icon, ACTIVE_LINE, LINE_H};
-// ④-1：分屏时每片 pane 画**整条**工具栏（不只是面包屑）——图标组 / 抓手 /
+// 分屏时每片 pane 画**整条**工具栏（不只是面包屑）——图标组 / 抓手 /
 // 右端控件全在 `tool_bar::draw` 里，参数化后单窗格与分屏共用一份实现。
 pub(in crate::ui) use tool_bar::{draw as draw_tool_bar, BarScope};
 pub(in crate::ui) use tab_bar::ELIDE_MODES;

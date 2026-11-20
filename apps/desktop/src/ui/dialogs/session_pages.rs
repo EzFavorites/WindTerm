@@ -6,13 +6,13 @@
 //! `SSH / SFTP / Serial / Shell` 当页名平铺到左侧，于是与顶部协议条重复、
 //! 也没有层级；那个数组早已删除，导航文字由 `session_nav` 唯一提供。
 //!
-//! # G4：两列网格
+//! # 两列网格
 //!
 //! 「标签右对齐 / 控件等宽左对齐」的两列结构。旧版是 `label` 在上、
 //! `TextEdit` 在下堆叠，控件宽度随内容变——这是「字体对不齐、界面对不齐」
 //! 的直接来源。这里每页统一走 `form_row` + `Grid`。
 //!
-//! # P8
+//! #
 //!
 //! 视觉基线树一个叶子一个下标，所以这里每页都必须有**自己的**内容；
 //! 旧版 `Modem` 与 `Transfer` 两页显示的是同一组信息行，已合并。
@@ -58,7 +58,7 @@ pub(in crate::ui) fn info_row(ui: &mut egui::Ui, label: &str, value: impl Into<S
     ui.end_row();
 }
 
-/// I5：未接线的项不画成能点的样子，一律灰显 + 一行说明为什么灰。
+/// 未接线的项不画成能点的样子，一律灰显 + 一行说明为什么灰。
 pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
     // wrap 必须在 label 上显式开：父容器被钉宽后，默认 label 仍按内容算最小
     // 宽度，长说明会画到窗口外被裁（Keyboard 页实测 "these fi" 被截断）。
@@ -69,7 +69,7 @@ pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
 
 /// 5 `SSH ▾ Proxy`：视觉基线的两段式，`Proxy Type` radio + `Proxy Settings` 网格。
 ///
-/// # 这里只有两项是真的（R5：已接线＝有效果）
+/// # 这里只有两项是真的（已接线＝有效果）
 ///
 /// | 控件 | 后端 | 处置 |
 /// |---|---|---|
@@ -78,13 +78,13 @@ pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
 /// | `Host` / `Port` / `Proxy command` / `Working directory` | 只在 `NewSessionData` 里，从不写进 `SessionConfig` | 灰显 + 说明 |
 ///
 /// 后两组以前是「能填、能存、不生效」：填了代理服务器、保存、连上去是直连，
-/// 而且一句提示都没有。按 I5 的做法把它们画成不可编辑并说明原因——假控件比
+/// 而且一句提示都没有。把它们画成不可编辑并说明原因——假控件比
 /// 少一个控件更坏。
 /// 5 `SSH ▾ Proxy`：视觉基线 `ssh/13-ssh-proxy.png` 的 `Proxy Type` 下拉框。
 ///
 /// 视觉基线里 Proxy Type 是**下拉框**（不是单选）；且选 `No proxy` 时不显示任何
 /// 设置行。选 `Jump (ssh -J)` 显示跳板链（已接线的真控件）；选 HTTP / SOCKS5
-/// 显示出网代理的 Host / Port（出网代理未实现，按 I5 灰显）。
+/// 显示出网代理的 Host / Port（出网代理未实现，灰显）。
 fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     use super::session_form::{PROXY_JUMP, PROXY_NONE};
     const TYPES: &[&str] = &["No proxy", "Jump (ssh -J)", "Http proxy", "Socks v5 proxy"];
@@ -205,7 +205,7 @@ fn environment_page(ui: &mut egui::Ui) {
 ///
 /// 五个参数现在都是真字段：Baud Rate / Data Bits / Parity / Stop Bits /
 /// Flow Control 全部绑定到 `new_session` 并经由 `to_config` 落盘到
-/// `SessionConfig`（C2 把原先的 R5 假控件接通）。候选取 WindTerm 出厂集合。
+/// `SessionConfig`（原先的假控件已接通）。候选取 WindTerm 出厂集合。
 fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let ns = &mut win.new_session;
     let baud = &mut ns.baud_rate;
@@ -304,7 +304,7 @@ fn read_only_value(ui: &mut egui::Ui, value: &str) {
 /// 三个页签各有 2026-11-12 补采的视觉基线真值（`03/04/05-serial-*modem-tab.png`）：
 /// X=`rx`+128(XModem) 选中；Y=`rb`+1024(YModem-1K) 选中；Z=`rz` 且**没有**包长行。
 ///
-/// **R5 / I5**：`NewSessionData` / `SessionConfig` 没有 modem 字段，控件按
+/// `NewSessionData` / `SessionConfig` 没有 modem 字段，控件按
 /// sftp_page 同一口径灰显（保留视觉基线文字与几何但不可编辑），页底说明原因。
 /// 页签切换存 egui memory，不进领域状态；点得动且真换内容。
 fn modem_page(ui: &mut egui::Ui) {
@@ -367,7 +367,7 @@ fn modem_page(ui: &mut egui::Ui) {
 
     // 每页的 Upload command / Packet size 真值（视觉基线逐字抄录）：
     // X=rx+128(XModem)；Y=rb+1024(YModem-1K)；Z=rz 且没有包长行。
-    // 输入框与单选按 I5 灰显（无后端字段），但文字几何照视觉基线。
+    // 输入框与单选灰显（无后端字段），但文字几何照视觉基线。
     match tab {
         0 | 1 => {
             let (cmd, small, large, large_selected) = if tab == 0 {
@@ -440,7 +440,7 @@ fn sftp_page(ui: &mut egui::Ui) {
 
 /// 21 `Telnet ▾ Connection` / `Tcp ▾ Connection`：视觉基线里这两页截图逐字一致，
 /// 画的是 TCP 选项（不是 SSH 的 Host/Port）。这些开关目前固定在连接层，
-/// 所以按 I5 灰显，数值直接取自 `term_core::config`。
+/// 所以灰显，数值直接取自 `term_core::config`。
 fn tcp_connection_page(ui: &mut egui::Ui) {
     let mut nodelay = term_core::config::TCP_LOW_DELAY;
     let mut keepalive = term_core::config::TCP_KEEP_ALIVE;

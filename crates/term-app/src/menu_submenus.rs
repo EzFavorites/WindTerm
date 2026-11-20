@@ -1,4 +1,4 @@
-//! W2：18 个空子菜单按 P1 视觉基线补齐结构（**只补结构，不假装接线**）。
+//! 18 个空子菜单按视觉基线补齐结构（**只补结构，不假装接线**）。
 //!
 //! # 为什么独立成文件
 //!
@@ -6,12 +6,12 @@
 //! 把这些明细塞回 `menu.rs` 会让那张表再长 300 行，且「父级结构」与
 //! 「子项逐行比对」混在一起。这里只放子项，父级仍由 `menu.rs` 摆位次。
 //!
-//! # 口径（D1 / R5）
+//! # 口径
 //!
 //! 这些条目**全部是 `Planned`**：`Action::parse` 对它们一律返回 `None`，
-//! 所以 UI 画成置灰、悬停给「Not wired (placeholder)」。W2 交付的是
+//! 所以 UI 画成置灰、悬停给「Not wired (placeholder)」。交付的是
 //! 「点开子菜单不再只有一条横线」，不是「这些命令已经能用」——
-//! 后者按 D1 逐波接成真功能，列入 C1 的清零清单与 `docs/design/12-capability-surface-and-menus.md`。
+//! 后者逐波接成真功能，列入清零清单与 `docs/design/12-capability-surface-and-menus.md`。
 //! 本文件末尾的断言会钉住「一条都没偷偷接线」；将来接上一条，
 //! 就把那条从 `EXPECTED_PLANNED` 里划掉，不许删断言。
 //!
@@ -23,7 +23,7 @@
 //! 2026-11-13 之前本文件里的 5 条勾选行全是写死常量（截图里的出厂态：
 //! `Indent Guides` / `Hide All` 打勾，其余空框），因为那 9 条命令一条都没接线。
 //! 这一刀把它们接成真命令之后，5 条全部改成 `Live`——**不跟着状态走的勾正是
-//! S4**。`menu_check_tests.rs::a_wired_command_must_read_live_state` 从两头锁：
+//!**。`menu_check_tests.rs::a_wired_command_must_read_live_state` 从两头锁：
 //! `Fixed` 必须没接线、`Live` 必须已接线。
 //!
 //! 2026-11-11：hex 那三张子菜单（Base / Columns / Group Chars）的 13 条命令
@@ -35,7 +35,7 @@
 //!
 //! # 逐张证据
 //!
-//! | 子菜单 | P1 截图 |
+//! | 子菜单 | 截图 |
 //! |---|---|
 //! | Open Recent | `session/02-session-open-recent-submenu.png` |
 //! | Select Column To | `selection/04-selection-select-column-to-submenu.png` |
@@ -45,8 +45,8 @@
 //!
 //! **留白**：Open Recent 截图里两条 `shell://shell sessions/…` 是**运行时**
 //! 的最近 URL，由会话库生成。静态菜单树写死它们就是制造假入口，
-//! 所以这里只放静态的两条命令，动态行留到 W5 数据驱动时接。
-//! 同理，P1 里若干快捷键列（Meta+Shift+Left 等）随 W4 逐屏比对补，
+//! 所以这里只放静态的两条命令，动态行留到数据驱动时接。
+//! 同理，若干快捷键列（Meta+Shift+Left 等）随逐屏比对补，
 //! 本刀不往 `shortcut_text` 里塞没有读者的绑定。
 
 use super::{CheckState, Item, Menu};
@@ -72,14 +72,14 @@ fn live(label: &'static str, id: &'static str) -> Item {
 
 /// `session/02-session-open-recent-submenu.png`。
 ///
-/// 第一项的命令 ID 是 `Terminal.TabReopenClosed`（W8 改），不是截图上的名字
+/// 第一项的命令 ID 是 `Terminal.TabReopenClosed`（改），不是截图上的名字
 /// `Reopen Closed View`：它与标签右键菜单里的「Reopen Closed」是**同一件事**，
 /// 都落到 `ui/shell/tab_menu.rs::reopen_closed`。以前这里挂的是第二个 ID
 /// `Terminal.ReopenClosedView`，`parse` 不认识它，于是同一条能力在能力面上
 /// 被算成「能点的一条 + 置灰的一条」。现在两个入口共用一个 ID，`parse` 里
 /// 也**只留一条** arm——给旧 ID 补 arm 才会让「两条命令指向一个实现」真的虚高。
 ///
-/// 菜单标签仍照 P1 写「Reopen Closed View」：截图里就是这三个词，
+/// 菜单标签仍照截图写「Reopen Closed View」：截图里就是这三个词，
 /// 不为了对齐 ID 去改用户看得见的文案。
 fn open_recent() -> Vec<Item> {
     vec![
@@ -137,7 +137,7 @@ fn goto_paragraph() -> Vec<Item> {
     ]
 }
 
-/// `goto/05-goto-command-submenu.png`（P1 快捷键 Meta+Shift+Left / Right，W4 补）。
+/// `goto/05-goto-command-submenu.png`（快捷键 Meta+Shift+Left / Right，补）。
 fn goto_command() -> Vec<Item> {
     vec![
         act("Goto Previous Command", "Text.GotoPreviousCommand"),
@@ -161,7 +161,7 @@ fn goto_scope() -> Vec<Item> {
     ]
 }
 
-/// `goto/08-goto-indentation-submenu.png`：`Next Indentation` 在 P1 里就是灰的。
+/// `goto/08-goto-indentation-submenu.png`：`Next Indentation` 在截图里就是灰的。
 fn goto_indentation() -> Vec<Item> {
     vec![
         act("Previous Indentation", "Text.GotoPreviousIndentation"),
@@ -197,12 +197,12 @@ fn goto_document() -> Vec<Item> {
 
 /// `view/02-view-hex-base-submenu.png`。
 ///
-/// 第二项截图里确实是 `7`（不是 `?`，放大 4× 复核过）；按 P1 原样保留，
+/// 第二项截图里确实是 `7`（不是 `?`，放大 4× 复核过）；按原样保留，
 /// 不替原程序猜它应该是 8 进制还是别的什么——它就是一个真能用的进制：
 /// 一个字节写成 3 位（7³ = 343 > 255），渲染层照做。
 ///
 /// **这四档全是 `act` 而不是 `check`**：它们已经是真命令（点哪档改哪档），
-/// 而 `Item::Check` 的勾是编译期常量——一个不跟着当前值变的勾正是 S4。
+/// 而 `Item::Check` 的勾是编译期常量——一个不跟着当前值变的勾正是问题所在。
 /// 当前生效的是哪一档由 `bin.rs` 的表头写出来（那是**每帧现算**的）。
 fn hex_base() -> Vec<Item> {
     vec![
@@ -320,7 +320,7 @@ fn has_command(items: &[Item]) -> bool {
     })
 }
 
-/// 按父级标签，把 `menu.rs` 里的 `vec![]` / `vec![Item::Separator]` 占位换成 P1 结构。
+/// 按父级标签，把 `menu.rs` 里的 `vec![]` / `vec![Item::Separator]` 占位换成结构。
 ///
 /// 只动**没有命令**的子菜单：将来某个子菜单被逐波接成真功能、自己写了内容，
 /// 这里不会覆盖它。替换是递归的，嵌套子菜单同样受管。
@@ -375,7 +375,7 @@ mod tests {
             .collect()
     }
 
-    /// 18 个子菜单逐行比对 P1。改一行文案前先回去看对应截图。
+    /// 18 个子菜单逐行比对。改一行文案前先回去看对应截图。
     const EXPECTED: &[(&str, &[&str])] = &[
         (
             "Open Recent",
@@ -497,13 +497,13 @@ mod tests {
                 .find(|spec| spec.label == *label)
                 .unwrap_or_else(|| panic!("表里没有 {label}"));
             let got = shape(&(spec.build)());
-            assert_eq!(got, *expected, "{label} 子菜单与 P1 不一致");
+            assert_eq!(got, *expected, "{label} 子菜单与截图不一致");
         }
     }
 
-    /// 68 条 ID 全局唯一，且**没有一条「假装接线」**（D1 / R5）。
+    /// 68 条 ID 全局唯一，且**没有一条「假装接线」**。
     ///
-    /// W2 只补结构时这条断言是「一条都没接线」；W8 接通了其中 11 条
+    /// 只补结构时这条断言是「一条都没接线」；接通了其中 11 条
     /// （Goto 10 条映射到既有 `Op`，Open Recent 的 Reopen 并入
     /// `Terminal.TabReopenClosed`），于是判据收窄成「只允许名单里这些条」。
     /// 2026-11-11 又接通 hex 三张子菜单的 13 条档位命令（读者
@@ -532,14 +532,14 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(ids.len(), 68, "W2 补进来的命令条数变化需显式确认");
+        assert_eq!(ids.len(), 68, "补进来的命令条数变化需显式确认");
         let unique: BTreeSet<&str> = ids.iter().copied().collect();
         assert_eq!(unique.len(), ids.len(), "子菜单里有重复命令 ID");
         let wired: BTreeSet<&str> = [
-            // W8：与标签右键的「Reopen Closed」是同一个命令，所以菜单这条
+            // 与标签右键的「Reopen Closed」是同一个命令，所以菜单这条
             // 改挂同一个 ID，而不是新起一个只有菜单认识的 `ReopenClosedView`。
             "Terminal.TabReopenClosed",
-            // W8：Goto 的 10 条，全部只挪活动选区的 head（见 `selection::parse`）。
+            // Goto 的 10 条，全部只挪活动选区的 head（见 `selection::parse`）。
             "Text.GotoPreviousWord",
             "Text.GotoPreviousWordEnd",
             "Text.GotoNextWord",

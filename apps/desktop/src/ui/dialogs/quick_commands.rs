@@ -262,7 +262,7 @@ impl TerminalWindow {
                             });
                             ui.horizontal(|ui| {
                                 ui.label("Type:");
-                                // 目前只实现「发送文本」，不摆不能用的假选项（I5）。
+                                // 目前只实现「发送文本」，不摆不能用的假选项。
                                 let w = ui.available_width();
                                 egui::ComboBox::from_id_salt("qc_type_combo")
                                     .selected_text("Send Text")

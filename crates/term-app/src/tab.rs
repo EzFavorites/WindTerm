@@ -1,12 +1,12 @@
-//! W2-b：标签右键菜单的 10 个动作，从 `ui/` 的私有 `Work` 枚举提升到纯层。
+//! 标签右键菜单的 10 个动作，从 `ui/` 的私有 `Work` 枚举提升到纯层。
 //!
-//! # 为什么要有这一层（§4-D2）
+//! # 为什么要有这一层
 //!
 //! 以前 `apps/desktop/src/ui/shell/tab_menu.rs` 里有一个私有 `enum Work`，
 //! 右键菜单收集 `Work`，画完循环里直接改 `TerminalWindow` 的字段。结果是
 //! 10 个**真实可点入口**既没有命令 ID，也进不了 `capability` 台账——
-//! 「已接线 120 条」这句话其实少算了它们，而 R5 的「点了有效果」也
-//! 没法在纯层被验证。按 D2：语义归纯层 `Action`，`ui/` 只发 `Action`，
+//! 「已接线 120 条」这句话其实少算了它们，而「点了有效果」也
+//! 没法在纯层被验证。语义归纯层 `Action`，`ui/` 只发 `Action`，
 //! `capability` 用同一个 `Action::parse` 判定，台账与真实入口同源。
 //!
 //! # `target` 为什么是 `Option<usize>`
@@ -30,7 +30,7 @@ pub struct ShadowEntry {
 }
 
 /// 10 个影子入口的唯一数据表。`capability::inventory()` 把它并进能力面，
-/// 于是「已接线」与「真实可点入口」可以逐条对上（C1）。
+/// 于是「已接线」与「真实可点入口」可以逐条对上。
 pub const SHADOW_ENTRIES: &[ShadowEntry] = &[
     ShadowEntry {
         id: "Terminal.TabActivate",
@@ -89,7 +89,7 @@ pub const CONTEXT_ONLY: &[&str] = &["Terminal.TabActivate"];
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<TabAction> {

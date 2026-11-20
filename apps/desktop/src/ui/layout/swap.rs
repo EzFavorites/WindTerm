@@ -1,4 +1,4 @@
-//! A3：拖拽移动 / 交换 pane 的纯函数——只动叶子身份，不动树形、不新增叶子。
+//! 拖拽移动 / 交换 pane 的纯函数——只动叶子身份，不动树形、不新增叶子。
 
 use super::Layout;
 use crate::ui::layout::split::PaneId;
@@ -7,7 +7,7 @@ use crate::ui::layout::split::PaneId;
 use std::collections::HashMap;
 
 impl Layout {
-    /// A3：把一个窗格拖到另一片窗格上 = 两片窗格交换显示的会话。
+    /// 把一个窗格拖到另一片窗格上 = 两片窗格交换显示的会话。
     ///
     /// ④-0：每片窗格都是一个 `PaneId`，且总在布局树里（一个会话只要还开着，就
     /// 属于某个 group、挂在某个 `PaneId` 叶子上）。所以拖拽永远是「两片都在树里」
@@ -23,7 +23,7 @@ impl Layout {
     }
 }
 
-/// A3：两个身份都在树里时，原地交换两片叶子的身份。两身份各出现一次（不变量：
+/// 两个身份都在树里时，原地交换两片叶子的身份。两身份各出现一次（不变量：
 /// 叶子身份唯一），所以每个 `from` 叶子变 `to`、`to` 叶子变 `from`，无中间态、
 /// 不会制造重复身份。
 fn swap_two_in_tree(node: &mut Layout, from: PaneId, to: PaneId) {

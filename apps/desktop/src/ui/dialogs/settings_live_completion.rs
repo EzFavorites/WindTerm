@@ -92,7 +92,7 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
                     }
                 }
                 // ▲▼ 按钮：单击 +1，按住 Shift 单击 -1，到边界回绕。
-                // 绝不画一个按下去没反应的箭头（R5）。
+                // 绝不画一个按下去没反应的箭头。
                 if ui
                     .add_sized(egui::vec2(button_w, 18.0), egui::Button::new("▲▼"))
                     .on_hover_text("Click: +1 row. Shift-click: -1 row. Wraps at bounds.")

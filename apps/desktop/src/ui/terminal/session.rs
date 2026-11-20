@@ -1,4 +1,4 @@
-//! `Tab` 的会话方法：**UI 里唯一碰控制面的地方**（ADR-0019 档 1.1）。
+//! `Tab` 的会话方法：**UI 里唯一碰控制面的地方**（ADR-0019）。
 //!
 //! 为什么单独一个文件而不是散在各个绘制函数里：改之前 `tab.handle` 在 12 个
 //! 文件里被用了 25 次，每次都是「拿到句柄 → 调它的某个方法」。句柄一换，
@@ -76,8 +76,8 @@ impl Tab {
         let held_top = self
             .local_mode
             .then(|| self.snapshot.history as i64 - self.viewport.scroll());
-        // R-M3：规则清单可能随设置页保存而变化。用 id+enabled+pattern 的粗略
-        // 指纹判断是否需要重转，避免每帧重新编译正则（D5 的教训）。影子轨在
+        // 规则清单可能随设置页保存而变化。用 id+enabled+pattern 的粗略
+        // 指纹判断是否需要重转，避免每帧重新编译正则（教训）。影子轨在
         // 首帧装入，之后只在指纹变化时 reload。
         let fingerprint = crate::automation::sources::rules_fingerprint(rules);
         if self.shadow.signature() != fingerprint {
@@ -93,7 +93,7 @@ impl Tab {
         // 画过」的那几段，第一屏又变成从切换那一刻开始——那正是本轮要消灭的 bug。
         // 所以：谁每帧都被调用，谁负责搬。`draw()` 对**所有**标签调一次 `poll`。
         //
-        // B2：搬环的同时把本帧字节带回来，顺手喂本 tab 的 tmux 控制模式。
+        // 搬环的同时把本帧字节带回来，顺手喂本 tab 的 tmux 控制模式。
         // 普通会话的行全是 Passthrough（不置 `active`），因此后台标签 / 非 tmux
         // 会话全量喂也安全——只有真 `%begin` 一类控制行才把 `tmux.active` 置位。
         // 用 owned 的 `Vec<u8>` 而不是回调：闭包里同时借 `&mut self.raw` 与
@@ -110,13 +110,13 @@ impl Tab {
             if self.local_mode {
                 self.tmux_consume_bytes(&bytes);
             } else {
-                // D1：输出是触发器的主事件源。先把本帧字节喂给求值器（utf8 宽松解码：
+                // 输出是触发器的主事件源。先把本帧字节喂给求值器（utf8 宽松解码：
                 // 控制序列里夹杂的非 UTF-8 字节不该让一条规则漏触发），命中的动作立即
                 // 落地——`SendText` / `SendLine` / `Beep` 走 `write`（PTY 唯一漏斗），
                 // `RunCommand` 收集到 `run_commands` 交给窗口层派发。
                 let text = String::from_utf8_lossy(&bytes);
                 let hits = self.triggers.feed(rules, &text, now);
-                // R-M3：影子轨用同一批文本求值。先记旧轨命中的规则 id（hit 随后被
+                // 影子轨用同一批文本求值。先记旧轨命中的规则 id（hit 随后被
                 // apply_trigger 消费），再把信号喂给新内核；不执行新轨的动作。
                 let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
                 let now_millis = crate::automation::now_ms();
@@ -129,7 +129,7 @@ impl Tab {
                 self.tmux_consume_bytes(&bytes);
             }
         }
-        // D1：会话级事件（Connect / Disconnect / Idle）。用 `was_live` 检测跳变：
+        // 会话级事件（Connect / Disconnect / Idle）。用 `was_live` 检测跳变：
         // 连上瞬间 reset 求值器（清掉上一次会话的尾巴 / 冷却 / 一次性标志），
         // 让 Connect 重新触发；断开瞬间发 Disconnect，下次重连再起一轮。
         //
@@ -178,7 +178,7 @@ impl Tab {
         let Some(id) = self.session else {
             return moved;
         };
-        // ADR-0025 阶段 5：**外部关掉的会话必须在这里被认出来**。
+        // ADR-0025：**外部关掉的会话必须在这里被认出来**。
         //
         // `SessionPool::poll` 返回 `None` 只有一种含义：这条 id 已经不在册
         // （`SessionPool::close` 是 `remove`，不是打一个「已关闭」标记）。
@@ -222,7 +222,7 @@ impl Tab {
         if let Some(window) = self.pool.screen_window(id) {
             self.screen = Some(window);
         }
-        // P：预览窗口从独立通道取，与 `screen` 物理隔离（ADR-0028）。
+        // 预览窗口从独立通道取，与 `screen` 物理隔离（ADR-0028）。
         // 不在这里做「没拿到就清空」：断开会话时预览槽保留上一帧即可，避免闪动。
         if let Some(window) = self.pool.preview_window(id) {
             self.preview_screen = Some(window);
@@ -230,11 +230,11 @@ impl Tab {
         true
     }
 
-    /// R-M3：把一条信号喂给新内核求值，只做影子比对 / 诊断，**不执行任何动作**。
+    /// 把一条信号喂给新内核求值，只做影子比对 / 诊断，**不执行任何动作**。
     ///
     /// 影子轨与旧轨并行：`v1` 是旧 `Matcher` 本轮命中的规则 id（由调用方填），
     /// `v2` 是新内核产出的。不一致时累计计数（诊断用，不进持久化、不影响画面）。
-    /// 这一步永远运行——即使新轨开关在场，M3 也不从影子轨执行副作用。
+    /// 这一步永远运行——即使新轨开关在场，也不从影子轨执行副作用。
     fn shadow_check(&mut self, signal: term_core::automation::Signal<'_>, v1: &[String]) {
         let session_name = self
             .session
@@ -251,7 +251,7 @@ impl Tab {
         }
     }
 
-    /// D1：把一次命中的动作落到会话上。
+    /// 把一次命中的动作落到会话上。
     ///
     /// - `SendText` / `SendLine`：经 `Tab::write`（PTY 唯一漏斗）。`SendLine` 补一个
     ///   CR，等价于敲回车；远端行规把 CR 当行结束，与键盘 Enter 一致。
@@ -321,7 +321,7 @@ impl Tab {
         let (tx, rx) = std::sync::mpsc::channel();
         // 先入队、后 ack 的语义在控制面里（见 `SessionPool::attach_tap`）；
         // 这里只认结果：挂上了才把接收端留在环上，否则留一个永远空的 rx。
-        // 接收端包成 `HexTap`：`Receiver` 本身不进 `ui/`（B2，见 `hex_tap.rs`）。
+        // 接收端包成 `HexTap`：`Receiver` 本身不进 `ui/`（见 `hex_tap.rs`）。
         if self.pool.attach_tap(id, tx) {
             self.raw.attach(crate::hex_tap::HexTap::new(rx));
         }
@@ -370,11 +370,11 @@ impl Tab {
                 lines: Vec::new(),
             };
         }
-        // F1-b：编码在语义平面（换行归一 / 控制字符过滤 / 括号粘贴），
+        // 编码在语义平面（换行归一 / 控制字符过滤 / 括号粘贴），
         // 投影只提供「此刻终端处于哪种模式」——它手上只有快照。
         let bytes = paste_bytes_for(text, self.snapshot.bracketed_paste).into_bytes();
         self.write(&bytes);
-        // W5-I：粘贴同样进输入行（多行粘贴会吐多行）。
+        // 粘贴同样进输入行（多行粘贴会吐多行）。
         let lines = self.input_line.feed(&bytes);
         // 折叠的输入行表：粘贴的这几行从光标行往下数（回显还没到，光标仍在
         // 粘贴段的第一行上，见 `Tab::note_pasted_lines`）。
@@ -392,7 +392,7 @@ impl Tab {
     /// 请求一段回看窗口；结果下一帧从 [`screen_window`](Tab::screen_window) 取。
     ///
     /// 收 [`ViewRange`] 而不是裸 `Range<i64>`：调用方说的是视口行，这个语义一直
-    /// 留到 `SessionPool`——K2 之后这条链上不再有 `to_i64()`，擦除只发生在 core
+    /// 留到 `SessionPool`——之后这条链上不再有 `to_i64()`，擦除只发生在 core
     /// 内部（`slice_view` / `crop_view` / `blank_view` 各自的委托处）。
     pub(in crate::ui) fn request_range(&self, range: ViewRange) {
         if let Some(id) = self.session {
@@ -405,7 +405,7 @@ impl Tab {
         self.session.and_then(|id| self.pool.screen_window(id))
     }
 
-    /// P：请求一份预览用事实窗口（悬停滚动条时的历史快照）。第二通道，
+    /// 请求一份预览用事实窗口（悬停滚动条时的历史快照）。第二通道，
     /// 与 [`request_range`](Tab::request_range) 物理隔离（ADR-0028）。
     pub(in crate::ui) fn request_preview_range(&self, range: ViewRange) {
         if let Some(id) = self.session {
@@ -413,7 +413,7 @@ impl Tab {
         }
     }
 
-    /// P：上一次预览范围请求拿到的事实窗口（独立槽）。
+    /// 上一次预览范围请求拿到的事实窗口（独立槽）。
     pub(in crate::ui) fn preview_window(&self) -> Option<ScreenImage> {
         self.session.and_then(|id| self.pool.preview_window(id))
     }

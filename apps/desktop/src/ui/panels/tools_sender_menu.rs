@@ -1,7 +1,7 @@
 //! `Targets` 下拉展开的那五行 + 它的弹层，以及 `Selected Sessions` 右边
 //! 那个**多选**下拉的弹层。
 //!
-//! 与工具行分开是因为 R9：`tools_sender_row.rs` 再加这一块就顶到 500 行。
+//! 与工具行分开是因为 `tools_sender_row.rs` 再加这一块就顶到 500 行。
 //! 两件事本来就不同——那边画「行的样子」，这边管「点开之后」。
 
 use eframe::egui;

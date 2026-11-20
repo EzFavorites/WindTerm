@@ -1,6 +1,6 @@
-//! 锁屏状态机（V1-3，E-LOCK）。
+//! 锁屏状态机。
 //!
-//! `docs/design/06-security-credentials.md` 的结论：R5 反对的是「点了没反应」的空转开关，不是
+//! `docs/design/06-security-credentials.md` 的结论：反对的是「点了没反应」的空转开关，不是
 //! 反对做锁屏。所以 `Window.LockScreen` 从 F 类置灰接成真实功能：
 //! 界面被一层遮罩盖住，解锁要重输 **Vault 主密码**（复用 `term-vault`，
 //! 没有第二套口令体系）。
@@ -19,7 +19,7 @@ pub use crate::vocab::LockAction;
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<LockAction> {

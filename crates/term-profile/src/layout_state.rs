@@ -1,4 +1,4 @@
-//! V1-1：窗口布局**结构**的持久化。
+//! 窗口布局**结构**的持久化。
 //!
 //! `docs/design/04-tabs-split-layout.md` 把边界写死了：恢复的是标签 / 分屏 / 会话引用，
 //! **不是进程内状态**（回滚内容、运行中的进程、选区）。所以这里存的是会话名字
@@ -16,7 +16,7 @@ pub const LAYOUT_FILE: &str = "layout.json";
 /// 布局文件的格式版本。ADR-0025 触发条件 #5 要求：**文件带版本，读的时候校验**。
 ///
 /// 它只存在于文件里，不是 `SavedLayout` 的字段（理由见 [`save_to`]）。语义：
-/// - 缺这个键 = `0`，即 V1-1 起「只有 `tabs` / `active` / `tree`、后加 `dock`」的那套；
+/// - 缺这个键 = `0`，即「只有 `tabs` / `active` / `tree`、后加 `dock`」的那套；
 /// - 比本程序新 → **不读**。宁可恢复成一条本地 shell，也不要按旧规则去解释新字段：
 ///   那种「读一半」会静默改掉标签顺序与分屏形状，用户以为记住了、其实记错了。
 ///
@@ -85,7 +85,7 @@ pub struct SavedLayout {
     pub tabs: Vec<SavedTab>,
     pub active: usize,
     pub tree: SavedNode,
-    /// P4：停靠 / 浮动位置。**老文件里没有这一项**（V1-1 时就存在了），所以
+    /// 停靠 / 浮动位置。**老文件里没有这一项**（早期就有），所以
     /// 必须 `default`——读旧布局不能因为少一个字段整份作废。
     #[serde(default)]
     pub dock: Vec<SavedPlacement>,
@@ -193,7 +193,7 @@ pub(crate) fn layout_path() -> Option<PathBuf> {
     Some(term_paths::profile_dir()?.join(LAYOUT_FILE))
 }
 
-// L3 的元信息（时间戳 / 退出形态）单独成文件：`layout_state` 已经到 R9 的单文件
+// 元信息（时间戳 / 退出形态）单独成文件：`layout_state` 已经到单文件
 // 行数上限，而它们是**另一个关注点**（文件属性 vs 布局语义）。这里再导出一遍，
 // 是为了让调用方只认 `layout_state` 一个入口，不必知道它内部拆成了几块。
 pub use crate::layout_meta::{
@@ -386,7 +386,7 @@ mod tests {
         );
         assert_eq!(load_from(&path), Some(layout), "盖了章也照样是个可读的布局");
 
-        // 老文件（V1-1 那套，没有 `schema_version` 键）读成 0，不该被新校验挡掉。
+        // 老文件（没有 `schema_version` 键的那套）读成 0，不该被新校验挡掉。
         let old = r#"{"tabs": [{"name": "only"}], "active": 0, "tree": {"Leaf": 0}}"#;
         std::fs::write(&path, old).unwrap();
         let loaded = load_from(&path).expect("老文件必须能读");
@@ -394,7 +394,7 @@ mod tests {
         assert_eq!(loaded.tabs[0].name, "only");
     }
 
-    /// V2：分屏比例必须落盘并能原值读回；缺比例的旧文件（V1-1）读成默认 50%。
+    /// 分屏比例必须落盘并能原值读回；缺比例的旧文件读成默认 50%。
     #[test]
     fn v2_split_ratio_round_trips_and_old_files_default_to_half() {
         let path = tmp();
@@ -418,7 +418,7 @@ mod tests {
             raw.contains("\"ratio\": 300"),
             "比例必须落盘（非默认值时）: {raw}"
         );
-        // 落盘必须是 V2。
+        // 落盘必须带版本。
         assert!(
             raw.contains(&format!("\"schema_version\": {LAYOUT_SCHEMA_VERSION}")),
             "落盘必须盖 V2 章: {raw}"
@@ -426,7 +426,7 @@ mod tests {
         let loaded = load_from(&path).expect("带比例的 V2 必须能读");
         assert_eq!(loaded.tree, layout.tree, "比例必须逐值保持");
 
-        // 老文件（V1-1，没有 ratio，分屏恒 50%）：读入后比例取默认 500。
+        // 老文件（没有 ratio，分屏恒 50%）：读入后比例取默认 500。
         let old = r#"{"tabs":[{"name":"a"},{"name":"b"}],"active":0,"tree":{"Split":{"horizontal":true,"first":{"Leaf":0},"second":{"Leaf":1}}}}"#;
         std::fs::write(&path, old).unwrap();
         let old_loaded = load_from(&path).expect("老文件必须能读");
@@ -494,11 +494,11 @@ mod tests {
         assert_eq!(load_from(&path), Some(SavedLayout::single("y")));
     }
 
-    // ── P4：停靠位置 ──
+    // ── 停靠位置 ──
 
     #[test]
     fn a_layout_file_from_before_p4_still_loads() {
-        // V1-1 时代写的文件里没有 `dock` 这一项。它必须还能读——否则升级一次
+        // 早期版本写的文件里没有 `dock` 这一项。它必须还能读——否则升级一次
         // 用户就丢掉全部标签与分屏，而丢的原因只是少了一个新字段。
         let path = tmp();
         std::fs::write(
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn n_old_layout_without_runtime_fields_still_loads() {
-        // N-A2: 旧 layout.json（只有 name，无 cwd/scroll_top/history_len）读入不崩、
+        // 旧 layout.json（只有 name，无 cwd/scroll_top/history_len）读入不崩、
         // 行为同旧版：三个新字段都是 None，恢复时走现有回退路径。
         let path = tmp();
         std::fs::write(
@@ -587,7 +587,7 @@ mod tests {
 
     #[test]
     fn n_new_layout_with_runtime_fields_round_trips() {
-        // N-A5: 新格式（含 cwd/scroll_top/history_len）序列化 -> 反序列化逐值相同。
+        // 新格式（含 cwd/scroll_top/history_len）序列化 -> 反序列化逐值相同。
         let path = tmp();
         let layout = SavedLayout {
             tabs: vec![

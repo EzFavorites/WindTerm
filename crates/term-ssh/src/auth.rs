@@ -24,7 +24,7 @@ use crate::error::{AuthProblem, SshError};
 use crate::handler::HostKeyHandler;
 use crate::options::{AuthMethod, SshOptions};
 
-/// D2（OneKey）：执行一条认证链。
+/// （OneKey）：执行一条认证链。
 ///
 /// `opts.auth_chain` 非空时按序逐个尝试，第一个被接受即停；为空则回落单一的
 /// `opts.auth`（旧行为，零破坏）。继续/停止的判据见 [`SshOptions::auth_chain`]：

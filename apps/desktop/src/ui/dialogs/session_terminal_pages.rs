@@ -1,7 +1,7 @@
 //! New Session 里 `Terminal ▾` 与 `Window ▾` 两组的页内容
 //! （Keyboard / Logging / Selection / Bell / Mode / Security）。
 //!
-//! 为什么从 `session_pages.rs` 拆出来：R9 要求 `ui/` 下非 `mod.rs` 文件
+//! 为什么从 `session_pages.rs` 拆出来：要求 `ui/` 下非 `mod.rs` 文件
 //! ≤ 450 行，2026-11-08 按视觉基线补了 Bell / Mode / Security 三页后原文件
 //! 涨到 461 行。这里装的是**五个协议共用的那两组页**，剩下的协议专属页
 //! （Proxy / Command / Environment / Protocol / X/Y/Z Modem / SFTP / TCP 连接）
@@ -38,7 +38,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
 ///
 /// WindTerm 这一页是**按键编码行为**（Backspace/Delete/Modified keys/Alt/Meta 各自
 /// 怎么发），不是终端类型 / 光标样式——后者在 WindTerm 里分别归 Session 页与全局
-/// Appearance。所以这里按 I5 渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
+/// Appearance。所以这里渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
 /// 目前不消费这些逐会话编码偏好）。这与本文件 `bell`/`mode`/`security` 三页同构。
 fn keyboard_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut backspace = 0usize; // Automatic
@@ -175,7 +175,7 @@ fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 ///
 /// WindTerm 这一页是**两组屏幕各自的选区分隔符**（不是窗口尺寸 / 回滚）。
 /// 逐会话选区分隔符在 `SessionConfig` 里还没有字段，因此整页灰显 + 说明
-/// （I5），两个文本框填入 WindTerm 出厂默认值 `"!@#$^*()={}[]:;'",.<>?`。
+/// 两个文本框填入 WindTerm 出厂默认值 `"!@#$^*()={}[]:;'",.<>?`。
 /// 这与本文件 `keyboard`/`bell`/`mode`/`security` 四页同构。
 fn selection_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut separators = DEFAULT_WORD_SEPARATORS.to_string();
@@ -204,7 +204,7 @@ fn selection_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 17 `Terminal ▾ Bell`：视觉基线 `common/03-bell.png`。
 ///
 /// 响铃方式与去重窗口在 `SessionConfig` 里还没有字段，因此整页灰显 +
-/// 说明（I5）。选中的那一项按视觉基线画在 `Beep using the PC speaker` 上。
+/// 说明。选中的那一项按视觉基线画在 `Beep using the PC speaker` 上。
 fn bell_page(ui: &mut egui::Ui) {
     let style = 1usize;
     ui.label("Bell styles:");

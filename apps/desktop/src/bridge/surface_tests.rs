@@ -1,11 +1,11 @@
 //! `DeskSurface` 的能力面翻译层回归：方法形状、错误分档、ADR-0023 的漂移防线。
 //!
 //! 单独成文件（由 `surface.rs` 的 `#[cfg(test)] #[path = "surface_tests.rs"]` 引入），
-//! 与 `lock_tests.rs` 同一条理由：夹具与断言占的篇幅不该顶爆 R9 的单文件上限，
+//! 与 `lock_tests.rs` 同一条理由：夹具与断言占的篇幅不该顶爆单文件上限，
 //! 而且 `#[path]` 引入的纯测试模块不会污染门禁对生产代码的扫描。
 
 use super::*;
-// P1-5 之后新 shell 走 `new_local_shell`，bin 目标不再需要 `Protocol`；
+// 之后新 shell 走 `new_local_shell`，bin 目标不再需要 `Protocol`；
 // 只有这里的断言还按协议造夹具，所以导入落在测试模块里。
 use term_core::session::Protocol;
 use term_bridge::error::ErrorKind;
@@ -96,9 +96,9 @@ fn missing_or_wrong_params_are_invalid_params() {
     );
 }
 
-// ── 内置 SSH 注入点（S3：控制面开内置 SSH 会话） ──────────────────
+// ── 内置 SSH 注入点（控制面开内置 SSH 会话） ──────────────────
 //
-// 能力面这八条方法不许出现协议专有参数（§B.14），所以 `session_open` 的线上形状
+// 能力面这八条方法不许出现协议专有参数（ADR-0019），所以 `session_open` 的线上形状
 // 里没有「用内置 SSH 连哪台机器」。协议分流发生在
 // `session_open::open_session`；这里测的是**错误映射**和「本地 shell 仍然通」。
 
@@ -174,7 +174,7 @@ fn a_local_shell_still_opens_through_the_shared_entry_point() {
     surface.pool.close(id);
 }
 
-// ── ADR-0023 §决策 3：RPC 侧漂移防线 ──────────────────────────────
+// ── ADR-0023：RPC 侧漂移防线 ──────────────────────────────
 
 #[test]
 fn every_remote_verb_is_dispatched_and_script_only_verbs_are_not() {

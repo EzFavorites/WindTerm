@@ -1,6 +1,6 @@
 //! 终端区：事实窗口的绘制、键鼠输入、滚轮与拖选。
 //!
-//! R9：从 `ui/mod.rs` 拆出（2026-11-05）；R14-d 又把「构造 tab / 算事实窗口」
+//! 从 `ui/mod.rs` 拆出（2026-11-05）；又把「构造 tab / 算事实窗口」
 //! 搬到 `ui/terminal_setup.rs`（单文件 ≤ 450 行）。**只搬代码，不改行为**——
 //! 五张视觉基线逐字节一致是这次拆分唯一的判据。
 
@@ -8,7 +8,7 @@ use crate::ui::*;
 use super::tab_slot::{line_cache, selection_text_mut, selection_text_ref, tab_of, TabSlot};
 use super::completion_popup;
 use super::{bin, ensure_view, margin, select};
-// ws-wrap：正文二选一与正文之后的叠层各自成文件（4j 的单文件 500 行上限）。
+// 正文二选一与正文之后的叠层各自成文件（单文件 500 行上限）。
 // 两个都是**自由函数**——`draw_tab` 手上握着借自 `self.tabs` 的 `&mut Tab`，
 // 方法调用会同时要 `&mut self`（E0499），所以那边只收拆分好的借用。
 use super::pane_body::paint_body;
@@ -29,7 +29,7 @@ use term_core::session_runtime::SessionId;
 /// 窗口最多几十行，线性查找比维护一张反查表便宜，也不必养第二份真相——反查表
 /// 一旦与 `lines` 漂移，症状是标记画到别的行上，比慢几十次比较难查得多。
 ///
-/// ws-wrap：可见性放到 `pub(super)`，`pane_overlays.rs` 的两层高亮要按同一条口径
+/// 可见性放到 `pub(super)`，`pane_overlays.rs` 的两层高亮要按同一条口径
 /// 把绝对行号换成屏内下标——它们与查找高亮必须**同一套**换算法，多一份实现就是
 /// 多一处「折叠之后高亮落到相邻行」的机会。行为零变化。
 pub(super) fn screen_index_of(image: &term_core::grid::ScreenImage, row: i64) -> Option<usize> {
@@ -56,12 +56,12 @@ pub(super) fn screen_index_of_grid_row(
 impl TerminalWindow {
     /// 单窗格路径：与分屏之前完全同一份绘制逻辑（五张视觉基线靠它守住）。
     pub(in crate::ui) fn draw_terminal_area(&mut self, ui: &mut egui::Ui) {
-        // ADR-0025 阶段 3：单窗格按**活动身份**画；无活动标签时用永不存在身份 0，
+        // ADR-0025：单窗格按**活动身份**画；无活动标签时用永不存在身份 0，
         // `tab_of` 取不到就落到「No active session」，与旧「下标 0 越界」同一观感。
         self.draw_terminal_area_for(ui, self.active.unwrap_or(0));
     }
 
-    /// R14-d：按标签**身份**画一个窗格。分屏时每个叶子各调一次。
+    /// 按标签**身份**画一个窗格。分屏时每个叶子各调一次。
     ///
     /// 2026-11-15 起只剩一层薄壳：真正的绘制在 [`Self::draw_tab`]，好让底带的
     /// `Shell` 面板走**同一份**代码。分屏树（`layout/split.rs`）的叶子现在挂的是
@@ -90,16 +90,16 @@ impl TerminalWindow {
     /// 菜单（按槽位落地）。
     pub(in crate::ui) fn draw_tab(&mut self, ui: &mut egui::Ui, slot: TabSlot) {
         let rect = ui.available_rect_before_wrap();
-        // D5：终端区底色调色板色按窗口 alpha 画；`window_transparent=false`
+        // 终端区底色调色板色按窗口 alpha 画；`window_transparent=false`
         // 时 `window_bg_color()` 原样返回 `to_color32(default_bg)`，与旧代码
         // 逐字节相同（十一张视觉基线不受影响）。
         // 预览底色先算：`tab` 借走 self 后再调 window_bg_color() 会撞 E0502。
         let window_bg = self.window_bg_color(); ui.painter().rect_filled(rect, 0.0, window_bg);
 
-        // R16：同步输入要写「其它」标签，而那一刻 `tab` 还借在手上，
+        // 同步输入要写「其它」标签，而那一刻 `tab` 还借在手上，
         // 所以先把这批按键攒下来，等借用结束后再扇出去。
         let mut sync_bytes: Option<Vec<u8>> = None;
-        // W5-I：本帧因回车完成的命令行先攒着——`tab` 借在手上时不能碰
+        // 本帧因回车完成的命令行先攒着——`tab` 借在手上时不能碰
         // `self.command_history`，等借用结束后统一写入窗口级历史。
         let mut completed_lines: Vec<String> = Vec::new();
         // 粘贴（Cmd+V / 右键 / 中键三条路径最后都落到 `Event::Paste`）连同
@@ -107,7 +107,7 @@ impl TerminalWindow {
         // 的借用结束（`commit_paste` / `pending_paste` 都要借整个窗口）。
         let mut paste: Option<(String, bool)> = None;
         // 录制器那一格先克隆出来：下面 `tab` 会把 `self` 整块借走。
-        // I-AC：补全的候选源在借用标签之前取好——历史 / QuickBar 都挂在窗口上，
+        // 补全的候选源在借用标签之前取好——历史 / QuickBar 都挂在窗口上，
         // 与 `tab` 借的 `self.tabs` 是不同字段，先克隆出来后面就不必再碰窗口。
         // 总开关关着时这两张表保持空，一帧只多两次 Vec::new()。
         let completion_enabled = self.completion.enabled;
@@ -165,18 +165,18 @@ impl TerminalWindow {
         let resp = ui.allocate_rect(rect, Sense::click_and_drag());
         if resp.clicked() || resp.gained_focus() {
             resp.request_focus();
-            // R14-d：分屏时点哪个窗格，哪个就是活动标签（键盘随之过去）。
+            // 分屏时点哪个窗格，哪个就是活动标签（键盘随之过去）。
             // `Shell` 面板**不是**标签页（它不在 `tabs` 里），点它只拿键盘焦点。
             if let TabSlot::Main(_) = slot {
                 self.active = Some(tab.identity);
             }
         }
-        // F1-b：菜单「粘贴」先由 `Effect::Paste` 请框架去读剪贴板，结果下一帧
+        // 菜单「粘贴」先由 `Effect::Paste` 请框架去读剪贴板，结果下一帧
         // 才作为 `Event::Paste` 回到输入队列；而点菜单已经把焦点带走了。
         // 在同一帧把焦点还给终端，粘贴就能走下面那条「有焦点才收键」的既有路径，
         // 不必再开一个「不看焦点」的输入分支。
         //
-        // R14-d / 2026-11-15：主区只把焦点还给**活动**窗格；`Shell` 面板还给自己。
+        // 2026-11-15：主区只把焦点还给**活动**窗格；`Shell` 面板还给自己。
         // 两块各记一份（`restore_focus` / `restore_focus_shell`）——混成一份的话，
         // 在面板里中键粘贴一次，焦点就跑到主区去了。
         let focus_back = match slot {
@@ -190,12 +190,12 @@ impl TerminalWindow {
         }
 
         // 视觉基线夹具：行列已知后才能构造画面，所以在这里一次性结算。
-        // R14-d：只结算在活动窗格上，分屏时不重复注入。2026-11-15：也只给
+        // 只结算在活动窗格上，分屏时不重复注入。2026-11-15：也只给
         // **标签页**——`Shell` 面板如果把它取走，整窗夹具就注入不进去了
         // （底带比中央区先画）。
         if matches!(slot, TabSlot::Main(_) if self.active == Some(tab.identity)) {
             if let Some(spec) = self.demo.take() {
-                // 弹窗夹具（dev-spec T5）：不替换终端画面，改为打开
+                // 弹窗夹具：不替换终端画面，改为打开
                 // New Session 对话框——截图验证弹窗皮肤与左页签条重排。
                 if spec.open_new_session {
                     #[cfg(debug_assertions)]
@@ -238,10 +238,10 @@ impl TerminalWindow {
                         tab.raw.ring.push(&fixture.bin);
                     }
                     tab.mode = fixture.mode;
-                    // P4 §7.3：hover 预览夹具把切好的历史快照灌进 tab 的预览槽，
+                    // hover 预览夹具把切好的历史快照灌进 tab 的预览槽，
                     // 并冻定轨道归一化位置（反算成绝对 y，稍后覆盖 `preview_hover_y`）。
                     tab.preview_screen = fixture.preview_screen;
-                    // P4 §7.3：冻定的轨道归一化位置反算成绝对 y 挂在窗口上（跨帧持久），
+                    // 冻定的轨道归一化位置反算成绝对 y 挂在窗口上（跨帧持久），
                     // 供每帧的预览框点亮；普通夹具 / 生产路径恒 `None`。
                     self.demo_preview_hover_y = fixture.preview_hover.map(|ratio| {
                         let tr = scrollbar_track_rect(rect);
@@ -254,7 +254,7 @@ impl TerminalWindow {
             }
         }
 
-        // F1：滚轮回看。上限来自内核报告的历史行数（快照里的 history），不自己猜。
+        // 滚轮回看。上限来自内核报告的历史行数（快照里的 history），不自己猜。
         // xterm 惯例：开了鼠标报告就把滚轮交给程序，Shift 是本地手势的豁免键；
         // 两者二选一，避免一次滚轮既滚程序又滚本地回看。
         let shift = ui.input(|i| i.modifiers.shift);
@@ -262,7 +262,7 @@ impl TerminalWindow {
         if resp.hovered() && !wheel_to_program {
             let dy = ui.input(|i| i.raw_scroll_delta.y);
             if dy.abs() > f32::EPSILON {
-                // W4：每格滚轮滚动 `wheel_lines` 行（规格默认 1，与旧行为一致，零回归）。
+                // 每格滚轮滚动 `wheel_lines` 行（规格默认 1，与旧行为一致，零回归）。
                 let wheel = tab.config.wheel_lines.max(1) as f32;
                 let lines = ((dy / cell_h) * wheel).round() as i64;
                 if lines != 0 {
@@ -285,10 +285,10 @@ impl TerminalWindow {
         // 历史可能被清屏 / resize 缩短，视口不能停在空白里。
         tab.viewport.clamp(tab.snapshot.history as i64);
 
-        // P3 + P4：滚动条（Text 模式）命中区 + 拖拽 / 点击跳转 / 滚轮补位；同时把
-        // 轨道 hover（非拖拽）的 y 交回这里，用于触发 P4 悬停预览。浮动叠加，不改
+        // 滚动条（Text 模式）命中区 + 拖拽 / 点击跳转 / 滚轮补位；同时把
+        // 轨道 hover（非拖拽）的 y 交回这里，用于触发悬停预览。浮动叠加，不改
         // `avail_w` / `cols`；直接改 `tab.viewport`。bin 模式坐标不同，首版不做
-        // （见设计稿 §5.5 后续）。
+        // （见设计稿 后续）。
         let mut preview_hover_y: Option<f32> = None;
         if !bin {
             let view = ScrollbarView {
@@ -304,21 +304,21 @@ impl TerminalWindow {
                 view,
                 &mut tab.viewport,
             );
-            // P4 §7.3：demo 夹具冻定的 hover y 覆盖真实指针（生产路径恒 None）。
+            // demo 夹具冻定的 hover y 覆盖真实指针（生产路径恒 None）。
             // 跨帧持久在 `self.demo_preview_hover_y` 上——否则 `demo.take()` 之后
             // 首帧外的帧都没有框，基线截图截到末帧就丢框。
             if self.demo_preview_hover_y.is_some() {
                 preview_hover_y = self.demo_preview_hover_y;
             }
-            // P4：轨道 hover（非拖拽）→ 第二事实窗口（独立槽）去重请求；框的绘制在
+            // 轨道 hover（非拖拽）→ 第二事实窗口（独立槽）去重请求；框的绘制在
             // `paint_overlays` 之后。预览不改变 `tab.view` / `tab.viewport` / `last_request`
-            // （§5.6 不变式），只有 `preview_last_request` 与 `preview_screen` 变。
+            // （不变式），只有 `preview_last_request` 与 `preview_screen` 变。
             if let Some(hover_y) = preview_hover_y {
                 let history = tab.snapshot.history.max(0);
                 let tr = scrollbar_track_rect(rect);
                 let ratio = ((hover_y - tr.min.y) as f64 / tr.height() as f64).clamp(0.0, 1.0);
                 let range = preview_range(history, ratio, preview_rows_fn(rect, cell_h));
-                // §5.3 去重：与 `ensure_view` 同款判据（`range` 不等或 `version` 变→
+                // 去重：与 `ensure_view` 同款判据（`range` 不等或 `version` 变→
                 // 重发），避免每帧上行一份不变的预览请求（浪费预览通道）。
                 // `preview_last_request` 是独立键，不随 goto / fold 的 `last_request`
                 // 复位走（ADR-0028）。
@@ -334,12 +334,12 @@ impl TerminalWindow {
             }
         }
 
-        // F2：本帧的事实窗口落地到 tab 上——渲染、查找、reducer 读同一份，
+        // 本帧的事实窗口落地到 tab 上——渲染、查找、reducer 读同一份，
         // 「用户看到的那一屏」只有一个定义。
         let view = ensure_view(tab, rows);
         tab.view = view;
-        // R11：菜单派人送来的选区操作在这里落地——只有这一处手上有本帧的事实窗口。
-        // R14-d：只落在活动窗格。W2：位移与集合命令共用 `apply_cmd`。
+        // 菜单派人送来的选区操作在这里落地——只有这一处手上有本帧的事实窗口。
+        // 只落在活动窗格。位移与集合命令共用 `apply_cmd`。
         // 2026-11-15：菜单命令一律作用在**活动标签页**上（`effects` 改的也是
         // 它），所以 `Shell` 面板不消费这个槽位——否则「在面板里点全选，主区的
         // 选区变了」。
@@ -373,7 +373,7 @@ impl TerminalWindow {
         // 字面量时，改一处漏两处就是「标记与字形错开半格」那一类像素回归。
         let geom = GridGeom { start: egui::pos2(start_x, start_y), cell, rows, cols };
 
-        // F1/F3/F4：鼠标手势 → 选区。整套手势（按下 / 拖动 / 双击 / 三击 /
+        // 鼠标手势 → 选区。整套手势（按下 / 拖动 / 双击 / 三击 /
         // shift 扩选 / 拖出边缘自动滚动）只在 Text 下成立：hex 视图没有字符坐标，
         // 能选的是「第几个字节」，那是另一种交互，本轮不做。
         // 关掉的是**手势**，不是焦点——切到 Bin 之后键盘照常发 PTY。
@@ -407,7 +407,7 @@ impl TerminalWindow {
                 }
             });
             let cfg = term_core::mouse_report::MouseConfig { mode: tab.snapshot.mouse_mode, encoding: tab.snapshot.mouse_encoding };
-            // ws-wrap：这个绑定本来也叫 `geom`，与上面那个 `GridGeom` 撞名——块内
+            // 这个绑定本来也叫 `geom`，与上面那个 `GridGeom` 撞名——块内
             // 遮蔽是对的（两套几何的单位不同，混用就是「鼠标报告错一格」），但读
             // 起来像同一个东西。改名只是去歧义，一个字的行为都没动。
             let metrics = term_core::mouse_report::GridMetrics { start_x, start_y, cell_w, cell_h, cols, rows };
@@ -419,8 +419,8 @@ impl TerminalWindow {
         }
 
         // 复制取「看得见的部分」：事实窗口之外的行不参与（见 selection::text）。
-        // R14-d：剪贴板派生值只跟活动窗格走，别被非活动窗格的选区覆盖。
-        // W2：整批高亮都参与（`Selections::text`），不是只取活动那一份。
+        // 剪贴板派生值只跟活动窗格走，别被非活动窗格的选区覆盖。
+        // 整批高亮都参与（`Selections::text`），不是只取活动那一份。
         //
         // 2026-11-15：按**槽位**分两份（`selection_text` / `selection_text_shell`）。
         // 行为一致优先——面板里也得能 `Cmd+C`，而窗口级只有一份字段时两块区域
@@ -480,7 +480,7 @@ impl TerminalWindow {
         }
 
         // Handle keyboard input when focused.
-        // R14-c / R14-d：浮层打开时它们自己解释 ↑↓/Enter/Esc，同一批键不许再发给 PTY。
+        // 浮层打开时它们自己解释 ↑↓/Enter/Esc，同一批键不许再发给 PTY。
         if resp.has_focus()
             && !self.view.command_palette.visible
             && !self.view.goto.visible
@@ -491,9 +491,9 @@ impl TerminalWindow {
         {
             let mut key_bytes = Vec::new();
             let mut want_copy = false;
-            // R11：Shift+方向键是外壳的选择手势，不转发给程序（见 `ui::select`）。
+            // Shift+方向键是外壳的选择手势，不转发给程序（见 `ui::select`）。
             let mut want_select: Option<Op> = None;
-            // I-AC：弹层可见时 ↑↓/Tab/Esc 归补全，不再写进 PTY。
+            // 弹层可见时 ↑↓/Tab/Esc 归补全，不再写进 PTY。
             let mut completion_action: Option<completion_popup::Action> = None;
             let mut completion_blocked = false;
             ui.input(|i| {
@@ -563,7 +563,7 @@ impl TerminalWindow {
                     &mut tab.selections,
                 );
             }
-            // I-AC：补全手势先落地。Accept 把后缀并进 key_bytes，和真实按键
+            // 补全手势先落地。Accept 把后缀并进 key_bytes，和真实按键
             // 走同一条 write/feed 路径——录制器、同步输入也都一致。
             if let Some(action) = completion_action {
                 completion_popup::apply_action(
@@ -578,11 +578,11 @@ impl TerminalWindow {
             // 只拦 `write` 的话，只读标签上敲的字仍会进命令历史与折叠表，
             // 还会经 `broadcast_input` 漏给别的标签，那就不是只读了。
             if !key_bytes.is_empty() && !tab.local_mode {
-                // ADR-0027 §S6：录制器只在这里收字节——设备应答与粘贴都不经过
+                // ADR-0027：录制器只在这里收字节——设备应答与粘贴都不经过
                 // 这段，所以录到的永远是「人敲的」。
                 super::script::note_recorded_input(&recorder, &key_bytes);
                 tab.write(&key_bytes);
-                // W5-I：按键字节喂进输入行缓冲，回车时吐出命令行。
+                // 按键字节喂进输入行缓冲，回车时吐出命令行。
                 let before = completed_lines.len();
                 completed_lines.extend(tab.input_line.feed(&key_bytes));
                 // 折叠的输入行表：回车那一行就是刚敲完的命令行（见
@@ -594,7 +594,7 @@ impl TerminalWindow {
                     sync_bytes = Some(key_bytes.clone());
                 }
             }
-            // I-AC：输入变了就重算候选。Esc / 左右方向键那一帧跳过，否则
+            // 输入变了就重算候选。Esc / 左右方向键那一帧跳过，否则
             // 刚 dismiss 又立刻被重算弹回来。回车后输入行清空，自然没有候选。
             if completion_on && !completion_blocked {
                 completion_popup::recompute(
@@ -609,7 +609,7 @@ impl TerminalWindow {
             }
         }
 
-        // S4：逐行 span 合批 + 行级缓存。典型行 80 次 text() → 1–3 次。
+        // 逐行 span 合批 + 行级缓存。典型行 80 次 text() → 1–3 次。
         let painter = ui.painter();
         let font_id = self.fonts.font_id();
 
@@ -641,7 +641,7 @@ impl TerminalWindow {
             );
         }
 
-        // 正文二选一：`bin` 下画 hex 转储，否则画字符网格。ws-wrap 起整段在
+        // 正文二选一：`bin` 下画 hex 转储，否则画字符网格。起整段在
         // `pane_body.rs`——这里只留分叉点的名字与本帧的几何。
         //
         // 字形缓存那句 `line_cache(...)` **在这里**算好再传：让被调方自己按
@@ -665,7 +665,7 @@ impl TerminalWindow {
         // 调试覆盖层（`Mode ▸ Debug Mode`）夹在空白标记与光标之间：它压在
         // 半透明高亮与装饰标记之上，又必须让光标永远在最上层。
         // 回看药丸已于 2026-11-19 按用户比对去掉（见 pane_overlays.rs 模块头）。
-        // ws-wrap 起整段在 `pane_overlays.rs`：它只往 `painter` 上追加图形、
+        // 起整段在 `pane_overlays.rs`：它只往 `painter` 上追加图形、
         // 不写任何状态，所以能拆成只吃只读借用的自由函数。
         paint_overlays(
             painter,
@@ -680,16 +680,16 @@ impl TerminalWindow {
             OverlayToggles { cursor_typing: self.hide_cursor_typing, search: self.highlight_search },
         );
 
-        // P3：第 7 段 chrome——滚动条滑块（只读 `tab.viewport`，不改任何状态）。
+        // 第 7 段 chrome——滚动条滑块（只读 `tab.viewport`，不改任何状态）。
         // bin 模式无滚动条（见 interact 同一处注释）。
         if !bin {
             scrollbar_paint(painter, rect, rows, tab.snapshot.history as i64, &tab.viewport);
         }
 
-        // P4：第 8 段 chrome——悬停预览窗（在滚动条之后）。只读 `tab.preview_screen`，
-        // 不写任何状态（§5.6 不变式）。只有当轨道**真正 hover**（非拖拽）且预览槽已
+        // 第 8 段 chrome——悬停预览窗（在滚动条之后）。只读 `tab.preview_screen`，
+        // 不写任何状态（不变式）。只有当轨道**真正 hover**（非拖拽）且预览槽已
         // 拿到帧时才画；`preview_hover_y` 一旦为 `None`（移开 / 拖拽 / 滚动条不可见）
-        // 整块不画，框随之消失（设计稿 §2.4 事实 5 / §5.6）。bin 模式无事实窗口，跳过。
+        // 整块不画，框随之消失（设计稿 事实 5）。bin 模式无事实窗口，跳过。
         if !bin {
             if let (Some(hover_y), Some(image)) =
                 (preview_hover_y, tab.preview_screen.as_ref())
@@ -701,9 +701,9 @@ impl TerminalWindow {
             }
         }
 
-        // V1-2：`tab` 的可变借用到这里结束，右键菜单 / 中键粘贴才不会
+        // `tab` 的可变借用到这里结束，右键菜单 / 中键粘贴才不会
         // 与事实窗口的绘制抢同一个 `self`（E0499）。
-        // R16：同步输入——把这一批按键再写给其它活着的标签（本窗格刚写过）。
+        // 同步输入——把这一批按键再写给其它活着的标签（本窗格刚写过）。
         if let Some(bytes) = sync_bytes {
             self.broadcast_input(&bytes);
         }
@@ -726,7 +726,7 @@ impl TerminalWindow {
                 self.commit_paste(slot, &text);
             }
         }
-        // W5-I：把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
+        // 把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
         for line in completed_lines {
             self.command_history.push(&line, now_secs());
         }
@@ -748,13 +748,13 @@ impl TerminalWindow {
         self.handle_right_click(ui, &resp, slot);
         self.handle_middle_paste(ui, &resp, slot);
 
-        // I-AC：候选弹层画在最后一层，压在正文与光标之上。状态记录 owner，
+        // 候选弹层画在最后一层，压在正文与光标之上。状态记录 owner，
         // 切到别的标签后这里直接是 false，不会把上一行的建议画到新会话里。
         completion_popup::paint_if_visible(ui, rect, &self.completion_state, completion_on, completion_owner, self.completion.list_height);
     }
 }
 
-/// W5-I：当前 Unix 纪元秒。`term-core` 不读钟（I3），时钟由宿主注入
+/// 当前 Unix 纪元秒。`term-core` 不读钟，时钟由宿主注入
 /// `CommandHistory::push`。
 ///
 /// 可见性放到 `pub(super)`：`paste.rs` 也要用它算命令行时间（那边的
@@ -767,7 +767,7 @@ pub(super) fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-/// W4/P2：按光标形状绘制光标。`fg` 取调色板前景色。
+/// 按光标形状绘制光标。`fg` 取调色板前景色。
 ///
 /// 四种形状对应 `grid::CursorShape`：
 /// - `Block`：实心填充整格（块光标）。
@@ -777,7 +777,7 @@ pub(super) fn now_secs() -> u64 {
 ///
 /// 闪烁不在这里处理——由调用方按墙钟相位决定本帧是否调用本函数。
 ///
-/// W6：可见性放到 `pub(in crate::ui)`，`settings_live_caret` 的预览方块直接
+/// 可见性放到 `pub(in crate::ui)`，`settings_live_caret` 的预览方块直接
 /// 调用它——光标长什么样只有这一份实现，设置页的预览与终端里画的光标不会走样。
 ///
 /// 2026-11-19：`width_px` 是 `Underline` / `Beam` 的**绝对像素宽度**，来自

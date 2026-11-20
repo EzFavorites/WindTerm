@@ -3,7 +3,7 @@
 //! 为什么要有这一层：`connect()` 是同步的（阻塞到握手完成，最多等超时），
 //! 而调用它的事件循环（egui 桌面端）一帧都不能挂。于是需要一个「起了线程、
 //! 立刻返回」的形状。**注意这条缝的形状是刻意的**：线程和 `mpsc` 都不许
-//! 漏到调用方那里——S2 起桌面端的边界就是「只拿不透明句柄」（`SupervisorHandle`
+//! 漏到调用方那里——桌面端的边界就是「只拿不透明句柄」（`SupervisorHandle`
 //! 是先例），如果这里交出一个裸 `Receiver`，那个边界就破了（verify 第 5 项）。
 
 use crate::{connect, SshChannel, SshError, SshOptions};

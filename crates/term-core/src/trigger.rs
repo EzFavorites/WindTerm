@@ -1,4 +1,4 @@
-//! 触发器规则的**数据层**（roadmap D1）。
+//! 触发器规则的**数据层**（roadmap）。
 //!
 //! 放在 `term-core` 而不是 `term-app`：规则要落盘进 `Prefs`（`term-profile` 拥有），
 //! 而 `term-profile` 是低层 crate，按 ADR-0014 不得依赖 `term-app`（应用层）。

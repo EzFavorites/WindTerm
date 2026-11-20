@@ -1,4 +1,4 @@
-//! `HostEnv`：一次运行的**全部宿主接缝**（ADR-0027 D5）。
+//! `HostEnv`：一次运行的**全部宿主接缝**（ADR-0027）。
 //!
 //! # 为什么不是一串 `with_*`
 //!
@@ -86,7 +86,7 @@ pub struct HostEnv {
     pub process: Arc<dyn Process>,
     pub clipboard: Arc<dyn Clipboard>,
     pub ui: Arc<dyn Ui>,
-    /// 应用控制面（面板 / 布局 / 偏好，ADR-0027 §9）。缺省 [`AppControl`] 的
+    /// 应用控制面（面板 / 布局 / 偏好，ADR-0027）。缺省 [`AppControl`] 的
     /// `NoApp`：两个方法都显式 `Unsupported`，与 `NoUi` / `NoFiles` 同一条规矩。
     pub app: Arc<dyn AppControl>,
     /// 本次运行授予的能力（缺省全拒）。

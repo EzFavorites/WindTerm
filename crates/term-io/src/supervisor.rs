@@ -1,4 +1,4 @@
-//! B2/B3：每会话一个监管者线程。
+//! 每会话一个监管者线程。
 //!
 //! ```text
 //! [Supervisor 线程]                          [主线程 update()]
@@ -10,12 +10,12 @@
 //! `wakeup` 由 UI 注入（`ctx.request_repaint()`）  尺寸 -> handle.resize()
 //! ```
 //!
-//! **为什么不是「每轮都 send 快照」**（R6 修正）：
+//! **为什么不是「每轮都 send 快照」**（修正）：
 //! 1. 生产者每 2ms 一轮、消费者每帧一次——`send` 出去的快照绝大多数会被 `poll()`
 //!    直接丢弃，等于每 2ms 做一次全网格分配然后扔掉；
 //! 2. 更关键的是**没有唤醒源**：`send` 只是往队列里塞东西，界面不会因此重绘，
 //!    于是「输出到达 → 不重绘 → 不 poll → 看不到输出」，直到用户动一下鼠标。
-//!    这个问题在 S4 把「每帧无条件重绘」改成按需重绘之后才成立。
+//!    这个问题在把「每帧无条件重绘」改成按需重绘之后才成立。
 //!
 //! 现在改成**一槽邮箱 + 唤醒回调**：槽里只保留最新一份，消费者不取走就不再生成；
 //! 生成后调一次注入的 `wakeup`，界面立刻醒来。空闲时既没有快照分配也没有唤醒。
@@ -66,7 +66,7 @@ enum Command {
     /// 清屏 + 清历史。
     ClearAll,
     Close,
-    /// R1：请求任意行区间的事实窗口（不产生新事实）。
+    /// 请求任意行区间的事实窗口（不产生新事实）。
     RequestRange(ViewRange),
     /// P（终端滚动条 / 悬停预览）：请求一份**预览用**的事实窗口。
     ///
@@ -74,7 +74,7 @@ enum Command {
     /// 各自的槽（`screen` / `preview_screen`），一帧内两份窗口互不覆盖。
     /// 旧变体签名与语义一字不改。
     RequestPreview(ViewRange),
-    /// R14-a：开始记录到 `dir` 下。
+    /// 开始记录到 `dir` 下。
     ///
     /// 文件名、每行格式、覆盖 / 追加、大小上限全在 `opts` 里（配置面在
     /// `term_core::log_opts`）。**选项由调用方带进来，不在这里读偏好**：
@@ -117,7 +117,7 @@ enum Command {
     TakeReader { id: u64, resp: Sender<String> },
     /// 取消读取器登记（句柄被 drop 也要清掉，没人取的累计不能留着）。
     CancelReader(u64),
-    /// W3：登记一条**原始字节旁路**（字节级传输协议 X/Y/Z Modem 的入口）。
+    /// 登记一条**原始字节旁路**（字节级传输协议 X/Y/Z Modem 的入口）。
     ///
     /// 与 `RegisterReader` 同款「先入队、后 ack」：ack 到手即生效，
     /// 登记点之后 `drain()` 到的字节保证整块进 `sink`。
@@ -159,7 +159,7 @@ enum Command {
 }
 
 enum Event {
-    /// R1：按范围切出的只读事实窗口。
+    /// 按范围切出的只读事实窗口。
     Screen(ScreenImage),
     /// P：按范围切出的**预览用**只读事实窗口（悬停滚动条时的历史快照）。
     ///
@@ -167,7 +167,7 @@ enum Event {
     /// （ADR-0028）。旧 `Screen` 变体一字不改。
     PreviewScreen(ScreenImage),
     Finished(String),
-    /// R14-a：日志状态变化（开始 / 暂停 / 恢复 / 停止 / 失败）。
+    /// 日志状态变化（开始 / 暂停 / 恢复 / 停止 / 失败）。
     ///
     /// 只在**变化**时发，不跟着每块输出发：字节数由界面直接问文件，
     /// 状态才是这里独有的东西。
@@ -234,20 +234,20 @@ pub struct SupervisorHandle {
     /// （`std::sync::mpsc::Sender` 不是 `Clone` 也不是 `Sync`，裸共享不行）。
     cmd: Arc<Mutex<Sender<Command>>>,
     events: Receiver<Event>,
-    /// R6：快照的一槽邮箱（与监管者线程共享）。
+    /// 快照的一槽邮箱（与监管者线程共享）。
     mailbox: Arc<Mailbox>,
     /// 最近一次快照；`poll()` 后由 UI 复制到 `Tab.snapshot`。
     pub snapshot: GridSnapshot,
-    /// R1：最近一次范围请求的只读事实窗口；UI 只存不写。
+    /// 最近一次范围请求的只读事实窗口；UI 只存不写。
     pub screen: Option<ScreenImage>,
     /// P：最近一次**预览**范围请求的只读事实窗口（悬停滚动条时的历史快照）。
     ///
     /// 与 `screen` **物理隔离**：两个事件落进两个槽，一帧内同时到达也不会
-    /// 互相覆盖（ADR-0028 §3.3 的闪白屏失败模式在结构上不可能发生）。
+    /// 互相覆盖（ADR-0028 的闪白屏失败模式在结构上不可能发生）。
     /// UI 只存不写。
     pub preview_screen: Option<ScreenImage>,
     pub status: SessionStatus,
-    /// R14-a：会话日志状态（关闭 / 记录中 / 已暂停 / 失败）。
+    /// 会话日志状态（关闭 / 记录中 / 已暂停 / 失败）。
     pub log: LogStatus,
     last_size: (usize, usize),
     /// 退出原因的最后落点（与监管者线程共享）。
@@ -294,7 +294,7 @@ impl SupervisorHandle {
         changed
     }
 
-    /// R6：注入唤醒回调。UI 传 `ctx.request_repaint()`，让「有输出」能立刻重绘。
+    /// 注入唤醒回调。UI 传 `ctx.request_repaint()`，让「有输出」能立刻重绘。
     ///
     /// 放在 handle 上而不是构造参数里，是因为线程先起、`Context` 后到；
     /// 没设置时 `wake()` 是空操作（无头运行器就不需要）。
@@ -314,7 +314,7 @@ impl SupervisorHandle {
         self.send_cmd(Command::Write(bytes.to_vec()));
     }
 
-    /// R1：请求任意行区间的事实窗口。不产生新事实，`version` 不变。
+    /// 请求任意行区间的事实窗口。不产生新事实，`version` 不变。
     pub fn request_range(&self, range: ViewRange) {
         self.send_cmd(Command::RequestRange(range));
     }
@@ -354,7 +354,7 @@ impl SupervisorHandle {
         self.send_cmd(Command::ClearAll);
     }
 
-    /// R14-a：开始记录当前会话。
+    /// 开始记录当前会话。
     ///
     /// 目录由调用方给（`log::default_dir()`），文件名 / 行格式 / 覆盖方式 /
     /// 大小上限由 `opts` 给；`self.log` 会在下一次 `poll()` 后变成真实状态
@@ -363,7 +363,7 @@ impl SupervisorHandle {
         self.start_log_with_host(dir, session, "", opts);
     }
 
-    /// 带宿主名的一档（ADR-0027 §S5）：`%{host}` 只在调用方真的知道主机时才有值。
+    /// 带宿主名的一档（ADR-0027）：`%{host}` 只在调用方真的知道主机时才有值。
     pub fn start_log_with_host(
         &self,
         dir: PathBuf,
@@ -430,7 +430,7 @@ impl SupervisorHandle {
     ///
     /// 返回即已生效：登记命令带 ack，监管者线程在下一轮**取输出之前**
     /// 处理它（命令循环本来就在 `drain` 之前），所以登记点之后到达的
-    /// 输出保证进入匹配——这是 ADR-0019 §B.13「先登记、后消费」。
+    /// 输出保证进入匹配——这是 ADR-0019「先登记、后消费」。
     pub fn register_waiter(&self, pattern: &str) -> Result<PendingWait, WaitError> {
         if pattern.is_empty() {
             return Err(WaitError::EmptyPattern);
@@ -474,7 +474,7 @@ impl SupervisorHandle {
         })
     }
 
-    /// W3：旁路控制端的轻量克隆（`term-session` 存 `dyn Session`，拿不回
+    /// 旁路控制端的轻量克隆（`term-session` 存 `dyn Session`，拿不回
     /// 具体句柄时用它）。语义与 [`attach_raw`](Self::attach_raw) 完全一样。
     pub fn raw_control(&self) -> RawControl {
         RawControl {
@@ -482,7 +482,7 @@ impl SupervisorHandle {
         }
     }
 
-    /// W3：把输出字节改道到 `sink`（字节级传输协议的入口）。
+    /// 把输出字节改道到 `sink`（字节级传输协议的入口）。
     ///
     /// 阻塞到登记生效为止（同 [`register_reader`](Self::register_reader)）。
     /// 生效之后 `drain()` 到的字节**整块**进 `sink`，不进 VT、不落日志、
@@ -492,7 +492,7 @@ impl SupervisorHandle {
         self.raw_control().attach(sink);
     }
 
-    /// W3：撤销旁路。之后 `drain()` 到的字节重新进 VT（屏幕恢复更新）。
+    /// 撤销旁路。之后 `drain()` 到的字节重新进 VT（屏幕恢复更新）。
     pub fn detach_raw(&self) {
         self.raw_control().detach();
     }
@@ -588,7 +588,7 @@ impl PendingWait {
     }
 }
 
-/// 取消检查的切片长度（ADR-0027 S1）：界面点「停止」到阻塞点返回的上限。
+/// 取消检查的切片长度（ADR-0027）：界面点「停止」到阻塞点返回的上限。
 ///
 /// 50ms 是「人感觉不到延迟」与「每秒 20 次唤醒」的折中；比它更细只多烧 CPU，
 /// 比它更粗就开始像「点了没反应」。
@@ -784,7 +784,7 @@ pub fn spawn_exec(
     ))
 }
 
-/// R13-d2：把一个**已经建好**的通道交给监管者。
+/// 把一个**已经建好**的通道交给监管者。
 ///
 /// 这是原生 SSH 的接缝。`term-ssh::SshChannel` 实现了 `TermChannel`，但本 crate
 /// **不能**依赖 `term-ssh`——那会成环（`term-ssh` 要 `TermChannel` 这个 trait）。
@@ -836,7 +836,7 @@ fn start(
     if let Err(e) = std::thread::Builder::new()
         .name(format!("zterm-supervisor-{id}"))
         .spawn(move || {
-            // L1（`docs/design/10-crash-hardening.md`）：**会话级 panic
+            // （`docs/design/10-crash-hardening.md`）：**会话级 panic
             // 隔离**。这一层是「10 个会话里 1 个炸了不该全陪葬」的唯一防线：
             // 线程体在 `catch_unwind` 里跑，panic 被吞在本线程，其余会话的监管者
             // 线程与 UI 主循环都不受影响。
@@ -914,7 +914,7 @@ fn run(
     let mut pending = false;
     // 空闲等待时用 `recv_timeout` 直接取到的那条命令，下一轮开头先处理它。
     let mut queued: Option<Command> = None;
-    // R14-a：日志写入端。`None` = 没在记录。
+    // 日志写入端。`None` = 没在记录。
     let mut log: Option<SessionLog> = None;
     // wait 匹配器（ADR-0019）：登记经命令队列生效，匹配在输出流上做。
     // 清洗器跨 chunk 保留解析状态——与 vt 吃同一份字节，语义同源。
@@ -922,7 +922,7 @@ fn run(
     let mut waiters: Vec<ActiveWaiter> = Vec::new();
     // 输出读取器（read / read_until 的捕获源）：与 waiters 同一轮喂同一份清洗文本。
     let mut readers: Vec<ActiveReader> = Vec::new();
-    // W3：原始字节旁路。`Some` = 字节级传输协议在跑，字节只进这个 sink。
+    // 原始字节旁路。`Some` = 字节级传输协议在跑，字节只进这个 sink。
     let mut raw_sink: Option<Sender<Vec<u8>>> = None;
     // 非破坏性 tee。`Some` = hex 视图在看着，字节除了 VT 再拷一份过去。
     // 与 `raw_sink` 是两个独立的槽位：raw 期间走早退分支，tee 自然收不到。
@@ -1156,7 +1156,7 @@ fn run(
                         Err(_) => { /* 有意丢弃：UI 不再看，槽位已空 */ }
                     }
                 }
-                // margin 时间戳列的时刻在这里落地：宿主读钟，内核只收下（I3）。
+                // margin 时间戳列的时刻在这里落地：宿主读钟，内核只收下。
                 // 打在 `process` 之前，因为「第几行」只有在喂字节之前才是确定的——
                 // 一批字节可能写穿好几行，事后再问光标在哪，问到的已经是最后一行。
                 vt.stamp_row(now_secs());
@@ -1167,7 +1167,7 @@ fn run(
                 }
                 need_snapshot = true;
 
-                // wait 的流上匹配（ADR-0019 §B.13）：登记命令在本轮**取输出之前**
+                // wait 的流上匹配（ADR-0019）：登记命令在本轮**取输出之前**
                 // 被 ack，所以这里见到的字节保证包含登记点之后到达的全部输出。
                 // 匹配的是清洗后的纯文本——`ESC[31m` 不该挡住 `Password:`。
                 let text = cleaner.feed(&bytes);
@@ -1257,7 +1257,7 @@ fn run(
             break;
         }
 
-        // R7：按「有没有活动」分两档等待。
+        // 按「有没有活动」分两档等待。
         // 有活动 → 短等一档，输出往往成串；完全空闲 → 阻塞在下一条命令上，
         // 这样每会话从「每 2ms 醒一次、每 2ms 一次 read 系统调用」降到
         // 「每 20ms 一次」，而有按键时因为 `recv_timeout` 会被立刻唤醒，
@@ -1321,8 +1321,8 @@ impl ActiveReader {
 ///
 /// 协议无关——PTY 现在承载本地 shell 与系统 `ssh`/`telnet`/`nc`/`cu`，
 /// 将来原生 SSH 经 `spawn_with_channel` 注入后，这个实现一行不用改。
-/// 这是 `TermChannel` 接缝（R13-d2）的自然延伸：通道对协议一无所知，
-/// 会话抽象对协议更一无所知（ADR-0019 §B.14）。
+/// 这是 `TermChannel` 接缝的自然延伸：通道对协议一无所知，
+/// 会话抽象对协议更一无所知（ADR-0019）。
 pub struct SupervisedSession {
     handle: SupervisorHandle,
     /// `Session::resize` 是 `&self`，去重在这层做（handle 的去重要 `&mut`）。
@@ -1473,7 +1473,7 @@ impl Session for SupervisedSession {
     }
 }
 
-/// 当前 epoch 秒。**只有副作用层可以读钟**（I3）：`term-core` 拿到的是这个值，
+/// 当前 epoch 秒。**只有副作用层可以读钟**：`term-core` 拿到的是这个值，
 /// 不是 `SystemTime` 本身。读不到时返回 0——时间戳列会显示 `[00:00:00]`，
 /// 这比让整条会话不渲染要好。
 fn now_secs() -> u64 {
@@ -1504,7 +1504,7 @@ pub fn drain_final_frame(handle: &mut SupervisorHandle, budget: Duration) {
 }
 
 /// `--headless --exec '<cmd>'`：跑完一条命令，把最终网格文本打到 stdout。
-/// 这是 S2 的端到端验收入口，不需要窗口系统。
+/// 这是端到端验收入口，不需要窗口系统。
 /// 无头跑一条命令：返回最终网格文本与退出码。
 ///
 /// 退出码是**必须**的：`desk --headless --exec` 要给脚本透传它。上一版 CLI 的
@@ -1675,7 +1675,7 @@ mod tests {
 
     #[test]
     fn a_panicking_session_thread_is_isolated_and_reported() {
-        // L1（O 设计稿 §3b① / 验收 B1）：**一个会话的字节处理炸了，不能带走进程，
+        // **一个会话的字节处理炸了，不能带走进程，
         // 也不能带走别的会话**。这条测试同时钉住两件事——
         //   1. 崩溃不是静默的：`exit_note` 报出可读原因，界面显示「内部错误」
         //      而不是莫名其妙的掉线；
@@ -1724,7 +1724,7 @@ mod tests {
 
     #[test]
     fn spawn_with_channel_supervises_a_channel_it_did_not_open() {
-        // R13-d2 的接缝：原生 SSH 的通道由应用层建好递进来。要验的是两件事——
+        // 接缝：原生 SSH 的通道由应用层建好递进来。要验的是两件事——
         // 外部塞进去的字节能变成快照，按键能原样走到通道上（而不是被丢掉）。
         let (ch, probe) = ScriptedChannel::new();
         let mut h = spawn_with_channel(SessionConfig::new(Protocol::Ssh), 20, 3, Box::new(ch));
@@ -1755,7 +1755,7 @@ mod tests {
         }
     }
 
-    /// R6：可被测试线程继续追加字节的通道，用来模拟「输出一直在来」。
+    /// 可被测试线程继续追加字节的通道，用来模拟「输出一直在来」。
     /// `drains` 记录 `drain()` 被调了几次——它就是「监督者多久醒一次」的代理指标。
     struct SharedChannel {
         pending: Arc<Mutex<Vec<u8>>>,
@@ -2028,7 +2028,7 @@ mod tests {
 
     #[test]
     fn idle_loop_stops_hammering_the_channel() {
-        // R7：空闲时不再每 2ms 醒一次去 drain。阈值取 40：2ms 档在 200ms 内
+        // 空闲时不再每 2ms 醒一次去 drain。阈值取 40：2ms 档在 200ms 内
         // 会 drain ~100 次，20ms 档约 10 次，两边余量都够。
         let pending = Arc::new(Mutex::new(b"hi\r\n".to_vec()));
         let drains = Arc::new(AtomicUsize::new(0));
@@ -2195,12 +2195,12 @@ mod tests {
         h.request_range(window(-2, 2));
         wait_until(&mut h, |h| h.screen.is_some());
         let rebuilt = h.screen.clone().unwrap();
-        assert_eq!(rebuilt, first, "I2：重建后的投影应逐项一致");
+        assert_eq!(rebuilt, first, "重建后的投影应逐项一致");
     }
 
     #[test]
     fn scrollback_window_is_reported_and_croppable() {
-        // F1 路径：快照报告可回看行数 → 视口请求范围 → 裁剪出一屏 → 内容正确。
+        // 路径：快照报告可回看行数 → 视口请求范围 → 裁剪出一屏 → 内容正确。
         let mut h = start_mock(b"L1\r\nL2\r\nL3\r\nL4\r\nL5");
         wait_until(&mut h, |h| h.snapshot.version > 0);
         let rows = h.snapshot.rows as i64;
@@ -2253,7 +2253,7 @@ mod tests {
     fn a_registered_wait_matches_output_that_arrives_after_registration() {
         // 核心保证：`register_waiter` 返回（拿到 ack）之后被 drain 的输出，
         // 保证进入匹配。顺序反了（先输出后登记）就会漏匹配——这正是
-        // ADR-0019 §B.13 点名的最可能返工点。
+        // ADR-0019 点名的最可能返工点。
         let (h, probe) = start_scripted();
         let w = h.register_waiter("hello").expect("登记");
         probe.feed(b"hello world\r\n");
@@ -2374,7 +2374,7 @@ mod tests {
         assert_eq!(code, Some(7), "退出码没有透传");
     }
 
-    // ---- W3：原始字节旁路（X/Y/Z Modem 这类字节级协议的入口） ----
+    // ---- 原始字节旁路（X/Y/Z Modem 这类字节级协议的入口） ----
 
     /// 旁路生效：字节整块进 sink，**屏幕一格都不动**（快照与版本都不变）。
     /// 屏幕冻结是设计——传输进度由界面自己画，这一条不钉住就会被当成 bug 改掉。

@@ -1,6 +1,6 @@
 //! New Session（兼 Session Properties）对话框：协议条 + 二级树 + 内容页 + 保存/连接。
 //!
-//! R9 从 `ui/mod.rs` 拆出；R13-d2 起这张表单同时当「会话属性」用
+//! 从 `ui/mod.rs` 拆出；这张表单同时当「会话属性」用
 //! （见 `open_session_properties`）。表单与配置的双向映射在
 //! `dialogs/session_form.rs`（纯函数，带自己的单测），页面内容在
 //! `dialogs/session_pages.rs`。
@@ -36,7 +36,7 @@ pub(in crate::ui) enum SessionDialogKind {
     ///
     /// 与 `Edit` 分开而不是给它加个 `reconnect: bool`：`Edit` 的调用方是
     /// 「会话设置…」菜单与侧边栏右键 `Properties`，语义是「改完就重连」；
-    /// 而 D3 的地址栏 / 右键属性面板只是「改参数」。两者字段、预填、写回完全
+    /// 而地址栏 / 右键属性面板只是「改参数」。两者字段、预填、写回完全
     /// 相同，唯一的差别就是收尾那一步——所以差别放在这里、由
     /// `should_connect()` 一处回答，而不是让调用方各自记住「保存后别连」。
     Properties { index: usize },
@@ -75,7 +75,7 @@ impl SessionDialogKind {
     /// `Properties` / `Default` 为假。属性面板改的只是参数，用户没要求重连——
     /// 把正在跑的会话踢掉再连一遍是副作用，不是功能。
     ///
-    /// 这条判据此前是死代码（`save_session_dialog` 尾部无条件连接），D3 起是
+    /// 这条判据此前是死代码（`save_session_dialog` 尾部无条件连接），是
     /// 那一段唯一的开关。
     fn should_connect(&self) -> bool {
         // 白名单，刻意不写成 `!matches!(self, Default)`：后者会让后加的变体
@@ -211,7 +211,7 @@ impl TerminalWindow {
     /// 弹窗入口：外框交给 harness，内容交给 `draw_new_session_body`。
     ///
     /// 这里曾经有 25 行手写的「空内容热身」补丁（sizing pass / fade_in /
-    /// fixed_rect / ID 冲突四件事混在一起）。P2 起它们全在
+    /// fixed_rect / ID 冲突四件事混在一起）。它们全在
     /// `harness::StableWindow::show` 里，只有一份——弹窗皮肤再改时不必
     /// 每处各补一遍，下一个弹窗也不用重新踩那四轮。
     pub(in crate::ui) fn draw_new_session_dialog(&mut self, ctx: &egui::Context) {
@@ -236,7 +236,7 @@ impl TerminalWindow {
     ///
     /// 与窗口外框分开：尺寸 / 淡入 / 右上角 × / sizing-pass 热身都是
     /// `harness::StableWindow` 的事。分开之后同一份内容既能放进整窗的
-    /// 弹窗位置，也能被组件夹具单独画出来——这正是 P2 要的「独立渲染」。
+    /// 弹窗位置，也能被组件夹具单独画出来——这正是「独立渲染」。
     ///
     /// 结构差别见 `session_nav.rs` 的模块头：横排是协议、左侧是折叠树、
     /// 右侧是两列网格、按钮在右下。左侧树的文字逐字来自视觉基线，内容页
@@ -346,7 +346,7 @@ impl TerminalWindow {
         ui.add_space(FOOT_PAD);
     }
 
-    /// G2：整行五个等宽协议标签。旧版是 `Protocol:` + 一排裸文字挤在左上，
+    /// 整行五个等宽协议标签。旧版是 `Protocol:` + 一排裸文字挤在左上，
     /// 既没标签条的形状，也让「协议」看起来像左侧导航的同类项。
     ///
     /// 视觉基线（`default-session-ssh-session.png`）：条高 24、**通栏**铺满
@@ -435,7 +435,7 @@ impl TerminalWindow {
             });
     }
 
-    /// G3：一级设置域 + 可折叠二级页。折叠状态由 `id_salt` 存在 egui Memory，
+    /// 一级设置域 + 可折叠二级页。折叠状态由 `id_salt` 存在 egui Memory，
     /// 不给表单模型加视图字段。
     fn draw_nav_tree(&mut self, ui: &mut egui::Ui) {
         use super::session_nav::{nav_for, NavEntry};
@@ -476,8 +476,8 @@ impl TerminalWindow {
         }
     }
 
-    // 右侧表单本体（G4 两列网格）现在在 `session_form_body.rs`
-    // （R9 单文件 ≤ 450 行）。`self.draw_session_form(ui)` 是同一个 impl
+    // 右侧表单本体（两列网格）现在在 `session_form_body.rs`
+    // （单文件 ≤ 450 行）。`self.draw_session_form(ui)` 是同一个 impl
     // 上的固有方法，无需 import。
 
     /// 打开「会话属性」：把既有会话反向填进同一个表单。
@@ -551,7 +551,7 @@ impl TerminalWindow {
     /// - `New { .. }`：按名字新增 / 覆盖并连接。
     /// - `Default`：只写回 `default_session`，不进会话列表、不连接。
     fn save_session_dialog(&mut self) {
-        // R13-e2：规则先校验——写错的转发不该等到连接时才报，那时对话框已经关了，
+        // 规则先校验——写错的转发不该等到连接时才报，那时对话框已经关了，
         // 用户也没法把光标放回那一行。
         if let Err(message) = tunnels::parse_rules(&self.new_session.forwards) {
             self.new_session.forward_error = Some(message);
@@ -565,14 +565,14 @@ impl TerminalWindow {
             None => SessionConfig::new(self.new_session.protocol),
         };
         let mut config = self.new_session.to_config(base);
-        // W1-b：出网代理选了却填不全时，在关对话框之前拦下。复用表单级的
-        // `forward_error` 提示位（W4 逐页比对时再拆成独立字段），避免为了
+        // 出网代理选了却填不全时，在关对话框之前拦下。复用表单级的
+        // `forward_error` 提示位（逐页比对时再拆成独立字段），避免为了
         // 一个错误位改动 Proxy 页的组件基线。
         if let Some(why) = config.validate_proxy() {
             self.new_session.forward_error = Some(why);
             return;
         }
-        // R13-d2：密码只在这一次连接里用，不进 `SessionConfig`
+        // 密码只在这一次连接里用，不进 `SessionConfig`
         // （那会写进 user.sessions）。原生路径直接把它交给连接流程。
         let password = match (config.builtin_ssh, config.auth) {
             (true, AuthMethod::Password) if !self.new_session.password.is_empty() => {

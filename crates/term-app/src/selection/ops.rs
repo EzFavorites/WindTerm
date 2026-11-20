@@ -21,7 +21,7 @@ use super::words::{
 };
 use super::{Pos, Selection, Shape};
 
-// ------------------------------------------------- R11：键盘 / 菜单的选区命令
+// ------------------------------------------------- 键盘 / 菜单的选区命令
 
 /// 把操作作用到选区上，返回新的选区。
 ///
@@ -241,7 +241,7 @@ fn select_all(image: &ScreenImage) -> Option<Selection> {
     Some(Selection::span(Pos::new(first, 0), Pos::new(row, len)))
 }
 
-// ------------------------------------------------------ W2：多选区（集合）
+// ------------------------------------------------------ 多选区（集合）
 
 /// 多选区集合：`Selections` 是 9 条集合命令的**全部状态**。
 ///
@@ -368,7 +368,7 @@ impl Selections {
     /// 锁 / 解锁活动选区。
     ///
     /// 为什么是**开关**：菜单里没有单独的 Unlock，单向锁会留下一条「锁上就再也
-    /// 动不了」的死路（R5：关掉必须有回程）。空集合无事可锁，也不翻锁定位。
+    /// 动不了」的死路（关掉必须有回程）。空集合无事可锁，也不翻锁定位。
     pub fn toggle_lock(&mut self) {
         if self.items.is_empty() {
             return;
@@ -606,7 +606,7 @@ pub fn apply_cmd_with_blocks(
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<Op> {
@@ -615,7 +615,7 @@ pub fn parse(id: &str) -> Option<Op> {
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse_set(id: &str) -> Option<SetOp> {

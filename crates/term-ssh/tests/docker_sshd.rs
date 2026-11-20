@@ -97,7 +97,7 @@ fn public_key_auth_against_real_sshd() {
 #[ignore = "需要 Docker 里的真 sshd：bash scripts/docker-verify.sh ssh"]
 fn keyboard_interactive_against_real_sshd() {
     // 真 sshd 的 keyboard-interactive 在密码配置下会问一次 Password:，
-    // 我们把密码作为第一条回答交出去。这一步在 R15 只能靠纯层单测，
+    // 我们把密码作为第一条回答交出去。这一步只能靠纯层单测，
     // 现在有了真实服务端才算真验过。
     expect_echo(
         target_opts(AuthMethod::KeyboardInteractive {

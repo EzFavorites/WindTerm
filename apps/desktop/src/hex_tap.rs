@@ -2,7 +2,7 @@
 //!
 //! 为什么这个文件在 `apps/desktop/src/` 而不在 `src/ui/`：
 //!
-//! 1. **B2：`ui/` 不得持有 OS 资源**。`scripts/verify.sh` 第 5 步直接在
+//! 1. **`ui/` 不得持有 OS 资源**。`scripts/verify.sh` 第 5 步直接在
 //!    `apps/desktop/src/ui/**` 里禁了 `mpsc::Receiver` 这类字样——投影层只该有
 //!    「画」与「发动作」。② 那一笔把 `Receiver<Vec<u8>>` 直接塞进了
 //!    `ui/terminal/bin_spec.rs::RawLog`，门禁因此红过一次；这里按同目录
@@ -38,7 +38,7 @@ impl HexTap {
     ///
     /// 用回调而不是「返回 `Vec<Vec<u8>>`」：hex 环这一路只要求「就地塞进环」，
     /// 攒一个中间 `Vec` 只是白搬一次内存——环是 1 MiB 级的东西，别在它前面
-    /// 再放一个同样大的中转站。B2 那条路要把同一批字节喂第二个消费者，
+    /// 再放一个同样大的中转站。那条路要把同一批字节喂第二个消费者，
     /// 见下面的 `drain_owned`。
     pub(crate) fn drain<F>(&self, mut sink: F) -> usize
     where
@@ -52,7 +52,7 @@ impl HexTap {
         moved
     }
 
-    /// B2：把**已经到达**的字节收成一份 owned 值交回去。
+    /// 把**已经到达**的字节收成一份 owned 值交回去。
     ///
     /// 与 `drain` 的分工：那条路只喂 hex 环，回调就地搬完就完；这条路要把
     /// 同一批字节再喂 `Tab` 的 tmux 状态机，而 `&mut self.raw` 与 `&mut self.tmux`

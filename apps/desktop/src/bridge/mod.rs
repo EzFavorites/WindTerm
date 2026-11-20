@@ -143,7 +143,7 @@ const MAX_CONSECUTIVE_ACCEPT_ERRORS: u32 = 128;
 /// `wait` 上」——不能让一个卡住的脚本挡掉其他客户端。
 pub fn serve_on(bound: Bound, probe: Arc<dyn lock::LockProbe>) -> Result<(), ServeError> {
     let pool = Arc::new(SessionPool::new());
-    // W1-c：`desk serve` 是无窗口的，内置 SSH 会话只能靠控制面自己的
+    // `desk serve` 是无窗口的，内置 SSH 会话只能靠控制面自己的
     // 通道工厂开起来（没有对话框可以问凭据，所以工厂只认 Agent / 私钥）。
     crate::session_open::install_channel_factory(&pool);
     let mut consecutive_errors = 0u32;

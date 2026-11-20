@@ -1,17 +1,17 @@
-//! V1-2：ViewTab 右键菜单全套、12 色标签、Reopen Closed、会话树 12 行 tooltip。
+//! ViewTab 右键菜单全套、12 色标签、Reopen Closed、会话树 12 行 tooltip。
 //!
-//! `closed_sessions` 在 R13 之前是**预留但无读者的死字段**；这里把它接成
+//! `closed_sessions` 之前是**预留但无读者的死字段**；这里把它接成
 //! 「关掉的会话名」队列，右键菜单的 `Reopen Closed` 真的能按名字把会话开回来。
 //! 颜色是投影层的控件状态（`tab_colors`，按标签下标），不是领域状态——
 //! 与 `find_input` 同一类，不进 `ViewState`。
 
 use crate::ui::*;
-// ④-0：Reopen 重建的是一个独立窗格（PaneId + group）。
+// Reopen 重建的是一个独立窗格（PaneId + group）。
 use crate::ui::layout::PaneGroup;
 use crate::ui::layout::mint_pane_identity;
-// W2-b / D2：标签右键的语义现在住在纯层，这里只发强类型 Action。
+// 标签右键的语义现在住在纯层，这里只发强类型 Action。
 use term_app::tab::TabAction;
-// S1：内置 SSH 是异步连接的，「连上之后落在哪儿」要跟着连接一起存着。
+// 内置 SSH 是异步连接的，「连上之后落在哪儿」要跟着连接一起存着。
 use crate::ui::dialogs::ssh_connect::PendingOpen;
 
 /// 标签少了一条时，颜色表跟着挪一格。
@@ -31,13 +31,13 @@ pub(in crate::ui) fn drop_color_at(colors: &mut Vec<Option<usize>>, index: usize
 impl TerminalWindow {
     /// 标签上的右键菜单。收集动作，循环画完再落地，避免借着 `self.tabs` 改它。
     pub(in crate::ui) fn draw_tab_context_menu(&mut self, resp: &egui::Response, index: usize, is_active: bool) {
-        // W2-b：私有 `Work` 枚举已按 D2 提升为 `term_app::tab::TabAction`。
+        // 私有 `Work` 枚举已提升为 `term_app::tab::TabAction`。
         // 右键菜单收集的是**意图**，画完统一派发；落地由 `reduce` →
         // `Effect::Tab` → `ui/effects.rs::apply_tab_action` 完成，
         // 不再在闭包外直接改 `TerminalWindow` 的字段。
         let mut work: Vec<Action> = Vec::new();
         // 文案在闭包外取好：闭包里还要借 `self.closed_sessions`，别把 `self`
-        // 的另一份只读借用混进去（R4 的借用纪律）。
+        // 的另一份只读借用混进去（借用纪律）。
         let lang = self.lang();
         let tr = |en: &'static str| t(lang, en);
         let activate = tr("Activate");
@@ -172,7 +172,7 @@ impl TerminalWindow {
             self.set_active_slot(i);
             return;
         }
-        // S1：内置 SSH 要握手，tab 只能连上之后才存在，所以布局（单窗格）
+        // 内置 SSH 要握手，tab 只能连上之后才存在，所以布局（单窗格）
         // 也交给落地那一刻做——在这里先改了布局，失败时会留下一棵指向
         // 不存在标签的树。
         if panels::sidebar::uses_builtin_ssh(&cfg) {
@@ -188,7 +188,7 @@ impl TerminalWindow {
         );
         let idx = self.add_tab(tab);
         self.set_active_slot(idx);
-        // ④-0：Reopen 是独立视图——清掉旧窗格，只留这一片新窗格。
+        // Reopen 是独立视图——清掉旧窗格，只留这一片新窗格。
         self.pane_groups.clear();
         let new_id = self.tabs[idx].identity;
         let pane = mint_pane_identity();
@@ -197,14 +197,14 @@ impl TerminalWindow {
         self.layout = Layout::single(pane);
     }
 
-    /// W2-b：落地方法从 `ui/effects.rs::apply_tab_action` 调用，
+    /// 落地方法从 `ui/effects.rs::apply_tab_action` 调用，
     /// 所以可见性要覆盖整个 `ui` 模块，而不只是本文件。
     pub(in crate::ui) fn duplicate_tab(&mut self, index: usize) {
         let Some(cfg) = self.tabs.get(index).map(|t| t.config.clone()) else { return };
         let mut copy = cfg;
         copy.name = format!("{} (copy)", copy.name);
         self.sessions.push(copy.clone());
-        // S1：内置 SSH 的副本同样走异步连接。以前这里直接 `make_tab`，
+        // 内置 SSH 的副本同样走异步连接。以前这里直接 `make_tab`，
         // 拿到的是一个「(disconnected)」空标签——点了有反应，但什么也没连上。
         if panels::sidebar::uses_builtin_ssh(&copy) {
             self.begin_builtin_ssh_with(copy, None, PendingOpen::Append);

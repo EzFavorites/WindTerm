@@ -1,6 +1,6 @@
-//! R14-f：v0.1「工作台」能力——把 15 条命令收敛到一个带页面的状态机。
+//! v0.1「工作台」能力——把 15 条命令收敛到一个带页面的状态机。
 //!
-//! 设计取舍（B4 / I5 / R5）：
+//! 设计取舍：
 //! - **命令 ID 只在这里的 `parse`**：每条 ID 映射到一个 `CenterPage`，页面就是
 //!   这条命令的真实效果，不是「打开同一个空对话框」的别名。
 //! - **状态只由 `reduce` 写**：页面、输入、选中、命令历史、高亮词、工具栏隐藏位、
@@ -10,7 +10,7 @@
 //!   `ViewState` 的专注模式走 `dispatch_action` 回到 `shell` 的 reducer。
 //!
 //! 页面内容见 `apps/desktop/src/ui/center.rs`；v0.1 范围依据
-//! `docs/design/14-scope-and-requirements.md` 的 P0 范围与版本阶段。
+//! `docs/design/14-scope-and-requirements.md` 的范围与版本阶段。
 
 pub use crate::vocab::CenterPage;
 
@@ -62,7 +62,7 @@ pub use crate::vocab::CenterAction;
 
 /// 命令 ID → 本能力的动作。未接线的 ID 返回 `None`。
 ///
-/// 2026-11-12 R2：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
+/// 2026-11-12：实现只有一份，在 [`crate::parse`]（入口层）。这里保留同名入口，
 /// 一是因为「每个能力自带字符串入口」是这个 crate 对外的约定，二是因为
 /// `apps/desktop` 有直接调 `term_app::log::parse` 的地方——把路径改掉没有架构价值。
 pub fn parse(id: &str) -> Option<CenterAction> {

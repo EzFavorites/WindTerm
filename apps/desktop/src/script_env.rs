@@ -12,7 +12,7 @@
 //! 2. 命令行：`--allow fs=read:/tmp,process`。
 //!
 //! 两者取并集。**没有第三个来源是「配置文件」**——一次授权只对一次运行有效，
-//! 写进全局配置等于永久放行（ADR-0027 D2 的理由）。
+//! 写进全局配置等于永久放行（ADR-0027 的理由）。
 //!
 //! 用户在文件框里手选的那一条走的是运行中的追加（`pick_file` 之后由界面把
 //! 路径塞回信封），不在这里。
@@ -114,14 +114,14 @@ impl RunSpec {
 pub struct WindowPorts {
     pub clipboard: Option<Arc<dyn Clipboard>>,
     pub ui: Option<Arc<dyn Ui>>,
-    /// 应用控制面（ADR-0027 §9）。`None` = 无头 / 没有窗口 → 落到 `NoApp`。
+    /// 应用控制面（ADR-0027）。`None` = 无头 / 没有窗口 → 落到 `NoApp`。
     pub app: Option<Arc<dyn term_script::AppControl>>,
 }
 
 /// 授权信封的共享句柄。
 ///
 /// 为什么是共享的：用户在文件框里手选一个路径之后要**当场**把它加进信封
-/// （ADR-0027 D2.3），而读信封的两处（工作区 / 文件端口）各有各的时机。
+/// （ADR-0027），而读信封的两处（工作区 / 文件端口）各有各的时机。
 /// 值拷贝会让「刚授的权」在下一句里还看不见。
 pub type Envelope = Arc<Mutex<Capabilities>>;
 

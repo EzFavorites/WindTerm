@@ -25,13 +25,13 @@
 //! 3. **无标题栏**：参考布局没有 `Preferences` 标题条与右上角 ×，经
 //!    [`StableWindow::without_title_bar`] 单独关掉；关闭只走页脚 `Close`。
 //!
-//! # R5 边界
+//! # 假控件边界
 //!
-//! - `Application ▸ Startup` 三个单选与 Session 1–4 下拉：真开关（W1-a），
+//! - `Application ▸ Startup` 三个单选与 Session 1–4 下拉：真开关，
 //!   绑 `win.startup` 并落 `prefs.json`；下拉只在「A specific session」档可用。
 //! - Language 组合框：真开关（reduce + prefs 落盘）。
 //! - Theme 组合框：真数据源（`theme_load` 只有一个 `dige-black`，列表就一项）。
-//! - `Text ▸ Caret`（W6 + W7）：样式 / 周期 / 宽度三项全真，整页自带写回，
+//! - `Text ▸ Caret`：样式 / 周期 / 宽度三项全真，整页自带写回，
 //!   住在 `settings_live_caret`。三项都是**新会话初值**（`SessionConfig`），
 //!   改完只影响之后新建的标签，已经开着的会话不动。
 //! - `Text ▸ Font ▸ Font size`（）：真开关，DragValue 绑
@@ -58,7 +58,7 @@
 //!   它的字段**（`ui/terminal/pane_overlays.rs` 的 F2 那段），不是补渲染。
 //!   其余三行无状态无渲染器，仍灰显（见 `settings_live_highlight`）。
 //!   旧的「parses to no action」与「没有渲染器」两句说明都已更正。
-//! - Window opacity（D5，**真控件**）：egui 0.29 的 `ViewportCommand` 确实没有
+//! - Window opacity（真控件）：egui 0.29 的 `ViewportCommand` 确实没有
 //!   数值 opacity 命令（只有 `Transparent(bool)`，管 OS 窗口能不能透），所以
 //!   数值效果由 `egui::Visuals` 背景 alpha + 终端区底色合成，不靠框架升级。
 //!   这里放开关 + `[0.3, 1.0]` 滑杆，改完写 `Prefs` 与运行期副本；运行期
@@ -168,13 +168,13 @@ pub(in crate::ui) enum SettingsPage {
     Widgets,
     Filer,
     QuickBar,
-    /// §2.6 点名但此前未建页：快捷键表。当前无字段，灰显占位（I5）。
+    /// §2.6 点名但此前未建页：快捷键表。当前无字段，灰显占位。
     ShortcutKeys,
-    /// §2.6 点名但此前未建页：行为选项。当前无字段，灰显占位（I5）。
+    /// §2.6 点名但此前未建页：行为选项。当前无字段，灰显占位。
     Behaviour,
-    /// §2.6 点名但此前未建页：工具栏 / 菜单。当前无字段，灰显占位（I5）。
+    /// §2.6 点名但此前未建页：工具栏 / 菜单。当前无字段，灰显占位。
     ToolbarMenu,
-    /// D1：触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的：编辑结果直接
+    /// 触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的：编辑结果直接
     /// 写回 `prefs.triggers`，并由 `TerminalWindow.triggers` 在每帧 `poll` 里喂给求值器。
     Triggers,
     /// `Terminal.ManageOneKeys`：凭据管理器（SSH / Account / Sessions 三标签）。
@@ -222,7 +222,7 @@ impl SettingsPage {
         SettingsPage::ShortcutKeys,
         SettingsPage::Behaviour,
         SettingsPage::ToolbarMenu,
-        // D1：触发器规则编辑器。放在顶层叶末尾（组头之前）。
+        // 触发器规则编辑器。放在顶层叶末尾（组头之前）。
         SettingsPage::Triggers,
         // `Terminal.ManageOneKeys`：凭据管理器（SSH / Account / Sessions）。
         SettingsPage::OneKeys,
@@ -392,7 +392,7 @@ impl TerminalWindow {
         let current = self.lang();
         let page = self.settings_page;
         let groups_open = self.settings.groups_open;
-        // D5：Appearance 页的窗口透明度同样先按值取出来（WindowOpacity 是 Copy）。
+        // Appearance 页的窗口透明度同样先按值取出来（WindowOpacity 是 Copy）。
         let window_opacity = self.window_opacity;
 
         let open = DialogWindow::new(DialogId::Settings, title)
@@ -509,7 +509,7 @@ impl TerminalWindow {
                             if let Some(l) = edit.lang {
                                 picked_lang = Some(l);
                             }
-                            // D5：开关 / 滑杆改完当场写运行期副本 + 落盘，
+                            // 开关 / 滑杆改完当场写运行期副本 + 落盘，
                             // 与菜单三档预设同一个入口。
                             if let Some(next) = edit.window_opacity {
                                 self.set_window_opacity(next);
@@ -541,7 +541,7 @@ impl TerminalWindow {
                         // Caret 页：样式 / 周期 / 宽度三项都是真控件，写回也在
                         // 那一页里（`settings_live_caret`），这里只调一行。
                         SettingsPage::Caret => settings_live_caret::caret(self, ui),
-                        // W7：容量 / TTL / 落盘开关三个字段都有读者，改完当场
+                        // 容量 / TTL / 落盘开关三个字段都有读者，改完当场
                         // 重建历史表并写回 prefs（见 `settings_live::command_history`）。
                         SettingsPage::CommandHistory => {
                             settings_live::command_history(self, ui);
@@ -588,7 +588,7 @@ impl TerminalWindow {
                         SettingsPage::Text => settings_live_text::text(self, ui),
                         SettingsPage::Behaviour => settings_live_text::behaviour(self, ui),
                         SettingsPage::ToolbarMenu => settings_live_text::toolbar_menu(self, ui),
-                        // D1：触发器规则编辑器。这一页是真的——改完当场喂进每帧
+                        // 触发器规则编辑器。这一页是真的——改完当场喂进每帧
                         // poll 的求值器，按「Save」落盘进 prefs.triggers。
                         SettingsPage::Triggers => settings_live_triggers::triggers(self, ui),
                         // `Terminal.ManageOneKeys`：凭据管理器（SSH / Account /
@@ -658,7 +658,7 @@ impl TerminalWindow {
             if let Some(gi) = open_group {
                 self.settings.groups_open[gi] = true;
             }
-            // 注意：Caret 页（W6/W7）不在这里写回——它自带窗口副本与落盘，
+            // 注意：Caret 页不在这里写回——它自带窗口副本与落盘，
             // 由 `settings_live_caret::caret` 一次做完，本处只管这三项。
             if suppress_changed || startup_changed {
                 // 一次 load-modify-save 同时落两组字段：分开写会让后写那份

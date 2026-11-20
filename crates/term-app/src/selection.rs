@@ -12,7 +12,7 @@
 //! 提取文本时落在当前窗口之外的行不参与——用户看到什么就复制什么，
 //! 不做隐藏补全。
 //!
-//! R11 起这里也是**选区能力的入口**：17 条「选择」菜单命令与 Shift+方向键共用
+//! 起这里也是**选区能力的入口**：17 条「选择」菜单命令与 Shift+方向键共用
 //! 一份位移规则（见 `Op` / `apply`）。菜单与键盘走同一条纯函数路径，所以
 //! 「点菜单下一行」和「按 Shift+↓」不可能出现两种行为。
 //!
@@ -102,7 +102,7 @@ impl Selection {
         self
     }
 
-    /// W2：形状在 Linear ↔ Block 之间翻转（菜单「Switch Stream And Column」）。
+    /// 形状在 Linear ↔ Block 之间翻转（菜单「Switch Stream And Column」）。
     ///
     /// 端点一个都不动：流选与列选是**同一对端点的两种读法**，不是重新选一次。
     /// 所以反向拖出来的选区翻转后仍然是反向的（`normalized` / `block_bounds`
@@ -115,7 +115,7 @@ impl Selection {
         self
     }
 
-    /// W2：anchor 与 head 互换（菜单「Exchange Caret And Anchor」）。
+    /// anchor 与 head 互换（菜单「Exchange Caret And Anchor」）。
     pub fn swap_ends(mut self) -> Self {
         std::mem::swap(&mut self.anchor, &mut self.head);
         self
@@ -602,7 +602,7 @@ mod tests {
         assert_eq!(sel.text(&img, &[]), "second line");
     }
 
-    // ------------------------------------- R11：键盘 / 菜单的选区命令
+    // ------------------------------------- 键盘 / 菜单的选区命令
 
     /// 带光标的窗口：没有现成选区时，扩选从光标处起步。
     fn image_with_cursor(lines: &[&str], cols: usize, cursor: (i64, usize)) -> ScreenImage {
@@ -678,7 +678,7 @@ mod tests {
             ("Text.CharRight", Op::CharNext),
             ("Text.LineUp", Op::LinePrev),
             ("Text.LineDown", Op::LineNext),
-            // W8 补的 10 条
+            // 补的 10 条
             ("Text.GotoPreviousWord", Op::WordStartPrev),
             ("Text.GotoPreviousWordEnd", Op::WordEndPrev),
             ("Text.GotoNextWord", Op::WordStartNext),
@@ -885,7 +885,7 @@ mod tests {
         assert_eq!(sel.text(&img, &[]), "hello world");
     }
 
-    // ------------------------------------------------- W2：多选区（集合）
+    // ------------------------------------------------- 多选区（集合）
 
     /// 两行文本的集合夹具：一份跨两行的选区已经放进集合里。
     fn two_row_set() -> Selections {

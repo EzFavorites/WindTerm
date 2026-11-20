@@ -1,4 +1,4 @@
-//! 规则与意图（R 规格 §3c–3f）。全是纯数据 + serde，无副作用。
+//! 规则与意图。全是纯数据 + serde，无副作用。
 //!
 //! 两类动作按**是否落在会话面**分开：`Action::Session` 直接引用
 //! `surface::METHODS` 的动词（`Invocation`），`Action::App` 才是应用层的

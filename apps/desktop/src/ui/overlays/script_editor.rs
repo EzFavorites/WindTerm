@@ -1,4 +1,4 @@
-//! D8-3：脚本编辑器窗口（`docs/design/07-scripting-and-automation.md` 的 D8 第三步）。
+//! 脚本编辑器窗口（`docs/design/07-scripting-and-automation.md` 的第三步）。
 //!
 //! 三件事，各占一段：
 //!
@@ -19,7 +19,7 @@
 //!
 //! # 「点错误跳到第 N 行」怎么落地
 //!
-//! `D8-1` 让 `ScriptError` 带上了结构化 `line()/column()`，`script_run::Outcome`
+//! 让 `ScriptError` 带上了结构化 `line()/column()`，`script_run::Outcome`
 //! 又把它一路带到界面。点击错误行时用 [`term_script::ScriptDoc::byte_offset`]
 //! 把 Rhai 的 1 起 `(行, 列)` 换成字节偏移，再写进 `TextEditState` 的光标——
 //! 全程不碰 `Display` 字符串，也不在这里重新解析行号。
@@ -144,7 +144,7 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// 新建一个空白脚本（D8-4）：路径空着，但「另存为」预填到**脚本库**目录。
+    /// 新建一个空白脚本：路径空着，但「另存为」预填到**脚本库**目录。
     ///
     /// 预填的理由：`path` 空着时按保存只会先弹一行空白输入框，用户随手打一个
     /// `test.rhai` 就落进了当前工作目录——那不是他的脚本库，下次启动就找不到了。
@@ -203,7 +203,7 @@ impl TerminalWindow {
     /// 在当前会话上跑缓冲区。起线程复用 `script_run::ScriptRun`。
     fn run_editor_script(&mut self) {
         let pool = self.pool.clone();
-        // ADR-0025 阶段 5：编辑器跑出来的脚本同样能 `session_open`，开出来的会话
+        // ADR-0025：编辑器跑出来的脚本同样能 `session_open`，开出来的会话
         // 同样要出现在标签栏——所以三条运行入口（运行窗口 / 停靠面板 / 编辑器）
         // 都交同一个队列。先克隆出来，下面 `self.script_editor.as_mut()` 借走整块。
         // 先取「谁在跑」的名字（编辑器还没存过盘时是空串，运行侧会兜成「未命名脚本」）。
@@ -247,7 +247,7 @@ impl TerminalWindow {
         if path.trim().is_empty() {
             // 没路径就打开「另存为」输入行，别在错误栏里丢一句「保存失败」。
             if state.save_as.is_none() {
-                // D8-4：预填脚本库路径，让「新建 → 直接保存」落进
+                // 预填脚本库路径，让「新建 → 直接保存」落进
                 // `profile_dir()/scripts/`，而不是随启动目录漂移的 CWD。
                 state.save_as = Some(script_run::default_script_path().unwrap_or_default());
             }

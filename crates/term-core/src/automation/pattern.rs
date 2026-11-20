@@ -1,6 +1,6 @@
-//! 模式：字面量与正则共用一个编译器、一套语法（R 规格 D1 的解）。
+//! 模式：字面量与正则共用一个编译器、一套语法。
 //!
-//! 直接持有 `regex::Regex`（Q1=B，2026-11-19 拍板），不自研适配层。理由：
+//! 直接持有 `regex::Regex`（2026-11-19 拍板），不自研适配层。理由：
 //! 线性时间自动机是**结构性**保证，而"步数预算"只能是尽力而为；捕获组
 //! 也只有真正则能提供。
 //!
@@ -129,7 +129,7 @@ impl Pattern {
         let re = Regex::new(&effective)
             .map_err(|e| PatternError::new(format!("无效模式 {source:?}：{e}")))?;
         // HIR 的 maximum_len 单位是**字节**，无上界重复返回 None。
-        // 这是精确计算，不是"模式里有没有 *"的启发式（§4c）。
+        // 这是精确计算，不是"模式里有没有 *"的启发式。
         let hir = regex_syntax::Parser::new()
             .parse(&effective)
             .map_err(|e| PatternError::new(format!("模式解析失败 {source:?}：{e}")))?;
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn malformed_and_empty_patterns_are_rejected_at_compile_time() {
-        // Q1=B 后 regex 是标准正则：`|` 与 `{n}` 已合法，不再是畸形样例。
+        // 此后 regex 是标准正则：`|` 与 `{n}` 已合法，不再是畸形样例。
         // 这里的坏串必须是真正被 regex crate 拒绝的。
         for bad in ["(", "[oops", "*x", "\\", "a{2,1}"] {
             assert!(
@@ -304,7 +304,7 @@ mod tests {
             // 字面量模式下元字符都是普通字符。
             assert!(Pattern::compile(bad, Syntax::Literal, true).is_ok());
         }
-        // 以前当畸形的两种写法现在是合法正则——钉住 Q1=B 的语法升级。
+        // 以前当畸形的两种写法现在是合法正则——钉住语法升级。
         assert!(Pattern::compile("a|b", Syntax::Regex, true).is_ok());
         assert!(Pattern::compile("a{2}", Syntax::Regex, true).is_ok());
         // 空模式是合法正则；拒绝空输入是脚本层的策略，不压在原语上。

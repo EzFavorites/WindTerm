@@ -1,6 +1,6 @@
-//! 会话表单 ↔ `SessionConfig` 的双向映射（R13-d2 从 dialogs 拆出）。
+//! 会话表单 ↔ `SessionConfig` 的双向映射（从 dialogs 拆出）。
 //!
-//! 拆的原因不只是 4j 的行数上限：这套映射是**纯函数**（给它一个配置它吐一张
+//! 拆的原因不只是行数上限：这套映射是**纯函数**（给它一个配置它吐一张
 //! 表单，给它一张表单它吐一个配置），和对话框的绘制代码不是一个变化节奏——
 //! 加一个会话字段时动这里，改交互时动 dialogs。混在一个文件里两边都难受。
 
@@ -10,11 +10,11 @@ use term_core::session::ProxyType;
 
 /// 「Proxy Type」单选的四档下标（顺序照视觉基线的视觉基线顺序）。
 ///
-/// W1-b 之后**协议层四档都有后端**：`0/1` 直连 / Jump 走内置客户端，
-/// `2/3` HTTP CONNECT / SOCKS5 走 `term-ssh::outbound`。UI 控件仍按 D8
-/// 保持灰显（放开留到 W4 与 Proxy 页逐屏比对一起做，避免单独重刷
+/// 之后**协议层四档都有后端**：`0/1` 直连 / Jump 走内置客户端，
+/// `2/3` HTTP CONNECT / SOCKS5 走 `term-ssh::outbound`。UI 控件仍保持灰显
+/// （放开留到 Proxy 页逐屏比对一起做，避免单独重刷
 /// `dialog_new_session_proxy` 组件基线）；但配置层已经能把这四档无损往返，
-/// 于是 W4 只需把 `add_enabled_ui` 改成四档全放开，不必再动映射。
+/// 于是只需把 `add_enabled_ui` 改成四档全放开，不必再动映射。
 ///
 /// 写成常量而不是两侧各写一个数字：单选的下标与 `to_config` 的判定必须是
 /// 同一个值，否则「选了 No proxy 却还在走跳板」这类错位迟早会发生。
@@ -52,14 +52,14 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) username: String,
     pub(in crate::ui) password: String,
     pub(in crate::ui) auth: AuthMethod,
-    /// D2：认证回退链（有序，空 = 不回退）。勾选里第一个是 `auth`，其余在这里。
+    /// 认证回退链（有序，空 = 不回退）。勾选里第一个是 `auth`，其余在这里。
     pub(in crate::ui) auth_chain: Vec<AuthMethod>,
     pub(in crate::ui) group: String,
     pub(in crate::ui) keep_alive: u32,
     pub(in crate::ui) connection_timeout: u32,
     pub(in crate::ui) tcp_keep_alive: bool,
     pub(in crate::ui) tcp_low_delay: bool,
-    /// R13-d2：走进程内 SSH 客户端（默认开；老会话没有这一项时为 false）。
+    /// 走进程内 SSH 客户端（默认开；老会话没有这一项时为 false）。
     pub(in crate::ui) builtin_ssh: bool,
     /// window.caretStyle (createCaretStyleCombo).
     pub(in crate::ui) caret_style: usize,
@@ -80,12 +80,12 @@ pub(in crate::ui) struct NewSessionData {
     /// 本地 Shell 启动命令（仅 Shell 协议）。
     pub(in crate::ui) shell_command: String,
     pub(in crate::ui) selected_page: usize,
-    /// R13-e2：转发规则（一行一条，`L` / `R` / `D` 开头）。表单存**文本**，
+    /// 转发规则（一行一条，`L` / `R` / `D` 开头）。表单存**文本**，
     /// 校验与解析在 `tunnels::parse_rules`——这里只负责搬。
     pub(in crate::ui) forwards: String,
     /// 规则写错时的提示（保存被拦下，对话框不关）。
     pub(in crate::ui) forward_error: Option<String>,
-    // ── V1-2：10 页页条新增的可编辑字段 ──
+    // ── 10 页页条新增的可编辑字段 ──
     pub(in crate::ui) proxy_jump: String,
     pub(in crate::ui) identity_file: String,
     pub(in crate::ui) agent_forward: bool,
@@ -98,7 +98,7 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) proxy_port: u16,
     pub(in crate::ui) proxy_command: String,
     pub(in crate::ui) working_dir: String,
-    /// 登录脚本路径（ADR-0027 §S6）。空串 = 这条会话连上后不跑脚本。
+    /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
     pub(in crate::ui) rows: usize,
@@ -235,7 +235,7 @@ impl NewSessionData {
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
         // 失败那一步由 `save_session_dialog` 先跑 `parse_rules` 拦下）。
         c.forwards = tunnels::split_rules(&self.forwards);
-        // V1-2：Proxy / Window / Serial 页的值真的落到配置里，
+        // Proxy / Window / Serial 页的值真的落到配置里，
         // `spawn_plan` 据此生成 `-J` / `-i` / `-A`。
         //
         // 跳板链跟着单选走：单选停在 `No proxy` 时不把链写进配置。两个控件是
@@ -246,7 +246,7 @@ impl NewSessionData {
         } else {
             String::new()
         };
-        // W1-b：出网代理三字段现在有真实落点。四档互斥：选 Jump 就清掉
+        // 出网代理三字段现在有真实落点。四档互斥：选 Jump 就清掉
         // 出网代理，选出网代理就清掉跳板链，选 None 两个都清。此前这三项
         // 只活在表单里，`to_config` 一个都不读——「能填、能存、不生效」。
         c.proxy_type = proxy_tag(self.proxy_type).to_string();
@@ -259,13 +259,13 @@ impl NewSessionData {
         c.x11_screen = self.x11_screen;
         c.scrollback = self.scrollback;
         c.baud_rate = self.baud_rate;
-        // C2：串口五个参数全部落盘，消灭「能填、能存、不生效」。
+        // 串口五个参数全部落盘，消灭「能填、能存、不生效」。
         c.data_bits = self.data_bits;
         c.stop_bits = self.stop_bits;
         c.parity = self.parity.clone();
         c.flow_control = self.flow_control.clone();
-        // W4：把 Selection / Keyboard / Command / Proxy 页已经能编辑但此前不落盘的
-        // 字段真正写进会话配置，消灭「能填、看起来存了、实际没生效」的 R5 假控件。
+        // 把 Selection / Keyboard / Command / Proxy 页已经能编辑但此前不落盘的
+        // 字段真正写进会话配置，消灭「能填、看起来存了、实际没生效」的假控件。
         c.cols = self.cols;
         c.rows = self.rows;
         c.wheel_lines = self.wheel_lines;
@@ -385,8 +385,8 @@ mod tests {
 
     #[test]
     fn to_config_persists_window_and_shell_fields() {
-        // W4 P0：Selection / Keyboard / Command 页能编辑的字段必须落盘，
-        // 否则就是「能填、看起来存了、实际没生效」的 R5 假控件。
+        // Selection / Keyboard / Command 页能编辑的字段必须落盘，
+        // 否则就是「能填、看起来存了、实际没生效」的假控件。
         // 此前 cols/rows/wheel_lines/caret_style/working_dir 在 to_config 里
         // 一个都不写——保存或连接后这些值静默丢失。
         let mut f = NewSessionData::from_config(&SessionConfig::new(Protocol::Ssh));
@@ -508,7 +508,7 @@ mod tests {
 
     #[test]
     fn outbound_proxy_fields_survive_a_form_round_trip() {
-        // W1-b 的核心判据：以前 host/port/type 只活在表单里，`to_config`
+        // 核心判据：以前 host/port/type 只活在表单里，`to_config`
         // 一个都不读，保存完连上去还是直连。
         let mut old = a_saved_ssh_session();
         old.proxy_type = ProxyType::Http.tag().to_string();
@@ -600,8 +600,8 @@ mod tests {
 
     #[test]
     fn the_session_page_fields_round_trip_through_the_form() {
-        // P1-1 重排：Session 页新增的 OneKey/System/Charset/Sftp/Sysmon/Shell
-        // 字段必须无损往返，否则「能填、看起来存了、实际没生效」的 R5 假控件会回来。
+        // 重排：Session 页新增的 OneKey/System/Charset/Sftp/Sysmon/Shell
+        // 字段必须无损往返，否则「能填、看起来存了、实际没生效」的假控件会回来。
         let mut old = a_saved_ssh_session();
         old.system = "windows".to_string();
         old.charset = "GBK".to_string();

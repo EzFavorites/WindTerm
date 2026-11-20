@@ -118,7 +118,7 @@ fn saving_writes_the_buffer_and_clears_the_dirty_flag() {
 
 #[test]
 fn saving_a_never_saved_buffer_prefills_the_script_library_path() {
-    // D8-4：新建后直接按保存，落点不该是当前工作目录——`cargo run` 给的 CWD 是
+    // 新建后直接按保存，落点不该是当前工作目录——`cargo run` 给的 CWD 是
     // 仓库根，双击启动可能是 `$HOME`，同一句「保存」会写进三个地方。
     let ctx = egui::Context::default();
     let pool = std::sync::Arc::new(term_session::SessionPool::new());

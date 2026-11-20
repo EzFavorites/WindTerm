@@ -5,12 +5,12 @@ rust-version = "1.94"
 edition = "2021"
 
 # 纯语义编译单元：不得出现 UI 框架、PTY、文件系统、线程或墙钟依赖。
-# 依赖表本身即 I3 / B1 的编译器强制判据（scripts/verify.sh 第 4 / 4b / 4d 项）。
+# 依赖表本身就是编译器强制判据（scripts/verify.sh 第 4 / 4b / 4d 项）。
 [dependencies]
 vte = { version = "0.15", features = ["ansi"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# R 规格（自动化内核）：`regex` 是纯计算库，无 IO / 墙钟 / 线程，不破 I3。
+# 自动化内核：`regex` 是纯计算库，无 IO / 墙钟 / 线程。
 # 选它而非自研简化正则的理由见 docs/design-specs/R-automation-core.md §4b。
 # `regex-syntax` 虽是 `regex` 的传递依赖，但本文直接用它的 HIR 计算模式的
 # 最大匹配字节数（§4c），按 Cargo 规则必须显式声明。

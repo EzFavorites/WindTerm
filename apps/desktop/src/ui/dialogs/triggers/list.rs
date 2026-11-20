@@ -1,6 +1,6 @@
 //! 左栏列表 / 顶部标签条 / 标签行（`Rules:` + 启用开关）。
 //!
-//! 从 `mod.rs` 拆出（R9 单文件 500 行上限）。所有坐标来自
+//! 从 `mod.rs` 拆出（单文件 500 行上限）。所有坐标来自
 //! `crate::ui::view::trigger_spec`。
 
 use super::fields::{self, mono, rgb};

@@ -1,4 +1,4 @@
-//! D3：地址栏（Address Bar）的纯逻辑层。
+//! 地址栏（Address Bar）的纯逻辑层。
 //!
 //! # 为什么要单独一层
 //!
@@ -9,7 +9,7 @@
 //! 下拉里列「已打开的标签 / 已配置的会话」，选中就连过去。
 //!
 //! 两件事共用一个名字，于是「Goto ▸ Goto Address Bar」点了之后打开的是命令页。
-//! D3 把这一刀切开：字符串解析、候选拼接、选中位移、MRU 全部收进这里，
+//! 把这一刀切开：字符串解析、候选拼接、选中位移、MRU 全部收进这里，
 //! 命令页改名 `Command Line`（见 [`crate::vocab::CenterPage::GotoCommandLine`]），
 //! 新的 `Window.GotoAddressBar` 落到 [`crate::vocab::Action::AddressBar`]。
 //!
@@ -324,7 +324,7 @@ pub fn session_candidates(sessions: &[SessionConfig], filter: &str, cap: usize) 
 /// 本地 Shell 没有 host：拿 `shell_command`（`/bin/bash` / `zsh` …）顶主机位，
 /// 于是显示成参考夹具那样的 `shell:///bin/bash`。用户名对 Shell 无意义，这里
 /// 一律不显示，否则每一行都拖着同一个 `alex@`。
-/// （2026-11-13 P1-5 订正：这里原写「`SessionConfig::new(Shell)` 会填当前登录
+/// （2026-11-13 订正：这里原写「`SessionConfig::new(Shell)` 会填当前登录
 /// 用户」，那是 core 还读 `$USER` 时的行为。现在用户名由调用方注入、core 不读
 /// 环境，多数构造路径给的是空串——不显示的结论不变，理由已换。）
 fn session_target(cfg: &SessionConfig) -> String {

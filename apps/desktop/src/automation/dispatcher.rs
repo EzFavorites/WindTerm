@@ -1,6 +1,6 @@
-//! 副作用分发（R 规格 §6）：`Effect` → [`Plan`] 的纯映射。
+//! 副作用分发：`Effect` → [`Plan`] 的纯映射。
 //!
-//! M3 只做到「把意图翻译成可执行的计划」这一层：
+//! 只做到「把意图翻译成可执行的计划」这一层：
 //! - `plan()` 是纯函数，可对任意 `Effect` 夹具单测，绝不写 PTY / 派发命令；
 //! - 真正执行发生在窗口层（它持有 `Tab::write` 与 `dispatch`）——影子轨默认
 //!   不调用执行，所以 98 张截图零变化。
@@ -21,7 +21,7 @@ pub enum Plan {
     Dispatch { command: String },
     /// 桌面 / 终端响铃。
     Beep,
-    /// 跑一段脚本（M3 只产出意图，执行留给脚本线程）。
+    /// 跑一段脚本（只产出意图，执行留给脚本线程）。
     RunScript { path: String, args: Vec<String> },
     /// 没有对应副作用的动作（如 Highlight，无渲染基底）——显式列出，
     /// 不静默丢弃，方便影子对账时看出「命中但无效果」。
@@ -73,7 +73,7 @@ fn plan_app(app: &AppAction) -> Plan {
             path: spec.path.clone(),
             args: spec.args.clone(),
         },
-        // Mark / Link / Menu / Tooltip 的渲染基底未落地（Q4），显式空效果。
+        // Mark / Link / Menu / Tooltip 的渲染基底未落地，显式空效果。
         AppAction::Mark(_)
         | AppAction::Link(_)
         | AppAction::Menu(_)

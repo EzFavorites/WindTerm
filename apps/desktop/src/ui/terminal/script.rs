@@ -7,7 +7,7 @@
 //! 为什么结果不直接写进终端：那是**伪造输出**。终端里的每一个字节都该来自会话，
 //! 否则用户没法分辨哪句是远端说的、哪句是我们假装远端说的。
 //!
-//! 真正的执行线程在 `apps/desktop/src/script_run.rs`（IO 不进投影层，B2）。
+//! 真正的执行线程在 `apps/desktop/src/script_run.rs`（IO 不进投影层）。
 
 use crate::script_run::{self, Outcome, RunOptions, ScriptRun};
 use crate::ui::kit::window::{DialogId, DialogWindow};
@@ -98,7 +98,7 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// ADR-0025 阶段 5：把脚本新开的会话变成标签页。每帧调一次，**与运行窗口
+    /// ADR-0025：把脚本新开的会话变成标签页。每帧调一次，**与运行窗口
     /// 开没开无关**——脚本线程在窗口关掉之后仍可能接着 `session_open`。
     ///
     /// 三条规矩：
@@ -234,7 +234,7 @@ impl TerminalWindow {
         }
     }
 
-    /// 登录脚本（ADR-0027 §S6）：标签带着**活会话**出现之后，自动给它跑一次。
+    /// 登录脚本（ADR-0027）：标签带着**活会话**出现之后，自动给它跑一次。
     ///
     /// 为什么是每帧扫一遍而不是在「连上」那一刻显式调用：
     ///
@@ -364,7 +364,7 @@ impl TerminalWindow {
                 );
                 let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                 ui.add_space(6.0);
-                // 两份清单（D8-4 的后半）：左列脚本库、右列最近用过。点一行只
+                // 两份清单（后半）：左列脚本库、右列最近用过。点一行只
                 // **填路径**，开跑仍然要按 Run——列表就在路径框正下方，误点的
                 // 代价是一次不可撤销的远端执行。
                 if let Some(picked) = super::script_library::draw_lists(
@@ -387,14 +387,14 @@ impl TerminalWindow {
                             action = ScriptAction::Run;
                         }
                     });
-                    // D8-3：脚本编辑器入口。路径可以空着（打开一个空白脚本自己写），
+                    // 脚本编辑器入口。路径可以空着（打开一个空白脚本自己写），
                     // 所以只要求「没在跑」。
                     ui.add_enabled_ui(!running, |ui| {
                         if ui.button(t(lang, "Edit")).clicked() {
                             action = ScriptAction::Edit;
                         }
                     });
-                    // ADR-0027 §S2：在跑的必须能停下来。取消是协作式的（每个
+                    // ADR-0027：在跑的必须能停下来。取消是协作式的（每个
                     // 阻塞点的 50ms 切片都会看一眼），所以按钮立刻生效，但脚本
                     // 要跑到下一个检查点才收场——最多一两百毫秒。
                     if running {
@@ -440,7 +440,7 @@ impl TerminalWindow {
                     .map(|dialog| (dialog.session, dialog.path.clone()))
                     .unwrap_or((None, String::new()));
                 if path.trim().is_empty() {
-                    // D8-4：没填路径 = 新建脚本，落点预填到脚本库目录。
+                    // 没填路径 = 新建脚本，落点预填到脚本库目录。
                     self.open_new_script(session);
                 } else {
                     self.open_script_editor(session, Some(&path));
@@ -451,7 +451,7 @@ impl TerminalWindow {
         }
     }
 
-    /// 记一条「最近跑过的脚本」并落盘（ADR-0027 §S6）。
+    /// 记一条「最近跑过的脚本」并落盘（ADR-0027）。
     ///
     /// 落盘走 load-modify-save：`Prefs` 字段只增不减，整份重建会把语言和其余
     /// 几十项设置一起清掉（`address::save_recent_prefs` 里记过同一个坑）。
@@ -463,7 +463,7 @@ impl TerminalWindow {
         term_runtime::prefs::save(&prefs);
     }
 
-    /// 录制器每帧一拍：把「屏幕安静了吗」告诉它（ADR-0027 §S6）。
+    /// 录制器每帧一拍：把「屏幕安静了吗」告诉它（ADR-0027）。
     ///
     /// 锚点取**最后一段非空的行文本**。取整屏是不行的：整屏几乎每帧都在变
     /// （滚动、光标、时间戳），那样永远等不到安静；取最后一行正是「提示符」所在。
@@ -596,9 +596,9 @@ enum ScriptAction {
     None,
     Close,
     Run,
-    /// D8-3：切到脚本编辑器（可改可存），不再只是「按路径跑一次」。
+    /// 切到脚本编辑器（可改可存），不再只是「按路径跑一次」。
     Edit,
-    /// 叫停在跑的那一次（ADR-0027 §S2）。
+    /// 叫停在跑的那一次（ADR-0027）。
     Stop,
 }
 
@@ -654,7 +654,7 @@ mod tests {
 
     /// 脚本在界面里 `ask`：模态框立起来，用户答完，答案真的回到脚本线程。
     ///
-    /// 这条是 S3 接线的端到端证据：脚本线程阻塞在回信通道上、窗口每帧从队列
+    /// 这条是接线的端到端证据：脚本线程阻塞在回信通道上、窗口每帧从队列
     /// 取一个请求画成模态框、点击之后 `deliver` 把答案送回。少了任何一环，
     /// 表现出来都是「脚本卡住」——最难查的那种。
     #[test]
@@ -747,10 +747,10 @@ mod tests {
         }
     }
 
-    /// ADR-0025 阶段 5 的核心行为：脚本线程推进队列的会话，下一帧变成标签页。
+    /// ADR-0025 的核心行为：脚本线程推进队列的会话，下一帧变成标签页。
     ///
     /// 这条用**真会话**（`open_exec("cat")`）而不是造一个假 id：标签页要绑的是
-    /// 池子里活着的那一条，绑错（比如另开一条）正是本阶段最容易犯的错——
+    /// 池子里活着的那一条，绑错（比如另开一条）正是最容易犯的错——
     /// 用假 id 的话，「绑到一条不存在的会话」也能通过。
     #[test]
     fn a_session_the_script_opened_becomes_a_tab() {

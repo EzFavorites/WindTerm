@@ -598,7 +598,7 @@ impl ScriptWorkspace {
 
     /// `pick_file(…)`：用户选中的路径**自动追加**进本次 `fs` 授权。
     ///
-    /// 这是 D2.3 的落点：「用户亲手选的就是用户同意的那一个」。追加发生在
+    /// 这是落点：「用户亲手选的就是用户同意的那一个」。追加发生在
     /// 工作区（而不是界面实现里），因为授权信封属于这次运行。
     pub fn pick_file(&self, request: &PickFile) -> Result<Option<PathBuf>, PrimitiveError> {
         self.check_cancel()?;
@@ -695,7 +695,7 @@ impl ScriptWorkspace {
         Ok(self.current()?.facets())
     }
 
-    // ── 应用控制面（ADR-0027 §9，Q2 刀1） ────────────────────────────────
+    // ── 应用控制面（ADR-0027） ────────────────────────────────
 
     /// `app_state()`：一份应用状态快照（需要 `app` 授权）。
     ///
@@ -732,7 +732,7 @@ impl ScriptWorkspace {
         Ok(delta)
     }
 
-    /// `app_layout(op)`：改停靠位（`reset` / `dock` / `redock`，Q2 §4.3）。
+    /// `app_layout(op)`：改停靠位（`reset` / `dock` / `redock`）。
     ///
     /// 授权要求 `app=configure`：`apply_layout_action` 末尾**必然**落盘
     /// （`save_layout()` 是既有行为），而 `AppScope::Tune` 的定义是「不落盘」。
@@ -750,7 +750,7 @@ impl ScriptWorkspace {
         Ok(delta)
     }
 
-    // ── 日志（ADR-0027 §1.1：三个参数内核都有） ──────────────────────────
+    // ── 日志（ADR-0027：三个参数内核都有） ──────────────────────────
 
     /// `log_start(dir)`：出厂模板（老签名，行为不变）。
     pub fn log_start(&self, dir: &str) -> Result<(), PrimitiveError> {
@@ -1046,7 +1046,7 @@ mod tests {
 
     #[test]
     fn app_panel_set_reports_the_delta_and_the_new_panel_panorama() {
-        // Q2 §10 刀2 验收 1 / 2：写后 `changed` 恰为 `["panels.<id>"]` 且 `rev`+1；
+        // 写后 `changed` 恰为 `["panels.<id>"]` 且 `rev`+1；
         // 同值 → `changed == []` 且 `rev` 不变。
         let (ws, app) = app_workspace(AppScope::Tune);
         let before = ws.app_state().expect("读得到快照");

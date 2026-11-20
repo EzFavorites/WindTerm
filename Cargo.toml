@@ -23,7 +23,7 @@ members = [
 
 # workspace 的 profile 必须写在根，写在 member 里会被 cargo 忽略。
 #
-# 2026-11-13（P0-5）：1.0 之前 release profile 只有 `opt-level = 2`，没有任何
+# 2026-11-13：1.0 之前 release profile 只有 `opt-level = 2`，没有任何
 # 产物定义。补上 lto / codegen-units / strip 三项，让「1.0 的二进制」有可复现的
 # 构建方式。**`panic` 保持默认 `unwind`**：项目有 39 处生产路径 panic 的冻结基线
 # 与 `catch_unwind` 用法，改 `abort` 会改变这些语义，且不是发布阻断项。
