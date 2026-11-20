@@ -30,7 +30,7 @@ pub mod lock;
 pub mod surface;
 pub mod token;
 
-use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::net::{Ipv4Addr, Shutdown, TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -197,6 +197,10 @@ fn handle(
     term_bridge::transport::serve_stdio(&gated, reader, &mut writer)
 }
 
+/// 握手首行的字节上限。一条 `auth` 请求不到 200 字节，8 KiB 足够宽松，
+/// 又足以让「永不换行的字节流」撑不爆内存。
+const MAX_HELLO_BYTES: u64 = 8 * 1024;
+
 /// 读第一条请求并答复。返回 `true` 表示已认证、连接可以继续。
 fn authenticate<R: BufRead, W: Write>(
     reader: &mut R,
@@ -204,8 +208,26 @@ fn authenticate<R: BufRead, W: Write>(
     token: &str,
 ) -> std::io::Result<bool> {
     let mut line = String::new();
-    if reader.read_line(&mut line)? == 0 {
+    // 握手首行**在认证之前**，必须带上限：没有上限时，本机任意进程连上来
+    // 发一个永不换行的字节流就能把 `serve` 撑到 OOM——那时连 token 都还没验。
+    // 一条 `auth` 请求不到 200 字节，8 KiB 已经宽得离谱。
+    let read = {
+        let mut limited = (&mut *reader).take(MAX_HELLO_BYTES);
+        limited.read_line(&mut line)?
+    };
+    if read == 0 {
         // 连上就挂（探测端口是否在听）：正常，不是错误。
+        return Ok(false);
+    }
+    if !line.ends_with('\n') && read as u64 == MAX_HELLO_BYTES {
+        // 超长首行：不可能是合法握手。回一条解析错误就关连接（不做重试计数）。
+        let response = error_response(
+            Value::Null,
+            SurfaceError::parse_error("握手首行过长".to_string()),
+        );
+        writer.write_all(response.as_bytes())?;
+        writer.write_all(b"\n")?;
+        writer.flush()?;
         return Ok(false);
     }
     let (reply, ok) = auth_reply(line.trim_end_matches(['\n', '\r']), token);

@@ -19,8 +19,15 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DOCKER_DIR="$ROOT/tests/docker"
 COMPOSE="$DOCKER_DIR/docker-compose.yml"
-KEYS="$DOCKER_DIR/keys"
+# 密钥每次现生成到一次性目录，与 `docker-verify.sh` 同一口径：不碰系统密钥、
+# 不留长期凭据、不受上一次残留影响。`KEEP=1` 时保留并打印路径。
+KEYS=$(mktemp -d "${TMPDIR:-/tmp}/1zterm-docker-keys.XXXXXX")
+export WINDTERM_TEST_KEYS_DIR="$KEYS"
 CLIENT_KEY="$KEYS/client/id_ed25519"
+# compose 的挂载源跟着一次性目录走（默认值仍是仓库内 keys/）。
+export TEST_CLIENT_KEYS="$KEYS/client"
+export TEST_TARGET_KEYS="$KEYS/target"
+export TEST_BASTION_KEYS="$KEYS/bastion"
 
 HOST=127.0.0.1
 PORT=22022
@@ -89,6 +96,12 @@ export WINDTERM_DOCKER_KEY=$CLIENT_KEY
 cleanup() {
     if [ "${KEEP:-0}" != 1 ]; then
         docker compose -f "$COMPOSE" down >/dev/null 2>&1
+        # 只删自己 mktemp 出来的目录（前缀判断防变量为空时误删）。
+        case "$KEYS" in
+        */1zterm-docker-keys.*) rm -rf -- "$KEYS" ;;
+        esac
+    else
+        echo "（KEEP=1：容器与临时密钥保留，密钥在 $KEYS）" >&2
     fi
 }
 trap cleanup EXIT INT TERM

@@ -23,7 +23,13 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
-KEYS="$ROOT/keys"
+# 落盘目录可注入：`docker-verify.sh` 每次运行把它指向一个 `mktemp -d` 出来的
+# 一次性目录，跑完即删。默认仍是仓库内的 `keys/`，手工调试时保持原行为。
+#
+# 为什么要能换目录：仓库内密钥是**长期存在**的，一旦某次生成被中断或被人为
+# 改过，下一次运行会默默沿用；而「一次运行一套新钥匙」既没有陈旧状态，也不
+# 会在磁盘上留下长期凭据。两者都指向同一件事——永不复用系统密钥。
+KEYS="${WINDTERM_TEST_KEYS_DIR:-$ROOT/keys}"
 
 # 服务名 → host key 目录。新增一个服务就在这里加一行，别在别处硬编码路径。
 SERVICES=(target bastion)

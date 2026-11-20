@@ -417,6 +417,11 @@ fn pick_target(rules: &[(String, u16, Target)], connected_port: u32) -> Option<T
 async fn pump(mut channel: Channel<russh::client::Msg>, tcp: TcpStream) {
     let (mut read_half, mut write_half) = tcp.into_split();
     let mut buf = vec![0u8; 16 * 1024];
+    // 本地读端到 EOF 之后就要**停止再 select 它**：已 EOF 的 socket 每次
+    // `read` 都立刻返回 `Ok(0)`，留着这一臂等于把 loop 变成空转——CPU 打满，
+    // 而且每个循环都往 SSH 通道灌一条 EOF。远端那一侧还没收尾时（回应还在
+    // 路上），我们又不能直接 break，所以只撤掉这一臂，继续转发反方向。
+    let mut local_eof = false;
     loop {
         tokio::select! {
             msg = channel.wait() => match msg {
@@ -433,10 +438,11 @@ async fn pump(mut channel: Channel<russh::client::Msg>, tcp: TcpStream) {
                 Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
                 _ => {}
             },
-            n = read_half.read(&mut buf) => match n {
+            n = read_half.read(&mut buf), if !local_eof => match n {
                 Ok(0) => {
                     // 本地写完了：告诉远端 EOF，但别急着关——回应可能还在路上。
                     let _ = channel.eof().await;
+                    local_eof = true;
                 }
                 Ok(n) => {
                     if channel.data(&buf[..n]).await.is_err() {

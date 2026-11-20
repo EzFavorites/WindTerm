@@ -319,7 +319,29 @@ async fn handshake(
         }
     };
 
-    auth::authenticate(&mut handle, opts).await?;
+    // 认证阶段必须**自己**有预算：`connect_timeout` 只包住了 KEX（上面那次
+    // `timeout`），而服务端完全可以在握手成功后对认证请求一直不回——
+    // russh 的 `wait_recv_reply` 没有内建超时，`channel::connect` 又在同步等
+    // `ready_rx`，于是整个 UI 线程会永远卡在「连接中」。
+    //
+    // 下限 30 秒：认证要用的是**已经填好的**凭据（密码 / key / 交互答案都在
+    // `SshOptions` 里），没有等人输入的场景，正常握手是毫秒级。
+    // `connect_timeout = 0`（不设超时）在这里按 120 秒兜底——「不限时」放给
+    // 认证阶段只会变成「界面永远转圈」。
+    let auth_budget = if opts.connect_timeout.is_zero() {
+        Duration::from_secs(120)
+    } else {
+        opts.connect_timeout.max(Duration::from_secs(30))
+    };
+    match tokio::time::timeout(auth_budget, auth::authenticate(&mut handle, opts)).await {
+        Ok(result) => result?,
+        Err(_) => {
+            return Err(SshError::Connect(format!(
+                "认证阶段 {} 秒内没有结果（服务端不回应或交互轮次过多）：{label}",
+                auth_budget.as_secs()
+            )));
+        }
+    }
     Ok(handle)
 }
 

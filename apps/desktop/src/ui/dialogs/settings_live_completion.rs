@@ -22,6 +22,16 @@ const MIN_CHARS_MAX: usize = 9;
 /// 列表高度的可用范围；参考出厂 7 行。
 const LIST_HEIGHT_MAX: usize = 40;
 
+/// `▲▼` 的单击 / Shift 单击：在 `1..=LIST_HEIGHT_MAX` 里循环。
+///
+/// 先归一化 `current`：它是从 prefs 反序列化来的，手改过的文件可能是 0，
+/// 而 `0 - 1` 在 `usize` 上会下溢（debug 构建直接 panic，release 回绕成天文数字）。
+/// 提成纯函数是为了让「0 起步也不炸」这条能被单测钉住。
+fn cycle_list_height(current: usize, step: usize) -> usize {
+    let base = current.clamp(1, LIST_HEIGHT_MAX);
+    (base - 1 + step) % LIST_HEIGHT_MAX + 1
+}
+
 /// 「Preselect the best match」三档文案，与视觉基线下拉一致。
 const PRESELECT_ITEMS: [(Preselect, &str); 3] = [
     (Preselect::Nowhere, "Nowhere"),
@@ -36,7 +46,7 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
     // 标签列按本页最长的 `Preselect the best match:` 量，两个框的控件左缘因此对齐。
     let col = label_col(ui, &["Completion list height:", "Preselect the best match:"]);
 
-    // 视觉基线 `视觉基线`：内容区第一个字是组标题
+    // 视觉基线：内容区第一个字是组标题
     // `Completion`，没有页级灰标题。
     ui.spacing_mut().item_spacing.y = 6.0;
 
@@ -103,7 +113,7 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
                     } else {
                         1
                     };
-                    s.list_height = (s.list_height - 1 + step) % LIST_HEIGHT_MAX + 1;
+                    s.list_height = cycle_list_height(s.list_height, step);
                 }
             });
         });
@@ -139,7 +149,7 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
 
 #[cfg(test)]
 mod tests {
-    use super::LIST_HEIGHT_MAX;
+    use super::{cycle_list_height, LIST_HEIGHT_MAX};
     use term_core::completion::Settings as CompletionSettings;
     use term_profile::prefs::Prefs;
 
@@ -172,10 +182,20 @@ mod tests {
 
     #[test]
     fn height_wraps_within_bounds() {
-        let mut n = LIST_HEIGHT_MAX;
-        n = (n - 1 + 1) % LIST_HEIGHT_MAX + 1;
+        let mut n = cycle_list_height(LIST_HEIGHT_MAX, 1);
         assert_eq!(n, 1, "到上限后再点回到 1，不会越界");
-        n = (n - 1 + LIST_HEIGHT_MAX - 1) % LIST_HEIGHT_MAX + 1;
+        n = cycle_list_height(n, LIST_HEIGHT_MAX - 1);
         assert_eq!(n, LIST_HEIGHT_MAX, "下限再 Shift 点击回到上限");
+    }
+
+    /// 手改过的 prefs 可能把 `list_height` 写成 0（或一个超大值）。
+    /// `0 - 1` 在 usize 上下溢，所以入口必须先夹取；夹完要能正常循环。
+    #[test]
+    fn a_zero_or_oversized_height_still_cycles_safely() {
+        // 0 按 1 处理：+1 得到 2，Shift（回绕）得到上限。
+        assert_eq!(cycle_list_height(0, 1), 2, "0 应先夹到 1，再 +1");
+        assert_eq!(cycle_list_height(0, LIST_HEIGHT_MAX - 1), LIST_HEIGHT_MAX);
+        // 超大值先夹到上限：再 +1 回到 1。
+        assert_eq!(cycle_list_height(usize::MAX, 1), 1, "超大值先夹到上限再 +1");
     }
 }

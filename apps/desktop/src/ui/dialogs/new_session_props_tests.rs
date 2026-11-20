@@ -72,3 +72,25 @@ fn properties_looks_like_edit_but_promises_no_connect() {
     );
     assert!(!default.primary_button().contains("Connect"));
 }
+
+/// 对话框开着期间会话被删掉时，保存必须**拒绝**而不是越界 panic。
+///
+/// `index` 是打开那一刻记下的；侧栏删除 / 导入覆盖都会让列表变短。
+/// 旧实现直接 `self.sessions[index]`，既可能 panic（debug）也可能按旧下标
+/// 写到别人那条上（列表被重排时）。
+#[test]
+fn saving_with_a_stale_index_is_refused_instead_of_panicking() {
+    let ctx = egui::Context::default();
+    let pool = std::sync::Arc::new(term_session::SessionPool::new());
+    let mut window = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+    window.sessions.clear();
+    window.session_dialog = SessionDialogKind::Edit { index: 3 };
+
+    window.save_session_dialog();
+
+    assert!(
+        window.new_session.forward_error.is_some(),
+        "越界下标应给出可读提示，而不是静默失败或崩溃"
+    );
+    assert!(window.sessions.is_empty(), "拒绝保存时不该凭空新增会话");
+}

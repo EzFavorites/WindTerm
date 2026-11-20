@@ -120,11 +120,30 @@ async fn http_connect(
     let mut status: Option<String> = None;
     let mut seen = 0usize;
     for _ in 0..MAX_HEADER_LINES {
+        // 每行都按**剩余预算**设上限：`read_line` 本身是无界的，先读再检查
+        // 等于「已经吃掉几百 MB 才报错」。超预算时直接判失败——
+        // 合法代理的响应头是几百字节，没有 16 KiB 还写不完的。
+        let budget = MAX_HEADER_BYTES.saturating_sub(seen) as u64;
+        if budget == 0 {
+            return Err(SshError::Connect(format!(
+                "HTTP 代理 {} 的响应头超过 {MAX_HEADER_BYTES} 字节",
+                proxy.label()
+            )));
+        }
         let mut line = String::new();
-        let n = reader
-            .read_line(&mut line)
-            .await
-            .map_err(|e| SshError::Connect(format!("HTTP 代理 {} 的响应读不出来：{e}", proxy.label())))?;
+        let n = {
+            let mut limited = (&mut reader).take(budget);
+            limited
+                .read_line(&mut line)
+                .await
+                .map_err(|e| SshError::Connect(format!("HTTP 代理 {} 的响应读不出来：{e}", proxy.label())))?
+        };
+        if n as u64 == budget && !line.ends_with('\n') {
+            return Err(SshError::Connect(format!(
+                "HTTP 代理 {} 的响应头超过 {MAX_HEADER_BYTES} 字节",
+                proxy.label()
+            )));
+        }
         if n == 0 {
             return Err(SshError::Connect(format!(
                 "HTTP 代理 {} 在回完响应之前就关了连接",

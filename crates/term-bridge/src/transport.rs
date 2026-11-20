@@ -21,10 +21,37 @@
 //! - 读到 EOF 正常返回 `Ok(())`：EOF 是客户端关掉了管道，不是错误。
 //! - 只有**写**失败才返回 `Err`：那时候对端已经听不见了，再循环下去毫无意义。
 
-use std::io::{self, BufRead, Write};
+use std::io::{self, BufRead, Read, Write};
 
 use crate::handler::Surface;
 use crate::jsonrpc::dispatch;
+
+/// 单行上限。JSON-RPC 的一条请求不该有 1 MiB——真到了，不是脚本把整个文件
+/// 塞进 `write` 的参数，就是对面在拿「永不换行的字节流」撑内存。
+///
+/// 有上限之后超长行的处理方式是**丢弃到行尾 + 回一个 ParseError**，而不是
+/// 断开管道：stdio 那一侧的调用方可能是编辑器插件，断一次就再也不重连了。
+const MAX_LINE_BYTES: u64 = 1024 * 1024;
+
+/// 丢掉当前行剩下的字节（只消费、不累积），用于超长行之后的重新对齐。
+fn skip_to_newline<R: BufRead>(reader: &mut R) -> io::Result<()> {
+    loop {
+        let buf = reader.fill_buf()?;
+        if buf.is_empty() {
+            return Ok(());
+        }
+        match buf.iter().position(|&b| b == b'\n') {
+            Some(at) => {
+                reader.consume(at + 1);
+                return Ok(());
+            }
+            None => {
+                let len = buf.len();
+                reader.consume(len);
+            }
+        }
+    }
+}
 
 /// 在 stdio 上服务一个 [`Surface`]，直到 `reader` 返回 EOF。
 ///
@@ -42,10 +69,29 @@ pub fn serve_stdio<R: BufRead, W: Write>(
     let mut line = String::new();
     loop {
         line.clear();
-        let read = reader.read_line(&mut line)?;
+        // 带硬上限地读一行：`take` 让 `read_line` 最多只吃到 `MAX_LINE_BYTES`，
+        // 剩下的字节留在 reader 里（由 `skip_to_newline` 丢掉），
+        // 于是「对面一直不发换行」最多占 1 MiB，而不是一路涨到 OOM。
+        let read = {
+            let mut limited = (&mut reader).take(MAX_LINE_BYTES);
+            limited.read_line(&mut line)?
+        };
         if read == 0 {
             // EOF：客户端挂了管道。正常收场，不是错误。
             return Ok(());
+        }
+        // 没吃到换行又正好顶到上限 = 超长行。丢掉剩余部分，回一个解析错误，
+        // 管道继续服务下一条（不因为对面写坏一行就把整个桥接打死）。
+        let truncated = !line.ends_with('\n') && read as u64 == MAX_LINE_BYTES;
+        if truncated {
+            skip_to_newline(&mut reader)?;
+            // 空串一定解析失败 → ParseError（`id: null`），这正是我们想要的口径。
+            if let Some(reply) = dispatch(surface, "") {
+                writer.write_all(reply.as_bytes())?;
+                writer.write_all(b"\n")?;
+                writer.flush()?;
+            }
+            continue;
         }
         // 行尾归一：`\n` 与 `\r\n` 都剥掉，管道里不该留 CR。
         let text = line.trim_end_matches('\n').trim_end_matches('\r');
@@ -116,6 +162,32 @@ mod tests {
         let last: Value = serde_json::from_str(lines[2]).expect("合法 JSON");
         assert_eq!(last["id"], 2);
         assert!(last.get("result").is_some(), "坏行之后管道仍能用");
+    }
+
+    /// 超长行（无换行）必须被截断丢弃，而不是无界吃内存；且管道要能继续服务。
+    ///
+    /// 这是 stdio 侧的对端可控路径：写一个永不换行的字节流就能把
+    /// `read_line` 撑到 OOM。上限生效后，最多占 `MAX_LINE_BYTES`，
+    /// 回一条 ParseError，后面的正常请求照常处理。
+    #[test]
+    fn an_oversized_line_is_dropped_and_the_pipe_keeps_serving() {
+        let mut input: Vec<u8> = vec![b'x'; MAX_LINE_BYTES as usize + 64];
+        input.push(b'\n');
+        input.extend_from_slice(
+            b"{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"session_list\"}\n",
+        );
+
+        let mut out = Vec::new();
+        serve_stdio(&Echo, Cursor::new(input), &mut out).expect("管道应正常收场");
+        let text = String::from_utf8(out).expect("回包是 UTF-8");
+        let lines: Vec<&str> = text.lines().collect();
+
+        assert_eq!(lines.len(), 2, "超长行一条错误 + 后续一条正常，实际：{text}");
+        let bad: Value = serde_json::from_str(lines[0]).expect("合法 JSON");
+        assert_eq!(bad["error"]["kind"], "parse_error");
+        assert!(bad["id"].is_null(), "超长行的 id 无法解析，只能是 null");
+        let last: Value = serde_json::from_str(lines[1]).expect("合法 JSON");
+        assert_eq!(last["id"], 9, "超长行之后的请求必须照常处理");
     }
 
     #[test]

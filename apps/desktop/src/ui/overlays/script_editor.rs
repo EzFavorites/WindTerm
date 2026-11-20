@@ -144,6 +144,19 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
+    /// 关掉编辑器并**丢弃状态**。
+    ///
+    /// **必须把 `Option` 摘成 `None`，不能只置 `state.open = false`**：
+    /// `modal_dialog_open()` 判的是「有没有模态」，留一个「关着但还在」的状态
+    /// 会让脚本编辑器永远算作模态——`overlays::modal::draw_backdrop` 的整屏灰罩
+    /// 从此不再撤掉，而它用 `Sense::click()` 吃掉全部鼠标交互，界面看起来像死了。
+    ///
+    /// 单独成方法而不是内联在 `match` 里，是为了让这条不变量能被单测直接钉住。
+    pub(in crate::ui) fn close_script_editor(&mut self) {
+        self.script_editor = None;
+        self.ctx.request_repaint();
+    }
+
     /// 新建一个空白脚本：路径空着，但「另存为」预填到**脚本库**目录。
     ///
     /// 预填的理由：`path` 空着时按保存只会先弹一行空白输入框，用户随手打一个
@@ -184,11 +197,7 @@ impl TerminalWindow {
         self.script_editor = Some(state);
         match action {
             EditorAction::None => {}
-            EditorAction::Close => {
-                if let Some(state) = self.script_editor.as_mut() {
-                    state.open = false;
-                }
-            }
+            EditorAction::Close => self.close_script_editor(),
             EditorAction::Run => self.run_editor_script(),
             EditorAction::Save => self.save_editor(false),
             EditorAction::SaveAs => {

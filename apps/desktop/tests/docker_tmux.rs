@@ -36,11 +36,21 @@ fn spawn_control_mode() -> (std::process::Child, mpsc::Receiver<String>) {
 
     let mut child = Command::new("ssh")
         .args([
+            // `-F /dev/null` + `IdentityAgent=none` 是不弹授权框的关键：
+            // 前者让 ssh 不读 `~/.ssh/config`（那里可能有这台机器自己的
+            // IdentityFile / ProxyCommand），后者让它完全不去问 ssh-agent。
+            // macOS 的「想使用钥匙串中的密钥」弹窗来自 agent，不来自 ssh 本身；
+            // 少了 `IdentityAgent=none`，无人值守跑测试会卡在等用户点允许。
+            // `IdentitiesOnly=yes` 再兜一层：只允许 `-i` 指定的那一把。
             "-tt",
+            "-F",
+            "/dev/null",
             "-p",
             &port,
             "-i",
             &key,
+            "-o",
+            "IdentityAgent=none",
             "-o",
             "StrictHostKeyChecking=no",
             "-o",

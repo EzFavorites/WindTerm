@@ -137,6 +137,31 @@ fn saving_a_never_saved_buffer_prefills_the_script_library_path() {
     assert!(state.error.is_none(), "预填不该报错：{:?}", state.error);
 }
 
+/// 关窗必须**摘掉 `Option`**，不能只把 `open` 置 false。
+///
+/// 事故面（P0）：`modal_dialog_open()` 判 `is_some()`，于是「关着但还在」的编辑器
+/// 一直算模态——整屏灰罩不撤，而灰罩用 `Sense::click()` 吃掉全部鼠标交互，
+/// 用户看到的是「界面变暗、点什么都没反应」。这条断言同时钉两层：
+/// 关闭后没有状态、且不再被算作模态。
+#[test]
+fn closing_the_editor_drops_its_state_and_releases_the_modal_backdrop() {
+    let ctx = egui::Context::default();
+    let pool = std::sync::Arc::new(term_session::SessionPool::new());
+    let mut window = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+
+    window.open_script_editor(None, None);
+    assert!(window.script_editor.is_some(), "打开后应持有状态");
+    assert!(window.modal_dialog_open(), "编辑器打开时是模态");
+
+    window.close_script_editor();
+
+    assert!(window.script_editor.is_none(), "关闭后不该留着「关着的状态」");
+    assert!(
+        !window.modal_dialog_open(),
+        "关闭后不能再算模态，否则灰罩会永久吃掉鼠标交互"
+    );
+}
+
 #[test]
 fn one_frame_draws_without_panicking_and_keeps_the_window_open() {
     // 真绘制一帧：layouter / 行号 gutter / TextEditState 任一 API 用错都会在这里炸。

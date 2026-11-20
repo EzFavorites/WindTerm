@@ -301,6 +301,11 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 win.onekeys = draft;
             }
             win.save_onekeys();
+        } else {
+            // Cancel 必须把**密码草稿**也丢掉。它是 `win` 上的字段，不在这份
+            // `edit` 里；留着的话，下次任意一次 Ok 都会 `save_onekeys()`，
+            // 把这次已经取消的输入写进保险库——用户以为取消了，凭据却落了盘。
+            win.onekeys_password_draft = None;
         }
         win.view.show_onekeys = false;
         // 丢掉整份编辑态：下次打开重新从落盘值拷贝草稿。

@@ -154,7 +154,7 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
         ShellAction::ToggleDebugMode => vec![Effect::ToggleDebug],
         // 只读查看：同上——「哪条会话冻着」是每条会话的属性，reducer 只说意图。
         ShellAction::ToggleLocalMode => vec![Effect::ToggleLocalMode],
-        // 2026-11-17 Tunnels：两条都是「投影层才知道落地细节」的同族。
+        // 两条都是「投影层才知道落地细节」的同族。
         // 开关值活在投影层（`TerminalWindow::tunnels_enabled`）并落盘，
         // 设置草稿更是纯投影态——reducer 一个字段都不碰，只转述意图。
         ShellAction::ToggleTunnels => vec![Effect::ToggleTunnels],
@@ -224,10 +224,10 @@ fn zone_panels(zone: DockZone) -> Vec<PanelId> {
 
 /// 面板可见性 ⇒ `ViewState` 字段的**唯一**映射。
 ///
-/// 这张表既是动作侧的写点，也是绘制侧的读点。（2026-11-12）之前 `ui/panels/mod.rs`
+/// 这张表既是动作侧的写点，也是绘制侧的读点。之前 `ui/panels/mod.rs`
 /// 里还有一份一模一样的 9 分支 match；两份都是对 `PanelId` 的穷尽 match，所以
 /// 「一边改了另一边没改」会被编译器挡住——但它挡不住「同一个开关有两条翻法」，
-/// 那才是 2026-11-12 之前真实的坏法（8 个专用动作各写各的赋值）。现在：
+/// 那才是之前真实的坏法（8 个专用动作各写各的赋值）。现在：
 ///
 /// · 写：只经 [`set_panel_visible`]；
 /// · 翻：只经 [`toggle`]；
@@ -235,7 +235,7 @@ fn zone_panels(zone: DockZone) -> Vec<PanelId> {
 ///
 /// 为什么读点留在 `shell` 而不是 `dock`：`dock::PanelId` 是词表，`menu/bars.rs`
 /// 用它；把它改成依赖 `ViewState` 会引出 `palette → menu → dock → state → palette`
-/// 这个四节点环——正是刚拆掉的那类病。`shell` 本来就同时依赖 `dock` 与
+/// 这个四节点环——正是拆掉的那类病。`shell` 本来就同时依赖 `dock` 与
 /// `state`，把表放这里不新增任何一条边。
 ///
 /// 门禁 4h 为此加了一条**受检的间接读**：这 9 个字段允许在 `ui/` 里没有直接读点，
@@ -307,7 +307,7 @@ mod tests {
         assert_eq!(state, before, "关掉以后点不回来了");
     }
 
-    /// 底带标签的 ×、齿轮菜单勾选、Sysmon 折叠标签都发 `TogglePanel(id)`。
+    /// 底带标签的 ×、齿轮菜单勾选、Sysmon 细带按钮都发 `TogglePanel(id)`。
     /// 每块面板都要能翻自己的字段，且连翻两次回到原状——「关掉没有回程」
     /// 是明令禁止的。新增面板时这条会直接把漏接映射的那块指出来。
     #[test]
@@ -365,7 +365,7 @@ mod tests {
 
     /// 专用动作（`TogglePaneExplorer` 那 8 个）与通用 `TogglePanel(id)` 必须翻同一件事。
     ///
-    /// 之前这两条路各写各的赋值语句：专用动作 `state.show_xxx = !state.show_xxx`，
+    /// R3-c 之前这两条路各写各的赋值语句：专用动作 `state.show_xxx = !state.show_xxx`，
     /// 通用动作走 `panel_visible` / `set_panel_visible` 那张表。上面那条测试只覆盖了
     /// 通用动作，所以「专用动作翻错了字段」「表里挪了字段、专用动作没跟上」这两类
     /// 都编译得过、测试也全绿，只有人手点菜单才发现。这里逐面板比对两条路的**结果状态**，
@@ -428,7 +428,7 @@ mod tests {
             PanelId::ALL.len(),
             "PanelId 加了新变体：要么给它接上专用动作，要么在上面的 dedicated() 里 \
              显式 return None 登记「它只有 TogglePanel 一条路」——别让它悄悄漏掉。\
-             Sysmon 已不在 ALL 里（它不是停靠面板），所以现在全覆盖。"
+             Sysmon 不在 ALL 里（它不是停靠面板），所以现在全覆盖。"
         );
     }
 }

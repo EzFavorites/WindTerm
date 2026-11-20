@@ -17,6 +17,24 @@ use term_app::dock::{DockZone, PanelId};
 /// 再加间隙共约 880pt。浮窗较窄时给正文一个横向滚动兜底，控件不被裁掉。
 const BOTTOM_MIN_CONTENT_W: f32 = 920.0;
 
+/// 夹取，但**容忍 `min > max`**。
+///
+/// `f32::clamp` 在 `min > max` 时是 `assert!`（debug/release 都 panic），而这里
+/// 的上界来自「窗口的一半 / 六成」——小窗口或分屏下它会小于内容下限，
+/// 于是「把带浮起来」这个普通操作会把整个界面打崩（实测阈值：底带 <720pt 高、
+/// 左右带 <467pt 宽）。
+///
+/// 语义：装不下就按窗口能给的来，宁可窄一点也不要崩。窗口本身为 0 时给 0，
+/// 调用方拿到的是退化矩形——难看，但不会 panic。
+fn fit(value: f32, min: f32, max: f32) -> f32 {
+    let max = max.max(0.0);
+    if max <= min {
+        max
+    } else {
+        value.clamp(min, max)
+    }
+}
+
 impl TerminalWindow {
     /// 画一条带在浮窗里的全部内容（tab 条 + Filter + 正文）。
     ///
@@ -131,14 +149,22 @@ impl TerminalWindow {
         });
         let size = if zone == DockZone::Bottom {
             egui::vec2(
-                (bounds.width() - 24.0).max(BOTTOM_MIN_CONTENT_W),
-                raw.height()
-                    .clamp(super::dock_paint::FLOAT_MIN_HEIGHT, bounds.height() * 0.5),
+                // 内容下限（`BOTTOM_MIN_CONTENT_W`）只在**窗口装得下**时撑开；
+                // 装不下就退回窗口宽度，不然浮窗会比屏幕还宽。
+                (bounds.width() - 24.0)
+                    .max(BOTTOM_MIN_CONTENT_W)
+                    .min(bounds.width().max(0.0)),
+                fit(
+                    raw.height(),
+                    super::dock_paint::FLOAT_MIN_HEIGHT,
+                    bounds.height() * 0.5,
+                ),
             )
         } else {
             egui::vec2(
-                raw.width().clamp(280.0, bounds.width() * 0.6),
-                raw.height().clamp(
+                fit(raw.width(), 280.0, bounds.width() * 0.6),
+                fit(
+                    raw.height(),
                     super::dock_paint::FLOAT_MIN_HEIGHT * 0.8,
                     bounds.height() * 0.7,
                 ),
@@ -171,5 +197,25 @@ impl TerminalWindow {
                 *tab = None;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fit;
+
+    /// 小窗口下 `min > max` 曾经是 `f32::clamp` 的 panic 面：底带要 360pt 高，
+    /// 而上界只有 `窗口高度/2`。这里钉住「装不下就退回上界」，且**不 panic**。
+    #[test]
+    fn fit_takes_the_window_when_the_cap_is_below_the_floor() {
+        // 窗口高 600 → 上界 300 < 下限 360：退回 300，而不是 panic。
+        assert_eq!(fit(360.0, 360.0, 300.0), 300.0);
+        // 正常窗口：照常夹在区间里。
+        assert_eq!(fit(400.0, 360.0, 600.0), 400.0);
+        assert_eq!(fit(100.0, 360.0, 600.0), 360.0);
+        assert_eq!(fit(900.0, 360.0, 600.0), 600.0);
+        // 窗口退化成 0：给 0，绝不把负数当尺寸传出去。
+        assert_eq!(fit(200.0, 288.0, 0.0), 0.0);
+        assert_eq!(fit(200.0, 288.0, -50.0), 0.0);
     }
 }

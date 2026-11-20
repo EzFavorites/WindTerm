@@ -153,9 +153,12 @@ impl TerminalWindow {
             egui::pos2(rect.right() - 29.5, cy),
             egui::vec2(18.0, 18.0),
         );
+        // id 里必须带 `zone`：同一个面板可能同时出现在两条带上（一条带是它的
+        // 停靠位，另一条只剩它的空壳），只按面板名派生就会同帧重复登记同一 id，
+        // 两处的 ⚙ 共享 hover / click 状态。
         let gresp = ui.interact(
             gear,
-            egui::Id::new((id.name(), "panel_gear")),
+            egui::Id::new((id.name(), zone.name(), "panel_gear")),
             egui::Sense::click(),
         );
         // 齿轮与 `×` 现在**只有一份几何**：`shell::glyph`（⚙ 外径 10、× 边长 6.5、
@@ -193,7 +196,7 @@ impl TerminalWindow {
         );
         let resp = ui.interact(
             close,
-            egui::Id::new((id.name(), "dock_close")),
+            egui::Id::new((id.name(), zone.name(), "dock_close")),
             egui::Sense::click(),
         );
         if resp.hovered() {
@@ -228,7 +231,11 @@ impl TerminalWindow {
             egui::pos2(rect.right() - 29.5, cy),
             egui::vec2(18.0, 18.0),
         );
-        let gresp = ui.interact(gear, egui::Id::new((id.name(), "panel_gear")), egui::Sense::click());
+        let gresp = ui.interact(
+            gear,
+            egui::Id::new((id.name(), zone.name(), "panel_gear")),
+            egui::Sense::click(),
+        );
         paint_gear(
             &p,
             gear.center(),
@@ -249,7 +256,11 @@ impl TerminalWindow {
             egui::pos2(rect.right() - 12.0, cy),
             egui::vec2(18.0, 18.0),
         );
-        let resp = ui.interact(close, egui::Id::new((id.name(), "dock_close")), egui::Sense::click());
+        let resp = ui.interact(
+            close,
+            egui::Id::new((id.name(), zone.name(), "dock_close")),
+            egui::Sense::click(),
+        );
         if resp.hovered() {
             p.rect_filled(close, 3.0, crate::theme::chrome(s.hover));
         }

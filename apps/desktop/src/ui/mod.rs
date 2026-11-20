@@ -771,7 +771,9 @@ impl TerminalWindow {
             || self.xfer_prompt.is_some()
             || self.script.is_some()
             || self.script_ask.is_some()
-            || self.script_editor.is_some()
+            // 判 `open` 而不是只判 `is_some()`：万一将来又有哪条路径留下
+            // 「关着但还在」的状态，灰罩也不该因此永久盖住窗口。
+            || self.script_editor.as_ref().is_some_and(|s| s.open)
             || self.filer.has_modal()
     }
 

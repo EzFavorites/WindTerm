@@ -16,8 +16,6 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="$ROOT/tests/docker/docker-compose.yml"
-KEYS="$ROOT/tests/docker/keys"
-KEY="$KEYS/client/id_ed25519"
 SELECTED=("$@")
 [ ${#SELECTED[@]} -eq 0 ] && SELECTED=(ssh proxyjump tunnel tmux control)
 
@@ -34,17 +32,38 @@ fi
 pass "docker $(docker version --format '{{.Server.Version}}' 2>/dev/null || echo ok)"
 command -v ssh >/dev/null && pass "ssh $(ssh -V 2>&1 | cut -d, -f1)" || { note "没有 ssh 客户端"; exit 2; }
 
-# 密钥统一由 gen-keys.sh 负责：客户端密钥 + 每个服务独立的 host key + known_hosts。
-# 不由本脚本自己 ssh-keygen，是为了和 protocol-verify.sh 共用同一份材料——
-# 两套生成逻辑迟早会分叉（路径、注释、host key 数量）。
+# 密钥：**每次运行现生成一套**，落在一次性目录里，跑完即删。
+#
+# 三条理由，都指向「自动测试不能要授权」：
+# 1. 不碰系统密钥。客户端一律只认这把临时私钥，配 `-F /dev/null`
+#    `-o IdentityAgent=none -o IdentitiesOnly=yes`；`~/.ssh`、`ssh-agent`、
+#    macOS 钥匙串全程不参与，所以不会弹「ssh 想使用钥匙串中的密钥」。
+# 2. 没有陈旧状态。上一次中断留下的半套钥匙、被手改过的 host key，都不会
+#    被下一次运行默默沿用——那种失败看起来像「代码坏了」，其实是环境脏了。
+# 3. 不留长期凭据。仓库内 `keys/` 只是给手工调试用的，CI / 无人值守不写它。
+KEYS=$(mktemp -d "${TMPDIR:-/tmp}/1zterm-docker-keys.XXXXXX")
+export WINDTERM_TEST_KEYS_DIR="$KEYS"
 bash "$ROOT/tests/docker/gen-keys.sh" >/dev/null
-pass "仓库内测试密钥就绪（${KEY}）"
+KEY="$KEYS/client/id_ed25519"
+export TEST_CLIENT_KEYS="$KEYS/client"
+export TEST_TARGET_KEYS="$KEYS/target"
+export TEST_BASTION_KEYS="$KEYS/bastion"
+pass "本次运行的一次性测试密钥就绪（$KEYS）"
 
 cleanup() {
     if [ "${KEEP:-0}" = "1" ]; then
-        echo "  （KEEP=1：容器保留。手工清理：docker compose -f $COMPOSE down -v）"
+        # 容器留着手工看，密钥也得留着——否则容器里的 authorized_keys 还在，
+        # 宿主这边却没有对应私钥，手工重连会「认证失败」，看着像环境坏了。
+        echo "  （KEEP=1：容器与临时密钥都保留）"
+        echo "  密钥：$KEYS"
+        echo "  手工清理：docker compose -f $COMPOSE down -v && rm -rf $KEYS"
     else
         docker compose -f "$COMPOSE" down -v >/dev/null 2>&1 || true
+        # 只删自己用 mktemp 造出来的那一个目录；变量为空时 `rm -rf` 会变成
+        # `rm -rf ""`（无害但没意义），所以多加一道前缀判断。
+        case "$KEYS" in
+        */1zterm-docker-keys.*) rm -rf -- "$KEYS" ;;
+        esac
     fi
 }
 trap cleanup EXIT

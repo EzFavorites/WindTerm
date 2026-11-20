@@ -104,6 +104,13 @@ async fn walk_remote(
             if e.is_symlink {
                 continue; // 规则 1：链接跳过，避免自指环把遍历转成死循环。
             }
+            // 规则 2：只接受「干净的一段名字」。服务端在 `read_dir` 里返回什么
+            // 都合法（`..`、`a/b`、空串都算），而这条名字会进 `rel`，再被
+            // `local_path_for` 拼成本地落点——放进 `..` 就写出了用户指定的目录。
+            // 宁可不传这一条，也不写到别处。
+            if !is_plain_name(&e.name) {
+                continue;
+            }
             let child_rel = rel_child(&rel, &e.name);
             if e.is_dir {
                 stack.push((entry::join(&dir, &e.name), child_rel.clone()));
@@ -347,6 +354,19 @@ pub async fn scan_remote_entries(
         .collect())
 }
 
+/// 这个远端条目名能不能当作路径的一段。
+///
+/// 排除三类：空串（拼出来是空段）、`.` / `..`（改变层级）、含 `/` 或 `\`
+/// （一个名字冒充多级）。SFTP 协议不禁止服务端返回这些，所以判定放在
+/// 「收到的字节」这一侧，而不是指望服务端守规矩。
+fn is_plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+}
+
 /// 相对路径的下一级：`"" + "a"` → `"a"`，`"a" + "b"` → `"a/b"`。
 fn rel_child(rel: &str, name: &str) -> String {
     if rel.is_empty() {
@@ -357,12 +377,17 @@ fn rel_child(rel: &str, name: &str) -> String {
 }
 
 /// 相对路径 → 本地落点。根自身（`rel == ""`）落回根目录本身。
+///
+/// `.` / `..` 段直接丢掉，不再 `push`。正常路径走不到这里（`walk_remote`
+/// 已在入口过滤），但这是个 `pub` 接口，第二道闸门比「调用方都守规矩」可靠：
+/// `local_path_for("/out", "../etc/passwd")` 必须落在 `/out` 里面。
 pub fn local_path_for(root: &str, rel: &str) -> PathBuf {
     let mut p = PathBuf::from(root);
     for part in rel.split('/') {
-        if !part.is_empty() {
-            p.push(part);
+        if part.is_empty() || part == "." || part == ".." {
+            continue;
         }
+        p.push(part);
     }
     p
 }
@@ -500,6 +525,37 @@ mod tests {
         assert_eq!(rel_child("", "a"), "a");
         assert_eq!(rel_child("a", "b"), "a/b");
         assert_eq!(rel_child("a/b", "c.txt"), "a/b/c.txt");
+    }
+
+    /// 远端条目名只接受「一段干净的名字」：`..` / 含分隔符 / 空串一律不是。
+    ///
+    /// 威胁面是真实的：`read_dir` 返回的 filename 由服务端决定，恶意或被控的
+    /// 服务端可以给一条 `../evil`，拼进本地落点就写到目标根之外。
+    #[test]
+    fn remote_entry_names_must_be_a_single_plain_segment() {
+        assert!(is_plain_name("a.txt"));
+        assert!(is_plain_name("中文 名"));
+        assert!(is_plain_name(".hidden"));
+
+        assert!(!is_plain_name(""), "空名字不能当一段路径");
+        assert!(!is_plain_name("."));
+        assert!(!is_plain_name(".."), "`..` 会退到上一级");
+        assert!(!is_plain_name("../evil"), "带 `..` 前缀同样要挡");
+        assert!(!is_plain_name("a/b"), "一个名字不能冒充两级");
+        assert!(!is_plain_name("a\\b"), "反斜杠在 Windows 上同样是分隔符");
+    }
+
+    /// 就算调用方手里已经有了脏 `rel`，本地落点也不许跑出根目录。
+    #[test]
+    fn local_targets_cannot_escape_the_root() {
+        for rel in ["../evil", "a/../../evil", "..", "./../x"] {
+            let p = local_path_for("/tmp/out", rel);
+            assert!(
+                p.starts_with("/tmp/out"),
+                "{rel} 落到了根目录之外：{}",
+                p.display()
+            );
+        }
     }
 
     #[test]

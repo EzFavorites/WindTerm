@@ -558,6 +558,16 @@ impl TerminalWindow {
             return;
         }
         self.new_session.forward_error = None;
+        // `index` 是**打开对话框那一刻**记下的。对话框开着期间会话列表可能变短
+        // （侧栏删除、导入覆盖），越界的话下面 `self.sessions[i]` 会直接 panic；
+        // 而按旧下标写回更糟——会把改动写到别人那条上。两头都不接受，就地拒绝。
+        if let Some(i) = self.session_dialog.edit_index() {
+            if i >= self.sessions.len() {
+                self.new_session.forward_error =
+                    Some("这条会话已经不在了，请关闭对话框后重新打开".to_string());
+                return;
+            }
+        }
         // 编辑已存在会话时以那条会话为底稿：表单没画的字段（charset、scrollback、
         // 串口位宽）得原样留下，不能被 `SessionConfig::new` 重置成默认值。
         let base = match self.session_dialog.edit_index() {

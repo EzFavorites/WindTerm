@@ -5,7 +5,7 @@
 //! 不会污染门禁对生产代码的扫描。
 
     use super::*;
-    use std::io::{Read, Write};
+    use std::io::{Cursor, Read, Write};
     use std::time::{Duration, Instant};
     use term_bridge::error::ErrorKind;
 
@@ -23,14 +23,21 @@
         }
     }
 
+    /// 进程内序号：`as_nanos()` 在 macOS 上不是真纳秒分辨率，两个并行用例
+    /// 可能取到同一个值，于是共用同一个临时目录——而 `token::write` 用的是
+    /// `create_new`（防覆盖，见 `token.rs` 模块头），第二个就会拿到
+    /// `File exists (os error 17)`。加序号才保证目录两两不同。
+    static SCRATCH_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn scratch_token() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "zterm-serve-{}-{}",
+            "zterm-serve-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("时钟")
-                .as_nanos()
+                .as_nanos(),
+            SCRATCH_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         std::fs::create_dir_all(&dir).expect("临时目录");
         dir.join("bridge.token")
@@ -131,6 +138,26 @@
             assert_eq!(err.code, -32003);
         }
         assert!(pool.list().is_empty(), "锁屏态下不许留下任何会话");
+    }
+
+    /// 握手首行超长：必须在读完 8 KiB 就停下并拒掉，不能等对面发换行。
+    ///
+    /// 这条路径在**认证之前**，所以它同时是「未认证的本地 DoS 面」：
+    /// 没有上限时，任何本机进程连上来发一个永不换行的字节流就能撑爆 `serve`。
+    #[test]
+    fn an_oversized_handshake_line_is_refused_before_it_can_grow() {
+        let input: Vec<u8> = vec![b'x'; MAX_HELLO_BYTES as usize + 4096];
+        let mut reader = std::io::BufReader::new(Cursor::new(input));
+        let mut out: Vec<u8> = Vec::new();
+
+        let ok = authenticate(&mut reader, &mut out, &token()).expect("读写不该失败");
+
+        assert!(!ok, "超长首行不能被当成已认证");
+        let text = String::from_utf8(out).expect("回包是 UTF-8");
+        assert!(text.contains("parse_error"), "应回解析错误：{text}");
+        // 关键：剩下的字节没被吃进来（上限生效），否则这里会是 0。
+        let leftover = reader.fill_buf().map(<[u8]>::len).unwrap_or(0);
+        assert!(leftover > 0, "上限生效后应还剩未消费字节");
     }
 
     // ---- 真 TCP 端到端 ----

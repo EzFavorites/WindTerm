@@ -22,8 +22,11 @@ services:
     ports:
       - "22022:22"
     volumes:
-      - ./keys/client:/keys/client:ro
-      - ./keys/target:/keys/host:ro
+      # 源目录可由 `TEST_CLIENT_KEYS` / `TEST_TARGET_KEYS` 覆盖：`docker-verify.sh`
+      # 每次运行把密钥生成到 `mktemp -d` 的一次性目录再指过来，跑完即删。
+      # 默认值保持仓库内 `keys/`，所以单独 `docker compose up` 时行为不变。
+      - ${TEST_CLIENT_KEYS:-./keys/client}:/keys/client:ro
+      - ${TEST_TARGET_KEYS:-./keys/target}:/keys/host:ro
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
       interval: 2s
@@ -44,8 +47,8 @@ services:
     ports:
       - "22023:22"
     volumes:
-      - ./keys/client:/keys/client:ro
-      - ./keys/bastion:/keys/host:ro
+      - ${TEST_CLIENT_KEYS:-./keys/client}:/keys/client:ro
+      - ${TEST_BASTION_KEYS:-./keys/bastion}:/keys/host:ro
     healthcheck:
       test: ["CMD", "nc", "-z", "127.0.0.1", "22"]
       interval: 2s
@@ -68,7 +71,7 @@ services:
       # 挂成 /keys/id_ed25519（而不是 /keys/client/...）：ProxyJump 测试的
       # 期望 argv 里写死了这个路径，而 `-i` 只作用于最后一跳，跳板那一跳的
       # 私钥得从 ~/.ssh/config 指过来。保持这个路径，测试就不用改。
-      - ./keys/client:/keys:ro
+      - ${TEST_CLIENT_KEYS:-./keys/client}:/keys:ro
     entrypoint: ["/bin/true"]
 
   # 真 telnet 服务端。IAC 协商与 PTY 分配由 inetutils 提供，不是我们模拟的。

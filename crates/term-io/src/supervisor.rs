@@ -703,9 +703,14 @@ impl OutputReader for PendingReader {
             if now >= deadline {
                 return Ok(String::new());
             }
+            // `CANCEL_SLICE` 只是「多久看一眼取消令牌」，**不是**整体超时：
+            // 切片的超时必须回到循环顶（那里才判 `deadline` 与令牌），
+            // 否则带令牌的 `read(5s)` 会在第一个 50ms 片段到点时返空，
+            // 上层 `read_until` / `wait_any` 把空返当成 `Timeout` 就提前失败了。
+            // 与 `PendingWait::wait_cancellable` 的 `Timeout => continue` 同形。
             match self.signal.recv_timeout((deadline - now).min(CANCEL_SLICE)) {
                 Ok(()) => continue,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => return Ok(String::new()),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     return match self.take() {
                         TakeOutcome::Text(text) if !text.is_empty() => Ok(text),
@@ -2600,5 +2605,36 @@ mod tests {
             b"back\r\n".to_vec()
         );
         wait_until(&mut h, |h| h.snapshot.screen_text().contains("back"));
+    }
+
+    /// 永不取消的令牌：只为走通 `collect_cancellable` 那条分支。
+    struct NeverCancel;
+    impl term_core::session_runtime::Cancel for NeverCancel {
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+    }
+
+    /// `CANCEL_SLICE` 是「多久看一眼令牌」，不是整体超时。
+    ///
+    /// 曾经的实现把切片超时直接当成超时返回空串，于是带令牌的 `read(5s)` 在
+    /// 第一个 50ms 片段就返空，上层 `read_until` / `wait_any` 把空返当 `Timeout`，
+    /// 脚本等不到本该等 5 秒的输出。这里钉住「没数据时要耗满 timeout」。
+    #[test]
+    fn a_cancellable_read_waits_for_the_whole_timeout_not_one_slice() {
+        let (h, _probe) = start_scripted();
+        let mut reader = h.register_reader().expect("登记读取器");
+
+        let started = std::time::Instant::now();
+        let text = reader
+            .collect_cancellable(Duration::from_millis(250), &NeverCancel)
+            .expect("无数据时超时返空");
+        let waited = started.elapsed();
+
+        assert!(text.is_empty(), "没有字节就不该编出内容：{text:?}");
+        assert!(
+            waited >= Duration::from_millis(200),
+            "在第一个 {CANCEL_SLICE:?} 切片就返空了，整体超时没生效：{waited:?}"
+        );
     }
 }

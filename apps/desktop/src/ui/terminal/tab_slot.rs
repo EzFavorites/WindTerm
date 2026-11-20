@@ -189,9 +189,16 @@ impl TerminalWindow {
         // 序号沿着已用过的最大值 +1：关掉中间一条之后再来一条，名字不会重复。
         let ordinal = next_shell_ordinal(self.shell_tabs.iter().map(|t| t.config.name.as_str()));
         config.name = shell_tab_name(ordinal, &term_io::host::shell_basename());
-        // `id` 只在本窗口里当一个稳定标识（面板标签不进分屏树、不进标签条），
-        // 下标即序号足够；`draw_tab` 的 widget id 由 `ui` 自己生成，不读它。
-        let id = egui::Id::new(("tab_shell_panel", self.shell_tabs.len()));
+        // `id` 是面板标签的**身份**，必须跨帧稳定且永不复用——
+        // 它同时是 `Tab.identity`，而 `pane.rs` 的补全弹层按 `tab.id` 认主
+        // （`completion_owner`）。用 `len()` 派生的话：3 条 → 关掉中间那条 →
+        // 再新建，新标签与留存的那条会拿到同一个 id，补全状态就串台了。
+        // 进程内单调递增即可保证「不复用」，且不需要给 TerminalWindow 加字段。
+        static SHELL_TAB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let id = egui::Id::new((
+            "tab_shell_panel",
+            SHELL_TAB_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        ));
         let ctx = self.ctx.clone();
         let tab = super::make_tab(&self.pool, config, id, &ctx);
         let new_id = tab.identity;

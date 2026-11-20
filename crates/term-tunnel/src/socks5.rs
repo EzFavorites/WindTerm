@@ -125,6 +125,13 @@ pub fn read_request(buf: &[u8]) -> Result<(Request, usize), Socks5Error> {
         }
         other => return Err(Socks5Error::UnsupportedAddress(other)),
     };
+    // 端口那 2 字节也要先确认收到了。上面三个分支只校验了**地址**长度
+    // （IPv4 8 字节 / IPv6 20 字节 / 域名 5+len），半包时 `at + 2` 可能越界——
+    // 而 `buf[at]` 是直接索引，panic 而不是返回 `Short`。这条路径对端可控：
+    // 只要往 SOCKS5 监听端口发一条「地址刚好够、端口一个字节都没给」的请求。
+    if buf.len() < at + 2 {
+        return Err(Socks5Error::Short);
+    }
     let port = u16::from_be_bytes([buf[at], buf[at + 1]]);
     at += 2;
     if host.trim().is_empty() || port == 0 {
@@ -228,6 +235,24 @@ mod tests {
         // 域名长度说 10，但只给了 3 个字节 + 端口
         let msg = [5, 1, 0, 3, 10, b'a', b'b', b'c', 0, 80];
         assert_eq!(read_request(&msg), Err(Socks5Error::Short));
+    }
+
+    /// 地址够、端口一个字节都没给：必须回 `Short`，**不能越界 panic**。
+    ///
+    /// 这是对端可控的：往 SOCKS5 端口发一条这样的半包即可。三种地址类型
+    /// 各钉一次——它们的 `at` 分别是 8 / 20 / 5+len，只有最后一种原本自带端口检查。
+    #[test]
+    fn a_request_without_the_port_bytes_is_short_not_a_panic() {
+        // IPv4：地址 4 字节刚好够，端口 0 字节。
+        let v4 = [5, 1, 0, 1, 1, 2, 3, 4];
+        assert_eq!(read_request(&v4), Err(Socks5Error::Short));
+        // IPv4：端口只给 1 字节。
+        let v4_half = [5, 1, 0, 1, 1, 2, 3, 4, 0];
+        assert_eq!(read_request(&v4_half), Err(Socks5Error::Short));
+        // IPv6：16 字节地址刚好够，端口没给。
+        let mut v6 = vec![5, 1, 0, 4];
+        v6.extend_from_slice(&[0u8; 16]);
+        assert_eq!(read_request(&v6), Err(Socks5Error::Short));
     }
 
     #[test]
