@@ -1,0 +1,38 @@
+# 工具链声明。**1.0 发布门禁的编译器版本不靠这里钉，靠下面两道可执行判据钉。**
+#
+# 动机是实测过的：2026-11-10 的 AGENTS.md:1023-1026 记过一次「宿主 rustc 1.94.0
+# 与容器 1.99.1 的 clippy 结论不一致」，导致同一份代码在两处一绿一红。发布门禁
+# 既然以 clippy `-D warnings` 为判据（verify.sh 第 10 项），就必须把编译器本身
+# 也变成可复现输入。
+#
+# ── 为什么 `channel` 是 `stable` 而不是 `"1.94.0"`（2026-11-13 实测事故）──
+#
+# 初版这里写的是 `channel = "1.94.0"`，本意是钉死版本。结果是把整条门禁打死：
+# 本机 `~/.rustup/toolchains/` 下只有 `stable-aarch64-apple-darwin`（其 `rustc
+# --version` 恰好就是 `1.94.0 (4a4ef493e 2026-03-02)`），**没有**具名的 `1.94.0`
+# channel。rustup 因此认为「1.94.0 未安装」，每次 `cargo` 调用都先去
+# `syncing channel updates for 1.94.0-aarch64-apple-darwin`，而下载用的临时目录
+# `~/.rustup/tmp` 属主是 `root:staff`、mode 755，普通用户不可写：
+#
+#     error: could not create temp file /Users/unique/.rustup/tmp/…: Permission denied
+#
+# 后果不是「某一项红」，而是**每一次 cargo 调用都失败**，于是编译、单测、金样本、
+# 4d、8c、clippy 连带全红（一次 11 项），真因只有一行 `info: syncing channel updates`。
+# 这是典型的「钉版本反而让门禁不可运行」——比不钉更糟。
+#
+# ── 版本到底靠什么钉 ──
+#
+#   ① 每个 crate 的 `rust-version = "1.94"` —— Cargo 自己的 MSRV 校验，编译器强制；
+#   ② `scripts/verify.sh` step 0 的 `rustc --version` 断言 —— 不足 1.94 即红，
+#      并打印处置办法。本地 `rustup update` 漂到 1.95 会当场红，而不是等到
+#      clippy 结论和 CI 不一致时才发现；
+#   ③ CI（`.github/workflows/ci.yml`）用 `RUSTUP_TOOLCHAIN=1.94.0` 环境变量覆盖，
+#      精确钉到 1.94.0，不受 `stable` 在 runner 上的预装版本影响。
+#
+# 三者的分工：这个文件只负责「任何机器、任何架构都能解析到本地已有的 toolchain」
+# （零下载、零 sync）；精确版本由上面三条强制。升级工具链 = 一次显式提交
+# （改 MSRV + 改 CI env + 重跑全量验收），不是随机器漂移。
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

@@ -1,0 +1,21 @@
+# 构建产物
+/target/
+/apps/desktop/target/
+/dist/
+
+# 系统与编辑器杂项
+.DS_Store
+**/.DS_Store
+*.log
+
+# 测试用 SSH 私钥在运行时生成，不入库（避免被密钥扫描拦截）
+/crates/term-ssh/testdata/host_ed25519
+/crates/term-ssh/testdata/id_ed25519
+/crates/term-ssh/testdata/id_ed25519_locked
+
+# Docker 验证的一次性密钥
+/tests/docker/keys/
+
+# Python 字节码
+**/__pycache__/
+*.pyc
