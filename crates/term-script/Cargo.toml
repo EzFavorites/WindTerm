@@ -1,0 +1,25 @@
+[package]
+name = "term-script"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 腿 A 脚本引擎（ADR-0019 S-a）：Rhai 沙箱 + 原语（write/keys/wait/read_until/read/screen）
+# + 行级类 grep 过滤（grep/grep_v）。
+# 运行时依赖仅 term-core（I4 单向）：只认 `session_runtime::Session` 抽象，
+# 不出现 SSH/PTY 等协议专有概念（§B.14 协议无关最高原则）。
+# regex 只进本 crate（行级过滤的正则逻辑不进 term-core 抽象层）。
+# 零 tokio、零 `.await`（ADR-0017 笼子）；不依赖 UI 框架——脚本线程绝不直写
+# UI 状态（注入 UI 的动作未来走 Action/Effect 通道，与本 cut 无关）。
+[dependencies]
+term-core = { path = "../term-core" }
+# `metadata` 只为一件事：让单测能用 `gen_fn_signatures()` 把「实际注册了哪些
+# 全局函数」问出来（ADR-0023 §决策 3 的脚本侧漂移防线）。没有它，那条断言
+# 只能靠一份手抄的名字列表，而手抄列表本身就会漂移——等于没有防线。
+# 运行时开销为零：它只影响 `Engine` 上的自省方法是否可用。
+rhai = { version = "1", features = ["metadata"] }
+regex = "1"
+
+[dev-dependencies]
+# 仅 e2e 用：SessionPool 开本地会话跑无头验收（term-runtime 随之传递）。
+term-session = { path = "../term-session" }

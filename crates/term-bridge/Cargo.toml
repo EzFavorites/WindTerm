@@ -1,0 +1,25 @@
+[package]
+name = "term-bridge"
+version = "1.0.0"
+rust-version = "1.94"
+edition = "2021"
+
+# 腿 B 桥接（ADR-0019 S-c 第一刀）：把会话能力面暴露成 JSON-RPC 2.0 over stdio，
+# 让**外部** Python 脚本能完成与 UI / 脚本引擎同样的动作。
+#
+# 依赖纪律（§B.14 协议无关最高原则）：
+# - 运行时依赖只有 term-core：桥接只认能力面的描述表与错误分类，
+#   不认得 SSH / SFTP / 隧道，也不直接持有任何会话实现。
+# - **不许**有 tokio / russh / async-std（ADR-0017 笼子，verify.sh 第 4k 项
+#   会遍历 crates/*/Cargo.toml 逐个复核）：桥接是同步的，一行 `.await` 都不该有。
+# - 会话控制面（term-session）只在 **dev-dependencies** 里：参考实现
+#   `PoolSurface` 是开发期夹具，不进运行时依赖表——否则「桥接只依赖描述层」
+#   这句话就假了，而且会把 PTY / 线程拖进任何想用桥接的编译单元。
+[dependencies]
+term-core = { path = "../term-core" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[dev-dependencies]
+# 仅测试用：真 PTY 会话（e2e）与参考实现 PoolSurface 的会话控制面。
+term-session = { path = "../term-session" }
