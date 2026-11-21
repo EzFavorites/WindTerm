@@ -286,8 +286,10 @@ impl TerminalWindow {
             return;
         }
         if let Some(tab) = self.tabs.get(self.active_slot()) {
-            let bytes = paste_bytes_for(text, tab.snapshot.bracketed_paste);
-            tab.write(bytes.as_bytes());
+            // 快捷命令是一次有意输入的按键序列，不是粘贴文本：`\n` / `\x03`
+            // 等转义要解码成真字节。paste_bytes_for 会剥掉控制字符，不能走那条。
+            let bytes = term_core::keys::decode_send_text(text);
+            tab.write(&bytes);
         }
         // 点按钮把焦点从终端带走了：送完文本要还回去，用户才能接着敲参数。
         self.restore_focus = true;

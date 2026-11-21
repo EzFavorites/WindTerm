@@ -58,6 +58,64 @@ pub fn delete_bytes(mode: usize) -> &'static str {
     }
 }
 
+/// 快捷命令栏等配置串的转义解码：`\n` / `\r` / `\t` / `\xHH` / `\cX` / `\\`。
+///
+/// 未识别的转义原样保留（包括反斜杠），绝不静默吞掉配置字符。
+pub fn decode_send_text(text: &str) -> Vec<u8> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' || i + 1 >= bytes.len() {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let next = bytes[i + 1];
+        match next {
+            b'n' => { out.push(b'\n'); i += 2; continue; }
+            b'r' => { out.push(b'\r'); i += 2; continue; }
+            b't' => { out.push(b'\t'); i += 2; continue; }
+            b'\\' => { out.push(b'\\'); i += 2; continue; }
+            b'x' if i + 3 < bytes.len() => {
+                let hi = (bytes[i + 2] as char).to_digit(16);
+                let lo = (bytes[i + 3] as char).to_digit(16);
+                if let (Some(hi), Some(lo)) = (hi, lo) {
+                    out.push((hi * 16 + lo) as u8);
+                    i += 4;
+                    continue;
+                }
+                out.push(b'\\');
+            }
+            b'c' if i + 2 < bytes.len() => {
+                let c = bytes[i + 2].to_ascii_uppercase();
+                let ctrl = if (b'A'..=b'Z').contains(&c) {
+                    Some(c - b'A' + 1)
+                } else {
+                    match c {
+                        b'[' => Some(0x1b),
+                        b'\\' => Some(0x1c),
+                        b']' => Some(0x1d),
+                        b'^' => Some(0x1e),
+                        b'_' => Some(0x1f),
+                        b'@' | b' ' => Some(0),
+                        _ => None,
+                    }
+                };
+                if let Some(byte) = ctrl {
+                    out.push(byte);
+                    i += 3;
+                    continue;
+                }
+                out.push(b'\\');
+            }
+            _ => out.push(b'\\'),
+        }
+        i += 1;
+    }
+    out
+}
+
 /// Alt / Meta 修饰的单字符编码。
 ///
 /// `mode = 0`：8-bit characters，把高位设起来（`a` → `0xE1`）；
@@ -231,6 +289,18 @@ fn alt(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn quick_command_escapes_become_real_bytes() {
+        assert_eq!(decode_send_text("ls\\n"), b"ls\n");
+        assert_eq!(decode_send_text("a\\tb"), b"a\tb");
+        assert_eq!(decode_send_text("\\x03"), vec![0x03]);
+        assert_eq!(decode_send_text("\\cC"), vec![0x03]);
+        assert_eq!(decode_send_text("\\c["), vec![0x1b]);
+        assert_eq!(decode_send_text("a\\\\b"), b"a\\b");
+        // 未识别的转义原样保留，不能把配置字符吃掉。
+        assert_eq!(decode_send_text("a\\qb"), b"a\\qb");
+    }
 
     #[test]
     fn alt_and_meta_have_two_wire_formats() {
