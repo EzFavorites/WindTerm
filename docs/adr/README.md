@@ -28,6 +28,7 @@
 | [0026](0026-per-pane-tab-groups.md) | 每窗格一组标签 | 已采纳 |
 | [0027](0027-script-platform-architecture.md) | 脚本平台目标架构 | 已采纳 |
 | [0028](0028-scrollbar-preview-window.md) | 滚动条悬停预览的第二事实窗口 | 已采纳 |
+| [0029](0029-runtime-layer-convergence.md) | 副作用会话按职责收敛：IO、档案、路径各自成层，运行时退化为兼容门面 | 已采纳（细化 0014） |
 
 ## 读法
 
