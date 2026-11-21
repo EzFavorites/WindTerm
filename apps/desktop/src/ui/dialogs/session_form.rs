@@ -183,7 +183,7 @@ impl NewSessionData {
             // 0 在配置里表示「没填过」；控件显示一个能用的默认端口，
             // 保存时用户不改就等于填了 1080。
             proxy_port: if config.proxy_port == 0 { 1080 } else { config.proxy_port },
-            proxy_command: String::new(),
+            proxy_command: config.proxy_command.clone(),
             working_dir: if config.working_dir.trim().is_empty() {
                 "${HomeDir}".to_string()
             } else {
@@ -276,6 +276,7 @@ impl NewSessionData {
         let outbound = self.proxy_type == PROXY_HTTP || self.proxy_type == PROXY_SOCKS5;
         c.proxy_host = if outbound { self.proxy_host.clone() } else { String::new() };
         c.proxy_port = if outbound { self.proxy_port } else { 0 };
+        c.proxy_command = if outbound { self.proxy_command.clone() } else { String::new() };
         c.identity_file = self.identity_file.clone();
         c.agent_forward = self.agent_forward;
         c.x11_forward = self.x11_forward;
@@ -539,15 +540,18 @@ mod tests {
         old.proxy_type = ProxyType::Http.tag().to_string();
         old.proxy_host = "gw.example".to_string();
         old.proxy_port = 3128;
+        old.proxy_command = "nc -X connect -x gw:3128 %h %p".to_string();
         let f = NewSessionData::from_config(&old);
         assert_eq!(f.proxy_type, PROXY_HTTP);
         assert_eq!(f.proxy_host, "gw.example");
         assert_eq!(f.proxy_port, 3128);
+        assert_eq!(f.proxy_command, "nc -X connect -x gw:3128 %h %p");
 
         let saved = f.to_config(old);
         assert_eq!(saved.proxy_type, "http");
         assert_eq!(saved.proxy_host, "gw.example");
         assert_eq!(saved.proxy_port, 3128);
+        assert_eq!(saved.proxy_command, "nc -X connect -x gw:3128 %h %p");
         assert_eq!(saved.effective_proxy_type(), ProxyType::Http);
         assert!(saved.validate_proxy().is_none());
         assert_eq!(

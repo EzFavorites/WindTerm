@@ -89,9 +89,10 @@ pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
 /// 与系统 `ssh` 两条建连路径都读它们（`SessionConfig::outbound_proxy_spec` /
 /// 生成 `ProxyCommand`）。
 ///
-/// 同页的 Working directory / Proxy command 仍然灰着，但理由不同：前者是本地
-/// Shell 的启动目录（已有独立入口，见 `Shell ▾ Command`），后者是用户自填的
-/// ProxyCommand——建连路径用的是由 Host/Port 生成的 `nc` 等价式，不是这一栏。
+/// Proxy command 也接了真：系统 ssh 路径用它覆盖由 Host/Port 生成的 `nc`
+/// 等价式（`%h` / `%p` 由 ssh 展开）；内置 SSH 客户端仍只认 Host/Port。
+/// 同页的 Working directory 仍灰着：那是本地 Shell 的启动目录，已有独立入口
+/// （见 `Shell ▾ Command`），不是代理自己的字段。
 fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     use super::session_form::{PROXY_JUMP, PROXY_NONE};
     const TYPES: &[&str] = &["No proxy", "Jump (ssh -J)", "Http proxy", "Socks v5 proxy"];
@@ -162,8 +163,7 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 );
                 ui.end_row();
                 form_row(ui, "Proxy command:");
-                ui.add_enabled(
-                    false,
+                ui.add(
                     TextEdit::singleline(&mut win.new_session.proxy_command)
                         .hint_text("nc -X connect -x %h:%p %h %p")
                         .desired_width(FIELD_W),
@@ -173,8 +173,9 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             placeholder_note(
                 ui,
                 "Host and Port are used by both the built-in SSH client and the \
-                 system ssh path. Working directory belongs to the local Shell \
-                 command page; Proxy command has no consumer yet.",
+                 system ssh path. Proxy command overrides the generated nc command \
+                 only on the system ssh path; the built-in client uses Host/Port. \
+                 Working directory belongs to the local Shell command page.",
             );
         }
     }

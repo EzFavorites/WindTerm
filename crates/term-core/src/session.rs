@@ -294,6 +294,13 @@ pub struct SessionConfig {
     /// 表单保存与 `SshOptions::validate` 都会挡下来。
     #[serde(default)]
     pub proxy_host: String,
+    /// `Session ▾ Proxy ▸ Proxy command`：用户自填的 `ProxyCommand`。
+    ///
+    /// **只作用于系统 `ssh` 路径**：内置 SSH 客户端走 `OutboundProxy`
+    /// （kind/host/port），不执行 shell 命令。留空 = 用 Host/Port 生成
+    /// 官方的 `nc -X …` 等价式，与升级前一致。
+    #[serde(default)]
+    pub proxy_command: String,
     /// 代理端口。`0` 会被判为非法而不是悄悄取 1080。
     #[serde(default)]
     pub proxy_port: u16,
@@ -424,6 +431,7 @@ impl SessionConfig {
             // 显式 "none" 只由表单保存时写入。
             proxy_type: String::new(),
             proxy_host: String::new(),
+            proxy_command: String::new(),
             proxy_port: 0,
             // 初始网格尺寸 0 = 未设置（沿用视口）；滚轮行数/光标样式取规格默认值。
             cols: 0,
@@ -544,7 +552,7 @@ impl SessionConfig {
             ("Proxy Type", self.effective_proxy_type().label().to_string()),
             ("Proxy Host", if self.effective_proxy_type().is_outbound() { self.proxy_host.clone() } else { String::new() }),
             ("Proxy Port", if self.effective_proxy_type().is_outbound() { self.proxy_port.to_string() } else { String::new() }),
-            ("Proxy Command", String::new()),
+            ("Proxy Command", if self.effective_proxy_type().is_outbound() { self.proxy_command.clone() } else { String::new() }),
             ("Working Directory", "${HomeDir}".to_string()),
             ("Jump Server", self.proxy_jump.clone()),
             ("Description", self.description.clone()),
@@ -570,30 +578,32 @@ impl SessionConfig {
                     argv.extend(["-o".to_string(), format!("ServerAliveInterval={}", self.keep_alive)]);
                 }
                 // ProxyJump 单跳链、IdentityFile、agent 转发。
-                // 出网代理走官文给出的 `nc` 等价式
+                // 出网代理默认走官文给出的 `nc` 等价式
                 // （官方 `proxy-http-socks5` 文档：`nc -X 5 -x 127.0.0.1:7777 %h %p`，
-                // HTTP 用 `-X connect`）。**这不是**「ProxyCommand 用户字段」：
-                // 那一栏兼容终端本身未实现，仍保持灰显；这里只是让「用系统
-                // ssh」这条路径也真的走代理，与内置客户端行为一致。
+                // HTTP 用 `-X connect`）。用户在 Proxy 页填了 Proxy command 时
+                // 以它为准（`%h` / `%p` 由 ssh 展开），留空仍用默认等价式。
+                // 这一项只作用于系统 ssh：内置客户端走 `OutboundProxy`。
                 // 四档互斥：单选说是 Http 就不能还偷偷带上 `-J`。
                 match self.effective_proxy_type() {
                     ProxyType::Jump => {
                         argv.extend(["-J".to_string(), self.proxy_jump.trim().to_string()]);
                     }
                     ProxyType::Http | ProxyType::Socks5 => {
-                        let flag = if self.effective_proxy_type() == ProxyType::Http {
-                            "connect"
-                        } else {
-                            "5"
-                        };
-                        argv.extend([
-                            "-o".to_string(),
+                        let command = if self.proxy_command.trim().is_empty() {
+                            let flag = if self.effective_proxy_type() == ProxyType::Http {
+                                "connect"
+                            } else {
+                                "5"
+                            };
                             format!(
-                                "ProxyCommand=nc -X {flag} -x {}:{} %h %p",
+                                "nc -X {flag} -x {}:{} %h %p",
                                 self.proxy_host.trim(),
                                 self.proxy_port
-                            ),
-                        ]);
+                            )
+                        } else {
+                            self.proxy_command.trim().to_string()
+                        };
+                        argv.extend(["-o".to_string(), format!("ProxyCommand={command}")]);
                     }
                     ProxyType::None => {}
                 }
@@ -1132,6 +1142,14 @@ mod tests {
             "{}",
             argv.join(" ")
         );
+
+        // 用户自填的命令覆盖默认 `nc` 等价式；前后空白被裁掉，`%h`/`%p`
+        // 原样留给 ssh 展开。
+        s.proxy_command = "  nc -X 5 -x proxy.local:1080 %h %p  ".to_string();
+        let Ok(SpawnPlan::External(argv)) = s.spawn_plan() else { panic!() };
+        let joined = argv.join(" ");
+        assert!(joined.contains("ProxyCommand=nc -X 5 -x proxy.local:1080 %h %p"), "{joined}");
+        assert!(!joined.contains("nc -X connect"), "{joined}");
     }
 
     #[test]
