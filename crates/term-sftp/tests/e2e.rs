@@ -697,7 +697,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
     let out_dir = std::env::temp_dir().join(format!("term-sftp-tree-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out_dir);
     let out_s = out_dir.to_string_lossy().to_string();
-    handle.download_tree(logs.clone(), out_s.clone(), false, false);
+    handle.download_tree(logs.clone(), out_s.clone(), false, false, false);
     let (files, bytes) = wait_tree(&mut handle, &logs);
     assert_eq!(files, 3, "符号链接不算文件：a/b/c 三个");
     assert_eq!(bytes, 18);
@@ -713,7 +713,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
     // 2) 递归上传：把刚下载的树原样传回远端另一个位置，远端要长出同一棵树
     //    （含空目录），链接依旧缺席。
     let uploaded = join(&home, "logs-back");
-    handle.upload_tree(out_s.clone(), uploaded.clone(), false, false);
+    handle.upload_tree(out_s.clone(), uploaded.clone(), false, false, false);
     let (files, bytes) = wait_tree(&mut handle, &uploaded);
     assert_eq!(files, 3);
     assert_eq!(bytes, 18);
@@ -727,7 +727,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
 
     // 3) `-r` 撞上单文件：明确失败，提示去掉 -r，而不是把文件当空目录传。
     let single = join(&home, "hello.txt");
-    handle.download_tree(single.clone(), out_s, false, false);
+    handle.download_tree(single.clone(), out_s, false, false, false);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         assert!(Instant::now() < deadline, "10 秒内没等到 Failed 事件");
@@ -1490,4 +1490,49 @@ fn closing_the_handle_hangs_up_the_server_side_session() {
 
     let _ = std::fs::remove_dir_all(&root);
     eprintln!("{E2E_MARK} PASS closing_the_handle_hangs_up_the_server_side_session");
+}
+
+/// 目录树上传时，目录 mtime 在**所有文件到齐之后**写回远端。
+#[test]
+#[ignore = "需要真 sftp-server：cargo test -p term-sftp --test e2e -- --ignored"]
+fn uploading_a_tree_can_preserve_directory_mtimes() {
+    require_sftp_server();
+    let root = fixture_root();
+    let addr = start_server("s3cret", root.clone());
+    let mut handle = term_sftp::start_in_background(options(addr, "s3cret"), || {});
+    let home = wait_ready(&mut handle);
+
+    let src = std::env::temp_dir().join(format!("term-sftp-dir-mtime-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&src);
+    std::fs::create_dir_all(src.join("sub")).expect("建本地子目录");
+    std::fs::write(src.join("sub/a.txt"), b"x").expect("写文件");
+    let want = 1_612_345_678u32;
+    std::fs::File::open(src.join("sub"))
+        .expect("打开本地目录")
+        .set_times(FileTimes::new().set_modified(from_epoch_secs(want)))
+        .expect("设本地目录 mtime");
+
+    let uploaded = join(&home, "tree-with-dir-mtime");
+    handle.upload_tree(
+        src.to_string_lossy().to_string(),
+        uploaded.clone(),
+        false,
+        false,
+        true,
+    );
+    let (files, bytes) = wait_tree(&mut handle, &uploaded);
+    assert_eq!(files, 1);
+    assert_eq!(bytes, 1);
+
+    let remote_dir = root.join("tree-with-dir-mtime").join("sub");
+    let got = std::fs::metadata(&remote_dir)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(term_sftp::to_epoch_secs);
+    assert_eq!(got, Some(want), "远端目录 mtime 必须等于源目录");
+
+    let _ = std::fs::remove_dir_all(&src);
+    let _ = handle.close();
+    let _ = std::fs::remove_dir_all(&root);
+    eprintln!("{E2E_MARK} PASS uploading_a_tree_can_preserve_directory_mtimes");
 }

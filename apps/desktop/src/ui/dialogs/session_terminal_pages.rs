@@ -284,7 +284,6 @@ fn mode_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let (mut lnm, mut rsm) = (false, false);
     let mut awm = win.new_session.initial_auto_wrap;
     let mut cursor_keys = usize::from(win.new_session.initial_cursor_keys_application);
-    let mut numeric = 0usize;
     ui.label("Initial modes:");
     if ui
         .checkbox(&mut awm, "Auto Wrap Mode (DECAWM)")

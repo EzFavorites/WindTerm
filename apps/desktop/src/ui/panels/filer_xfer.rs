@@ -169,10 +169,16 @@ impl TerminalWindow {
     fn launch_transfer(&mut self, task: XferTask, now: u64) {
         // 先取会话配置：`handle` 一借住 `self.filer`，`active_slot()` 就要整份
         // `&self`，两处借不动的是同一个窗口结构体（不是同一个字段）。
-        let preserve = self
+        let (preserve, preserve_dir) = self
             .tabs
             .get(self.active_slot())
-            .is_none_or(|tab| tab.config.sftp_preserve_mtime);
+            .map(|tab| {
+                (
+                    tab.config.sftp_preserve_mtime,
+                    tab.config.sftp_preserve_dir_mtime,
+                )
+            })
+            .unwrap_or((true, false));
         let Some(handle) = self.filer.handle.as_ref() else {
             // 兜底：入口已经按「有没有句柄」灰过一次，走到这里说明句柄是在排队
             // 之后才没有的（会话断了 / 面板重绑）。判一次失败，别让它永远挂着
@@ -183,14 +189,15 @@ impl TerminalWindow {
             return;
         };
         // 单文件与目录树的签名同形（两端路径 + resume + preserve），区别只在
-        // 方法名：`*_tree` 才让后台先展开整棵计划再逐文件传（term-sftp::walk）。
+        // 方法名与目录 mtime 那一位：`*_tree` 才让后台先展开整棵计划再逐文件传
+        // （term-sftp::walk），并在全部文件到齐后写目录时间。
         match (task.direction, task.tree) {
             (Direction::Upload, true) => {
-                handle.upload_tree(task.local, task.remote, true, preserve)
+                handle.upload_tree(task.local, task.remote, true, preserve, preserve_dir)
             }
             (Direction::Upload, false) => handle.upload(task.local, task.remote, true, preserve),
             (Direction::Download, true) => {
-                handle.download_tree(task.remote, task.local, true, preserve)
+                handle.download_tree(task.remote, task.local, true, preserve, preserve_dir)
             }
             (Direction::Download, false) => {
                 handle.download(task.remote, task.local, true, preserve)

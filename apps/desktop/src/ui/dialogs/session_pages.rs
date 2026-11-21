@@ -409,7 +409,8 @@ fn modem_page(ui: &mut egui::Ui) {
 /// 新建文件 / 新建目录时由 `term-sftp` 落到对端）；三个复选框等 `SftpOptions`
 /// 落地后才有字段。
 fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
-    let (mut fix_invalid, mut keep_dir_mtime) = (true, false);
+    let mut fix_invalid = true;
+    let mut keep_dir_mtime = win.new_session.sftp_preserve_dir_mtime;
     let mut keep_mtime = win.new_session.sftp_preserve_mtime;
     ui.add_enabled(
         false,
@@ -428,14 +429,15 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     {
         win.new_session.sftp_preserve_mtime = keep_mtime;
     }
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(&mut keep_dir_mtime, "Preserve original folder modification time"),
-    )
-    .on_disabled_hover_text(
-        "The transfer layer preserves a file's mtime after the bytes land; \
-         directories are created without a SETSTAT pass.",
-    );
+    if ui
+        .checkbox(
+            &mut keep_dir_mtime,
+            "Preserve original folder modification time",
+        )
+        .changed()
+    {
+        win.new_session.sftp_preserve_dir_mtime = keep_dir_mtime;
+    }
     ui.add_space(6.0);
     grid(ui, "new_session_sftp_grid", |ui| {
         form_row(ui, "Default file creation permissions:");
@@ -448,9 +450,9 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     });
     placeholder_note(
         ui,
-        "Modes apply to created items; overwrites keep theirs. \
-         File modification time is written back after each transfer; invalid-path \
-         fixing and folder timestamps still await the SFTP layer.",
+        "Modes apply to created items; overwrites keep theirs. File modification time \
+         is written back after each transfer; directory timestamps are written after \
+         the whole tree arrives. Invalid-path fixing still awaits the SFTP layer.",
     );
 }
 

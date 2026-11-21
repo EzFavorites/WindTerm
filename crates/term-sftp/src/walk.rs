@@ -29,9 +29,17 @@ use crate::transfer::{self, Direction, TransferError};
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Plan {
     /// 相对根的路径：`""` 是根本身，`"sub"`、`"sub/deep"` 是子目录。
-    pub dirs: Vec<String>,
+    pub dirs: Vec<DirItem>,
     /// 要传的文件：相对路径 + 大小（进度用；服务端没报就是 0）。
     pub files: Vec<FileItem>,
+}
+
+/// 计划里的一个目录。`mtime` 是**源端**的修改时间，供 `preserve` 在树传完后
+/// 写到对端；`None` = 服务端没报，不写（写 0 等于把时间设成 1970）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DirItem {
+    pub rel: String,
+    pub mtime: Option<i64>,
 }
 
 /// 计划里的一个文件。
@@ -56,7 +64,7 @@ pub async fn plan_remote(sftp: &SftpSession, root: &str) -> Result<Plan, String>
     // 用户文案是**调用方的历史契约**，新接口原样把 `ScanError` 交出去。
     for (rel, e) in walk_remote(sftp, root).await.map_err(|e| e.to_string())? {
         if e.is_dir {
-            plan.dirs.push(rel);
+            plan.dirs.push(DirItem { rel, mtime: e.mtime });
         } else {
             plan.files.push(FileItem { rel, size: e.size });
         }
@@ -211,7 +219,7 @@ pub fn plan_local(root: &str) -> Result<Plan, String> {
     // 新接口（`scan_local_entries`）原样把 `ScanError` 交出去。
     for (rel, e) in walk_local(root).map_err(|e| e.to_string())? {
         if e.is_dir {
-            plan.dirs.push(rel);
+            plan.dirs.push(DirItem { rel, mtime: e.mtime });
         } else {
             plan.files.push(FileItem { rel, size: e.size });
         }
@@ -420,6 +428,9 @@ pub struct Job<'a> {
     pub local_root: &'a str,
     pub resume: bool,
     pub preserve: bool,
+    /// 目录 mtime 是否也保留。与 `preserve`（文件）分开：默认关，因为
+    /// `setstat` 目录在不少服务端上不被支持，不该悄悄多一次失败往返。
+    pub preserve_dir: bool,
     /// 取消旗子：与单文件传输**同一条**，所以「传一棵树传到第 3 个文件时按取消」
     /// 在第 3 个文件的分片边界上生效，第 4 个不会开始。
     pub cancel: &'a CancelToken,
@@ -439,9 +450,9 @@ async fn run_download(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Tran
     // 根下第一个文件的 `File::create` 需要它存在。
     std::fs::create_dir_all(local_root).map_err(|e| format!("建本地目录 {local_root} 失败：{e}"))?;
     // 规则 2：先建全部目录（本地 create_dir_all 自带递归，按序建即可）。
-    for rel in &job.plan.dirs {
-        std::fs::create_dir_all(local_path_for(local_root, rel))
-            .map_err(|e| format!("建本地目录 {rel} 失败：{e}"))?;
+    for d in &job.plan.dirs {
+        std::fs::create_dir_all(local_path_for(local_root, &d.rel))
+            .map_err(|e| format!("建本地目录 {} 失败：{e}", d.rel))?;
     }
     let mut total = 0u64;
     for f in &job.plan.files {
@@ -463,6 +474,17 @@ async fn run_download(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Tran
         (job.file_done)(&remote, bytes);
         total += bytes;
     }
+    // 目录 mtime 必须**最后**写：建目录 / 传文件都会更新父目录的时间，
+    // 在文件传完之前写会被后面的创建动作覆盖。
+    if job.preserve_dir {
+        for d in &job.plan.dirs {
+            let path = local_path_for(local_root, &d.rel);
+            crate::preserve::write_local_dir_mtime(
+                &path,
+                d.mtime.and_then(|m| u32::try_from(m).ok()),
+            );
+        }
+    }
     Ok(total)
 }
 
@@ -471,8 +493,8 @@ async fn run_upload(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Transf
     let (remote_root, local_root) = (job.remote_root, job.local_root);
     // 树根 + 全部子目录逐级建（SFTP 的 mkdir 不递归，计划的顺序保证父先于子）。
     ensure_remote_dir(sftp, remote_root).await;
-    for rel in &job.plan.dirs {
-        ensure_remote_dir(sftp, &remote_path_for(remote_root, rel)).await;
+    for d in &job.plan.dirs {
+        ensure_remote_dir(sftp, &remote_path_for(remote_root, &d.rel)).await;
     }
     let mut total = 0u64;
     for f in &job.plan.files {
@@ -493,6 +515,18 @@ async fn run_upload(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Transf
         .await?;
         (job.file_done)(&remote, bytes);
         total += bytes;
+    }
+    // 与下载同一条理由：文件传完再写目录时间，否则会被 mkdir / 写文件覆盖。
+    if job.preserve_dir {
+        for d in &job.plan.dirs {
+            let remote = remote_path_for(remote_root, &d.rel);
+            crate::preserve::write_remote_mtime(
+                sftp,
+                &remote,
+                d.mtime.and_then(|m| u32::try_from(m).ok()),
+            )
+            .await;
+        }
     }
     Ok(total)
 }
@@ -581,7 +615,10 @@ mod tests {
         let plan = Plan::default();
         assert_eq!(plan.total_items(), 0);
         let plan = Plan {
-            dirs: vec!["a".into(), "a/b".into()],
+            dirs: vec![
+                DirItem { rel: "a".into(), mtime: None },
+                DirItem { rel: "a/b".into(), mtime: Some(1_700_000_000) },
+            ],
             files: vec![item("a/x", 1), item("a/b/y", 2)],
         };
         assert_eq!(plan.total_items(), 4);
@@ -621,6 +658,18 @@ mod tests {
         assert_eq!(a.size, 3);
         assert!(a.mtime.is_some_and(|t| t > 1_600_000_000), "秒级 Unix 时间戳");
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_transfer_plan_carries_directory_mtimes_for_preserve() {
+        let root = scratch_tree("plan-dir-mtime");
+        let plan = plan_local(root.to_str().unwrap()).expect("展开计划");
+        let sub = plan.dirs.iter().find(|d| d.rel == "sub").expect("子目录在计划里");
+        assert!(
+            sub.mtime.is_some_and(|t| t > 1_600_000_000),
+            "目录 mtime 必须随计划一起走，否则目录时间戳开关没有数据源"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

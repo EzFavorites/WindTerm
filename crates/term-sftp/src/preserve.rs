@@ -52,6 +52,19 @@ pub fn write_local_mtime(local: &str, mtime: Option<u32>) {
     }
 }
 
+/// 把 mtime 写到一个**本地目录**。目录不能用 `OpenOptions::write(true)`
+/// 打开（Unix 上是 EISDIR），所以这里用只读句柄；`FileTimes` 只改显式设置的
+/// 时间。失败静默——目录已经建好，时间是锦上添花。
+pub fn write_local_dir_mtime(path: &std::path::Path, mtime: Option<u32>) {
+    let Some(secs) = mtime else {
+        return;
+    };
+    if let Ok(dir) = std::fs::File::open(path) {
+        let times = FileTimes::new().set_modified(from_epoch_secs(secs));
+        let _ = dir.set_times(times);
+    }
+}
+
 /// 把 mtime 写到远端文件。`None` = 不做（本地没读到）。
 ///
 /// 只塞 `mtime`，其余字段留 `None`——`setstat` 只更新带标志的字段，
@@ -109,6 +122,21 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("建目录");
         dir
+    }
+
+    #[test]
+    fn a_directory_mtime_can_be_written_back() {
+        // 目录不能用 OpenOptions::write(true) 打开（Unix EISDIR），所以这条
+        // 走的是只读句柄；否则「目录 mtime」这个开关永远只是个摆设。
+        let dir = temp("dir-mtime");
+        let want = 1_612_345_678u32;
+        write_local_dir_mtime(&dir, Some(want));
+        let got = std::fs::metadata(&dir)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(to_epoch_secs);
+        assert_eq!(got, Some(want));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

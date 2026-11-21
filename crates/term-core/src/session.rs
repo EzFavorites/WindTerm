@@ -212,6 +212,12 @@ pub struct SessionConfig {
     /// **与页面上原本就画成勾的样子一致**，不是升级后偷偷改变外观。
     #[serde(default = "default_true")]
     pub sftp_preserve_mtime: bool,
+    /// `Session ▾ Sftp ▸ Preserve original folder modification time`。
+    ///
+    /// 出厂 false（参考页这一格是空勾）：目录 `setstat` 并非所有服务端都支持，
+    /// 文件 mtime 已经是默认保真；目录这一档由用户显式打开。
+    #[serde(default)]
+    pub sftp_preserve_dir_mtime: bool,
     /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
     ///
     /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
@@ -409,6 +415,7 @@ impl SessionConfig {
             onekey: "None".to_string(),
             sftp: true,
             sftp_preserve_mtime: true,
+            sftp_preserve_dir_mtime: false,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
             backspace_sends: 0,

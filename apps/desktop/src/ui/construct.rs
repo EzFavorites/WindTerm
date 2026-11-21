@@ -147,6 +147,7 @@ impl TerminalWindow {
                 word_separators: String::new(),
                 word_separators_alt: String::new(),
                 sftp_preserve_mtime: true,
+                sftp_preserve_dir_mtime: false,
                 initial_auto_wrap: true,
                 initial_cursor_keys_application: false,
                 backspace_sends: 0,
