@@ -226,6 +226,8 @@ impl TerminalWindow {
             tab_middle_click: prefs.tab_middle_click_action(),
             tab_right_click: prefs.tab_right_click_action(),
             show_address_bar: prefs.show_address_bar,
+            auto_hide_menu_bar: prefs.auto_hide_menu_bar,
+            menu_bar_peek_until: 0.0,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
             triggers: prefs.triggers.clone(),

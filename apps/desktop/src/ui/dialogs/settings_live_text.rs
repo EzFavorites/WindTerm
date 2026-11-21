@@ -26,6 +26,8 @@
 //!   `ui/mod.rs` 声明 `pane_tools` 那条面板的那一行。**它不落盘**（见页脚）。
 //! - `ToolbarMenu ▸ Show address bar` → `Prefs.show_address_bar`（出厂 `true`），
 //!   读者是 `shell/tool_bar.rs`：关掉时工具行右段那块面包屑面板整段不画。
+//! - `ToolbarMenu ▸ Auto-hide the menu bar` → `Prefs.auto_hide_menu_bar`（出厂 `false`），
+//!   读者是 `ui/mod.rs` 的菜单条高度：开启后收成细带，指针靠近顶端 / Alt / 菜单弹层时展开。
 //!
 //! # 为什么这几个开关要活在窗口上
 //!
@@ -58,9 +60,9 @@ const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs and focus the
 ///
 /// ：Preferences 的橙色页脚按兼容终端清空，「工具行开关不落盘」这条
 /// 边界从页脚并进这里，仍然写在用户看得见的地方。
-const TOOLBAR_NOTE: &str = "Show toolbar and Show address bar both apply immediately. The toolbar \
-     switch is not saved (it is back on the next launch); the address bar is. Auto-hiding the menu \
-     bar would need hover / Alt-key detection over the menu strip.";
+const TOOLBAR_NOTE: &str = "Show toolbar, Show address bar and Auto-hide the menu bar all apply \
+     immediately. Only the toolbar switch is not saved (it is back on the next launch); the other \
+     two are.";
 
 // 多光标那一行**删掉**了，而不是继续灰着：R10 已经把编辑器语义从代码里移除，
 // 连「有多个光标」这个状态都不存在。留一个永远点不动的勾，等于对用户说
@@ -96,10 +98,6 @@ const RECONNECT_NOTE: &str = "Auto-reconnect would need a retry policy (backoff,
 // 读者是 `shell/tool_bar.rs`，关掉时工具行右段那块面包屑面板整段不画。
 // 之前的 `ADDRESS_BAR_NOTE` 声称「这一版根本没有地址栏」是**过期说明**——
 // `ui::address::AddressBar` / `draw_address_bar` 一直都在，缺的只是开关。
-
-/// 自动隐藏菜单栏：需要悬停 / Alt 探测。
-const AUTO_HIDE_MENU_NOTE: &str = "Auto-hiding would need hover / Alt-key detection over the menu \
-     strip; the menu bar is an always-on panel today.";
 
 /// 一行**没有消费者**的控件：整行交给数据表的画法。
 ///
@@ -259,10 +257,10 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut show = win.view.show_toolbar;
     let mut show_address = win.show_address_bar;
+    let mut auto_hide = win.auto_hide_menu_bar;
     let mut toggled = false;
     let mut address_toggled = false;
-    // 本页只有勾选行，没有标签列（`col` 用兜底值）。
-    let col = label_col(ui, &[]);
+    let mut auto_hide_toggled = false;
 
     group_box(ui, Some("Toolbar"), |ui| {
         set_row_rhythm(ui);
@@ -281,12 +279,14 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     group_box(ui, Some("Menu"), |ui| {
         set_row_rhythm(ui);
-        disabled(
-            ui,
-            Row::DisabledCheck("Auto-hide the menu bar"),
-            AUTO_HIDE_MENU_NOTE,
-            col,
-        );
+        // 展开状态是投影态（靠近顶端 / Alt / 菜单弹层），只有这个开关落盘。
+        auto_hide_toggled = ui
+            .checkbox(&mut auto_hide, "Auto-hide the menu bar")
+            .on_hover_text(
+                "Collapses the menu bar to a thin strip; hover the top edge or hold \
+                 Alt to reveal it. A menu that is already open keeps it visible.",
+            )
+            .changed();
     });
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
 
@@ -300,6 +300,11 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         // （不落盘，见页底说明）不是一条路，所以分开写。
         win.show_address_bar = show_address;
         save_prefs(|prefs| prefs.show_address_bar = show_address);
+    }
+    if auto_hide_toggled {
+        win.auto_hide_menu_bar = auto_hide;
+        win.menu_bar_peek_until = 0.0;
+        save_prefs(|prefs| prefs.auto_hide_menu_bar = auto_hide);
     }
 }
 

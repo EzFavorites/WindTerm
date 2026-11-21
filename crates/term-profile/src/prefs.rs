@@ -419,6 +419,10 @@ pub struct Prefs {
     /// 关掉只是不画那一段，左端按钮组与右端三件菜单原样保留。
     #[serde(default = "default_true")]
     pub show_address_bar: bool,
+    /// `Toolbar / Menu ▸ Auto-hide the menu bar`：出厂关（现状常驻），
+    /// 打开后菜单条收成一条细带，指针靠近顶端或按住 Alt 时展开。
+    #[serde(default)]
+    pub auto_hide_menu_bar: bool,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -660,6 +664,7 @@ impl Default for Prefs {
             quickbar_alphabetical: false,
             // 地址栏面板出厂显示（与 serde `default_true` 对齐，守住视觉基线）。
             show_address_bar: true,
+            auto_hide_menu_bar: false,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
@@ -1683,6 +1688,8 @@ mod tests {
         // 升级一次地址栏就消失了）。
         assert!(Prefs::default().show_address_bar, "地址栏面板出厂显示");
         assert!(back.show_address_bar, "老文件缺这个键 = 沿用出厂态");
+        assert!(!Prefs::default().auto_hide_menu_bar, "菜单栏出厂常驻");
+        assert!(!back.auto_hide_menu_bar, "老文件缺这个键 = 菜单栏仍常驻");
         assert_eq!(back.language, "en", "其余字段不许被连坐");
     }
 

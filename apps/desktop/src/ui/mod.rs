@@ -94,12 +94,10 @@ pub(crate) use comp::comp_names;
 /// 组件名 + 是否已冻结基线，给 `--list-components` 用（比对脚本据此遍历）。
 pub(crate) use comp::comp_list;
 
-use crate::fonts::TerminalFonts;
-use crate::theme::{apply_ui_style, to_color32};
+use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
 pub(in crate::ui) use tr::t;
 use crate::ui::shell::draw_find_bar;
-use eframe::egui;
-use egui::emath::Align2;
+use eframe::egui; use egui::emath::Align2;
 use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action};
 use term_app::capability;
@@ -108,12 +106,9 @@ use term_app::find::{self, current_index};
 use term_app::log::LogAction;
 use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
 use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
-use term_app::state::ViewState;
-use term_app::viewport::Viewport;
-use term_core::grid::Rgb;
-use term_core::grid::{GridSnapshot, ScreenImage};
-use term_core::session::{AuthMethod, Protocol, SessionConfig};
-use term_core::session_runtime::SessionId;
+use term_app::state::ViewState; use term_app::viewport::Viewport;
+use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
+use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
 use term_core::theme::Palette;
 use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
@@ -282,6 +277,11 @@ pub struct TerminalWindow {
     /// `Toolbar / Menu ▸ Show address bar`（`prefs.show_address_bar`，出厂 `true`）：
     /// 读者是 `shell/tool_bar.rs`；构造时读一次，设置页负责同步。
     tab_numbers: usize, tab_middle_click: usize, tab_right_click: usize, show_address_bar: bool,
+    /// `Toolbar / Menu ▸ Auto-hide the menu bar`（`prefs.auto_hide_menu_bar`）。
+    /// 展开状态是投影态：指针靠近顶端 / 按住 Alt / 有菜单弹层时展开，
+    /// 否则收成细带。不落盘。
+    /// `ui.input.time` 口径的「保持展开到」时刻，避免指针在细带附近抖动。
+    auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -907,12 +907,15 @@ impl TerminalWindow {
         let bounds = ctx.available_rect();
         self.dock_rects.clear();
 
+        let menu_bar_h = shell::menu_bar_height(ctx, self);
         if self.view.show_menu_bar {
             egui::TopBottomPanel::top("menu_bar")
-                .exact_height(shell::MENU_BAR_H)
+                .exact_height(menu_bar_h)
                 .frame(shell::menu_bar_frame())
                 .show(ctx, |ui| {
-                    ui.horizontal_centered(|ui| self.draw_menu(ui));
+                    if menu_bar_h >= shell::MENU_BAR_H {
+                        ui.horizontal_centered(|ui| self.draw_menu(ui));
+                    }
                 });
         }
 

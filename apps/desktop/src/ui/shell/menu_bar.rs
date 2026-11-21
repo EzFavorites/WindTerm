@@ -8,6 +8,62 @@ use crate::ui::*;
 use super::menu_items::draw_menu_items;
 use super::menu_style::{col, MENU_HIGHLIGHT};
 
+/// 此刻有没有顶级菜单弹层开着。
+///
+/// 自动隐藏的菜单条不能在用户正看菜单时收起来：egui 的弹层是独立 `Area`，
+/// 但按钮一旦不画，弹层的锚点就丢了。这里按菜单标题反查 `Memory` 里的
+/// popup id（与 `ui.menu_button` 用的是同一套 id），让宿主在展开期间保持高度。
+pub(in crate::ui) fn any_menu_open(ctx: &egui::Context, win: &TerminalWindow) -> bool {
+    menus().iter().any(|menu| {
+        let title = win.tr(menu.label);
+        ctx.memory(|mem| mem.is_popup_open(egui::Id::new(title)))
+    })
+}
+
+/// 自动隐藏口径下这一帧菜单条该占多高。
+///
+/// 指针靠近顶端 8pt 内、按住 Alt、或有菜单弹层打开时展开（并保持 1 秒，
+/// 避免细带边缘抖动）；否则收成 4pt 细带，指针落在带上就会再次展开。
+pub(in crate::ui) fn menu_bar_height(ctx: &egui::Context, win: &mut TerminalWindow) -> f32 {
+    if !win.auto_hide_menu_bar {
+        return super::MENU_BAR_H;
+    }
+    let now = ctx.input(|i| i.time);
+    let alt = ctx.input(|i| i.modifiers.alt);
+    let near_top = ctx.input(|i| {
+        i.pointer
+            .hover_pos()
+            .is_some_and(|p| p.y <= super::MENU_BAR_H + 8.0)
+    });
+    let open = any_menu_open(ctx, win);
+    if near_top || alt || open {
+        win.menu_bar_peek_until = now + 1.0;
+    }
+    height_for(win.menu_bar_peek_until, now, open)
+}
+
+/// 纯高度判据：展开到时刻之前（或有菜单弹层）用全高，否则细带。
+fn height_for(peek_until: f64, now: f64, open: bool) -> f32 {
+    if open || now < peek_until {
+        super::MENU_BAR_H
+    } else {
+        4.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_collapsed_menu_bar_stays_tall_until_the_peek_window_ends() {
+        assert_eq!(height_for(10.0, 9.9, false), crate::ui::shell::MENU_BAR_H);
+        assert_eq!(height_for(10.0, 10.0, false), 4.0);
+        // 菜单开着时与 peek 时钟无关：不能在用户看菜单时收起来。
+        assert_eq!(height_for(0.0, 99.0, true), crate::ui::shell::MENU_BAR_H);
+    }
+}
+
 impl TerminalWindow {
     /// 画顶级菜单。**不再套 `egui::menu::bar`**：它内部用的是 `ui.horizontal`
     /// （顶部对齐），菜单文字因此在 21px 的条里整体偏上 2.75px。改成由调用点

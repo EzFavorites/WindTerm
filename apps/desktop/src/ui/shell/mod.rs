@@ -66,6 +66,7 @@ pub(in crate::ui) use quick_command_bar::draw_quick_command_bar;
 // 第三套（排字体字形）——四份实现各自长歪。现在全部指向 `glyph`，调用点的
 // 可见性不变（仍是 `pub(in crate::ui)`）。
 pub(in crate::ui) use glyph::{paint_cross, paint_gear};
+pub(in crate::ui) use menu_bar::{any_menu_open, menu_bar_height};
 // Tabs 设置页的下拉与标签条画的是同一份档位名：文案只有一处（见 `tab_bar`）。
 // 2026-11-15：`ACTIVE_LINE` / `LINE_H` / `paint_tab_icon` / `paint_right_tool`
 // 一并放开给 `panels/shell_panel.rs`——底带 Shell 面板的内标签条画的**就是**
