@@ -86,6 +86,11 @@ impl TerminalWindow {
         &self.filer.xfer_queue
     }
 
+    /// 文件面板当前远端目录；拖放上传要拿它算落点。
+    pub(in crate::ui) fn filer_remote_dir(&self) -> &str {
+        &self.filer.path
+    }
+
     /// 右键菜单落地：算目标路径、入队。返回写进 `filer.progress` 的那句话。
     ///
     /// 重复入队也回一句话（「已经在队列里」）而不是沉默：点了就得有反应。

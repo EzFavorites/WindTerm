@@ -58,6 +58,8 @@ impl TerminalWindow {
     /// 底部状态行。切 child Ui 而不是靠 `item_spacing` 堆叠，是为了让底部状态行
     /// 永远贴着面板下沿（视觉基线就是那样）。
     pub(in crate::ui) fn draw_filer(&mut self, ui: &mut egui::Ui) {
+        // 拖放判定用的是上一帧矩形：modem_drop 在面板绘制之前轮询。
+        self.filer_rect = Some(ui.max_rect());
         self.ensure_filer_session();
 
         let s = &term_core::theme::CHROME_SCALE;

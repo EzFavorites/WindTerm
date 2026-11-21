@@ -5,9 +5,11 @@
 //! 把「拖进来的本地路径」变成弹层里的一段文本。
 
 use eframe::egui;
+use std::path::Path;
 use term_app::action::{XferCmd, XferProtocol};
 
 use crate::ui::*;
+use crate::ui::panels::filer::xfer::XferPick;
 
 pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     if win.view.lock.locked {
@@ -21,6 +23,28 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
             .collect()
     });
     if paths.is_empty() {
+        return;
+    }
+    // 落在文件面板上 = SFTP 上传（取真实本地路径，进传输队列）；
+    // 落在终端上才走 Modem 发送弹层。矩形取上一帧，足以判落点。
+    let over_filer = ctx.input(|i| {
+        i.pointer
+            .hover_pos()
+            .is_some_and(|p| win.filer_rect.is_some_and(|r| r.contains(p)))
+    });
+    if over_filer && !win.filer_remote_dir().is_empty() {
+        for local in &paths {
+            let Some(name) = Path::new(local).file_name().map(|n| n.to_string_lossy().into_owned()) else {
+                continue;
+            };
+            win.start_filer_transfer(XferPick::Upload {
+                local: local.clone(),
+                name,
+                size: 0,
+                is_dir: false,
+            });
+        }
+        ctx.request_repaint();
         return;
     }
     let protocol = win
