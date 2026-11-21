@@ -163,6 +163,9 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
     let entries = menu_entries(win);
     let sessions: Vec<String> = win.sessions.iter().map(|s| s.name.clone()).collect();
     let lang = win.lang();
+    // 地址栏面板的开关先取出来：下面的绘制闭包不碰 `win`（面包屑 / 菜单都已
+    // 预取成拥有所有权的值），在这里读一次最省事。
+    let show_address = win.show_address_bar;
     let (new_on, close_on, open_on) = (
         !hidden(win, ToolAction::NewSession),
         !hidden(win, ToolAction::Disconnect),
@@ -266,12 +269,17 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
             // 按下移动是「拖动整条」。两个 sense 在 egui 里本来就互斥判定，
             // `clicked()` 只在「按下又松开且没移动」时为真，所以整条工具栏
             // 照旧拖得动（下面那句 `drag.track(&resp)` 一行没改）。
+            // 地址栏关掉时 `clicked()` 不再翻译成「开浮层」，拖动不受影响。
             let resp = ui.interact(
                 drag_area,
                 scope.id("tool_panel"),
                 egui::Sense::click_and_drag(),
             );
-            paint_panel(ui.painter(), panel, &crumbs, &font);
+            // 地址栏关掉时整段不画也不接点击：左端按钮组与右端三件菜单照旧，
+            // 拖动热区也照旧（整条工具栏仍能拖走）。
+            if show_address {
+                paint_panel(ui.painter(), panel, &crumbs, &font);
+            }
             tool_bar_tail::draw(
                 ui,
                 panel,
@@ -282,7 +290,7 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, scope: Ba
                 &mut tail_work,
             );
             drag.track(&resp);
-            if resp.clicked() {
+            if show_address && resp.clicked() {
                 panel_clicked = Some(panel);
             }
 

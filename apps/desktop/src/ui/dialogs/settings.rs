@@ -84,6 +84,7 @@ use super::settings_live_completion;
 use super::settings_live_search;
 use super::settings_live_tabs;
 use super::settings_live_terminal;
+use super::settings_live_mouse;
 use super::settings_live_text;
 use super::settings_live_triggers;
 use super::settings_live_wrap;
@@ -518,6 +519,8 @@ impl TerminalWindow {
                         SettingsPage::Highlight => settings_live_highlight::highlight(self, ui),
                         // Terminal 页：两个粘贴确认开关是真控件，其余两行灰显。
                         SettingsPage::Terminal => settings_live_terminal::terminal(self, ui),
+                        // Mouse Tracking：四类事件掩码是真勾选；双击没有协议事件，仍灰。
+                        SettingsPage::MouseTracking => settings_live_mouse::mouse_tracking(self, ui),
                         SettingsPage::Application => {
                             let change = settings_live::application(self, ui);
                             suppress_changed |= change.suppress;

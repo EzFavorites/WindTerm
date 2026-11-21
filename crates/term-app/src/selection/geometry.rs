@@ -119,12 +119,12 @@ fn cross_next(image: &ScreenImage, row: i64) -> Pos {
 }
 
 /// 该行第一个非空白字形的列号；整行空白为 0。
-pub(super) fn first_word_col(image: &ScreenImage, row: i64) -> usize {
+pub(super) fn first_word_col(image: &ScreenImage, row: i64, separators: &str) -> usize {
     match image.line_at(row) {
         Some(line) => {
             let gs = glyphs(&line.cells);
             gs.iter()
-                .find(|g| Class::of(g.ch) != Class::Space)
+                .find(|g| Class::of(g.ch, separators) != Class::Space)
                 .map_or(0, |g| g.from)
         }
         None => 0,
@@ -132,12 +132,12 @@ pub(super) fn first_word_col(image: &ScreenImage, row: i64) -> usize {
 }
 
 /// 该行第一个词的词尾列号；整行空白为 0。
-pub(super) fn first_word_end(image: &ScreenImage, row: i64) -> usize {
+pub(super) fn first_word_end(image: &ScreenImage, row: i64, separators: &str) -> usize {
     match image.line_at(row) {
         Some(line) => {
             let gs = glyphs(&line.cells);
-            match gs.iter().position(|g| Class::of(g.ch) != Class::Space) {
-                Some(i) => gs[run_bounds(&gs, i).1].to,
+            match gs.iter().position(|g| Class::of(g.ch, separators) != Class::Space) {
+                Some(i) => gs[run_bounds(&gs, i, separators).1].to,
                 None => 0,
             }
         }
@@ -146,12 +146,12 @@ pub(super) fn first_word_end(image: &ScreenImage, row: i64) -> usize {
 }
 
 /// 该行最后一个词的词首列号；整行空白为 0。
-pub(super) fn last_word_col(image: &ScreenImage, row: i64) -> usize {
+pub(super) fn last_word_col(image: &ScreenImage, row: i64, separators: &str) -> usize {
     match image.line_at(row) {
         Some(line) => {
             let gs = glyphs(&line.cells);
-            match gs.iter().rposition(|g| Class::of(g.ch) != Class::Space) {
-                Some(i) => gs[run_bounds(&gs, i).0].from,
+            match gs.iter().rposition(|g| Class::of(g.ch, separators) != Class::Space) {
+                Some(i) => gs[run_bounds(&gs, i, separators).0].from,
                 None => 0,
             }
         }
@@ -324,7 +324,12 @@ pub(super) fn indentation_width(image: &ScreenImage, row: i64) -> usize {
 ///
 /// 找不到就 `None`（不动）。用「宽度不同」而不是「更深 / 更浅」：两个方向共用
 /// 同一条判据，缩进相当的相邻行自然被跳过——那正是「跳到下一个缩进级别」的意思。
-pub(super) fn indentation_target(image: &ScreenImage, row: i64, step: i64) -> Option<Pos> {
+pub(super) fn indentation_target(
+    image: &ScreenImage,
+    row: i64,
+    step: i64,
+    separators: &str,
+) -> Option<Pos> {
     if step == 0 {
         return None;
     }
@@ -332,7 +337,7 @@ pub(super) fn indentation_target(image: &ScreenImage, row: i64, step: i64) -> Op
     let mut r = row + step;
     while r >= window_start(image) && r <= last_row(image) {
         if !row_is_blank(image, r) && indentation_width(image, r) != width {
-            return Some(Pos::new(r, first_word_col(image, r)));
+            return Some(Pos::new(r, first_word_col(image, r, separators)));
         }
         r += step;
     }
@@ -519,6 +524,7 @@ pub(super) fn nearest_below(rows: &[i64], at: i64) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::selection::DEFAULT_SEPARATORS;
     use term_core::grid::{Attrs, Colour, LineSlice};
 
     /// 一行 `text` 补齐到 `cols` 格（尾部是空白填充）。
@@ -664,20 +670,33 @@ mod tests {
     fn indentation_target_only_stops_on_a_different_leading_width() {
         let img = image(&["  a", "  b", "    c", "      d", ""], 12);
         // 当前缩进 2：向下第一个「缩进不同」的非空行是第 2 行的 4 格。
-        assert_eq!(indentation_target(&img, 0, 1), Some(Pos::new(2, 4)));
         assert_eq!(
-            indentation_target(&img, 2, 1),
+            indentation_target(&img, 0, 1, DEFAULT_SEPARATORS),
+            Some(Pos::new(2, 4))
+        );
+        assert_eq!(
+            indentation_target(&img, 2, 1, DEFAULT_SEPARATORS),
             Some(Pos::new(3, 6)),
             "再深一级"
         );
         // 向上：从 4 格回到 2 格的第一行。
-        assert_eq!(indentation_target(&img, 2, -1), Some(Pos::new(1, 2)));
+        assert_eq!(
+            indentation_target(&img, 2, -1, DEFAULT_SEPARATORS),
+            Some(Pos::new(1, 2))
+        );
         // 一路到底都没有不同的缩进 → 不动。
-        assert_eq!(indentation_target(&img, 1, 1), Some(Pos::new(2, 4)));
+        assert_eq!(
+            indentation_target(&img, 1, 1, DEFAULT_SEPARATORS),
+            Some(Pos::new(2, 4))
+        );
         let same = image(&["    a", "    b", "    c"], 8);
-        assert_eq!(indentation_target(&same, 0, 1), None);
-        assert_eq!(indentation_target(&same, 2, -1), None);
-        assert_eq!(indentation_target(&same, 1, 0), None, "step=0 不动");
+        assert_eq!(indentation_target(&same, 0, 1, DEFAULT_SEPARATORS), None);
+        assert_eq!(indentation_target(&same, 2, -1, DEFAULT_SEPARATORS), None);
+        assert_eq!(
+            indentation_target(&same, 1, 0, DEFAULT_SEPARATORS),
+            None,
+            "step=0 不动"
+        );
     }
 
     #[test]

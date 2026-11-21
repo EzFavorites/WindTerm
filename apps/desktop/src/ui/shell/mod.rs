@@ -70,7 +70,7 @@ pub(in crate::ui) use glyph::{paint_cross, paint_gear};
 // 2026-11-15：`ACTIVE_LINE` / `LINE_H` / `paint_tab_icon` / `paint_right_tool`
 // 一并放开给 `panels/shell_panel.rs`——底带 Shell 面板的内标签条画的**就是**
 // 这一套（活动标记 / 图标 / ＋、≡），只放宽可见性，颜色与几何一个字节都没动。
-pub(in crate::ui) use tab_bar::{paint_right_tool, paint_tab_icon, ACTIVE_LINE, LINE_H};
+pub(in crate::ui) use tab_bar::{paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H};
 // 分屏时每片 pane 画**整条**工具栏（不只是面包屑）——图标组 / 抓手 /
 // 右端控件全在 `tool_bar::draw` 里，参数化后单窗格与分屏共用一份实现。
 pub(in crate::ui) use tool_bar::{draw as draw_tool_bar, BarScope};

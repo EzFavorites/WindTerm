@@ -1,4 +1,4 @@
-//! `Tabs` 页：三行**真控件** + 五行灰显（部分真，与 `settings_live_text` 同一套写法）。
+//! `Tabs` 页：六行**真控件** + 两行灰显（部分真，与 `settings_live_text` 同一套写法）。
 //!
 //! # 哪三行是真的
 //!
@@ -12,12 +12,18 @@
 //! - `Tab text elide mode:` → `Prefs.tab_elide`，读者是 `shell::tab_bar` 画
 //!   标题那一处（按字符截断，不按字节）。
 //!
-//! 其余五行各自缺的是**不同的东西**，所以逐行写清（悬停 + 页底同一份理由），
+//! 其余两行各自缺的是**不同的东西**，所以逐行写清（悬停 + 页底同一份理由），
 //! 而不是共用一句「尚未实现」：
 //! - 悬停激活：缺「悬停延时切换」的定时器。
-//! - 标签编号：要给编号预留宽度——那是改宽度算法，不只是改文字。
 //! - 缩略图：全新子系统（没有预览面，也没有任何东西画它）。
-//! - 中键 / 右键动作：动作集里没有别的选项，右键现在就是标签右键菜单。
+//!
+//! 2026-11-21 起又接真三行：编号、中键、右键。
+//! - `Show the tab number on tabs:` → `Prefs.tab_numbers`（不显示 / 前九个 /
+//!   全部）。编号拼进标题再走同一条 `layout_no_wrap`，宽度自然变宽，
+//!   读者是 `shell::tab_bar::tab_number_prefix`（全窗与分屏两条标签条共用）。
+//! - `Middle click:` → `Prefs.tab_middle_click`（没有动作 / 关闭标签）。
+//! - `Right click:` → `Prefs.tab_right_click`（标签菜单 / 关闭标签 / 没有动作）。
+//!   右键菜单现在也是一档可选项，而不是无条件弹出。
 //!
 //! # 铁律
 //!
@@ -29,7 +35,10 @@ use super::settings_pages::Row;
 use super::settings_pages_view::{draw_row, field_row, group_box, label_col, set_row_rhythm, Slot};
 use crate::ui::shell::ELIDE_MODES;
 use crate::ui::*;
-use term_runtime::prefs::{TAB_ACTIVATE_MODES, TAB_DOUBLE_CLICK_ACTIONS};
+use term_runtime::prefs::{
+    TAB_ACTIVATE_MODES, TAB_DOUBLE_CLICK_ACTIONS, TAB_MIDDLE_CLICK_ACTIONS,
+    TAB_NUMBER_MODES, TAB_RIGHT_CLICK_ACTIONS,
+};
 
 /// 「关闭后激活」三档的文案，下标与 `Prefs.tab_activate_after_close` 一一对应。
 ///
@@ -45,29 +54,29 @@ const ACTIVATE_MODES: [&str; TAB_ACTIVATE_MODES] = [
 /// 双击标签就是一次普通单击（只激活），默认值必须保持现状。
 const DOUBLE_CLICK_ACTIONS: [&str; TAB_DOUBLE_CLICK_ACTIONS] = ["No action", "Close tab"];
 
+/// 编号三档。0 档是接线前的行为（一条编号都不画），所以默认不改外观。
+const NUMBER_MODES: [&str; TAB_NUMBER_MODES] = ["No numbers", "First nine tabs", "All tabs"];
+
+/// 中键两档。默认「没有动作」= 接线前的行为。
+const MIDDLE_ACTIONS: [&str; TAB_MIDDLE_CLICK_ACTIONS] = ["No action", "Close tab"];
+
+/// 右键三档。默认「标签菜单」= 接线前的行为（`resp.context_menu` 无条件注册）。
+const RIGHT_ACTIONS: [&str; TAB_RIGHT_CLICK_ACTIONS] = ["Tab context menu", "Close tab", "No action"];
+
 /// 悬停激活缺的是一段定时器。
 const HOVER_NOTE: &str = "Not wired: switching on hover needs a per-tab hover timer (the strip \
      has no delay clock), and a strip that switches while the pointer merely passes over it \
      steals focus from whatever you are typing in.";
 
-/// 编号不是画个字那么简单：每条标签都要为它预留宽度。
-const NUMBER_NOTE: &str = "Not wired: drawing the tab number reserves width in every tab, so it is \
-     a change to the tab width algorithm, not a text change.";
+/// 编号那一行 2026-11-21 接真（`tab_number_prefix`）。
+/// 缩略图仍是全新子系统（没有预览面，也没有任何东西画它）。
 const THUMBNAIL_NOTE: &str = "Not wired: thumbnails are a new subsystem — the strip has no \
      per-tab preview surface and nothing renders one.";
 
-/// 中键：标签条只注册了单击与双击。
-const MIDDLE_NOTE: &str = "Not wired: the strip only registers click and double click, and there \
-     is no second action set (rename / close / new tab) for the middle button to pick from.";
-/// 右键：现在就是标签右键菜单，改成「动作」要另做一套无菜单的落地。
-const RIGHT_NOTE: &str = "Right click already opens the tab context menu; making it configurable \
-     needs a second action set and a menu-less variant.";
-
-/// 页底说明：哪三行当场生效、其余五行各缺什么。
-const TABS_NOTE: &str = "Activation after closing, double-click and text elision apply \
-     immediately. Hover activation needs a delay timer, tab numbers would change the width \
-     algorithm, thumbnails are a new subsystem, and middle / right click have no second action \
-     set — see each row's tooltip.";
+/// 页底说明：哪六行当场生效、其余两行各缺什么。
+const TABS_NOTE: &str = "Activation after closing, double-click, text elision, tab numbers and \
+     the middle / right click actions apply immediately. Hover activation needs a delay timer, and \
+     thumbnails are a new subsystem — see each row's tooltip.";
 
 /// 一行**真下拉**：与灰显行共用 `field_row`（标签、字段框、行距都是同一份），
 /// 区别只有「控件能不能点」。
@@ -109,6 +118,9 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut activate = win.tab_activate_after_close;
     let mut double = win.tab_double_click;
     let mut elide = win.tab_elide;
+    let mut numbers = win.tab_numbers;
+    let mut middle = win.tab_middle_click;
+    let mut right = win.tab_right_click;
     let mut changed = false;
 
     ui.add_space(6.0);
@@ -135,14 +147,14 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             HOVER_NOTE,
             0.0,
         );
-        draw_row(
+        changed |= live_combo(
             ui,
-            &Row::ComboAbove {
-                label: "Show the tab number on tabs:",
-                value: "First nine tabs",
-            },
-            NUMBER_NOTE,
+            "prefs_tab_numbers",
+            "Show the tab number on tabs:",
+            Slot::Above,
             0.0,
+            &NUMBER_MODES,
+            &mut numbers,
         );
         let col = label_col(ui, &["Tab text elide mode:", "Tab thumbnail radio:"]);
         changed |= live_combo(
@@ -178,37 +190,43 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &DOUBLE_CLICK_ACTIONS,
             &mut double,
         );
-        draw_row(
+        changed |= live_combo(
             ui,
-            &Row::Combo {
-                label: "Middle click:",
-                value: "Rename tab",
-            },
-            MIDDLE_NOTE,
+            "prefs_tab_middle_click",
+            "Middle click:",
+            Slot::Inline,
             mouse_col,
+            &MIDDLE_ACTIONS,
+            &mut middle,
         );
-        draw_row(
+        changed |= live_combo(
             ui,
-            &Row::Combo {
-                label: "Right click:",
-                value: "No action",
-            },
-            RIGHT_NOTE,
+            "prefs_tab_right_click",
+            "Right click:",
+            Slot::Inline,
             mouse_col,
+            &RIGHT_ACTIONS,
+            &mut right,
         );
     });
-    // 视觉基线没有页脚说明；五行灰显的理由仍在各自 hover 上。
+    // 视觉基线没有页脚说明；两行灰显的理由仍在各自 hover 上。
 
     if changed {
         // 先改内存里的副本（标签条 / 关闭逻辑读到的是同一份），再 load-modify-save。
-        // 只写这三个字段：语言 / 字号 / 光标样式 / 启动策略原样保留。
+        // 只写这六个字段：语言 / 字号 / 光标样式 / 启动策略原样保留。
         win.tab_activate_after_close = activate;
         win.tab_double_click = double;
         win.tab_elide = elide;
+        win.tab_numbers = numbers;
+        win.tab_middle_click = middle;
+        win.tab_right_click = right;
         save_prefs(|prefs| {
             prefs.tab_activate_after_close = activate;
             prefs.tab_double_click = double;
             prefs.tab_elide = elide;
+            prefs.tab_numbers = numbers;
+            prefs.tab_middle_click = middle;
+            prefs.tab_right_click = right;
         });
     }
 }
@@ -225,23 +243,29 @@ mod tests {
         assert_eq!(ACTIVATE_MODES.len(), TAB_ACTIVATE_MODES);
         assert_eq!(DOUBLE_CLICK_ACTIONS.len(), TAB_DOUBLE_CLICK_ACTIONS);
         assert_eq!(ELIDE_MODES.len(), TAB_ELIDE_MODES);
+        assert_eq!(NUMBER_MODES.len(), TAB_NUMBER_MODES);
+        assert_eq!(MIDDLE_ACTIONS.len(), TAB_MIDDLE_CLICK_ACTIONS);
+        assert_eq!(RIGHT_ACTIONS.len(), TAB_RIGHT_CLICK_ACTIONS);
         // 0 档都必须是「现状」的措辞：默认值不会被用户选过，但会显示出来。
         assert_eq!(DOUBLE_CLICK_ACTIONS[0], "No action");
         assert_eq!(ELIDE_MODES[0], "None");
         assert_eq!(ACTIVATE_MODES[0], "Activate the next tab");
+        assert_eq!(NUMBER_MODES[0], "No numbers");
+        assert_eq!(MIDDLE_ACTIONS[0], "No action");
+        assert_eq!(RIGHT_ACTIONS[0], "Tab context menu");
     }
 
     #[test]
     fn the_page_note_names_every_dead_row_and_why() {
-        // 五行灰显缺的是五种不同的东西，页底要能逐个对上；
+        // 两行灰显缺的是两种不同的东西，页底要能逐个对上；
         // 一句「尚未实现」对下一个人没有信息量。
-        for needle in ["delay timer", "width algorithm", "subsystem", "action set"] {
+        for needle in ["delay timer", "subsystem"] {
             assert!(TABS_NOTE.contains(needle), "页底缺少「{needle}」这一条理由");
         }
         // 哪几行当场生效也要写清，否则用户不知道点了有没有用。
         assert!(TABS_NOTE.contains("immediately"));
-        // 中键 / 右键各有各的理由，不能共用一句。
-        assert!(MIDDLE_NOTE.contains("click and double click"));
-        assert!(RIGHT_NOTE.contains("context menu"));
+        // 接真之后，页底不能再点名这些行缺字段（否则是反向的谎）。
+        assert!(!TABS_NOTE.contains("width algorithm"), "编号已接真");
+        assert!(!TABS_NOTE.contains("action set"), "中键/右键已接真");
     }
 }

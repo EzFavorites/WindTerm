@@ -24,6 +24,8 @@
 //!   `confirm::should_confirm_close`——三条关闭路径共用那一个判据。
 //! - `ToolbarMenu ▸ Show toolbar` → `ViewState.show_toolbar`，读者是
 //!   `ui/mod.rs` 声明 `pane_tools` 那条面板的那一行。**它不落盘**（见页脚）。
+//! - `ToolbarMenu ▸ Show address bar` → `Prefs.show_address_bar`（出厂 `true`），
+//!   读者是 `shell/tool_bar.rs`：关掉时工具行右段那块面包屑面板整段不画。
 //!
 //! # 为什么这几个开关要活在窗口上
 //!
@@ -41,33 +43,32 @@ use term_app::shell::ShellAction;
 ///
 /// 必须点名，「尚未实现」四个字对下一个人没有信息量（与 `CARET_PAGE_NOTE`
 /// 同一条要求）。
-const TEXT_NOTE: &str = "Alternate line background, hiding the cursor while typing and the zoom \
-     level apply immediately. Multiple carets, automatic copy-on-select and line/character spacing \
-     have no field to bind yet — see each row's tooltip.";
+const TEXT_NOTE: &str = "Alternate line background, hiding the cursor while typing, automatic \
+     copy-on-select and the zoom level apply immediately. Line and character spacing still have \
+     no field to bind — see each row's tooltip.";
 
 /// `Behaviour` 页的说明。
 ///
-/// 两个勾选都当场生效（下一次关闭 / 下一次开标签就读到新值）。灰的是另外两行：
-/// 自动重连缺「重试策略 + 事件钩子」，启动那一行是给 `Application ▸ Startup`
-/// 的指路牌。
+/// 两个勾选都当场生效（下一次关闭 / 下一次开标签就读到新值）。灰的只剩自动重连：
+/// 它缺「重试策略 + 事件钩子」。
 const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs and focus the new tab both apply \
-     immediately. Auto-reconnect and the startup row still have no field — see each row's tooltip.";
+     immediately. Auto-reconnect still has no field — see its tooltip.";
 
 /// `Toolbar / Menu` 页的说明。
 ///
 /// ：Preferences 的橙色页脚按兼容终端清空，「工具行开关不落盘」这条
 /// 边界从页脚并进这里，仍然写在用户看得见的地方。
-const TOOLBAR_NOTE: &str = "Show toolbar takes effect immediately, but the switch is not saved \
-     (it is back on the next launch). There is no address bar in this build, and auto-hiding the \
-     menu bar would need hover / Alt-key detection over the menu strip.";
+const TOOLBAR_NOTE: &str = "Show toolbar and Show address bar both apply immediately. The toolbar \
+     switch is not saved (it is back on the next launch); the address bar is. Auto-hiding the menu \
+     bar would need hover / Alt-key detection over the menu strip.";
 
-/// 多光标： 已把编辑器语义删掉，连状态都没有。
-const MULTI_CARET_NOTE: &str = "Multiple carets were removed with the editor semantics (R10); \
-     there is no caret collection to store.";
-
-/// 自动复制：会覆盖系统剪贴板，本轮不做。
-const AUTO_COPY_NOTE: &str = "Copying on every selection would overwrite whatever else you have in \
-     the system clipboard; copy stays explicit (Text ▸ Copy) in this round.";
+// 多光标那一行**删掉**了，而不是继续灰着：R10 已经把编辑器语义从代码里移除，
+// 连「有多个光标」这个状态都不存在。留一个永远点不动的勾，等于对用户说
+// 「这项只是暂时没接」；真相是这个功能已经不存在。
+//
+// 自动复制那一行接的是 `Prefs.copy_on_select`（终端页也有一份，同一个值）。
+// 它原来灰着的理由是「会覆盖系统剪贴板」——那是**故意不做**，不是没有字段；
+// 把一个已存在的开关说成没有消费者，比灰着更误导。
 
 /// 行距 / 字距：渲染用的是实测出来的单元格盒，没有「每行额外留白」这个概念。
 const SPACING_NOTE: &str = "The grid renders on the measured cell box; there is no per-row or \
@@ -87,13 +88,14 @@ const ZOOM_NOTE: &str = "Zoom level is the offset from the factory font size; it
 const RECONNECT_NOTE: &str = "Auto-reconnect would need a retry policy (backoff, attempt limit) \
      and a hook on the session status events; today reconnect is an explicit action.";
 
-/// 恢复会话：已经实现，但在 Application 页。
-const RESTORE_NOTE: &str = "Already implemented in Application ▸ Startup (three modes plus \
-     Session 1–4). This row is a pointer, not a second field — change it there.";
+// 恢复会话那一行也从 Behaviour 页**删掉**了：它不是「缺字段」，而是在
+// Application ▸ Startup 里已经有一个真控件。同一件事有两个入口、其中一个还是
+// 灰的，用户只会学到「这个功能不可用」。要改就去那个真控件所在的页改。
 
-/// 地址栏：这一版根本没有地址栏。
-const ADDRESS_BAR_NOTE: &str = "There is no address bar anywhere in this build; the breadcrumb in \
-     the toolbar is read-only text, not an editable address.";
+// 地址栏那一行 2026-11-21 接真（`Prefs.show_address_bar`，出厂显示）：
+// 读者是 `shell/tool_bar.rs`，关掉时工具行右段那块面包屑面板整段不画。
+// 之前的 `ADDRESS_BAR_NOTE` 声称「这一版根本没有地址栏」是**过期说明**——
+// `ui::address::AddressBar` / `draw_address_bar` 一直都在，缺的只是开关。
 
 /// 自动隐藏菜单栏：需要悬停 / Alt 探测。
 const AUTO_HIDE_MENU_NOTE: &str = "Auto-hiding would need hover / Alt-key detection over the menu \
@@ -108,13 +110,15 @@ fn disabled(ui: &mut egui::Ui, row: Row, note: &str, col: f32) {
     draw_row(ui, &row, note, col);
 }
 
-/// `Text` 页：`Features` 两个真勾选 + 三个仍灰显的分组。
+/// `Text` 页：`Features` 三个真勾选 + `Spacing` 两行灰显。
 ///
-/// 顺序照视觉基线（多光标 → 隔行底色 → 自动复制 → 打字隐光标）：真控件夹在灰行
-/// 中间看着有点奇怪，但改顺序就等于改视觉基线的排布，而基线图是逐字节比的。
+/// 顺序照视觉基线（多光标 → 隔行底色 → 自动复制 → 打字隐光标）。第一行的位置
+/// 空出来了，不把后面的行往上提：视觉基线是逐字节比的，挪行等于给一次纯删除
+/// 配上一整页重排，看不出「只删了一项」。
 pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut alt_row = win.alt_row_bg;
     let mut hide_cursor = win.hide_cursor_typing;
+    let mut copy_on_select = win.copy_on_select;
     let mut changed = false;
 
     // 视觉基线 `11-text.png`：内容区第一个字是组标题 `Features`，没有页级灰标题。
@@ -122,16 +126,15 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let col = label_col(ui, &["Line spacing:", "Character spacing:", "Zoom level:"]);
     group_box(ui, Some("Features"), |ui| {
         set_row_rhythm(ui);
-        disabled(ui, Row::DisabledCheck("Activate multiple carets"), MULTI_CARET_NOTE, col);
         changed |= ui
             .checkbox(&mut alt_row, "Alternate line background color")
             .changed();
-        disabled(
-            ui,
-            Row::DisabledCheck("Automatically copy selection"),
-            AUTO_COPY_NOTE,
-            col,
-        );
+        // 与 Terminal 页的「When I select text, copy it to clipboard」同一个值。
+        // 两处各有入口、写的是同一个字段——不是两份真相（`win` 上的那份副本
+        // 也在下面同一帧写回）。
+        changed |= ui
+            .checkbox(&mut copy_on_select, "Automatically copy selection")
+            .changed();
         changed |= ui
             .checkbox(&mut hide_cursor, "Hide cursor when typing")
             .changed();
@@ -187,17 +190,22 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     if changed {
         // 先改内存里的副本（本帧剩下的绘制立刻按新值走），再 load-modify-save。
-        // 只写这两个位：语言 / 主题 / 光标样式 / 搜索模板原样保留。
+        // 只写这三个位：语言 / 主题 / 光标样式 / 搜索模板原样保留。
         win.alt_row_bg = alt_row;
         win.hide_cursor_typing = hide_cursor;
+        win.copy_on_select = copy_on_select;
         save_prefs(|prefs| {
             prefs.text_alternate_row_bg = alt_row;
             prefs.text_hide_cursor_while_typing = hide_cursor;
+            prefs.copy_on_select = copy_on_select;
         });
     }
 }
 
-/// `Behaviour` 页：`Session` 两个真勾选 + 一行灰行，`Startup` 一行指路。
+/// `Behaviour` 页：`Session` 两个真勾选 + 一行灰行（自动重连）。
+///
+/// 原来的 `Startup` 组只有一行指向 `Application ▸ Startup` 的灰指针，已整组删除：
+/// 指路牌不是控件，而那个真控件一直都在。
 pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut focus_new = win.focus_new_tab;
     let mut multi = win.confirm.multi_tabs;
@@ -234,16 +242,7 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         }
     });
 
-    ui.add_space(6.0);
-    group_box(ui, Some("Startup"), |ui| {
-        set_row_rhythm(ui);
-        disabled(
-            ui,
-            Row::DisabledCheck("Restore the previous session on launch"),
-            RESTORE_NOTE,
-            col,
-        );
-    });
+
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
 }
 
@@ -259,19 +258,24 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 持久化。（之前它挂在页脚，页脚已按兼容终端清空。）
 pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut show = win.view.show_toolbar;
+    let mut show_address = win.show_address_bar;
     let mut toggled = false;
+    let mut address_toggled = false;
     // 本页只有勾选行，没有标签列（`col` 用兜底值）。
     let col = label_col(ui, &[]);
 
     group_box(ui, Some("Toolbar"), |ui| {
         set_row_rhythm(ui);
         toggled = ui.checkbox(&mut show, "Show toolbar").changed();
-        disabled(
-            ui,
-            Row::DisabledCheck("Show address bar"),
-            ADDRESS_BAR_NOTE,
-            col,
-        );
+        // 与 `Show toolbar` 同在一组，但**落盘**：读者是 `tool_bar::draw`
+        // 里那段面板绘制，重启后仍然按用户选的来。
+        address_toggled = ui
+            .checkbox(&mut show_address, "Show address bar")
+            .on_hover_text(
+                "Hides the breadcrumb panel (the (i) | > group > session strip) on the \
+                 toolbar. The buttons on both ends stay.",
+            )
+            .changed();
     });
 
     ui.add_space(6.0);
@@ -290,6 +294,12 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         // `ViewState` 只由 reducer 写 ：这里派发动作，不直接赋值。
         // 勾选是「翻一下」，与 `ShellAction::ToggleToolbar` 的语义正好对齐。
         win.dispatch_action(Action::Shell(ShellAction::ToggleToolbar));
+    }
+    if address_toggled {
+        // 地址栏开关**落盘**：读者在 `tool_bar::draw`，与 `Show toolbar`
+        // （不落盘，见页底说明）不是一条路，所以分开写。
+        win.show_address_bar = show_address;
+        save_prefs(|prefs| prefs.show_address_bar = show_address);
     }
 }
 
@@ -319,11 +329,22 @@ mod tests {
     }
 
     #[test]
-    fn the_behaviour_page_points_restore_at_the_application_page() {
-        // 「恢复上次会话」已经实现了，只是不在这一页——不指过去，用户会以为没有。
-        assert!(RESTORE_NOTE.contains("Application ▸ Startup"));
+    fn the_behaviour_page_names_what_auto_reconnect_is_missing() {
         // 自动重连缺的是「策略 + 事件钩子」，不能只说「未实现」。
         assert!(RECONNECT_NOTE.contains("backoff"));
+    }
+
+    #[test]
+    fn the_text_page_no_longer_calls_copy_on_select_a_missing_field() {
+        // 自动复制接的是已有的 `Prefs.copy_on_select`；页底不能再把它归到
+        // 「没有字段可绑」那一句里（那会与真勾选自相矛盾）。
+        assert!(TEXT_NOTE.contains("copy-on-select"));
+        let dead = TEXT_NOTE.find("have no field").unwrap();
+        assert!(
+            TEXT_NOTE.find("copy-on-select").unwrap() < dead,
+            "自动复制要归到「当场生效」那一句"
+        );
+        assert!(!TEXT_NOTE.contains("Multiple carets"), "多光标已随编辑器语义删除");
     }
 
     #[test]
@@ -344,7 +365,12 @@ mod tests {
         // （`TOOLBAR_NOTE`），仍然对用户可见，不能只写在注释里。
         assert!(TOOLBAR_NOTE.contains("not saved"), "页内要写清不落盘");
         assert!(TOOLBAR_NOTE.contains("immediately"), "同时要写清当场生效");
-        // 地址栏是全仓都没有的东西，理由不能写成「还没接」。
-        assert!(ADDRESS_BAR_NOTE.contains("no address bar"));
+        // 地址栏现在是真开关（落盘），页底必须把它与不落盘的工具行分开说，
+        // 不能再出现「这一版根本没有地址栏」这种过期说法。
+        assert!(TOOLBAR_NOTE.contains("address bar"), "要提到地址栏开关");
+        assert!(
+            TOOLBAR_NOTE.find("Show toolbar").unwrap() < TOOLBAR_NOTE.find("address bar").unwrap(),
+            "先说工具行再说地址栏"
+        );
     }
 }

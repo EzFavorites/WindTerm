@@ -13,7 +13,7 @@ use super::{bin, ensure_view, margin, select};
 // 方法调用会同时要 `&mut self`（E0499），所以那边只收拆分好的借用。
 use super::pane_body::paint_body;
 use super::pane_overlays::{paint_overlays, OverlayToggles};
-use super::pane_pointer::{pointer_selection, GridGeom};
+use super::pane_pointer::{pointer_selection, visible_separators, GridGeom};
 use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
 use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
 use term_app::scrollbar::preview_range;
@@ -46,12 +46,7 @@ pub(super) fn screen_index_of(image: &term_core::grid::ScreenImage, row: i64) ->
 /// 查表而不是减法，是因为折叠后窗口内的行号不连续（`lines[i].row != start + i`）：
 /// 命中就是那一行，落空就是「这一行现在看不见」。调用方据此**不画**：光标行底色
 /// 与光标都落在这个下标上，硬画只会把它浮在相邻行上，等于指着另一行说「光标在这」。
-pub(super) fn screen_index_of_grid_row(
-    image: &term_core::grid::ScreenImage,
-    grid_row: usize,
-) -> Option<usize> {
-    screen_index_of(image, grid_row as i64)
-}
+pub(super) fn screen_index_of_grid_row(image: &term_core::grid::ScreenImage, grid_row: usize) -> Option<usize> { screen_index_of(image, grid_row as i64) }
 
 impl TerminalWindow {
     /// 单窗格路径：与分屏之前完全同一份绘制逻辑（五张视觉基线靠它守住）。
@@ -95,6 +90,8 @@ impl TerminalWindow {
         // 逐字节相同（十一张视觉基线不受影响）。
         // 预览底色先算：`tab` 借走 self 后再调 window_bg_color() 会撞 E0502。
         let window_bg = self.window_bg_color(); ui.painter().rect_filled(rect, 0.0, window_bg);
+        // `tab` 马上从 `self` 借走；鼠标事件掩码是 Copy 值，先拷出来再用。
+        let mouse_events = self.mouse_events;
 
         // 同步输入要写「其它」标签，而那一刻 `tab` 还借在手上，
         // 所以先把这批按键攒下来，等借用结束后再扇出去。
@@ -355,11 +352,12 @@ impl TerminalWindow {
                     // 而这里正好两个都在手上——所以走带块表的入口。
                     // 其余命令不看块表，多传一个参数没有代价（`&[]` 与真表
                     // 只在 match 的那两个分支里被读）。
-                    selection::apply_cmd_with_blocks(
+                    selection::apply_cmd_with_blocks_seps(
                         cmd,
                         &tab.view,
                         &tab.snapshot.blocks,
                         &mut tab.selections,
+                        visible_separators(&tab.config, tab.snapshot.alt),
                     );
                 }
             }
@@ -387,6 +385,7 @@ impl TerminalWindow {
                 ui,
                 image,
                 geom,
+                visible_separators(&tab.config, tab.snapshot.alt),
             );
         }
 
@@ -395,7 +394,7 @@ impl TerminalWindow {
         // 不改 Tab / mod.rs 的结构；Bin 没有字符坐标，整段不发。
         if !bin && tab.snapshot.mouse_reporting && !shift && !tab.local_mode {
             let pos = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).map(|p| (p.x, p.y));
-            let frame = ui.input(|i| {
+            let mut frame = ui.input(|i| {
                 use egui::PointerButton as B;
                 term_core::mouse_report::PointerFrame {
                     x: pos.map_or(0.0, |q| q.0), y: pos.map_or(0.0, |q| q.1), has_pos: pos.is_some(),
@@ -406,7 +405,8 @@ impl TerminalWindow {
                     modifiers: term_core::mouse_report::Modifiers { shift: i.modifiers.shift, alt: i.modifiers.alt, ctrl: i.modifiers.ctrl },
                 }
             });
-            let cfg = term_core::mouse_report::MouseConfig { mode: tab.snapshot.mouse_mode, encoding: tab.snapshot.mouse_encoding };
+            // 设置页的四档掩码只清被关掉的事件；远端 DECSET 仍决定编码档位。
+            mouse_events.apply(&mut frame); let cfg = term_core::mouse_report::MouseConfig { mode: tab.snapshot.mouse_mode, encoding: tab.snapshot.mouse_encoding };
             // 这个绑定本来也叫 `geom`，与上面那个 `GridGeom` 撞名——块内
             // 遮蔽是对的（两套几何的单位不同，混用就是「鼠标报告错一格」），但读
             // 起来像同一个东西。改名只是去歧义，一个字的行为都没动。
@@ -556,11 +556,12 @@ impl TerminalWindow {
                 // 借用拆分：`image` 借的是 `tab.view`，这里只写 `tab.selections`。
                 // 与菜单那条同一条路：Shift+方向键走到的四条 Command/Scope 命令
                 // 也要块表，否则键盘与菜单会得到两种结果。
-                selection::apply_cmd_with_blocks(
+                selection::apply_cmd_with_blocks_seps(
                     Cmd::Move(op),
                     &tab.view,
                     &tab.snapshot.blocks,
                     &mut tab.selections,
+                    visible_separators(&tab.config, tab.snapshot.alt),
                 );
             }
             // 补全手势先落地。Accept 把后缀并进 key_bytes，和真实按键

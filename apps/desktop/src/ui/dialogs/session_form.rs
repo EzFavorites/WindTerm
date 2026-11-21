@@ -98,6 +98,11 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) proxy_port: u16,
     pub(in crate::ui) proxy_command: String,
     pub(in crate::ui) working_dir: String,
+    /// `Window ▸ Selection` 的两组选区分隔符；空串 = 未设置（页面显示出厂串）。
+    pub(in crate::ui) word_separators: String,
+    pub(in crate::ui) word_separators_alt: String,
+    /// `Sftp ▸ Preserve original file modification time`（传输时写回 mtime）。
+    pub(in crate::ui) sftp_preserve_mtime: bool,
     /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
@@ -152,6 +157,7 @@ impl NewSessionData {
             system: config.system.clone(),
             onekey: config.onekey.clone(),
             sftp: config.sftp,
+            sftp_preserve_mtime: config.sftp_preserve_mtime,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
             selected_page: 0,
@@ -173,6 +179,8 @@ impl NewSessionData {
             } else {
                 config.working_dir.clone()
             },
+            word_separators: config.word_separators.clone(),
+            word_separators_alt: config.word_separators_alt.clone(),
             logon_script: config.logon_script.clone(),
             cols: if config.cols == 0 {
                 term_core::config::DEFAULT_COLS
@@ -230,6 +238,7 @@ impl NewSessionData {
         c.system = self.system.clone();
         c.onekey = self.onekey.clone();
         c.sftp = self.sftp;
+        c.sftp_preserve_mtime = self.sftp_preserve_mtime;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
@@ -271,6 +280,8 @@ impl NewSessionData {
         c.wheel_lines = self.wheel_lines;
         c.caret_style = self.caret_style;
         c.working_dir = self.working_dir.clone();
+        c.word_separators = self.word_separators.clone();
+        c.word_separators_alt = self.word_separators_alt.clone();
         c.logon_script = self.logon_script.clone();
         c
     }
@@ -607,12 +618,14 @@ mod tests {
         old.charset = "GBK".to_string();
         old.onekey = "Ctrl+A".to_string();
         old.sftp = false;
+        old.sftp_preserve_mtime = false;
         old.sysmon = true;
         let mut f = NewSessionData::from_config(&old);
         assert_eq!(f.system, "windows");
         assert_eq!(f.charset, "GBK");
         assert_eq!(f.onekey, "Ctrl+A");
         assert!(!f.sftp);
+        assert!(!f.sftp_preserve_mtime);
         assert!(f.sysmon);
 
         // 改一遍再落盘，确认 to_config 写的是表单值而非 base 的旧值。
@@ -620,12 +633,14 @@ mod tests {
         f.charset = "Big5".to_string();
         f.onekey = "None".to_string();
         f.sftp = true;
+        f.sftp_preserve_mtime = true;
         f.sysmon = false;
         let saved = f.to_config(old);
         assert_eq!(saved.system, "macos");
         assert_eq!(saved.charset, "Big5");
         assert_eq!(saved.onekey, "None");
         assert!(saved.sftp);
+        assert!(saved.sftp_preserve_mtime);
         assert!(!saved.sysmon);
     }
 
@@ -638,6 +653,7 @@ mod tests {
         assert_eq!(f.charset, term_core::config::CHARSET);
         assert_eq!(f.onekey, "None");
         assert!(f.sftp, "WindTerm 默认 Sftp 开");
+        assert!(f.sftp_preserve_mtime, "WindTerm 默认保留文件 mtime");
         assert!(!f.sysmon, "WindTerm 默认 Sysmon 关");
         assert!(f.shell_command.is_empty(), "Shell 协议未填命令时为空");
     }

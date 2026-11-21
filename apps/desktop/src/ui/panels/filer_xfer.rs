@@ -23,8 +23,11 @@
 //! # 续传与时间戳
 //!
 //! `resume = true`：两条链路的任意一端都可能已经有半截文件（上次取消 / 断线），
-//! 覆盖会白传一遍。`preserve = false`：文件面板不显示 mtime，把时间戳写回对端
-//! 只是多一次 SETSTAT 的机会去失败。
+//! 覆盖会白传一遍。`preserve` 取活动会话的
+//! `SessionConfig.sftp_preserve_mtime`（New Session ▸ Sftp ▸ Preserve original
+//! file modification time，出厂 true）：文件面板不显示 mtime，但「传到对端之后
+//! 时间戳还是源端那个」是用户在会话页明确表达的意图，不能由一个写死的 false
+//! 替他决定。
 
 use super::ops::join_path;
 use crate::ui::panels::xfer_queue::{XferQueue, XferTask};
@@ -164,6 +167,12 @@ impl TerminalWindow {
     }
 
     fn launch_transfer(&mut self, task: XferTask, now: u64) {
+        // 先取会话配置：`handle` 一借住 `self.filer`，`active_slot()` 就要整份
+        // `&self`，两处借不动的是同一个窗口结构体（不是同一个字段）。
+        let preserve = self
+            .tabs
+            .get(self.active_slot())
+            .is_none_or(|tab| tab.config.sftp_preserve_mtime);
         let Some(handle) = self.filer.handle.as_ref() else {
             // 兜底：入口已经按「有没有句柄」灰过一次，走到这里说明句柄是在排队
             // 之后才没有的（会话断了 / 面板重绑）。判一次失败，别让它永远挂着
@@ -176,12 +185,16 @@ impl TerminalWindow {
         // 单文件与目录树的签名同形（两端路径 + resume + preserve），区别只在
         // 方法名：`*_tree` 才让后台先展开整棵计划再逐文件传（term-sftp::walk）。
         match (task.direction, task.tree) {
-            (Direction::Upload, true) => handle.upload_tree(task.local, task.remote, true, false),
-            (Direction::Upload, false) => handle.upload(task.local, task.remote, true, false),
-            (Direction::Download, true) => {
-                handle.download_tree(task.remote, task.local, true, false)
+            (Direction::Upload, true) => {
+                handle.upload_tree(task.local, task.remote, true, preserve)
             }
-            (Direction::Download, false) => handle.download(task.remote, task.local, true, false),
+            (Direction::Upload, false) => handle.upload(task.local, task.remote, true, preserve),
+            (Direction::Download, true) => {
+                handle.download_tree(task.remote, task.local, true, preserve)
+            }
+            (Direction::Download, false) => {
+                handle.download(task.remote, task.local, true, preserve)
+            }
         }
     }
 

@@ -32,8 +32,8 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         14 => environment_page(ui),
         15 => serial_page(win, ui),
         16 => modem_page(ui),
-        20 => sftp_page(ui),
-        21 => tcp_connection_page(ui),
+        20 => sftp_page(win, ui),
+        21 => tcp_connection_page(win, ui),
         // Terminal / Window 两组（1 / 2 / 3 / 17 / 18 / 19）在
         // `session_terminal_pages.rs`，不在这里。
         other => super::session_terminal_pages::draw_page(win, ui, other),
@@ -85,7 +85,13 @@ pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
 ///
 /// 视觉基线里 Proxy Type 是**下拉框**（不是单选）；且选 `No proxy` 时不显示任何
 /// 设置行。选 `Jump (ssh -J)` 显示跳板链（已接线的真控件）；选 HTTP / SOCKS5
-/// 显示出网代理的 Host / Port（出网代理未实现，按  灰显）。
+/// 显示出网代理的 Host / Port——2026-11-21 起这两个字段也是真控件：内置 SSH
+/// 与系统 `ssh` 两条建连路径都读它们（`SessionConfig::outbound_proxy_spec` /
+/// 生成 `ProxyCommand`）。
+///
+/// 同页的 Working directory / Proxy command 仍然灰着，但理由不同：前者是本地
+/// Shell 的启动目录（已有独立入口，见 `Shell ▾ Command`），后者是用户自填的
+/// ProxyCommand——建连路径用的是由 Host/Port 生成的 `nc` 等价式，不是这一栏。
 fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     use super::session_form::{PROXY_JUMP, PROXY_NONE};
     const TYPES: &[&str] = &["No proxy", "Jump (ssh -J)", "Http proxy", "Socks v5 proxy"];
@@ -108,8 +114,8 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         PROXY_NONE => {
             placeholder_note(
                 ui,
-                "No proxy selected: the connection goes direct. Outbound HTTP / \
-                 SOCKS5 proxies are not implemented yet (v0.2).",
+                "No proxy selected: the connection goes direct. \
+                 HTTP / SOCKS5 proxies are configured on the other two entries.",
             );
         }
         PROXY_JUMP => {
@@ -138,16 +144,14 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             ui.label(egui::RichText::new("Proxy Settings:").strong());
             grid(ui, "new_session_proxy_grid", |ui| {
                 form_row(ui, "Host:");
-                ui.add_enabled(
-                    false,
-                    TextEdit::singleline(&mut win.new_session.proxy_host).desired_width(FIELD_W),
+                ui.add(
+                    TextEdit::singleline(&mut win.new_session.proxy_host)
+                        .hint_text("127.0.0.1")
+                        .desired_width(FIELD_W),
                 );
                 ui.end_row();
                 form_row(ui, "Port:");
-                ui.add_enabled(
-                    false,
-                    DragValue::new(&mut win.new_session.proxy_port).range(1..=65535),
-                );
+                ui.add(DragValue::new(&mut win.new_session.proxy_port).range(1..=65535));
                 ui.end_row();
                 form_row(ui, "Working directory:");
                 ui.add_enabled(
@@ -168,8 +172,9 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             });
             placeholder_note(
                 ui,
-                "Outbound HTTP / SOCKS5 proxies are not implemented yet (v0.2): \
-                 Host / Port / Proxy command are read-only.",
+                "Host and Port are used by both the built-in SSH client and the \
+                 system ssh path. Working directory belongs to the local Shell \
+                 command page; Proxy command has no consumer yet.",
             );
         }
     }
@@ -408,19 +413,33 @@ fn modem_page(ui: &mut egui::Ui) {
 /// 两条权限现在是**真接线**的（`DEFAULT_FILE_MODE` / `DEFAULT_DIR_MODE`，
 /// 新建文件 / 新建目录时由 `term-sftp` 落到对端）；三个复选框等 `SftpOptions`
 /// 落地后才有字段。
-fn sftp_page(ui: &mut egui::Ui) {
-    let (mut fix_invalid, mut keep_mtime, mut keep_dir_mtime) = (true, true, false);
+fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let (mut fix_invalid, mut keep_dir_mtime) = (true, false);
+    let mut keep_mtime = win.new_session.sftp_preserve_mtime;
     ui.add_enabled(
         false,
         egui::Checkbox::new(&mut fix_invalid, "Automatically fix invalid path characters"),
+    )
+    .on_disabled_hover_text(
+        "No path sanitizer exists in the SFTP layer yet; transfers keep the \
+         names the server reports.",
     );
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(&mut keep_mtime, "Preserve original file modification time"),
-    );
+    if ui
+        .checkbox(
+            &mut keep_mtime,
+            "Preserve original file modification time",
+        )
+        .changed()
+    {
+        win.new_session.sftp_preserve_mtime = keep_mtime;
+    }
     ui.add_enabled(
         false,
         egui::Checkbox::new(&mut keep_dir_mtime, "Preserve original folder modification time"),
+    )
+    .on_disabled_hover_text(
+        "The transfer layer preserves a file's mtime after the bytes land; \
+         directories are created without a SETSTAT pass.",
     );
     ui.add_space(6.0);
     grid(ui, "new_session_sftp_grid", |ui| {
@@ -435,27 +454,40 @@ fn sftp_page(ui: &mut egui::Ui) {
     placeholder_note(
         ui,
         "Modes apply to created items; overwrites keep theirs. \
-         The greyed switches await SFTP support.",
+         File modification time is written back after each transfer; invalid-path \
+         fixing and folder timestamps still await the SFTP layer.",
     );
 }
 
 /// 21 `Telnet ▾ Connection` / `Tcp ▾ Connection`：视觉基线里这两页截图逐字一致，
-/// 画的是 TCP 选项（不是 SSH 的 Host/Port）。这些开关目前固定在连接层，
-/// 所以按  灰显，数值直接取自 `term_core::config`。
-fn tcp_connection_page(ui: &mut egui::Ui) {
-    let mut nodelay = term_core::config::TCP_LOW_DELAY;
-    let mut keepalive = term_core::config::TCP_KEEP_ALIVE;
+/// 画的是 TCP 选项（不是 SSH 的 Host/Port）。
+///
+/// 四个控件里两个已经有读者，两个还没有——所以这一页**部分真**，理由逐行写：
+///
+/// - `Disable Nagle's algorithm` → `SessionConfig.tcp_low_delay`，建连时
+///   `TcpStream::set_nodelay`（`term-io/telnet_channel.rs`）。
+/// - `Maximum connection timeout` → `SessionConfig.connection_timeout`，
+///   同一个建连循环里逐个地址 `connect_timeout`。
+/// - `Enable TCP keepalives` → `SessionConfig.tcp_keep_alive` 有值，但 Telnet
+///   的套接字层还没有 `SO_KEEPALIVE` 的落地（SSH 路径已映射成
+///   `TCPKeepAlive=yes/no`）。
+/// - `Sends null packet` → `SessionConfig.keep_alive` 是 SSH 的
+///   `ServerAliveInterval`；Telnet 的空包心跳还没写。
+fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let mut nodelay = win.new_session.tcp_low_delay;
+    let mut keepalive = win.new_session.tcp_keep_alive;
+    let mut null_pkt = win.new_session.keep_alive;
+    let mut timeout = win.new_session.connection_timeout;
     // 视觉基线 `default-session-tcp-connection.png` 与 SSH ▸ Connection 是同一套
     // 「说明在上、控件占满整行」的语法（标题左缘 = 整行控件左缘 x=228）。
     ui.label("TCP connection options:");
     ui.add_space(5.0);
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(
-            &mut nodelay,
-            "Disable Nagle's algorithm (TCP_NODELAY option)",
-        ),
-    );
+    if ui
+        .checkbox(&mut nodelay, "Disable Nagle's algorithm (TCP_NODELAY option)")
+        .changed()
+    {
+        win.new_session.tcp_low_delay = nodelay;
+    }
     ui.add_space(4.5);
     ui.add_enabled(
         false,
@@ -463,30 +495,40 @@ fn tcp_connection_page(ui: &mut egui::Ui) {
             &mut keepalive,
             "Enable TCP keepalives (SO_KEEPALIVE option)",
         ),
+    )
+    .on_disabled_hover_text(
+        "The field is stored per session, but the Telnet socket layer does not \
+         set SO_KEEPALIVE yet; the SSH path maps it to TCPKeepAlive.",
     );
     ui.add_space(6.0);
     heading(ui, "Sends null packet to keep session alive:");
-    let mut null_pkt: u32 = term_core::config::KEEP_ALIVE;
     ui.add_enabled(
         false,
         egui::DragValue::new(&mut null_pkt)
             .range(0..=3600)
             .custom_formatter(|n, _| seconds_text(n as u32)),
+    )
+    .on_disabled_hover_text(
+        "SSH uses this as ServerAliveInterval. Telnet does not send null-packet \
+         keepalives yet, so there is no consumer on these two pages.",
     );
     ui.add_space(6.0);
     heading(ui, "Maximum connection timeout:");
-    let mut timeout: u32 = term_core::config::CONNECTION_TIMEOUT;
-    ui.add_enabled(
-        false,
-        egui::DragValue::new(&mut timeout)
-            .range(1..=600)
-            .custom_formatter(|n, _| seconds_text(n as u32)),
-    );
+    if ui
+        .add(
+            egui::DragValue::new(&mut timeout)
+                .range(1..=600)
+                .custom_formatter(|n, _| seconds_text(n as u32)),
+        )
+        .changed()
+    {
+        win.new_session.connection_timeout = timeout;
+    }
     ui.add_space(6.0);
     placeholder_note(
         ui,
-        "Telnet and raw TCP share one connection layer; its socket options are \
-         compile-time constants today (see term-core/config.rs).",
+        "Nagle's algorithm and the connection timeout apply immediately. \
+         SO_KEEPALIVE and the null-packet heartbeat still need a Telnet socket layer.",
     );
 }
 

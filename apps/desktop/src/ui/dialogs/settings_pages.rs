@@ -123,43 +123,40 @@ pub(in crate::ui) const DISABLED_NOTE: &str = "Not stored yet: these settings co
 //
 // 长度上限照 `WRAP_NOTE` / `HIGHLIGHT_NOTE`：说明框在右栏定宽，再长会被截断。
 
-/// `Proxy` 页。缺的是**跨 crate 的两层**，不是「加个字段」：
+/// `Proxy` 页。缺的是**全局默认**这一层，不是「加个字段」：
 ///
-/// - 存储层：`Prefs`（`term-runtime`）里没有 proxy 字段，选中的类型无处可落。
-/// - 应用层：`SessionConfig` / `Protocol` 的建连路径没有 proxy 的回落位置，
-///   就算存下来也没有一处会把代理塞进连接。两层都缺，所以连「先存着」都做不到。
-const PROXY_NOTE: &str = "Not wired: there is no proxy layer at all — no field in Prefs to store the \
-     choice, and no fallback path in SessionConfig to apply it to a connection.";
+/// - 逐会话代理是**活的**：New Session ▸ SSH ▸ Proxy 页的 Proxy Type /
+///   Host / Port 都落在 `SessionConfig` 上，内置 SSH 与系统 `ssh` 两条建连
+///   路径都读它（`SessionConfig::outbound_proxy_spec`）。所以「没有任何代理
+///   层」是**过期说法**，那句曾经让这一页看起来比实际更没做。
+/// - 全局默认缺两层：`Prefs`（`term-runtime`）里没有 proxy 字段，选中的
+///   类型无处可落；也没有一处「会话没配代理时回落到全局」的接线。
+const PROXY_NOTE: &str = "Not wired: a global default proxy has no field in Prefs and no fallback \
+     path into a connection. Per-session proxies live in New Session ▸ Proxy and do work.";
 
 /// `Security` 页。两个控件缺的是**两套不同的层**：
 ///
 /// - Lock screen timeout：`term-app/src/lock.rs:16-19` 的 `LockState` 只有
 ///   `locked` / `error`，没有 Timeout 这个状态，也没有「窗口级最后活动时刻」
 ///   与计时器——锁屏只能手点，不会自己来。
-/// - Username echo mode：没有登录向导这一层，也没有逐字回显的控制层；
-///   回显是 PTY 那侧的行为，本项目没有可以按字符拦下的中间层。
+///
+/// 原先还有一组 `Login Wizard ▸ Username echo mode`。它已经**整组删除**：这个
+/// 项目根本没有登录向导子系统，回显也由 PTY 那侧决定，留一个「Do not echo
+/// characters」的下拉等于承诺一个不存在的设置项。
 const SECURITY_NOTE: &str = "Not wired: the timeout needs a window-level last-activity stamp and a \
-     timer — the lock state is only locked/error and has no timeout. Username echo needs a login \
-     wizard and per-character echo control; neither layer exists.";
+     timer — the lock state is only locked/error and has no timeout.";
 
 /// `AutoCompletion` 页已在 2026-11-19 接成十行真控件（`settings_live_completion`），
 /// 引擎在 `term-core::completion`。原先解释「整页灰显」的说明随之删除——
 /// 灰显理由只在确实没接线的项上保留，接线完成后不能再挂着旧理由。
 
-/// `MouseTracking` 页。2026-11-19 校正：原先说「缺一条编码通道」是**过期说明**——
-///
-/// 底层通道早已接通：`term-core::mouse_report::encode_frame` 把指针事件编成
-/// X10 / SGR / UTF-8 / Urxvt 报告，`pane.rs:389-415` 采集并写回 PTY，`vt.rs` 的
-/// DECSET（?1000/1002/1003/1005/1006/1015h）也真的驱动了 mode / encoding。
-///
-/// 真正缺的是这**五个事件各一个偏好字段**，以及「用户勾选」与「远端 DECSET」
-/// 两套控制源的优先级规则：底层是协议档位模型（总开关 + mode + encoding），
-/// 不是「Move / Wheel / Click / Double / Middle 各一个 bool」。双击更特殊——
-/// xterm 协议本身没有双击报告，本地双击只用于选词。所以这五行保持灰显，
-/// 不是「没接线」，是「表达的开关模型在底层不存在」。
-const MOUSE_TRACKING_NOTE: &str = "Not wired: mouse report bytes do reach the PTY (X10/SGR/UTF-8). \
-     What is missing is a separate user preference for each of these five events and a rule for how \
-     it combines with the program's DECSET mouse mode; the protocol models a mode, not five toggles.";
+// `MouseTracking` 页 2026-11-21 起由 `settings_live_mouse` 绘制，不再走数据表。
+//
+// 原先这张表说「缺编码通道」是**过期说明**：`term-core::mouse_report::encode_frame`
+// 早就能编码 X10 / SGR / UTF-8 / Urxvt，`pane.rs` 每帧写回 PTY，`vt.rs` 的
+// DECSET 也真的驱动 mode / encoding。缺的只是「用户能否分别关掉某一类事件」——
+// 现在用 `EventMask` 掩码解决（DECSET 仍决定编码档位，掩码不替代协议）。
+// 双击那一行没有协议事件，仍按灰显画，理由写在 `settings_live_mouse` 里。
 
 /// `Wrap` 页的说明。这一页不是「还没轮到」，是**接不了**：
 ///
@@ -249,7 +246,7 @@ pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
         SettingsPage::Proxy => PROXY_NOTE,
         SettingsPage::Security => SECURITY_NOTE,
         SettingsPage::AutoCompletion => "", // live 页，无灰显说明
-        SettingsPage::MouseTracking => MOUSE_TRACKING_NOTE,
+        SettingsPage::MouseTracking => "", // live 页，掩码说明在页内
         SettingsPage::Wrap => WRAP_NOTE,
         SettingsPage::Highlight => "", // live 页（caret line / incremental search 真，其余三行灰）
         SettingsPage::ShortcutKeys => SHORTCUT_NOTE,
@@ -317,6 +314,7 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         | SettingsPage::ToolbarMenu
         | SettingsPage::Tabs
         | SettingsPage::Terminal
+        | SettingsPage::MouseTracking
         | SettingsPage::QuickBar
         | SettingsPage::Wrap
         | SettingsPage::Highlight
@@ -329,32 +327,9 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         },
         SettingsPage::Security => PageSpec {
             title: "Security",
-            blocks: &[
-                Block::Group {
-                    title: "Lock Screen",
-                    rows: &[Row::ComboAbove { label: "Lock screen timeout:", value: "Off" }],
-                },
-                Block::Group {
-                    title: "Login Wizard",
-                    rows: &[Row::ComboAbove {
-                        label: "Username echo mode:",
-                        value: "Do not echo characters",
-                    }],
-                },
-            ],
-        },
-        SettingsPage::MouseTracking => PageSpec {
-            title: "Mouse Tracking",
             blocks: &[Block::Group {
-                title: "Tracking Events",
-                rows: &[
-                    Row::DisabledCheck("Move event"),
-                    Row::DisabledCheck("Wheel event"),
-                    Row::DisabledCheck("Click event"),
-                    Row::DisabledCheck("Double click event"),
-                    Row::DisabledCheck("Middle click event"),
-                    Row::Check("Right click event", false),
-                ],
+                title: "Lock Screen",
+                rows: &[Row::ComboAbove { label: "Lock screen timeout:", value: "Off" }],
             }],
         },
         // Highlight 页 2026-11-19 接成真控件（settings_live_highlight）：

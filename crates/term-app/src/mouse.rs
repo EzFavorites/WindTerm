@@ -121,6 +121,54 @@ pub fn has_selection(selection: Option<&Selection>) -> bool {
     selection.is_some_and(|sel| !sel.is_collapsed())
 }
 
+/// `Preferences ▸ Mouse Tracking` 的四类事件掩码。
+///
+/// xterm 鼠标协议只有「总开关 + mode + encoding」，没有「move / wheel /
+/// click / middle 各一个 bool」。这一层不是第二套协议，而是**送进编码器之前
+/// 的一道掩码**：DECSET 仍决定编码档位，掩码只决定某类本地事件要不要上报。
+/// 双击不是协议事件，所以这里没有 `double_click` 字段。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EventMask {
+    pub move_event: bool,
+    pub wheel_event: bool,
+    pub click_event: bool,
+    pub middle_event: bool,
+}
+
+impl EventMask {
+    /// 出厂 = 全开：升级一次不改变已经接通的鼠标报告行为。
+    pub const ALL: Self = Self {
+        move_event: true,
+        wheel_event: true,
+        click_event: true,
+        middle_event: true,
+    };
+
+    /// 把掩码套到一帧指针事件上。**只清被关掉的那一类**，别的不动——
+    /// 协议编码器仍然按 mode 决定要不要发，掩码不替它做决定。
+    pub fn apply(&self, frame: &mut term_core::mouse_report::PointerFrame) {
+        // 下标口径跟 `PointerFrame` 一致：0 = Primary / 1 = Middle / 2 = Secondary。
+        // 这里不 import egui——term-app 零 UI 依赖（R3/F1）。
+        if !self.move_event {
+            frame.dragged = false;
+            frame.hovered = false;
+        }
+        if !self.wheel_event {
+            frame.scroll = 0.0;
+        }
+        if !self.click_event {
+            frame.pressed[0] = false;
+            frame.released[0] = false;
+            frame.down[0] = false;
+        }
+        if !self.middle_event {
+            frame.pressed[1] = false;
+            frame.released[1] = false;
+            frame.down[1] = false;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +224,51 @@ mod tests {
         let mut dragged = empty;
         dragged.drag_to(Pos::new(3, 8));
         assert!(has_selection(Some(&dragged)));
+    }
+
+    #[test]
+    fn the_event_mask_only_clears_its_own_event_kind() {
+        let mut frame = term_core::mouse_report::PointerFrame {
+            x: 3.0,
+            y: 4.0,
+            has_pos: true,
+            pressed: [true, true, true],
+            released: [true, true, true],
+            down: [true, true, true],
+            dragged: true,
+            hovered: true,
+            scroll: 1.0,
+            modifiers: term_core::mouse_report::Modifiers {
+                shift: false,
+                alt: false,
+                ctrl: false,
+            },
+        };
+        // 出厂掩码什么都不清：接线前的鼠标报告一字不变。
+        EventMask::ALL.apply(&mut frame);
+        assert!(frame.dragged && frame.hovered && frame.scroll > 0.0);
+        assert_eq!(frame.pressed, [true, true, true]);
+
+        // 关掉中键：只清下标 1，主键与右键原样。
+        let mask = EventMask { middle_event: false, ..EventMask::ALL };
+        mask.apply(&mut frame);
+        assert_eq!(frame.pressed, [true, false, true]);
+        assert_eq!(frame.released, [true, false, true]);
+        assert_eq!(frame.down, [true, false, true]);
+        assert!(frame.dragged && frame.scroll > 0.0);
+
+        // 四个掩码全关：move / wheel / 主键 / 中键都清掉，坐标与修饰键仍留给
+        // 编码器。右键（下标 2）不在这四个掩码里——它的行为在 Terminal 页配。
+        let none = EventMask {
+            move_event: false,
+            wheel_event: false,
+            click_event: false,
+            middle_event: false,
+        };
+        none.apply(&mut frame);
+        assert!(!frame.dragged && !frame.hovered);
+        assert_eq!(frame.scroll, 0.0);
+        assert_eq!(frame.pressed, [false, false, true]);
+        assert!(frame.has_pos);
     }
 }

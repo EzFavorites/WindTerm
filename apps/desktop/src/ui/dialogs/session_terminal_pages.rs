@@ -21,9 +21,9 @@ use crate::ui::kit::form::{
 };
 use crate::ui::*;
 
-/// WindTerm 出厂的选区分隔符（两组屏幕共用同一默认值）。
-/// 来源：视觉基线 `common/10-selection.png` 两个文本框的内容。
-const DEFAULT_WORD_SEPARATORS: &str = "\"!@#$^*()={}[]:;'\",.<>?";
+// 出厂分隔符现在只有一份：`term_app::selection::DEFAULT_SEPARATORS`。
+// 这里不再抄第二个常量——两份字符串一旦漂移，页面显示的与选词实际用的就不是
+// 同一套字符，而且两边都好端端的没有编译错误。
 
 /// `Terminal ▾` / `Window ▾` 两组页的分派。其余下标一律不接。
 pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page: usize) {
@@ -181,30 +181,45 @@ fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 3 `Window ▾ Selection`：视觉基线 `common/10-selection.png` 的选区分隔符页。
 ///
 /// WindTerm 这一页是**两组屏幕各自的选区分隔符**（不是窗口尺寸 / 回滚）。
-/// 逐会话选区分隔符在 `SessionConfig` 里还没有字段，因此整页灰显 + 说明
-///，两个文本框填入 WindTerm 出厂默认值 `"!@#$^* ={}[]:;'"<>?`。
-/// 这与本文件 `keyboard`/`bell`/`mode`/`security` 四页同构。
-fn selection_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
-    let mut separators = DEFAULT_WORD_SEPARATORS.to_string();
-    let mut alt_separators = DEFAULT_WORD_SEPARATORS.to_string();
+/// 两个字段都落在 `SessionConfig` 上，读者是双击选词与 Shift+Alt+方向键：
+/// 2026-11-21 起 `selection::word_at_with` / `apply_*_with_seps` 把用户串
+/// 带进词边界。空串 = 未设置，页面显示 WindTerm 出厂串，读侧回落到同一串。
+fn selection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    // 未设置时显示出厂串：视觉基线的框里不是空的。只有真的改过才写回，
+    // 所以「打开又取消」不会把默认串固化进用户配置。
+    let mut separators = if win.new_session.word_separators.is_empty() {
+        term_app::selection::DEFAULT_SEPARATORS.to_string()
+    } else {
+        win.new_session.word_separators.clone()
+    };
+    let mut alt_separators = if win.new_session.word_separators_alt.is_empty() {
+        term_app::selection::DEFAULT_SEPARATORS.to_string()
+    } else {
+        win.new_session.word_separators_alt.clone()
+    };
     grid(ui, "new_session_selection_grid", |ui| {
         form_row(ui, "Word Separators:");
-        ui.add_enabled(
-            false,
-            TextEdit::singleline(&mut separators).desired_width(320.0),
-        );
+        if ui
+            .add(TextEdit::singleline(&mut separators).desired_width(320.0))
+            .changed()
+        {
+            win.new_session.word_separators = separators.clone();
+        }
         ui.end_row();
         form_row(ui, "Word Separators For Alternate Screen:");
-        ui.add_enabled(
-            false,
-            TextEdit::singleline(&mut alt_separators).desired_width(320.0),
-        );
+        if ui
+            .add(TextEdit::singleline(&mut alt_separators).desired_width(320.0))
+            .changed()
+        {
+            win.new_session.word_separators_alt = alt_separators.clone();
+        }
         ui.end_row();
     });
     placeholder_note(
         ui,
-        "Per-session word separators are decided by the terminal engine; these \
-         two fields are read-only placeholders until the profile stores them.",
+        "These separators break words for double-click selection and \
+         Shift+Alt+arrow movement. An empty main field falls back to the \
+         factory set; an empty alternate field follows the main one.",
     );
 }
 

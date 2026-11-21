@@ -107,7 +107,7 @@ use term_app::dock::{DockZone, PanelId};
 use term_app::find::{self, current_index};
 use term_app::log::LogAction;
 use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
-use term_app::selection::{line_span_at, word_at, Cmd, Op, Pos, Selection, Selections};
+use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
 use term_app::state::ViewState;
 use term_app::viewport::Viewport;
 use term_core::grid::Rgb;
@@ -276,6 +276,12 @@ pub struct TerminalWindow {
     /// `Tabs ▸ Tab text elide mode:`（0 = 不省略 / 1 左 / 2 右 / 3 中）。
     /// 只影响画出来的标题文本，宽度仍由同一个公式从（截断后的）文本量出来。
     tab_elide: usize,
+    /// `Tabs ▸ Show the tab number on tabs:`（0 = 不显示 / 1 = 前九个 / 2 = 全部）；
+    /// `Middle click:`（0 = 没有动作 / 1 = 关闭标签）；
+    /// `Right click:`（0 = 标签菜单 / 1 = 关闭标签 / 2 = 没有动作）。
+    /// `Toolbar / Menu ▸ Show address bar`（`prefs.show_address_bar`，出厂 `true`）：
+    /// 读者是 `shell/tool_bar.rs`；构造时读一次，设置页负责同步。
+    tab_numbers: usize, tab_middle_click: usize, tab_right_click: usize, show_address_bar: bool,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -532,14 +538,16 @@ pub struct TerminalWindow {
     ///
     /// 读者只有 `pane.rs` 里「选区文本每帧刷新」那一处，判据是
     /// `term_app::mouse::should_copy_on_select`（开关 + 非空 + 指针没按着 + 是新选区）。
-    copy_on_select: bool,
+    /// `Preferences ▸ Mouse Tracking` 的四类事件掩码（出厂全开）：
+    /// 读者只有 `pane.rs` 的指针报告那一段，它不给事件编码，只决定某类事件
+    /// 要不要交给 `term_core::mouse_report::encode_frame`。
+    copy_on_select: bool, mouse_events: term_app::mouse::EventMask,
     /// 上一次由「选中即复制」写出去的文本，按槽位两份。
     ///
     /// 为什么要记：同一段选区每一帧都满足「非空、指针没按着」，
     /// 不记上一份就会每帧写一次剪贴板（并持续惊动系统剪贴板监听）。
     /// 清空时机只有一个：选区变空——那时下一段选区必须重新写。
-    copied_on_select: Option<String>,
-    copied_on_select_shell: Option<String>,
+    copied_on_select: Option<String>, copied_on_select_shell: Option<String>,
     /// 待确认的一次粘贴（`None` = 没有弹窗）。
     ///
     /// 与 `confirm` 同类：**一次待执行的副作用**，不进 `ViewState`——那里装的是

@@ -202,6 +202,13 @@ pub struct SessionConfig {
     /// Sftp 子系统开关（WindTerm 默认 ON）。
     #[serde(default = "default_true")]
     pub sftp: bool,
+    /// `Session ▾ Sftp ▸ Preserve original file modification time`。
+    ///
+    /// WindTerm 出厂勾选；`term-io` 的两条传输链路（`term-sftp`）把 true 解释为
+    /// 「传完把源端 mtime 写回对端」。老会话库缺这个键时露出的勾也是 true——
+    /// **与页面上原本就画成勾的样子一致**，不是升级后偷偷改变外观。
+    #[serde(default = "default_true")]
+    pub sftp_preserve_mtime: bool,
     /// 系统监控开关（WindTerm 默认 OFF）。
     #[serde(default)]
     pub sysmon: bool,
@@ -295,6 +302,16 @@ pub struct SessionConfig {
     /// 本地 Shell 的启动工作目录；空串 = 沿用当前目录。
     #[serde(default)]
     pub working_dir: String,
+    /// `window.wordSeparators`：双击选词 / 按词移动用的分隔符集合。
+    ///
+    /// 空串 = 未设置，读侧回落到出厂串（`term-app` 的
+    /// `selection::DEFAULT_SEPARATORS`）。`term-core` 不认识 `term-app`，所以
+    /// 这里只存用户写下的值，默认值由读者给——与 `proxy_type` 同一套迁移口径。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub word_separators: String,
+    /// 备用屏（alternate screen）的选区分隔符；空串 = 与主屏同值。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub word_separators_alt: String,
     /// 登录脚本（SecureCRT 的 Logon Script）：会话**连上之后**自动跑一次的 `.rhai` 路径。
     ///
     /// 空串 = 没有登录脚本（绝大多数会话）。`#[serde(default)]` 让老会话库读出来是
@@ -357,6 +374,7 @@ impl SessionConfig {
             system: "linux".to_string(),
             onekey: "None".to_string(),
             sftp: true,
+            sftp_preserve_mtime: true,
             sysmon: false,
             shell_command: String::new(),
             description: String::new(),
@@ -393,6 +411,9 @@ impl SessionConfig {
             caret_period: crate::config::DEFAULT_CARET_PERIOD,
             caret_width: crate::config::DEFAULT_CARET_WIDTH,
             working_dir: String::new(),
+            // 空串 = 未设置，读者回落出厂分隔符；老会话库读出来也是空串。
+            word_separators: String::new(),
+            word_separators_alt: String::new(),
             logon_script: String::new(),
         }
     }

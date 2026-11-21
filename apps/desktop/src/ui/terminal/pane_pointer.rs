@@ -10,6 +10,23 @@
 
 use crate::ui::*;
 
+/// 当前可见屏使用的选区分隔符。
+///
+/// 备用屏有独立字段；它为空时与主屏同值（字段文档的口径），主屏空串再回落到
+/// 出厂串。三个分支写在一处，避免「双击用主屏串、按词移动用出厂串」的分裂。
+///
+/// 参数故意收 `&SessionConfig` + `alt` 而不是 `&Tab`：这样调用方可以同时借
+/// `tab.selections` / `tab.viewport`（Rust 允许借用同一结构体的不同字段），
+/// 不必先把字符串拷出来。函数放在本文件是因为它服务的就是双击选词这条路。
+pub(super) fn visible_separators(config: &term_core::session::SessionConfig, alt: bool) -> &str {
+    let main = term_app::selection::separators_or_default(&config.word_separators);
+    if alt && !config.word_separators_alt.is_empty() {
+        &config.word_separators_alt
+    } else {
+        main
+    }
+}
+
 /// 一个窗格的网格几何：原点、格子大小、本屏行数。
 ///
 /// 三样总是一起算、一起用，分散成三个参数只会让调用点长到没人读
@@ -44,6 +61,7 @@ pub(super) fn pointer_selection(
     ui: &egui::Ui,
     image: &ScreenImage,
     geom: GridGeom,
+    separators: &str,
 ) {
     let image_cols = image.cols.max(1);
     // F1：鼠标 → 内容行列。行号用事实窗口的绝对行号，滚动不会让选区漂。
@@ -123,7 +141,7 @@ pub(super) fn pointer_selection(
         }
     } else if resp.double_clicked() {
         if let Some(p) = resp.interact_pointer_pos() {
-            selections.set_active(word_at(image, to_pos(p)));
+            selections.set_active(word_at_with(image, to_pos(p), separators));
         }
     } else if resp.clicked() {
         match (mods.shift, selections.has_active()) {

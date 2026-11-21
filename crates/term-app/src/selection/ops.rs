@@ -16,8 +16,8 @@ use super::geometry::{
     scope_rows, stuttered_page, window_start, last_row,
 };
 use super::words::{
-    line_span_at, word_at, word_end_next, word_end_prev, word_part_next, word_part_prev,
-    word_start_next, word_start_prev,
+    line_span_at, word_at_with, word_end_next, word_end_prev, word_part_next, word_part_prev,
+    word_start_next, word_start_prev, DEFAULT_SEPARATORS,
 };
 use super::{Pos, Selection, Shape};
 
@@ -51,11 +51,26 @@ pub fn apply_with_blocks(
     current: Option<Selection>,
     blocks: &[CommandBlock<i64>],
 ) -> Option<Selection> {
+    apply_with_blocks_seps(op, image, current, blocks, DEFAULT_SEPARATORS)
+}
+
+/// 与 [`apply_with_blocks`] 相同，但显式给选区分隔符。
+///
+/// 为什么另开一个入口而不是改签名：`apply_with_blocks` 被 menu / 测试 / demo
+/// 大量调用，多一个参数会让每个「根本不碰词边界」的调用点都凭空多写一个
+/// `DEFAULT_SEPARATORS`。只有投影层拿得到会话配置，所以由它显式传。
+pub fn apply_with_blocks_seps(
+    op: Op,
+    image: &ScreenImage,
+    current: Option<Selection>,
+    blocks: &[CommandBlock<i64>],
+    separators: &str,
+) -> Option<Selection> {
     let head = current.map(|s| s.head()).or_else(|| caret(image))?;
     match op {
         Op::All => select_all(image),
         // 选词 / 选行没有「方向」：命中空白就什么都不变，而不是把选区清掉。
-        Op::Word => word_at(image, head).or(current),
+        Op::Word => word_at_with(image, head, separators).or(current),
         Op::Line => line_span_at(image, head.row).or(current),
         Op::ToDocumentStart => extend(current, head, Pos::new(window_start(image), 0)),
         Op::ToDocumentEnd => extend(current, head, document_end(image)),
@@ -67,10 +82,10 @@ pub fn apply_with_blocks(
         Op::LineNext => extend(current, head, clamp_row(image, head.row + 1, head.col)),
         Op::PagePrev => extend(current, head, clamp_row(image, head.row - page(image), head.col)),
         Op::PageNext => extend(current, head, clamp_row(image, head.row + page(image), head.col)),
-        Op::WordStartPrev => extend(current, head, word_start_prev(image, head)),
-        Op::WordStartNext => extend(current, head, word_start_next(image, head)),
-        Op::WordEndPrev => extend(current, head, word_end_prev(image, head)),
-        Op::WordEndNext => extend(current, head, word_end_next(image, head)),
+        Op::WordStartPrev => extend(current, head, word_start_prev(image, head, separators)),
+        Op::WordStartNext => extend(current, head, word_start_next(image, head, separators)),
+        Op::WordEndPrev => extend(current, head, word_end_prev(image, head, separators)),
+        Op::WordEndNext => extend(current, head, word_end_next(image, head, separators)),
 
         // ── Select Column To：10 条，矩形语义 ──
         //
@@ -178,11 +193,11 @@ pub fn apply_with_blocks(
         }
 
         // ── Indentation：行首空白宽度变化处 ──
-        Op::IndentationPrev => match indentation_target(image, head.row, -1) {
+        Op::IndentationPrev => match indentation_target(image, head.row, -1, separators) {
             Some(to) => extend(current, head, to),
             None => current,
         },
-        Op::IndentationNext => match indentation_target(image, head.row, 1) {
+        Op::IndentationNext => match indentation_target(image, head.row, 1, separators) {
             Some(to) => extend(current, head, to),
             None => current,
         },
@@ -582,12 +597,23 @@ pub fn apply_cmd_with_blocks(
     blocks: &[CommandBlock<i64>],
     set: &mut Selections,
 ) {
+    apply_cmd_with_blocks_seps(cmd, image, blocks, set, DEFAULT_SEPARATORS);
+}
+
+/// 与 [`apply_cmd_with_blocks`] 相同，但显式给选区分隔符。
+pub fn apply_cmd_with_blocks_seps(
+    cmd: Cmd,
+    image: &ScreenImage,
+    blocks: &[CommandBlock<i64>],
+    set: &mut Selections,
+    separators: &str,
+) {
     match cmd {
         Cmd::Move(op) => {
             if set.is_locked() {
                 return;
             }
-            let updated = apply_with_blocks(op, image, set.active(), blocks);
+            let updated = apply_with_blocks_seps(op, image, set.active(), blocks, separators);
             set.assign_active(updated);
         }
         Cmd::Set(op) => match op {

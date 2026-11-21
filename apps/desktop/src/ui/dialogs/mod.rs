@@ -49,6 +49,7 @@ mod settings_live_text;
 // ：Terminal 页从数据表改手绘——两个粘贴确认开关接了字段，
 // 其余两行由同一份 `draw_row` 画成灰的。
 mod settings_live_terminal;
+mod settings_live_mouse;
 // ： 触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的接线——
 // 编辑结果直接写回 `prefs.triggers`，每帧 `poll` 喂给求值器。
 mod settings_live_triggers;

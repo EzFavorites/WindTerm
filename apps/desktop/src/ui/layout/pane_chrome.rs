@@ -18,7 +18,7 @@
 
 use crate::ui::layout::{pane_group_name, PaneGroup, PaneId};
 use crate::ui::shell::{
-    paint_cross, paint_right_tool, paint_tab_icon, ACTIVE_LINE, LINE_H,
+    paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
     PANE_TOOLS_H, SYSMON_BAR_H, TAB_BAR_H,
 };
 use crate::ui::*;
@@ -108,7 +108,8 @@ fn draw_pane_tab_strip(
     let labels: Vec<(SessionId, String)> = group
         .order
         .iter()
-        .filter_map(|sid| {
+        .enumerate()
+        .filter_map(|(i, sid)| {
             let tab = win.tabs.iter().find(|t| t.identity == *sid)?;
             let title = if tab.is_live() {
                 if let Some(status) = tab.status().exit_status {
@@ -121,7 +122,9 @@ fn draw_pane_tab_strip(
             } else {
                 format!("{}{}", tab.config.name, win.tr(" (disconnected)"))
             };
-            Some((*sid, title))
+            // 编号按**本组内**的位置算：分屏时每片窗格的标签条各数各的，
+            // 与全窗标签条按全局位置编号不冲突。
+            Some((*sid, format!("{}{}", tab_number_prefix(win.tab_numbers, i), title)))
         })
         .collect();
 
@@ -158,12 +161,23 @@ fn draw_pane_tab_strip(
             paint_cross(p, egui::pos2(close_cx, cy), text_c);
         }
         // 点组内 tab：只换**这一片 pane** 的活动会话，并同步全局焦点。
-        let resp = ui.interact(rect, egui::Id::new(("pane_tab", pane.0, sid)), egui::Sense::click());
+        let resp = ui.interact(
+            rect,
+            egui::Id::new(("pane_tab", pane.0, sid)),
+            egui::Sense::click(),
+        );
         if resp.clicked() {
             if let Some(g) = win.pane_groups.get_mut(&pane) {
                 g.active = *sid;
             }
             win.active = Some(*sid);
+        }
+        // 中键 / 右键的偏好与全窗标签条同一份。分屏标签条没有右键菜单，
+        // 所以「标签菜单」这一档在这里等价于没有动作（原本就是这样）。
+        if win.tab_middle_click == 1 && resp.middle_clicked() {
+            close_in_pane = Some(*sid);
+        } else if win.tab_right_click == 1 && resp.secondary_clicked() {
+            close_in_pane = Some(*sid);
         }
         // `×`：关掉**本组内**这一条（不是整片窗格）。先注册整块再注册 ×，
         // 后注册的命中优先，与全窗标签条同一套规则。

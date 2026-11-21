@@ -219,6 +219,10 @@ pub(in crate::ui) fn window_with(
         tab_activate_after_close: 0,
         tab_double_click: 0,
         tab_elide: 0,
+        tab_numbers: 0,
+        tab_middle_click: 0,
+        tab_right_click: 0,
+        show_address_bar: true,
         triggers: Vec::new(),
         onekeys: Vec::new(),
         // 2026-11-17 Tunnels：测试窗口不配隧道、对话框关着、总线开关按出厂开着。
@@ -295,6 +299,7 @@ pub(in crate::ui) fn window_with(
         // 与 `Prefs::default()` 逐项对齐；两份「上一次写出去的选区」从空开始。
         right_click: 0,
         copy_on_select: false,
+        mouse_events: term_app::mouse::EventMask::ALL,
         copied_on_select: None,
         copied_on_select_shell: None,
         pending_paste: None,

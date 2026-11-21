@@ -123,14 +123,13 @@ use super::*;
         );
         // Mouse Tracking 那句旧说明（「没有编码通道」）2026-11-19 已更正：
         // 通道在，缺的是五个事件偏好字段与 DECSET 控制权规则。钉住新说法。
+        // Mouse Tracking 2026-11-21 起是 live 页（四类事件掩码 + 两行灰显），
+        // 数据表说明与 spec 都已移走；留在这里的旧断言会钉住一个不存在的页面。
         assert!(
-            page_note(SettingsPage::MouseTracking).contains("mouse report bytes do reach the PTY"),
-            "Mouse Tracking 不能再谎报「没有编码通道」"
+            page_spec(SettingsPage::MouseTracking).is_none(),
+            "Mouse Tracking 已迁到 settings_live_mouse"
         );
-        assert!(
-            !page_note(SettingsPage::MouseTracking).contains("never reads it"),
-            "旧说明已删"
-        );
+        assert_eq!(page_note(SettingsPage::MouseTracking), "");
         // 2026-11-10：`Proxy` 等八页也换了专句，通用那句不再有任何有内容的页在用。
         // 这里改成**反向**判据：凡是有内容可画的灰页，都不许退回套话——
         // 「没有配置字段」只说了一半（缺哪一层？），要求点名缺口。

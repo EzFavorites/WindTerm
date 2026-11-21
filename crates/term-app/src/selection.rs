@@ -44,9 +44,10 @@ pub use crate::vocab::Cmd;
 pub use crate::vocab::Op;
 pub use crate::vocab::SetOp;
 pub use ops::{
-    apply, apply_cmd, apply_cmd_with_blocks, apply_with_blocks, parse, parse_set, Selections,
+    apply, apply_cmd, apply_cmd_with_blocks, apply_cmd_with_blocks_seps, apply_with_blocks,
+    apply_with_blocks_seps, parse, parse_set, Selections,
 };
-pub use words::{line_span_at, word_at};
+pub use words::{line_span_at, separators_or_default, word_at, word_at_with, DEFAULT_SEPARATORS};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pos {
@@ -496,13 +497,86 @@ mod tests {
 
     #[test]
     fn double_click_groups_runs_of_punctuation() {
-        // 同类连写的标点整段选中：`-->` 是三格，而不是一格。
-        let img = image(&["a --> b"], 7, 0);
+        // 同类连写的标点整段选中：`---` 是三格，而不是一格。
+        // （`--` 之所以同类，是因为 `-` 不在出厂分隔符串里；见下一条测试。）
+        let img = image(&["a --- b"], 7, 0);
         let sel = word_at(&img, Pos::new(0, 3)).unwrap();
-        assert_eq!(sel.text(&img, &[]), "-->");
+        assert_eq!(sel.text(&img, &[]), "---");
         // 相邻但不同类则断开：`a.b` 里的点是单独一段。
         let img = image(&["a.b"], 3, 0);
         assert_eq!(word_at(&img, Pos::new(0, 1)).unwrap().text(&img, &[]), ".");
+    }
+
+    #[test]
+    fn a_factory_separator_ends_a_punctuation_run() {
+        // `>` 在出厂串里，所以 `-->` 在 `>` 处断开——这正是「分隔符」的含义。
+        // 旧语义（所有标点按同类连写）在设置可配之后不再自洽：同一串必须
+        // 同时决定双击与按词移动，不能对某些标点网开一面。
+        let img = image(&["a --> b"], 7, 0);
+        assert_eq!(
+            word_at(&img, Pos::new(0, 2)).unwrap().text(&img, &[]),
+            "--"
+        );
+        assert_eq!(
+            word_at(&img, Pos::new(0, 4)).unwrap().text(&img, &[]),
+            ">"
+        );
+    }
+
+    #[test]
+    fn unlisted_ascii_punctuation_does_not_break_a_word() {
+        // 出厂分隔符串里没有 `-`：`foo-bar` 因此是一个词。这正是
+        // 「Word Separators」的直接含义——没列出来的字符不切断词。
+        let img = image(&["foo-bar"], 10, 0);
+        assert_eq!(
+            word_at(&img, Pos::new(0, 0)).unwrap().text(&img, &[]),
+            "foo-bar"
+        );
+    }
+
+    #[test]
+    fn a_configured_separator_really_breaks_the_word() {
+        let img = image(&["foo-bar"], 10, 0);
+        // 填了 `-` 之后，两侧各自成词；点在分隔符上仍选中它本身。
+        assert_eq!(
+            word_at_with(&img, Pos::new(0, 0), "-").unwrap().text(&img, &[]),
+            "foo"
+        );
+        assert_eq!(
+            word_at_with(&img, Pos::new(0, 4), "-").unwrap().text(&img, &[]),
+            "bar"
+        );
+        assert_eq!(
+            word_at_with(&img, Pos::new(0, 3), "-").unwrap().text(&img, &[]),
+            "-"
+        );
+    }
+
+    #[test]
+    fn separators_also_drive_word_movement() {
+        // 同一份串必须同时作用于双击与 Shift+Alt+方向键，否则「改了设置只有
+        // 一个入口变」——那正是这次接线要消灭的分裂。
+        let img = image(&["foo-bar"], 10, 0);
+        let start = Some(Selection::new(Pos::new(0, 0)));
+        let default_end = apply_with_blocks_seps(
+            Op::WordEndNext,
+            &img,
+            start,
+            &[],
+            DEFAULT_SEPARATORS,
+        )
+        .unwrap();
+        assert_eq!(default_end.head(), Pos::new(0, 7), "默认串下整段是一个词");
+        let custom_end =
+            apply_with_blocks_seps(Op::WordEndNext, &img, start, &[], "-").unwrap();
+        assert_eq!(custom_end.head(), Pos::new(0, 3), "填了 `-` 之后停在 foo 末尾");
+    }
+
+    #[test]
+    fn an_empty_separator_string_falls_back_to_the_factory_set() {
+        // 页面在字段为空时显示出厂串；读侧必须与页面显示的是同一串。
+        assert_eq!(separators_or_default(""), DEFAULT_SEPARATORS);
+        assert_eq!(separators_or_default("abc"), "abc");
     }
 
     #[test]

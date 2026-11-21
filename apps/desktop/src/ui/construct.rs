@@ -143,6 +143,10 @@ impl TerminalWindow {
                 proxy_port: 1080,
                 proxy_command: String::new(),
                 working_dir: "${HomeDir}".to_string(),
+                // 空串 = 未设置：页面显示出厂串，读侧回落到同一串。
+                word_separators: String::new(),
+                word_separators_alt: String::new(),
+                sftp_preserve_mtime: true,
                 logon_script: String::new(),
                 cols: term_core::config::DEFAULT_COLS,
                 rows: term_core::config::DEFAULT_ROWS,
@@ -208,6 +212,10 @@ impl TerminalWindow {
             tab_activate_after_close: prefs.tab_activate_after_close_kind(),
             tab_double_click: prefs.tab_double_click_action(),
             tab_elide: prefs.tab_elide_mode(),
+            tab_numbers: prefs.tab_number_mode(),
+            tab_middle_click: prefs.tab_middle_click_action(),
+            tab_right_click: prefs.tab_right_click_action(),
+            show_address_bar: prefs.show_address_bar,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
             triggers: prefs.triggers.clone(),
@@ -308,6 +316,12 @@ impl TerminalWindow {
             // Terminal ▸ Mouse Actions：右镜档位与选中即复制，同样只在构造时读一次。
             right_click: prefs.right_click_kind(),
             copy_on_select: prefs.copy_on_select,
+            mouse_events: term_app::mouse::EventMask {
+                move_event: prefs.mouse_move_event,
+                wheel_event: prefs.mouse_wheel_event,
+                click_event: prefs.mouse_click_event,
+                middle_event: prefs.mouse_middle_event,
+            },
             copied_on_select: None,
             copied_on_select_shell: None,
             pending_paste: None,

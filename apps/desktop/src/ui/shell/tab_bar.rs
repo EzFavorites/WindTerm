@@ -63,6 +63,24 @@ const TAB_TITLE_MAX_CHARS: usize = 24;
 pub(in crate::ui) const ELIDE_MODES: [&str; 4] =
     ["None", "Elide left", "Elide right", "Elide middle"];
 
+/// 标签编号的前缀。`mode` 与 `Prefs.tab_numbers` 一一对应（0/1/2），
+/// `index` 是**本组内**的从 0 开始的位置。
+///
+/// 编号拼进标题再走同一条 `layout_no_wrap`，所以宽度自然变宽——不需要给
+/// 「编号列」另算一套宽度算法（那正是这一行原来灰着的理由）。
+pub(in crate::ui) fn tab_number_prefix(mode: usize, index: usize) -> String {
+    let numbered = match mode {
+        1 => index < 9,
+        2 => true,
+        _ => false,
+    };
+    if numbered {
+        format!("{}. ", index + 1)
+    } else {
+        String::new()
+    }
+}
+
 impl TerminalWindow {
     pub(in crate::ui) fn draw_tabs(&mut self, ui: &mut egui::Ui) {
         let font = egui::TextStyle::Button.resolve(ui.style());
@@ -100,7 +118,11 @@ impl TerminalWindow {
             // 省略只改**画出来的文本**：宽度仍由下面同一个公式、从（截断后的）
             // 字符串量出来。这样标签跟着变窄，而不是「框还是那么宽、字被裁掉」。
             // 标签列表（右端 ≡）读的是 `labels` 里那份全名，不受影响。
-            let shown = elide_title(title, self.tab_elide);
+            let shown = format!(
+                "{}{}",
+                tab_number_prefix(self.tab_numbers, i),
+                elide_title(title, self.tab_elide)
+            );
             let g = ui
                 .painter()
                 .layout_no_wrap(shown, font.clone(), strong_c);
@@ -143,6 +165,10 @@ impl TerminalWindow {
             // 让另一条标签闪一下。
             if resp.double_clicked() && self.tab_double_click == 1 {
                 close_tab = Some(i);
+            } else if self.tab_middle_click == 1 && resp.middle_clicked() {
+                // 中键的语义固定为「关闭」：动作集里只有这一项，不做另一个
+                // 下拉。`middle_clicked` 与 `clicked` 正交，不会顺带激活。
+                close_tab = Some(i);
             } else if resp.clicked() {
                 self.set_active_slot(i);
             }
@@ -156,7 +182,17 @@ impl TerminalWindow {
             } else if resp.drag_stopped() {
                 self.drag_released_this_frame = true;
             }
-            self.draw_tab_context_menu(&resp, i, is_active);
+            match self.tab_right_click {
+                1 => {
+                    if resp.secondary_clicked() {
+                        close_tab = Some(i);
+                    }
+                }
+                // 2 = 没有动作：连菜单都不注册，右键在标签上彻底静默。
+                2 => {}
+                // 0 = 标签菜单（接线前的行为）。
+                _ => self.draw_tab_context_menu(&resp, i, is_active),
+            }
             let close_resp = ui.interact(
                 close,
                 egui::Id::new(("tab_close", i)),
@@ -410,5 +446,18 @@ mod tests {
         // 手改 prefs 写了 9：与 0 一样原样画，不 panic、不猜一档。
         let long = "abcdefghijklmnopqrstuvwxyz0123456789";
         assert_eq!(elide_title(long, 9), long);
+    }
+
+    #[test]
+    fn tab_numbers_only_appear_when_the_mode_asks_for_them() {
+        // 0 档 = 接线前的行为（一条编号都没有）；越界同样不画，与 elide 同款兜底。
+        assert_eq!(tab_number_prefix(0, 0), "");
+        assert_eq!(tab_number_prefix(9, 0), "");
+        // 1 档只给前九个，第 10 个（下标 9）开始不编号。
+        assert_eq!(tab_number_prefix(1, 0), "1. ");
+        assert_eq!(tab_number_prefix(1, 8), "9. ");
+        assert_eq!(tab_number_prefix(1, 9), "");
+        // 2 档全编号，下标 9 起照样有。
+        assert_eq!(tab_number_prefix(2, 9), "10. ");
     }
 }

@@ -47,23 +47,39 @@ pub(super) fn glyphs(cells: &[Cell]) -> Vec<Glyph> {
     out
 }
 
+/// 出厂选区分隔符（WindTerm `Window ▸ Selection` 的默认串）。
+///
+/// 这是**用户没填时**的回落值，不是一份隐藏常量：填了就以用户的串为准。
+/// 放在 `term-app` 而不是 `term-core`，因为「什么算一个词」属于选区语义，
+/// 而 `SessionConfig` 只负责存值（它不认识这个 crate）。
+pub const DEFAULT_SEPARATORS: &str = "\"!@#$^*()={}[]:;'\",.<>?";
+
 /// 选词用的字符分类。
 ///
-/// - `Word`：字母、数字、下划线。CJK 汉字也是「字母」，所以「你好，世界」双击得到「你好」。
-/// - `Punct`：其余可见字符，按**同类连写**成组——`-->`、`::`、`...` 都能整段选中。
+/// - `Word`：字母、数字、下划线，以及**不在分隔符集合里的 ASCII 标点**。
+///   后者让 `foo-bar` / `a/b` 在默认串下仍是一个词——分隔符串没列的标点
+///   不切断词，这是「Word Separators」这个名字的直接含义。
+/// - `Sep`：用户分隔符集合里的字符，按**同类连写**成组（`.,` 一起选中）。
+///   点在这些字符上时它们自己仍可选，不会被当成「没有词」。
+/// - `Punct`：非 ASCII 的非字母数字（CJK 标点等）。这些字符没有「加进分隔符
+///   就会变成词」的语义，所以独立成一段；`你好，世界` 因此在逗号处断开。
 /// - `Space`：空白，双击不产生选区（选中一段空白没有意义，也无法从复制结果里看出来）。
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Class {
     Word,
+    Sep,
     Punct,
     Space,
 }
 
 impl Class {
-    pub(super) fn of(ch: char) -> Class {
+    pub(super) fn of(ch: char, separators: &str) -> Class {
         if ch.is_whitespace() {
             Class::Space
-        } else if ch.is_alphanumeric() || ch == '_' {
+        } else if separators.contains(ch) {
+            // 分隔符优先于「字母 / 下划线」：用户把 `_` 填进来就该按分隔符算。
+            Class::Sep
+        } else if ch.is_alphanumeric() || ch == '_' || ch.is_ascii() {
             Class::Word
         } else {
             Class::Punct
@@ -71,26 +87,41 @@ impl Class {
     }
 }
 
+/// 调用方传空串时回落到出厂分隔符；非空则逐字使用。
+pub fn separators_or_default(raw: &str) -> &str {
+    if raw.is_empty() { DEFAULT_SEPARATORS } else { raw }
+}
+
 /// 双击：把光标下的那个「词」变成选区。点在空白上返回 `None`。
 ///
 /// 只读一个事实窗口——回看里的行同样是内容行号，所以双击历史行与双击当前屏
 /// 走的是同一条路径。
+///
+/// `separators` 是会话配置里的分隔符串；空串走 [`DEFAULT_SEPARATORS`]。
+/// 这个入口给**不需要会话配置**的调用方（测试、demo）用；投影层用
+/// [`word_at_with`] 把用户填的值带进来。
 pub fn word_at(image: &ScreenImage, at: Pos) -> Option<Selection> {
+    word_at_with(image, at, DEFAULT_SEPARATORS)
+}
+
+/// 与 [`word_at`] 相同，但显式给分隔符集合。
+pub fn word_at_with(image: &ScreenImage, at: Pos, separators: &str) -> Option<Selection> {
+    let separators = separators_or_default(separators);
     let cells = &image.line_at(at.row)?.cells;
     let glyphs = glyphs(cells);
     let idx = glyphs
         .iter()
         .position(|g| g.from <= at.col && at.col < g.to)?;
-    let class = Class::of(glyphs[idx].ch);
+    let class = Class::of(glyphs[idx].ch, separators);
     if class == Class::Space {
         return None;
     }
     let mut start = idx;
-    while start > 0 && Class::of(glyphs[start - 1].ch) == class {
+    while start > 0 && Class::of(glyphs[start - 1].ch, separators) == class {
         start -= 1;
     }
     let mut end = idx;
-    while end + 1 < glyphs.len() && Class::of(glyphs[end + 1].ch) == class {
+    while end + 1 < glyphs.len() && Class::of(glyphs[end + 1].ch, separators) == class {
         end += 1;
     }
     Some(Selection::span(
@@ -113,31 +144,41 @@ pub fn line_span_at(image: &ScreenImage, row: i64) -> Option<Selection> {
 }
 
 /// 跨行时的落点由调用方给（词的移动落到词边界，不是行边界）。
-fn word_cross_next(image: &ScreenImage, row: i64, pick: fn(&ScreenImage, i64) -> usize) -> Pos {
+fn word_cross_next(
+    image: &ScreenImage,
+    row: i64,
+    separators: &str,
+    pick: fn(&ScreenImage, i64, &str) -> usize,
+) -> Pos {
     if row >= last_row(image) {
         Pos::new(row, line_end(image, row))
     } else {
-        Pos::new(row + 1, pick(image, row + 1))
+        Pos::new(row + 1, pick(image, row + 1, separators))
     }
 }
 
-fn word_cross_prev(image: &ScreenImage, row: i64, pick: fn(&ScreenImage, i64) -> usize) -> Pos {
+fn word_cross_prev(
+    image: &ScreenImage,
+    row: i64,
+    separators: &str,
+    pick: fn(&ScreenImage, i64, &str) -> usize,
+) -> Pos {
     if row <= window_start(image) {
         Pos::new(row, 0)
     } else {
-        Pos::new(row - 1, pick(image, row - 1))
+        Pos::new(row - 1, pick(image, row - 1, separators))
     }
 }
 
 /// 同一类字符的连续区间 `[start, end]`（含两端，字形下标）。
-pub(super) fn run_bounds(gs: &[Glyph], idx: usize) -> (usize, usize) {
-    let class = Class::of(gs[idx].ch);
+pub(super) fn run_bounds(gs: &[Glyph], idx: usize, separators: &str) -> (usize, usize) {
+    let class = Class::of(gs[idx].ch, separators);
     let mut start = idx;
-    while start > 0 && Class::of(gs[start - 1].ch) == class {
+    while start > 0 && Class::of(gs[start - 1].ch, separators) == class {
         start -= 1;
     }
     let mut end = idx;
-    while end + 1 < gs.len() && Class::of(gs[end + 1].ch) == class {
+    while end + 1 < gs.len() && Class::of(gs[end + 1].ch, separators) == class {
         end += 1;
     }
     (start, end)
@@ -148,78 +189,82 @@ fn index_at(gs: &[Glyph], col: usize) -> Option<usize> {
     gs.iter().position(|g| g.to > col)
 }
 
-pub(super) fn word_start_next(image: &ScreenImage, at: Pos) -> Pos {
+pub(super) fn word_start_next(image: &ScreenImage, at: Pos, separators: &str) -> Pos {
+    let separators = separators_or_default(separators);
     let Some(line) = image.line_at(at.row) else {
         return at;
     };
     let gs = glyphs(&line.cells);
     if let Some(idx) = index_at(&gs, at.col) {
-        let (_, end) = run_bounds(&gs, idx);
+        let (_, end) = run_bounds(&gs, idx, separators);
         let mut j = end + 1;
-        while j < gs.len() && Class::of(gs[j].ch) == Class::Space {
+        while j < gs.len() && Class::of(gs[j].ch, separators) == Class::Space {
             j += 1;
         }
         if j < gs.len() {
             return Pos::new(at.row, gs[j].from);
         }
     }
-    word_cross_next(image, at.row, first_word_col)
+    word_cross_next(image, at.row, separators, first_word_col)
 }
 
-pub(super) fn word_end_next(image: &ScreenImage, at: Pos) -> Pos {
+pub(super) fn word_end_next(image: &ScreenImage, at: Pos, separators: &str) -> Pos {
+    let separators = separators_or_default(separators);
     let Some(line) = image.line_at(at.row) else {
         return at;
     };
     let gs = glyphs(&line.cells);
     if let Some(idx) = index_at(&gs, at.col) {
         let mut j = idx;
-        while j < gs.len() && Class::of(gs[j].ch) == Class::Space {
+        while j < gs.len() && Class::of(gs[j].ch, separators) == Class::Space {
             j += 1;
         }
         if j < gs.len() {
-            let (_, end) = run_bounds(&gs, j);
+            let (_, end) = run_bounds(&gs, j, separators);
             return Pos::new(at.row, gs[end].to);
         }
     }
-    word_cross_next(image, at.row, first_word_end)
+    word_cross_next(image, at.row, separators, first_word_end)
 }
 
-pub(super) fn word_start_prev(image: &ScreenImage, at: Pos) -> Pos {
+pub(super) fn word_start_prev(image: &ScreenImage, at: Pos, separators: &str) -> Pos {
+    let separators = separators_or_default(separators);
     let Some(line) = image.line_at(at.row) else {
         return at;
     };
     let gs = glyphs(&line.cells);
     if let Some(idx) = index_at(&gs, at.col) {
-        let (start, _) = run_bounds(&gs, idx);
+        let (start, _) = run_bounds(&gs, idx, separators);
         // 词中间 → 先回本词词首；已经在词首或落在空白里 → 再往左找一个词。
-        if Class::of(gs[idx].ch) != Class::Space && gs[start].from < at.col {
+        if Class::of(gs[idx].ch, separators) != Class::Space && gs[start].from < at.col {
             return Pos::new(at.row, gs[start].from);
         }
         let mut j = start;
-        while j > 0 && Class::of(gs[j - 1].ch) == Class::Space {
+        while j > 0 && Class::of(gs[j - 1].ch, separators) == Class::Space {
             j -= 1;
         }
         if j > 0 {
-            let (s, _) = run_bounds(&gs, j - 1);
+            let (s, _) = run_bounds(&gs, j - 1, separators);
             return Pos::new(at.row, gs[s].from);
         }
     }
-    word_cross_prev(image, at.row, last_word_col)
+    word_cross_prev(image, at.row, separators, last_word_col)
 }
 
-pub(super) fn word_end_prev(image: &ScreenImage, at: Pos) -> Pos {
+pub(super) fn word_end_prev(image: &ScreenImage, at: Pos, separators: &str) -> Pos {
+    let separators = separators_or_default(separators);
     let Some(line) = image.line_at(at.row) else {
         return at;
     };
     let gs = glyphs(&line.cells);
     if let Some(idx) = index_at(&gs, at.col) {
-        let (start, _) = run_bounds(&gs, idx);
+        let (start, _) = run_bounds(&gs, idx, separators);
         let mut j = start;
-        while j > 0 && Class::of(gs[j - 1].ch) == Class::Space {
+        while j > 0 && Class::of(gs[j - 1].ch, separators) == Class::Space {
             j -= 1;
         }
         if j > 0 {
-            let (_, e) = run_bounds(&gs, j - 1);
+            let (_, e) = run_bounds(&gs, j - 1, separators);
             return Pos::new(at.row, gs[e].to);
         }
     }

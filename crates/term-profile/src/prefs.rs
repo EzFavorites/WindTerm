@@ -61,6 +61,13 @@ pub const TAB_ACTIVATE_MODES: usize = 3;
 pub const TAB_DOUBLE_CLICK_ACTIONS: usize = 2;
 /// `Tabs ▸ Tab text elide mode:` 的档数（不省略 / 左 / 右 / 中）。
 pub const TAB_ELIDE_MODES: usize = 4;
+/// `Tabs ▸ Show the tab number on tabs:` 的档数（不显示 / 前九个 / 全部）。
+pub const TAB_NUMBER_MODES: usize = 3;
+/// `Tabs ▸ Mouse Actions ▸ Middle click:` 的档数（没有动作 / 关闭标签）。
+pub const TAB_MIDDLE_CLICK_ACTIONS: usize = 2;
+/// `Tabs ▸ Mouse Actions ▸ Right click:` 的档数
+/// （标签菜单 / 关闭标签 / 没有动作）。
+pub const TAB_RIGHT_CLICK_ACTIONS: usize = 3;
 /// `Terminal ▸ Mouse Actions ▸ Right click:` 的档数
 /// （显示菜单 / 粘贴 / 有选区就复制、否则粘贴）。
 ///
@@ -238,6 +245,17 @@ pub struct Prefs {
     /// 1 = 省略左侧 / 2 = 省略右侧 / 3 = 省略中间。
     #[serde(default)]
     pub tab_elide: usize,
+    /// `Tabs ▸ Show the tab number on tabs:`：0 = 不显示（现状）/ 1 = 前九个 /
+    /// 2 = 全部。编号画在标题前，宽度由同一段文本量出来——不是另算一列。
+    #[serde(default)]
+    pub tab_numbers: usize,
+    /// `Tabs ▸ Mouse Actions ▸ Middle click:`：0 = 没有动作（现状）/ 1 = 关闭标签。
+    #[serde(default)]
+    pub tab_middle_click: usize,
+    /// `Tabs ▸ Mouse Actions ▸ Right click:`：0 = 标签菜单（现状）/ 1 = 关闭标签 /
+    /// 2 = 没有动作。
+    #[serde(default)]
+    pub tab_right_click: usize,
     /// hex 视图的**出厂参数**（设置 ▸ Binary 页那四个数）。
     ///
     /// 分界（用户 2026-11-11 定死）：这一层是「默认参数」，**只有设置页写**、
@@ -364,6 +382,21 @@ pub struct Prefs {
     /// 旧内容——所以它必须是一个用户亲手打开的开关，而不是默认值。
     #[serde(default)]
     pub copy_on_select: bool,
+    /// `Preferences ▸ Mouse Tracking` 的四个**事件掩码**（出厂全开 = 现状）。
+    ///
+    /// 底层协议只有「总开关 + mode + encoding」三档（`DECSET ?1000/1002/1003`
+    /// 等），没有「move / wheel / click / middle 各一个 bool」。这四个字段是
+    /// **投影层的掩码**：远端 DECSET 仍然决定编码档位，掩码只决定某一类本地
+    /// 指针事件要不要喂给编码器。双击没有对应协议事件（`term-core` 不报告
+    /// 双击），所以那一栏不是缺字段，而是没语义。
+    #[serde(default = "default_true")]
+    pub mouse_move_event: bool,
+    #[serde(default = "default_true")]
+    pub mouse_wheel_event: bool,
+    #[serde(default = "default_true")]
+    pub mouse_click_event: bool,
+    #[serde(default = "default_true")]
+    pub mouse_middle_event: bool,
     /// 快捷命令栏的三个显示开关。兼容终端 WindTerm 把它们放在 `user.config` 的
     /// `quickbar.*` 一组——**不**在 `quickbar.config`（那份只有命令表）。本应用
     /// 照兼容终端的位置放进 `prefs.json`，渲染期由 [`QuickBarDisplay`] 从 `Prefs` 读
@@ -379,6 +412,13 @@ pub struct Prefs {
     pub quickbar_show_group_title: bool,
     #[serde(default)]
     pub quickbar_alphabetical: bool,
+    /// `Toolbar / Menu ▸ Show address bar`：工具行右段那块 `#333333` 的
+    /// 面包屑面板（`(i) │ ▸ 分组 ▸ 会话`，点它开地址栏浮层）。
+    ///
+    /// 出厂 `true` = 现状（视觉基线里面板段一直在），所以升级不改外观；
+    /// 关掉只是不画那一段，左端按钮组与右端三件菜单原样保留。
+    #[serde(default = "default_true")]
+    pub show_address_bar: bool,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -578,6 +618,11 @@ impl Default for Prefs {
             tab_activate_after_close: 0,
             tab_double_click: 0,
             tab_elide: 0,
+            // 编号 / 中键 / 右键三档的 0 = 接线前的行为（不编号、中键无事、
+            // 右键弹标签菜单），老文件缺键时也是这个值。
+            tab_numbers: 0,
+            tab_middle_click: 0,
+            tab_right_click: 0,
             // 全 0 = 「没设置过」，由 `HexParams::from_prefs` 回落出厂值。
             hex_base: 0,
             hex_columns: 0,
@@ -603,11 +648,18 @@ impl Default for Prefs {
             // 右键出厂仍是「显示菜单」，选中即复制出厂关——两项都守现状。
             right_click_action: 0,
             copy_on_select: false,
+            // 四类鼠标事件出厂全报，缺键时也是全报（不改升级前的行为）。
+            mouse_move_event: true,
+            mouse_wheel_event: true,
+            mouse_click_event: true,
+            mouse_middle_event: true,
             // 快捷命令栏显示开关：出厂「显示多组 + 显示组标题 + 不按字母序」，
             // 与 serde 默认逐项对齐，守住视觉基线底栏。
             quickbar_show_multiple_groups: true,
             quickbar_show_group_title: true,
             quickbar_alphabetical: false,
+            // 地址栏面板出厂显示（与 serde `default_true` 对齐，守住视觉基线）。
+            show_address_bar: true,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
@@ -809,6 +861,33 @@ impl Prefs {
     pub fn tab_elide_mode(&self) -> usize {
         if self.tab_elide < TAB_ELIDE_MODES {
             self.tab_elide
+        } else {
+            0
+        }
+    }
+
+    /// `tab_numbers` 的生效值。越界回落 0 = 不显示（现状）。
+    pub fn tab_number_mode(&self) -> usize {
+        if self.tab_numbers < TAB_NUMBER_MODES {
+            self.tab_numbers
+        } else {
+            0
+        }
+    }
+
+    /// `tab_middle_click` 的生效值。越界回落 0 = 没有动作（现状）。
+    pub fn tab_middle_click_action(&self) -> usize {
+        if self.tab_middle_click < TAB_MIDDLE_CLICK_ACTIONS {
+            self.tab_middle_click
+        } else {
+            0
+        }
+    }
+
+    /// `tab_right_click` 的生效值。越界回落 0 = 标签菜单（现状）。
+    pub fn tab_right_click_action(&self) -> usize {
+        if self.tab_right_click < TAB_RIGHT_CLICK_ACTIONS {
+            self.tab_right_click
         } else {
             0
         }
@@ -1579,12 +1658,16 @@ mod tests {
 
     #[test]
     fn the_tab_prefs_default_to_todays_behaviour() {
-        // 三个字段的默认值都必须是**现状**：关标签夹到末位、双击没有动作、
-        // 标题不省略。改默认值等于升级一次就把用户的标签栏换了个样子。
+        // 六个字段的默认值都必须是**现状**：关标签夹到末位、双击没有动作、
+        // 标题不省略、不编号、中键无事、右键弹菜单。改默认值等于升级一次
+        // 就把用户的标签栏换了个样子。
         let prefs = Prefs::default();
         assert_eq!(prefs.tab_activate_after_close, 0);
         assert_eq!(prefs.tab_double_click, 0);
         assert_eq!(prefs.tab_elide, 0);
+        assert_eq!(prefs.tab_numbers, 0);
+        assert_eq!(prefs.tab_middle_click, 0);
+        assert_eq!(prefs.tab_right_click, 0);
         // 老文件缺这三个键：serde 默认与 `Default` 必须一致，否则「没有
         // prefs.json」与「文件里缺这一项」会走进两种行为。
         let path = tmp();
@@ -1593,22 +1676,35 @@ mod tests {
         assert_eq!(back.tab_activate_after_close_kind(), 0);
         assert_eq!(back.tab_double_click_action(), 0);
         assert_eq!(back.tab_elide_mode(), 0);
+        assert_eq!(back.tab_number_mode(), 0);
+        assert_eq!(back.tab_middle_click_action(), 0);
+        assert_eq!(back.tab_right_click_action(), 0);
+        // `show_address_bar` 相反：出厂就是显示，缺键也必须是显示（否则
+        // 升级一次地址栏就消失了）。
+        assert!(Prefs::default().show_address_bar, "地址栏面板出厂显示");
+        assert!(back.show_address_bar, "老文件缺这个键 = 沿用出厂态");
         assert_eq!(back.language, "en", "其余字段不许被连坐");
     }
 
     #[test]
     fn an_out_of_range_tab_index_reads_as_the_current_behaviour() {
-        // 手改文件写了 9：读取方拿到「下一个 / 没有动作 / 不省略」，
-        // 而不是 panic 或越界下标去索引标签列表。
+        // 手改文件写了 9：读取方拿到「下一个 / 没有动作 / 不省略 / 不编号 /
+        // 没有动作 / 标签菜单」，而不是 panic 或越界下标去索引标签列表。
         let prefs = Prefs {
             tab_activate_after_close: 9,
             tab_double_click: 9,
             tab_elide: 9,
+            tab_numbers: 9,
+            tab_middle_click: 9,
+            tab_right_click: 9,
             ..Prefs::default()
         };
         assert_eq!(prefs.tab_activate_after_close_kind(), 0);
         assert_eq!(prefs.tab_double_click_action(), 0);
         assert_eq!(prefs.tab_elide_mode(), 0);
+        assert_eq!(prefs.tab_number_mode(), 0);
+        assert_eq!(prefs.tab_middle_click_action(), 0);
+        assert_eq!(prefs.tab_right_click_action(), 0);
     }
 
     #[test]
@@ -1618,6 +1714,9 @@ mod tests {
             tab_activate_after_close: 2,
             tab_double_click: 1,
             tab_elide: 3,
+            tab_numbers: 2,
+            tab_middle_click: 1,
+            tab_right_click: 2,
             font_size: 17.5,
             ..Prefs::default()
         };
@@ -1626,6 +1725,9 @@ mod tests {
         assert_eq!(back.tab_activate_after_close_kind(), 2);
         assert_eq!(back.tab_double_click_action(), 1);
         assert_eq!(back.tab_elide_mode(), 3);
+        assert_eq!(back.tab_number_mode(), 2);
+        assert_eq!(back.tab_middle_click_action(), 1);
+        assert_eq!(back.tab_right_click_action(), 2);
         assert_eq!(back.font_size_value(), 17.5);
         assert!(back.focus_new_tab, "出厂 true 的字段不许被写坏");
     }
