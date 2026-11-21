@@ -5,18 +5,19 @@
 //! 某项「有没有实现」不在这里决定，由 `capability` 查 `Action::parse` 得出，
 //! UI 只负责把未实现的项画成置灰。
 //!
-//! **起是 114 项**（原 220）。**删掉的 106 条是原程序文本编辑器语义**，但**删除结论已于 2026-11-10 作废**：
-//! 这 106 条**是正常需求**，不是噪音（Hex 视图、折叠、边距/符号列/行尾/缩进引导、空白符显示、
-//! 编辑器式选择与移动、多选操作）——删菜单不可逆，会破坏视觉基线结构对齐（视觉基线判据）。
-//! 正确做法是**保留结构 + 逐波接线**。（2026-11-09）已补回 68 条（`menu_submenus.rs`），
-//! 2026-11-13 又从中接走 44 条（Hex 13 + Symbols 5 + White Spaces 5 + Goto 28 + Select Column To 10），
-//! 剩 62 条仍置灰，逐条处置见 `docs/design/12-capability-surface-and-menus.md`。菜单不是越全越好，长期置灰会把信噪比做没，
-//! 但让置灰项看得见「为什么置灰」+ 逐波接线比删菜单好。
+//! 菜单曾按「编辑器语义是噪音」删过一批，这个结论后来作废：那些项是正常需求
+//! （Hex 视图、折叠、边距与符号列、空白符显示、编辑器式选择与移动、多选操作）。
+//! 删菜单不可逆，还会破坏视觉基线的结构对齐，所以定下的做法是**保留结构 + 逐波接线**：
+//! 先按视觉基线把空子菜单补齐并登记为置灰，再逐步把其中真正能做的接成真开关。
+//! 置灰项是结构的一部分，逐条处置见 `docs/design/12-capability-surface-and-menus.md`。
+//! 菜单不是越全越好，但让置灰项看得见「为什么置灰」比删菜单好。
+//! 已接线数与置灰数不在这里写死，统一由能力清单的 `inventory()` 现算；写死的数字会随
+//! 每次接线立刻过期，能力面文档与断言才是唯一口径。
 //!
 //! **订正（按既有裁决，不是推翻之前的删除）**：父级子菜单的**结构**是
 //! independent 可观测的对齐对象，而「点开只有一条横线」比缺一项更坏。
-//! 所以 18 个空子菜单由 `menu_submenus.rs` 按视觉基线逐行补齐，
-//! 补进来的 68 条一律 `Planned`（置灰 + 理由 + 入册），
+//! 所以那些空子菜单由 `menu_submenus.rs` 按视觉基线逐行补齐，
+//! 补进来的条目一律 `Planned`（置灰 + 理由 + 入册），
 //! **一条都没假装接线**。删的是「长期无意义的灰项」，
 //! 补的是「用户看得见的结构」——两件事分开记账，
 //! 接线的进度看 `capability::counts()`，结构对齐的进度看子菜单判据。
@@ -114,10 +115,10 @@ pub enum Item {
 /// | Virtual Space | ☐ | 编辑器语义，已从本程序删除 |
     /// | Multiple Caret | ☐ | 同上 |
     ///
-    /// 2026-11-13 起多了一种 [`CheckState::Live`]：**这一行是个勾选框，
+    /// 另有一种 [`CheckState::Live`]：**这一行是个勾选框，
     /// 勾不勾由投影层按当前会话现读**。十行栅格可视化（`View ▸ Symbols`
     /// 四项 / `View ▸ White Spaces ▸ Hide All` / `Text ▸ Highlight Caret Line`）
-/// 走这一种——它们真的能切，而一个不跟着状态走的勾正是问题所在
+    /// 走这一种——它们真的能切，而一个不跟着状态走的勾正是问题所在
 /// （「有开关、没反馈」）。
     ///
     /// 谁来读：`apps/desktop/src/ui/shell/menu_items.rs::live_check`，走
@@ -148,14 +149,14 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
         ("Save Selection As", "Selection"),
         ("Close All Views", "All"),
         ("Close Window", "Window"),
-        // Log 子菜单（2026-11-08 视觉基线）：`Open L̲og File` 划 Log 的 L、
+        // Log 子菜单（视觉基线）：`Open L̲og File` 划 Log 的 L、
         // `Open Log F̲older` 划 Folder 的 F，避开重复的 O。
         ("Open Log File", "Log"),
         ("Open Log Folder", "Folder"),
-        // Mode 菜单（2026-11-08 视觉基线）：同一菜单里 `F̲ocus Mode` 先占了 F，
+        // Mode 菜单（视觉基线）：同一菜单里 `F̲ocus Mode` 先占了 F，
         // 紧跟的 `Focus Mode S̲ettings...` 于是划 Settings 的 S——视觉基线就是这样。
         ("Focus Mode Settings", "Settings"),
-        // Tool ▸ Transfer Binary（2026-11-17 视觉基线）：六行的下划线全钉在传输
+        // Tool ▸ Transfer Binary（视觉基线）：六行的下划线全钉在传输
         // 协议的字母上（`S̲end X̲Modem` → 划 X），不是首字母 `S` / `R`。
         // 六行同处一个子菜单，首字母全是 S、R 两个重复字母，划首位等于没划。
         ("Send XModem", "X"),
@@ -180,7 +181,7 @@ mod tests {
 
     /// 工具行 `>` 菜单、`＋` 派发命令、以及 `View ▸ Zoom` 的三条缩放命令
     /// 都必须是已接线。少一条就变成「点了没反应」的假菜单项。
-    /// 2026-11-15：标签条右端的字母已确认是 **group 名字**（不是字体缩放按钮），
+    /// 标签条右端的字母已确认是 **group 名字**（不是字体缩放按钮），
     /// 不再弹 Zoom 菜单；这三条 Zoom 命令仍由 `View ▸ Zoom` 独立入口消费，
     /// 所以这里继续守它们的接线状态。
     #[test]
@@ -199,7 +200,7 @@ mod tests {
         assert_eq!(TAB_TOOLS, &[TabTool::GroupName, TabTool::NewTab, TabTool::TabList]);
     }
 
-    /// 2026-11-17 用户点名：「右上角布局按钮展开内容不对，目前 list 只有 2 个」。
+    /// 用户反馈[「"]右上角布局按钮展开内容不对，目前 list 只有 2 个」。
     ///
     /// 判据要钉在**带的数量**上，而不是「下拉里有几行」：`DockZone::ALL` 是三条，
     /// 下拉就必须逐条给出口，少一条的症状是「某条带永远收不起来」，而菜单仍然
@@ -224,7 +225,7 @@ mod tests {
         }
     }
 
-    /// 2026-11-17 Tunnels 视觉基线：配置对话框在三个地方露出——菜单栏 `Tunnels`
+    /// Tunnels 视觉基线：配置对话框在三个地方露出——菜单栏 `Tunnels`
     /// 下拉第二行、`Tool ▸ Tunnel Settings`、以及 `Window ▸ Panes` 里的总线开关。
     /// 这里守的是前两个的**位置关系**：兼容终端 `Tool ▸ Tunnels` 打开的就是编辑器，
     /// 本仓那条先占了「在跑的面板」，所以设置单独给一行，且必须紧跟在它后面——
@@ -261,7 +262,7 @@ mod tests {
         }
     }
 
-    /// 2026-11-08 视觉基线：Session 菜单的快捷键列与访问字母下划线。
+    /// 视觉基线：Session 菜单的快捷键列与访问字母下划线。
     /// 快捷键按 id 查（改标签文案不动快捷键）；下划线五个例外词 +
     /// 默认首字母，谁动了这里立刻显形。
     #[test]
@@ -286,7 +287,7 @@ mod tests {
         assert_eq!(access_char_pos("Open Log Folder"), Some(9));
     }
 
-    /// 2026-11-08 视觉基线：Log 子菜单是四组，文案比旧版短；命令 ID 一个都不动
+    /// 视觉基线：Log 子菜单是四组，文案比旧版短；命令 ID 一个都不动
     /// （capability 台账、派发、命令中心路径都靠它）。
     #[test]
     fn log_submenu_matches_the_reference_four_groups() {
