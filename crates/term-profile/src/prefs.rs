@@ -439,6 +439,13 @@ pub struct Prefs {
     /// 悬停多久才切换（毫秒），出厂 200ms。
     #[serde(default = "default_200")]
     pub tab_hover_delay_ms: u32,
+    /// Preferences ▸ Proxy 的全局默认：0 = 不用 / 1 = HTTP / 2 = SOCKS5。
+    #[serde(default)]
+    pub global_proxy_type: usize,
+    #[serde(default)]
+    pub global_proxy_host: String,
+    #[serde(default)]
+    pub global_proxy_port: u16,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -689,6 +696,9 @@ impl Default for Prefs {
             prefer_theme_fonts: false,
             tab_hover_activate: false,
             tab_hover_delay_ms: 200,
+            global_proxy_type: 0,
+            global_proxy_host: String::new(),
+            global_proxy_port: 0,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),

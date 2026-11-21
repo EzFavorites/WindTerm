@@ -411,7 +411,28 @@ impl std::fmt::Display for ConfigError {
 
 impl std::error::Error for ConfigError {}
 
+/// 全局默认代理。Preferences ▸ Proxy 存这一份，会话没配代理时用它。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GlobalProxy {
+    pub kind: ProxyType,
+    pub host: String,
+    pub port: u16,
+}
+
 impl SessionConfig {
+    /// 会话自己没选代理时，回落到全局默认。已选 Jump / Http / Socks5 的一律不动。
+    pub fn apply_global_proxy(&mut self, global: Option<&GlobalProxy>) {
+        let Some(global) = global else {
+            return;
+        };
+        if self.effective_proxy_type() != ProxyType::None {
+            return;
+        }
+        self.proxy_type = global.kind.tag().to_string();
+        self.proxy_host = global.host.trim().to_string();
+        self.proxy_port = global.port;
+    }
+
     pub fn new(protocol: Protocol) -> Self {
         Self {
             name: match protocol {
@@ -1211,6 +1232,28 @@ mod tests {
         assert_eq!(get("Proxy Type"), "Http proxy");
         assert_eq!(get("Proxy Host"), "gw.example");
         assert_eq!(get("Proxy Port"), "3128");
+    }
+
+    #[test]
+    fn a_global_proxy_only_fills_a_session_that_has_none() {
+        let global = GlobalProxy {
+            kind: ProxyType::Socks5,
+            host: " gw.example ".to_string(),
+            port: 1080,
+        };
+        let mut bare = SessionConfig::new(Protocol::Ssh);
+        bare.apply_global_proxy(Some(&global));
+        assert_eq!(bare.effective_proxy_type(), ProxyType::Socks5);
+        assert_eq!(bare.proxy_host, "gw.example");
+        assert_eq!(bare.proxy_port, 1080);
+
+        // 会话自己配了 Http：全局默认一个字段都不许改。
+        let mut own = bare.clone();
+        own.proxy_type = ProxyType::Http.tag().to_string();
+        own.proxy_host = "own.example".to_string();
+        own.apply_global_proxy(Some(&global));
+        assert_eq!(own.effective_proxy_type(), ProxyType::Http);
+        assert_eq!(own.proxy_host, "own.example");
     }
 }
 

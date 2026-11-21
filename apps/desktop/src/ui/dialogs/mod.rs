@@ -32,6 +32,7 @@ mod settings_live;
 mod settings_live_binary;
 mod settings_live_font;
 mod settings_live_search;
+mod settings_live_proxy;
 mod settings_live_security;
 mod settings_live_tabs;
 // ：Quick Bar 页三项从灰显占位接成真控件（读写 QuickBarDisplay / Prefs）。

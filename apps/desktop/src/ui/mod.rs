@@ -103,8 +103,7 @@ use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_inde
 use term_app::log::LogAction; use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
 use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
 use term_app::state::ViewState; use term_app::viewport::Viewport;
-use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
-use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
+use term_core::grid::{Rgb, GridSnapshot, ScreenImage}; use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
 use term_core::theme::Palette; use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
 /// Cell padding around the grid, in points.
@@ -283,6 +282,8 @@ pub struct TerminalWindow {
     auto_reconnect: bool, prefer_theme_fonts: bool,
     /// 悬停激活：当前悬停的会话与起算时刻。
     tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
+    /// Preferences ▸ Proxy：全局默认代理的运行期副本。
+    global_proxy_type: usize, global_proxy_host: String, global_proxy_port: u16,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各

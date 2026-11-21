@@ -163,14 +163,9 @@ use super::*;
     /// 视觉基线里这些取值是**照抄**的，不是我们编的默认值；抄错一个字就该红。
     #[test]
     fn the_copied_values_still_match_the_reference() {
-        let proxy = page_spec(SettingsPage::Proxy).unwrap();
-        match &proxy.blocks[0] {
-            Block::Rows(rows) => match rows[0] {
-                Row::Combo { value, .. } => assert_eq!(value, "No proxy"),
-                _ => panic!("Proxy 页第一行应是整宽下拉"),
-            },
-            _ => panic!("Proxy 页只有一块散行"),
-        }
+        // Proxy 页 2026-11-21 起是 live 页：默认值与可选项在 settings_live_proxy。
+        assert!(page_spec(SettingsPage::Proxy).is_none());
+        assert_eq!(page_note(SettingsPage::Proxy), "");
         // Binary 页已改成 live 页（读数必须每帧从 `win.hex` 读），不再是数据表里
         // 的常量行。那两处拼写照抄的证据现在在 `settings_live_binary`：`devision`
         // 是视觉基线自己的拼写，改成 `division` 那边就红。

@@ -45,7 +45,7 @@ use term_core::channel::TermChannel;
 use term_core::coords::ViewRange;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::onekey::OneKey;
-use term_core::session::{ConfigError, Protocol, SessionConfig};
+use term_core::session::{ConfigError, GlobalProxy, Protocol, SessionConfig};
 use term_core::session_runtime::{
     ClipboardRequest, LogStatus, OutputReader, Session, SessionId, SessionState, SessionStatus,
     WaitError, WaitRegistration,
@@ -156,6 +156,8 @@ pub struct SessionPool {
     /// 与 `factory` 不同，这份**可以反复灌**：工厂是代码（装两次就是两个实现
     /// 在抢同一件事），方案是数据（用户改完一个方案就该立刻生效）。
     onekeys: Mutex<Vec<OneKey>>,
+    /// Preferences ▸ Proxy 的运行期副本；会话没配代理时回落到它。
+    global_proxy: Mutex<Option<GlobalProxy>>,
 }
 
 /// ADR-0024：让会话名在池内唯一（名字是**寻址键**，歧义必须在插入时消掉）。
@@ -206,6 +208,7 @@ impl SessionPool {
             sessions: Mutex::new(HashMap::new()),
             factory: OnceLock::new(),
             onekeys: Mutex::new(Vec::new()),
+            global_proxy: Mutex::new(None),
         }
     }
 
@@ -266,8 +269,21 @@ impl SessionPool {
     /// OneKey 在这里先落地（[`resolve_onekey`](Self::resolve_onekey)）：系统
     /// `ssh` 的命令行由 `SpawnPlan` 从这份配置拼出来，**不在这一句之前覆盖，
     /// 那条路径上的方案就永远读不到**——它不经过任何应用层代码。
+    /// 灌入 Preferences ▸ Proxy 的全局默认。构造时一次，设置页改完再推一次。
+    pub fn set_global_proxy(&self, proxy: Option<GlobalProxy>) {
+        let mut guard = lock_or_recover(&self.global_proxy);
+        *guard = proxy;
+    }
+
+    /// 会话自己没配代理就套上全局默认，再过 OneKey 覆盖。
+    fn resolve_proxy(&self, config: &SessionConfig) -> SessionConfig {
+        let mut resolved = config.clone();
+        resolved.apply_global_proxy(lock_or_recover(&self.global_proxy).as_ref());
+        resolved
+    }
+
     pub fn open(&self, config: &SessionConfig, cols: usize, rows: usize) -> Result<SessionId, OpenError> {
-        let config = &self.resolve_onekey(config);
+        let config = &self.resolve_onekey(&self.resolve_proxy(config));
         if config.protocol == Protocol::Ssh && config.builtin_ssh {
             let Some(factory) = self.factory.get() else {
                 return Err(OpenError::BuiltinChannelNeedsInjection);
@@ -303,7 +319,7 @@ impl SessionPool {
         rows: usize,
         channel: Box<dyn TermChannel>,
     ) -> SessionId {
-        let config = &self.resolve_onekey(config);
+        let config = &self.resolve_onekey(&self.resolve_proxy(config));
         let handle = spawn_with_channel(config.clone(), cols, rows, channel);
         self.insert(config.name.clone(), handle)
     }

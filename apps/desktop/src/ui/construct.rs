@@ -7,8 +7,27 @@
 use super::*;
 // 目录树里的两个新模块 ：`use super::*` 看不到私有 `mod`，要显式引入。
 use crate::ui::{comp, harness};
+use term_profile::prefs::Prefs;
 use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
+
+/// prefs 里的全局代理 → 控制面能认的类型；0 档 / 缺主机 / 缺端口都当没配。
+fn global_proxy_from_prefs(prefs: &Prefs) -> Option<term_core::session::GlobalProxy> {
+    use term_core::session::{GlobalProxy, ProxyType};
+    let kind = match prefs.global_proxy_type {
+        1 => ProxyType::Http,
+        2 => ProxyType::Socks5,
+        _ => return None,
+    };
+    if prefs.global_proxy_host.trim().is_empty() || prefs.global_proxy_port == 0 {
+        return None;
+    }
+    Some(GlobalProxy {
+        kind,
+        host: prefs.global_proxy_host.clone(),
+        port: prefs.global_proxy_port,
+    })
+}
 
 impl TerminalWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -36,6 +55,7 @@ impl TerminalWindow {
         // 第二写入者：之后的每一次切换都走 `ShellAction::SetLanguage` → reduce。
         // 同一份 prefs 还带着两个「不再提示」抑制位（关闭确认弹窗用）。
         let prefs = term_runtime::prefs::load().unwrap_or_default();
+        pool.set_global_proxy(global_proxy_from_prefs(&prefs));
         // OneKey 方案表必须在**第一条会话之前**就位：控制面只在自己开会话时
         // 读它（`SessionPool::resolve_onekey`），而系统 `ssh` 那条路径不经过
         // 任何界面代码。晚一步推，下面 `make_tab` 起的那条 tab 就已经按
@@ -252,6 +272,9 @@ impl TerminalWindow {
             tab_hover_activate: prefs.tab_hover_activate,
             tab_hover_delay_ms: prefs.tab_hover_delay_ms,
             tab_hover: None,
+            global_proxy_type: prefs.global_proxy_type,
+            global_proxy_host: prefs.global_proxy_host.clone(),
+            global_proxy_port: prefs.global_proxy_port,
             clipboard_requests: Vec::new(),
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。

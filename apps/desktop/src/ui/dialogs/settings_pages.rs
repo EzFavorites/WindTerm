@@ -123,16 +123,8 @@ pub(in crate::ui) const DISABLED_NOTE: &str = "Not stored yet: these settings co
 //
 // 长度上限照 `WRAP_NOTE` / `HIGHLIGHT_NOTE`：说明框在右栏定宽，再长会被截断。
 
-/// `Proxy` 页。缺的是**全局默认**这一层，不是「加个字段」：
-///
-/// - 逐会话代理是**活的**：New Session ▸ SSH ▸ Proxy 页的 Proxy Type /
-///   Host / Port 都落在 `SessionConfig` 上，内置 SSH 与系统 `ssh` 两条建连
-///   路径都读它（`SessionConfig::outbound_proxy_spec`）。所以「没有任何代理
-///   层」是**过期说法**，那句曾经让这一页看起来比实际更没做。
-/// - 全局默认缺两层：`Prefs`（`term-runtime`）里没有 proxy 字段，选中的
-///   类型无处可落；也没有一处「会话没配代理时回落到全局」的接线。
-const PROXY_NOTE: &str = "Not wired: a global default proxy has no field in Prefs and no fallback \
-     path into a connection. Per-session proxies live in New Session ▸ Proxy and do work.";
+// `Proxy` 页 2026-11-21 起由 `settings_live_proxy` 绘制：全局默认代理有 Prefs
+// 字段，控制面在开会话前给「没选代理」的会话套上它。逐会话 Proxy 仍优先。
 
 // `Security` 页 2026-11-21 起由 `settings_live_security` 绘制：锁屏超时有
 // 窗口级活动时钟与定时器（见 `ui/lock_timeout.rs`），登录向导那组此前已删除。
@@ -235,7 +227,7 @@ const ONEKEYS_NOTE: &str = "Credentials stored here are used automatically by SS
 /// 缺什么」是那一页自己的事，混进这张按页查的表里就成了按页抄的第二份文案。
 pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
     match page {
-        SettingsPage::Proxy => PROXY_NOTE,
+        SettingsPage::Proxy => "", // live 页，全局默认说明在页内
         SettingsPage::Security => "", // live 页，超时说明在页内
         SettingsPage::AutoCompletion => "", // live 页，无灰显说明
         SettingsPage::MouseTracking => "", // live 页，掩码说明在页内
@@ -313,11 +305,8 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         | SettingsPage::AutoCompletion
         | SettingsPage::Triggers
         | SettingsPage::OneKeys
-        | SettingsPage::Security => return None,
-        SettingsPage::Proxy => PageSpec {
-            title: "Proxy Type",
-            blocks: &[Block::Rows(&[Row::Combo { label: "", value: "No proxy" }])],
-        },
+        | SettingsPage::Security
+        | SettingsPage::Proxy => return None,
         // Highlight 页 2026-11-19 接成真控件（settings_live_highlight）：
         // caret line 一行有完整读者（Prefs + Tab.marks + 渲染器），接真；
         // 其余三行仍按数据表画法灰显，说明跟着页搬到 live 文件
