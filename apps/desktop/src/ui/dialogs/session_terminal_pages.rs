@@ -32,7 +32,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         2 => logging_page(win, ui),
         3 => selection_page(win, ui),
         17 => bell_page(ui),
-        18 => mode_page(ui),
+        18 => mode_page(win, ui),
         19 => security_page(ui),
         // 组头自己那两页 ：点组名不再只是折叠。
         22 => terminal_group_page(ui),
@@ -262,16 +262,34 @@ fn bell_page(ui: &mut egui::Ui) {
 }
 
 /// 18 `Terminal ▾ Mode`：视觉基线 `common/05-mode.png` 的三个初始模式 + 两组键模式。
-fn mode_page(ui: &mut egui::Ui) {
-    let (mut awm, mut lnm, mut rsm) = (true, false, false);
+fn mode_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let (mut lnm, mut rsm) = (false, false);
+    let mut awm = win.new_session.initial_auto_wrap;
+    let mut cursor_keys = usize::from(win.new_session.initial_cursor_keys_application);
+    let mut numeric = 0usize;
     ui.label("Initial modes:");
-    ui.add_enabled(false, egui::Checkbox::new(&mut awm, "Auto Wrap Mode (DECAWM)"));
-    ui.add_enabled(false, egui::Checkbox::new(&mut lnm, "New Line Mode (LNM)"));
-    ui.add_enabled(false, egui::Checkbox::new(&mut rsm, "Reverse Screen Mode (DECSCNM)"));
+    if ui
+        .checkbox(&mut awm, "Auto Wrap Mode (DECAWM)")
+        .changed()
+    {
+        win.new_session.initial_auto_wrap = awm;
+    }
+    ui.add_enabled(false, egui::Checkbox::new(&mut lnm, "New Line Mode (LNM)"))
+        .on_disabled_hover_text(
+            "The VT has no LNM state yet: it always treats LF as a line feed only. \
+             Storing a choice would not change any byte written to the screen.",
+        );
+    ui.add_enabled(false, egui::Checkbox::new(&mut rsm, "Reverse Screen Mode (DECSCNM)"))
+        .on_disabled_hover_text(
+            "The renderer has no reverse-screen pass, so there is no state for this \
+             switch to set.",
+        );
     ui.add_space(6.0);
     ui.label("Cursor Keys mode (DECCKM):");
-    for name in ["Normal", "Application"] {
-        ui.add_enabled(false, egui::RadioButton::new(name == "Normal", name));
+    for (i, name) in ["Normal", "Application"].iter().enumerate() {
+        if ui.radio_value(&mut cursor_keys, i, *name).changed() {
+            win.new_session.initial_cursor_keys_application = cursor_keys == 1;
+        }
     }
     ui.label("Numeric keypad mode (DECNKM):");
     for name in ["Normal", "Application"] {
@@ -279,8 +297,9 @@ fn mode_page(ui: &mut egui::Ui) {
     }
     placeholder_note(
         ui,
-        "DEC private modes belong to the terminal engine, not to the session \
-         profile: the engine decides them from the remote's escape sequences.",
+        "Auto wrap and the cursor-key mode are written into the VT at startup; the remote may \
+         still change them with DECSET/DECRST. LNM, reverse screen and numeric keypad have no \
+         engine state yet — see each row's tooltip.",
     );
 }
 

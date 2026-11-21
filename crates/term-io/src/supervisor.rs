@@ -817,6 +817,15 @@ fn initial_size(config: &SessionConfig, cols: usize, rows: usize) -> (usize, usi
     }
 }
 
+/// 把会话页上那两项初始 DEC 模式写进刚造好的 VT。
+///
+/// 只有内核真有的状态才接受配置：LNM / DECSCNM / DECNKM 没有对应字段，
+/// 所以那三行在会话页仍按灰显画，不会把「存了却没生效」的假开关带进来。
+fn apply_initial_modes(vt: &mut Terminal, config: &SessionConfig) {
+    vt.autowrap = config.initial_auto_wrap;
+    vt.application_cursor_keys = config.initial_cursor_keys_application;
+}
+
 fn start(
     config: SessionConfig,
     cols: usize,
@@ -854,6 +863,10 @@ fn start(
             //
             // 崩溃**不是**静默的：`exit_note` 写一句可读的原因，状态栏照常显示，
             // 用户能看懂「这条会话内部出错」而不是「莫名其妙掉线」。
+            // 初始 DEC 模式在造 VT 时一次写入：远端随后发来的 DECSET/DECRST
+            // 照常覆盖，这里只决定「还没收到任何转义序列时」的状态。
+            let mut vt = Terminal::new(init_cols, init_rows, scrollback);
+            apply_initial_modes(&mut vt, &config);
             let note = Arc::clone(&worker_exit_note);
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 run(
@@ -862,7 +875,7 @@ fn start(
                     ev_tx,
                     worker_mailbox,
                     worker_exit_note,
-                    Terminal::new(init_cols, init_rows, scrollback),
+                    vt,
                 )
             }));
             if let Err(payload) = outcome {
@@ -1545,6 +1558,24 @@ mod tests {
     use super::*;
     use crate::channel::TermChannel;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
+
+    #[test]
+    fn initial_dec_modes_come_from_the_session_config() {
+        // 出厂配置必须与 `Terminal::new` 的出厂态一致，否则升级一次就把所有
+        // 已有会话的换行 / 方向键行为改掉了。
+        let mut vt = Terminal::new(80, 24, 100);
+        let default = SessionConfig::new(Protocol::Shell);
+        apply_initial_modes(&mut vt, &default);
+        assert!(vt.autowrap);
+        assert!(!vt.application_cursor_keys);
+
+        let mut custom = default.clone();
+        custom.initial_auto_wrap = false;
+        custom.initial_cursor_keys_application = true;
+        apply_initial_modes(&mut vt, &custom);
+        assert!(!vt.autowrap, "关掉 DECAWM 要真的落到 VT 上");
+        assert!(vt.application_cursor_keys, "DECCKM 应用模式要真的落到 VT 上");
+    }
 
     /// 不起真实进程的确定性通道，用来端到端验证「意图上行 → 事实下行」。
     struct MockChannel {

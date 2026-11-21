@@ -147,6 +147,8 @@ impl TerminalWindow {
                 word_separators: String::new(),
                 word_separators_alt: String::new(),
                 sftp_preserve_mtime: true,
+                initial_auto_wrap: true,
+                initial_cursor_keys_application: false,
                 logon_script: String::new(),
                 cols: term_core::config::DEFAULT_COLS,
                 rows: term_core::config::DEFAULT_ROWS,

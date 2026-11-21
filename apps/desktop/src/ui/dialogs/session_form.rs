@@ -103,6 +103,9 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) word_separators_alt: String,
     /// `Sftp ▸ Preserve original file modification time`（传输时写回 mtime）。
     pub(in crate::ui) sftp_preserve_mtime: bool,
+    /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
+    pub(in crate::ui) initial_auto_wrap: bool,
+    pub(in crate::ui) initial_cursor_keys_application: bool,
     /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
@@ -158,6 +161,8 @@ impl NewSessionData {
             onekey: config.onekey.clone(),
             sftp: config.sftp,
             sftp_preserve_mtime: config.sftp_preserve_mtime,
+            initial_auto_wrap: config.initial_auto_wrap,
+            initial_cursor_keys_application: config.initial_cursor_keys_application,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
             selected_page: 0,
@@ -239,6 +244,8 @@ impl NewSessionData {
         c.onekey = self.onekey.clone();
         c.sftp = self.sftp;
         c.sftp_preserve_mtime = self.sftp_preserve_mtime;
+        c.initial_auto_wrap = self.initial_auto_wrap;
+        c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
@@ -619,6 +626,8 @@ mod tests {
         old.onekey = "Ctrl+A".to_string();
         old.sftp = false;
         old.sftp_preserve_mtime = false;
+        old.initial_auto_wrap = false;
+        old.initial_cursor_keys_application = true;
         old.sysmon = true;
         let mut f = NewSessionData::from_config(&old);
         assert_eq!(f.system, "windows");
@@ -626,6 +635,8 @@ mod tests {
         assert_eq!(f.onekey, "Ctrl+A");
         assert!(!f.sftp);
         assert!(!f.sftp_preserve_mtime);
+        assert!(!f.initial_auto_wrap);
+        assert!(f.initial_cursor_keys_application);
         assert!(f.sysmon);
 
         // 改一遍再落盘，确认 to_config 写的是表单值而非 base 的旧值。
@@ -634,6 +645,8 @@ mod tests {
         f.onekey = "None".to_string();
         f.sftp = true;
         f.sftp_preserve_mtime = true;
+        f.initial_auto_wrap = true;
+        f.initial_cursor_keys_application = false;
         f.sysmon = false;
         let saved = f.to_config(old);
         assert_eq!(saved.system, "macos");
@@ -641,6 +654,8 @@ mod tests {
         assert_eq!(saved.onekey, "None");
         assert!(saved.sftp);
         assert!(saved.sftp_preserve_mtime);
+        assert!(saved.initial_auto_wrap);
+        assert!(!saved.initial_cursor_keys_application);
         assert!(!saved.sysmon);
     }
 
@@ -654,6 +669,8 @@ mod tests {
         assert_eq!(f.onekey, "None");
         assert!(f.sftp, "WindTerm 默认 Sftp 开");
         assert!(f.sftp_preserve_mtime, "WindTerm 默认保留文件 mtime");
+        assert!(f.initial_auto_wrap, "默认自动换行与内核出厂态一致");
+        assert!(!f.initial_cursor_keys_application, "默认方向键是 Normal");
         assert!(!f.sysmon, "WindTerm 默认 Sysmon 关");
         assert!(f.shell_command.is_empty(), "Shell 协议未填命令时为空");
     }

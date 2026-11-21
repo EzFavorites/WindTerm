@@ -209,6 +209,16 @@ pub struct SessionConfig {
     /// **与页面上原本就画成勾的样子一致**，不是升级后偷偷改变外观。
     #[serde(default = "default_true")]
     pub sftp_preserve_mtime: bool,
+    /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
+    ///
+    /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
+    /// `DECSET/DECRST 7` 仍会覆盖它（初始模式只是开机画面）。
+    #[serde(default = "default_true")]
+    pub initial_auto_wrap: bool,
+    /// `Terminal ▾ Mode ▸ Cursor Keys mode (DECCKM)` 的初始值。
+    /// `true` = 方向键发 `ESC O A`（应用模式），出厂 `false` = `ESC [ A`。
+    #[serde(default)]
+    pub initial_cursor_keys_application: bool,
     /// 系统监控开关（WindTerm 默认 OFF）。
     #[serde(default)]
     pub sysmon: bool,
@@ -375,6 +385,8 @@ impl SessionConfig {
             onekey: "None".to_string(),
             sftp: true,
             sftp_preserve_mtime: true,
+            initial_auto_wrap: true,
+            initial_cursor_keys_application: false,
             sysmon: false,
             shell_command: String::new(),
             description: String::new(),
