@@ -18,6 +18,8 @@
 | [12-capability-surface-and-menus.md](12-capability-surface-and-menus.md) | 能力面三态、命令标识、菜单结构与命令面板 |
 | [13-ui-shell.md](13-ui-shell.md) | 窗口壳、状态栏、快捷栏、通知条、命令面板 |
 | [14-scope-and-requirements.md](14-scope-and-requirements.md) | 功能范围、明确不做、需求条目格式、版本阶段 |
+| [15-persistence-and-file-layout.md](15-persistence-and-file-layout.md) | profile 目录、原子写与多进程、启动期搬迁、档案层边界、各文件职责 |
+| [16-io-and-threads.md](16-io-and-threads.md) | 会话 IO 与线程层：通道、监管线程、快照邮箱、字节分流、会话日志、本地文件 IO |
 
 ## 阅读顺序
 

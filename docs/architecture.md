@@ -13,7 +13,8 @@ crates/term-core  (纯 VT 与终端语义：无 I/O、无 UI、无 OS 句柄)
 ```
 
 依赖方向单向：上层可以依赖下层，下层不知道上层存在。副作用集中在少数叶子
-crate，经 `term-runtime` 的门面进入，而不是散落在 UI 里。
+crate，而不是散落在 UI 里。`term-runtime` 只是这些实现的兼容门面：旧导入路径
+经它解析，新代码直接依赖实现 crate。
 
 ## crate 职责
 
@@ -21,9 +22,9 @@ crate，经 `term-runtime` 的门面进入，而不是散落在 UI 里。
 |---|---|---|
 | `term-core` | VT 解析、屏幕模型、选择与回滚、主题与键位模型 | 零 `egui` / `eframe` / `epaint` / `winit`；零副作用 |
 | `term-app` | 动作定义、reducer、菜单树、能力面注册、i18n | 不持有 OS 资源，不直接碰 UI 框架类型 |
-| `term-runtime` | 每会话运行时：PTY 通道、监管者、会话日志 | 把网络与 IO 能力收在门面后 |
+| `term-runtime` | 兼容门面：旧路径的再导出，本身无实现 | 新代码不得依赖；依赖方向由构建门禁守住 |
 | `term-session` | 会话控制面：创建、状态、销毁 | 只做控制，不做渲染 |
-| `term-io` | PTY / 串口 / 会话日志的读写 | 不依赖 UI |
+| `term-io` | 会话 IO 与线程层：PTY / 串口 / Telnet 通道、每会话监管线程、快照邮箱、会话日志、本地文件 IO | 持有 OS 句柄，但不依赖 UI、档案层与异步运行时 |
 | `term-ssh` | SSH 客户端（russh）：认证、通道、SFTP 子系统 | `tokio` 允许出现 |
 | `term-tunnel` | `-L` / `-R` / `-D` 隧道 | `tokio` 允许出现 |
 | `term-sftp` | SFTP 客户端与连接池 | `tokio` 允许出现 |
