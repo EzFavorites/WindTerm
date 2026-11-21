@@ -423,8 +423,9 @@ pub struct Prefs {
     /// 打开后菜单条收成一条细带，指针靠近顶端或按住 Alt 时展开。
     #[serde(default)]
     pub auto_hide_menu_bar: bool,
-    /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）。出厂 0 = 不自动锁。
-    #[serde(default)]
+    /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）。
+    /// 出厂 1800 = 30 分钟，与官方文档默认一致；0 = 不自动锁。
+    #[serde(default = "default_1800")]
     pub lock_timeout_secs: u32,
     /// `Preferences ▸ Behaviour ▸ Reconnect automatically when the connection drops`。
     /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
@@ -579,6 +580,9 @@ fn default_true() -> bool {
 fn default_200() -> u32 {
     200
 }
+fn default_1800() -> u32 {
+    1800
+}
 
 /// 窗口不透明度的出厂默认（1.0 = 完全不透明）。f32 的 `Default` 是 0.0，
 /// 不能用在 serde `default` 上，否则老文件缺键会回落成「全透明」——那比「回落成
@@ -694,7 +698,7 @@ impl Default for Prefs {
             // 地址栏面板出厂显示（与 serde `default_true` 对齐，守住视觉基线）。
             show_address_bar: true,
             auto_hide_menu_bar: false,
-            lock_timeout_secs: 0,
+            lock_timeout_secs: 1800,
             auto_reconnect: false,
             prefer_theme_fonts: false,
             tab_hover_activate: false,
@@ -1728,8 +1732,8 @@ mod tests {
         assert!(back.show_address_bar, "老文件缺这个键 = 沿用出厂态");
         assert!(!Prefs::default().auto_hide_menu_bar, "菜单栏出厂常驻");
         assert!(!back.auto_hide_menu_bar, "老文件缺这个键 = 菜单栏仍常驻");
-        assert_eq!(Prefs::default().lock_timeout_secs, 0, "出厂不自动锁");
-        assert_eq!(back.lock_timeout_secs, 0, "老文件缺键 = 仍不自动锁");
+        assert_eq!(Prefs::default().lock_timeout_secs, 1800, "默认 30 分钟");
+        assert_eq!(back.lock_timeout_secs, 1800, "老文件缺键 = 文档默认 30 分钟");
         assert!(!Prefs::default().auto_reconnect, "出厂不自动重连");
         assert!(!back.auto_reconnect, "老文件缺键 = 仍不自动重连");
         assert_eq!(back.language, "en", "其余字段不许被连坐");
