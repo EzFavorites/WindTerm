@@ -1,4 +1,4 @@
-//! `Tabs` 页：六行**真控件** + 两行灰显（部分真，与 `settings_live_text` 同一套写法）。
+//! `Tabs` 页：七行**真控件** + 一行灰显（部分真，与 `settings_live_text` 同一套写法）。
 //!
 //! # 哪三行是真的
 //!
@@ -12,12 +12,11 @@
 //! - `Tab text elide mode:` → `Prefs.tab_elide`，读者是 `shell::tab_bar` 画
 //!   标题那一处（按字符截断，不按字节）。
 //!
-//! 其余两行各自缺的是**不同的东西**，所以逐行写清（悬停 + 页底同一份理由），
-//! 而不是共用一句「尚未实现」：
-//! - 悬停激活：缺「悬停延时切换」的定时器。
-//! - 缩略图：全新子系统（没有预览面，也没有任何东西画它）。
+//! 仅剩缩略图一行灰显：它是全新子系统（没有预览面，也没有任何东西画它）。
 //!
-//! 2026-11-21 起又接真三行：编号、中键、右键。
+//! 2026-11-21 起又接真四行：悬停激活、编号、中键、右键。
+//! - `Activate the tab after hovering:` → `Prefs.tab_hover_activate` / 延时毫秒，
+//!   判据在 `ui/tab_hover.rs`（停够时间才切，点击 / 拖动不抢）。
 //! - `Show the tab number on tabs:` → `Prefs.tab_numbers`（不显示 / 前九个 /
 //!   全部）。编号拼进标题再走同一条 `layout_no_wrap`，宽度自然变宽，
 //!   读者是 `shell::tab_bar::tab_number_prefix`（全窗与分屏两条标签条共用）。
@@ -63,20 +62,29 @@ const MIDDLE_ACTIONS: [&str; TAB_MIDDLE_CLICK_ACTIONS] = ["No action", "Close ta
 /// 右键三档。默认「标签菜单」= 接线前的行为（`resp.context_menu` 无条件注册）。
 const RIGHT_ACTIONS: [&str; TAB_RIGHT_CLICK_ACTIONS] = ["Tab context menu", "Close tab", "No action"];
 
-/// 悬停激活缺的是一段定时器。
-const HOVER_NOTE: &str = "Not wired: switching on hover needs a per-tab hover timer (the strip \
-     has no delay clock), and a strip that switches while the pointer merely passes over it \
-     steals focus from whatever you are typing in.";
+/// 悬停激活的四档：0 = 关闭，其余是毫秒数。
+const HOVER_DELAYS: [u32; 4] = [0, 200, 500, 1000];
+const HOVER_MODES: [&str; 4] = ["Off", "0.2 seconds", "0.5 seconds", "1 second"];
+
+fn hover_index(enabled: bool, delay_ms: u32) -> usize {
+    if !enabled {
+        return 0;
+    }
+    HOVER_DELAYS
+        .iter()
+        .position(|d| *d == delay_ms)
+        .unwrap_or(1)
+}
 
 /// 编号那一行 2026-11-21 接真（`tab_number_prefix`）。
 /// 缩略图仍是全新子系统（没有预览面，也没有任何东西画它）。
 const THUMBNAIL_NOTE: &str = "Not wired: thumbnails are a new subsystem — the strip has no \
      per-tab preview surface and nothing renders one.";
 
-/// 页底说明：哪六行当场生效、其余两行各缺什么。
-const TABS_NOTE: &str = "Activation after closing, double-click, text elision, tab numbers and \
-     the middle / right click actions apply immediately. Hover activation needs a delay timer, and \
-     thumbnails are a new subsystem — see each row's tooltip.";
+/// 页底说明：除缩略图外每行都当场生效。
+const TABS_NOTE: &str = "Activation after closing, hover activation, double-click, text elision, \
+     tab numbers and the middle / right click actions apply immediately. Thumbnails are a new \
+     subsystem — see the row's tooltip.";
 
 /// 一行**真下拉**：与灰显行共用 `field_row`（标签、字段框、行距都是同一份），
 /// 区别只有「控件能不能点」。
@@ -116,6 +124,7 @@ fn live_combo(
 /// `Tabs` 页。三档改完立刻写进窗口上的副本（本帧剩下的绘制按新值走）并落盘。
 pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut activate = win.tab_activate_after_close;
+    let mut hover = hover_index(win.tab_hover_activate, win.tab_hover_delay_ms);
     let mut double = win.tab_double_click;
     let mut elide = win.tab_elide;
     let mut numbers = win.tab_numbers;
@@ -138,14 +147,14 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &mut activate,
         );
         // 灰显行直接复用数据页那一套 `Row`：同一页里两种行只差「能不能点」。
-        draw_row(
+        changed |= live_combo(
             ui,
-            &Row::ComboAbove {
-                label: "Activate the tab after hovering:",
-                value: "0.2 seconds",
-            },
-            HOVER_NOTE,
+            "prefs_tab_hover",
+            "Activate the tab after hovering:",
+            Slot::Above,
             0.0,
+            &HOVER_MODES,
+            &mut hover,
         );
         changed |= live_combo(
             ui,
@@ -215,6 +224,11 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         // 先改内存里的副本（标签条 / 关闭逻辑读到的是同一份），再 load-modify-save。
         // 只写这六个字段：语言 / 字号 / 光标样式 / 启动策略原样保留。
         win.tab_activate_after_close = activate;
+        win.tab_hover_activate = hover != 0;
+        win.tab_hover_delay_ms = HOVER_DELAYS[hover];
+        if !win.tab_hover_activate {
+            win.tab_hover = None;
+        }
         win.tab_double_click = double;
         win.tab_elide = elide;
         win.tab_numbers = numbers;
@@ -222,6 +236,8 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         win.tab_right_click = right;
         save_prefs(|prefs| {
             prefs.tab_activate_after_close = activate;
+            prefs.tab_hover_activate = win.tab_hover_activate;
+            prefs.tab_hover_delay_ms = win.tab_hover_delay_ms;
             prefs.tab_double_click = double;
             prefs.tab_elide = elide;
             prefs.tab_numbers = numbers;
@@ -256,16 +272,22 @@ mod tests {
     }
 
     #[test]
-    fn the_page_note_names_every_dead_row_and_why() {
-        // 两行灰显缺的是两种不同的东西，页底要能逐个对上；
-        // 一句「尚未实现」对下一个人没有信息量。
-        for needle in ["delay timer", "subsystem"] {
-            assert!(TABS_NOTE.contains(needle), "页底缺少「{needle}」这一条理由");
-        }
-        // 哪几行当场生效也要写清，否则用户不知道点了有没有用。
+    fn the_page_note_names_the_only_dead_row_and_why() {
+        // 只剩缩略图一行灰显；页底要点名它缺的是什么。
+        assert!(TABS_NOTE.contains("subsystem"), "页底要说明缩略图缺的层");
         assert!(TABS_NOTE.contains("immediately"));
-        // 接真之后，页底不能再点名这些行缺字段（否则是反向的谎）。
         assert!(!TABS_NOTE.contains("width algorithm"), "编号已接真");
         assert!(!TABS_NOTE.contains("action set"), "中键/右键已接真");
+        assert!(!TABS_NOTE.contains("delay timer"), "悬停激活已接真");
+    }
+
+    #[test]
+    fn the_hover_options_map_to_the_stored_delay() {
+        assert_eq!(hover_index(false, 200), 0);
+        assert_eq!(hover_index(true, 200), 1);
+        assert_eq!(hover_index(true, 500), 2);
+        assert_eq!(hover_index(true, 1000), 3);
+        // 手改了非档位值：显示 0.2 秒，不 panic。
+        assert_eq!(hover_index(true, 999), 1);
     }
 }

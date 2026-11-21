@@ -249,6 +249,9 @@ impl TerminalWindow {
             last_lock_activity: 0.0,
             auto_reconnect: prefs.auto_reconnect,
             prefer_theme_fonts: prefs.prefer_theme_fonts,
+            tab_hover_activate: prefs.tab_hover_activate,
+            tab_hover_delay_ms: prefs.tab_hover_delay_ms,
+            tab_hover: None,
             clipboard_requests: Vec::new(),
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。

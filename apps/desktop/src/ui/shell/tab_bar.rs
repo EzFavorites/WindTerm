@@ -182,6 +182,17 @@ impl TerminalWindow {
             } else if resp.drag_stopped() {
                 self.drag_released_this_frame = true;
             }
+            // 悬停激活：同一条标签停够设置里的毫秒数才切；点击 / 拖动期间不抢。
+            let identity = self.tabs[i].identity;
+            crate::ui::tab_hover::note_hover(
+                self,
+                ui,
+                i,
+                identity,
+                resp.hovered(),
+                is_active,
+                resp.dragged(),
+            );
             match self.tab_right_click {
                 1 => {
                     if resp.secondary_clicked() {

@@ -142,11 +142,7 @@ pub struct Palette {
 #[derive(Deserialize)]
 struct ThemeFile {
     styles: Vec<StyleEntry>,
-    /// 可选：主题自带的字体。`Prefer theme fonts` 打开时优先用它。
-    font: Option<ThemeFont>,
 }
-
-use crate::theme_font::ThemeFont;
 
 #[derive(Deserialize)]
 struct StyleEntry {

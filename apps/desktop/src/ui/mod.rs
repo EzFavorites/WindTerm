@@ -31,6 +31,7 @@ mod overlays;
 mod panels;
 mod shell;
 mod tab;
+mod tab_hover;
 mod terminal;
 mod tr;
 // ADR-0021 R2：纯计算 / 几何规格层（零 egui）。Trigger 对话框是第一个真实迁入的面板。
@@ -80,8 +81,7 @@ mod window_opacity_tests;
 #[path = "app_state_tests.rs"]
 mod app_state_tests;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::HashMap; use std::sync::Arc;
 
 use dialogs::SettingsData; use dialogs::{unique_name, Connector, NewSessionData, SessionDialogKind};
 use layout::{DockLayout, Layout, PaneGroup, PaneId}; use shell::{ToolAction, ToolButton};
@@ -97,8 +97,7 @@ pub(crate) use comp::comp_list;
 use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
 pub(in crate::ui) use tr::t;
 use crate::ui::shell::draw_find_bar;
-use eframe::egui; use egui::emath::Align2;
-use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
+use eframe::egui; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index};
 use term_app::log::LogAction; use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
@@ -282,6 +281,8 @@ pub struct TerminalWindow {
     lock_timeout_secs: u32, last_lock_activity: f64,
     /// `Preferences ▸ Behaviour ▸ Reconnect automatically`（出厂关）。
     auto_reconnect: bool, prefer_theme_fonts: bool,
+    /// 悬停激活：当前悬停的会话与起算时刻。
+    tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各

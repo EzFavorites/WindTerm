@@ -433,6 +433,12 @@ pub struct Prefs {
     /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 false（主题通常没声明字体）。
     #[serde(default)]
     pub prefer_theme_fonts: bool,
+    /// `Tabs ▸ Activate the tab after hovering`：出厂关（悬停切焦点会抢输入）。
+    #[serde(default)]
+    pub tab_hover_activate: bool,
+    /// 悬停多久才切换（毫秒），出厂 200ms。
+    #[serde(default = "default_200")]
+    pub tab_hover_delay_ms: u32,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -560,6 +566,9 @@ pub struct Prefs {
 fn default_true() -> bool {
     true
 }
+fn default_200() -> u32 {
+    200
+}
 
 /// 窗口不透明度的出厂默认（1.0 = 完全不透明）。f32 的 `Default` 是 0.0，
 /// 不能用在 serde `default` 上，否则老文件缺键会回落成「全透明」——那比「回落成
@@ -678,6 +687,8 @@ impl Default for Prefs {
             lock_timeout_secs: 0,
             auto_reconnect: false,
             prefer_theme_fonts: false,
+            tab_hover_activate: false,
+            tab_hover_delay_ms: 200,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
