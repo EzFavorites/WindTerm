@@ -1,4 +1,4 @@
-//! `Tabs` 页：七行**真控件** + 一行灰显（部分真，与 `settings_live_text` 同一套写法）。
+//! `Tabs` 页：八行全是**真控件**。
 //!
 //! # 哪三行是真的
 //!
@@ -12,9 +12,10 @@
 //! - `Tab text elide mode:` → `Prefs.tab_elide`，读者是 `shell::tab_bar` 画
 //!   标题那一处（按字符截断，不按字节）。
 //!
-//! 仅剩缩略图一行灰显：它是全新子系统（没有预览面，也没有任何东西画它）。
+//! 缩略图用事实窗口的 cell 画小色块图（`ui/tab_thumbnail.rs`），
+//! 占标签宽度的百分比可调，0 = 关闭。
 //!
-//! 2026-11-21 起又接真四行：悬停激活、编号、中键、右键。
+//! 2026-11-21 起又接真五行：悬停激活、编号、缩略图、中键、右键。
 //! - `Activate the tab after hovering:` → `Prefs.tab_hover_activate` / 延时毫秒，
 //!   判据在 `ui/tab_hover.rs`（停够时间才切，点击 / 拖动不抢）。
 //! - `Show the tab number on tabs:` → `Prefs.tab_numbers`（不显示 / 前九个 /
@@ -30,8 +31,7 @@
 //! 「这项已生效」，而它们零读者。
 
 use super::settings_live::save_prefs;
-use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, field_row, group_box, label_col, set_row_rhythm, Slot};
+use super::settings_pages_view::{field_row, group_box, label_col, set_row_rhythm, Slot};
 use crate::ui::shell::ELIDE_MODES;
 use crate::ui::*;
 use term_runtime::prefs::{
@@ -76,15 +76,17 @@ fn hover_index(enabled: bool, delay_ms: u32) -> usize {
         .unwrap_or(1)
 }
 
-/// 编号那一行 2026-11-21 接真（`tab_number_prefix`）。
-/// 缩略图仍是全新子系统（没有预览面，也没有任何东西画它）。
-const THUMBNAIL_NOTE: &str = "Not wired: thumbnails are a new subsystem — the strip has no \
-     per-tab preview surface and nothing renders one.";
+/// 缩略图大小档位：0 = 关闭，其余是相对标签宽度的百分比。
+const THUMBNAILS: [usize; 4] = [0, 20, 40, 60];
+const THUMBNAIL_MODES: [&str; 4] = ["Off", "20 %", "40 %", "60 %"];
 
-/// 页底说明：除缩略图外每行都当场生效。
+fn thumbnail_index(pct: usize) -> usize {
+    THUMBNAILS.iter().position(|v| *v == pct).unwrap_or(0)
+}
+
+/// 页底说明：所有行都当场生效。
 const TABS_NOTE: &str = "Activation after closing, hover activation, double-click, text elision, \
-     tab numbers and the middle / right click actions apply immediately. Thumbnails are a new \
-     subsystem — see the row's tooltip.";
+     tab numbers, thumbnails and the middle / right click actions all apply immediately.";
 
 /// 一行**真下拉**：与灰显行共用 `field_row`（标签、字段框、行距都是同一份），
 /// 区别只有「控件能不能点」。
@@ -125,6 +127,7 @@ fn live_combo(
 pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut activate = win.tab_activate_after_close;
     let mut hover = hover_index(win.tab_hover_activate, win.tab_hover_delay_ms);
+    let mut thumbnail = thumbnail_index(win.tab_thumbnail_pct);
     let mut double = win.tab_double_click;
     let mut elide = win.tab_elide;
     let mut numbers = win.tab_numbers;
@@ -175,14 +178,14 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &ELIDE_MODES,
             &mut elide,
         );
-        draw_row(
+        changed |= live_combo(
             ui,
-            &Row::Spin {
-                label: "Tab thumbnail radio:",
-                value: "40 %",
-            },
-            THUMBNAIL_NOTE,
+            "prefs_tab_thumbnail",
+            "Tab thumbnail radio:",
+            Slot::Inline,
             col,
+            &THUMBNAIL_MODES,
+            &mut thumbnail,
         );
     });
 
@@ -229,6 +232,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         if !win.tab_hover_activate {
             win.tab_hover = None;
         }
+        win.tab_thumbnail_pct = THUMBNAILS[thumbnail];
         win.tab_double_click = double;
         win.tab_elide = elide;
         win.tab_numbers = numbers;
@@ -238,6 +242,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             prefs.tab_activate_after_close = activate;
             prefs.tab_hover_activate = win.tab_hover_activate;
             prefs.tab_hover_delay_ms = win.tab_hover_delay_ms;
+            prefs.tab_thumbnail_pct = win.tab_thumbnail_pct;
             prefs.tab_double_click = double;
             prefs.tab_elide = elide;
             prefs.tab_numbers = numbers;
@@ -272,13 +277,21 @@ mod tests {
     }
 
     #[test]
-    fn the_page_note_names_the_only_dead_row_and_why() {
-        // 只剩缩略图一行灰显；页底要点名它缺的是什么。
-        assert!(TABS_NOTE.contains("subsystem"), "页底要说明缩略图缺的层");
+    fn the_page_note_claims_every_row_is_live() {
         assert!(TABS_NOTE.contains("immediately"));
+        assert!(!TABS_NOTE.contains("subsystem"), "缩略图已接真");
         assert!(!TABS_NOTE.contains("width algorithm"), "编号已接真");
         assert!(!TABS_NOTE.contains("action set"), "中键/右键已接真");
         assert!(!TABS_NOTE.contains("delay timer"), "悬停激活已接真");
+    }
+
+    #[test]
+    fn the_thumbnail_options_map_to_percentages() {
+        assert_eq!(thumbnail_index(0), 0);
+        assert_eq!(thumbnail_index(20), 1);
+        assert_eq!(thumbnail_index(40), 2);
+        assert_eq!(thumbnail_index(60), 3);
+        assert_eq!(thumbnail_index(999), 0);
     }
 
     #[test]

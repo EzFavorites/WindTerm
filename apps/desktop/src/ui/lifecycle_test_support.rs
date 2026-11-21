@@ -235,6 +235,7 @@ pub(in crate::ui) fn window_with(
         global_proxy_type: 0,
         global_proxy_host: String::new(),
         global_proxy_port: 0,
+        tab_thumbnail_pct: 0,
         clipboard_requests: Vec::new(),
         clipboard_ask: None,
         triggers: Vec::new(),

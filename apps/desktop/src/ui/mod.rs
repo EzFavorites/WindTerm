@@ -33,6 +33,7 @@ mod panels;
 mod shell;
 mod tab;
 mod tab_hover;
+mod tab_thumbnail;
 mod terminal;
 mod tr;
 // ADR-0021 R2：纯计算 / 几何规格层（零 egui）。Trigger 对话框是第一个真实迁入的面板。
@@ -90,15 +91,11 @@ use layout::{DockLayout, Layout, PaneGroup, PaneId}; use shell::{ToolAction, Too
 use terminal::make_tab;
 
 /// `--demo comp:<name>` 的合法取值，供命令行报错用（名单只有 `comp` 一份）。
-pub(crate) use comp::comp_names;
-
-/// 组件名 + 是否已冻结基线，给 `--list-components` 用（比对脚本据此遍历）。
-pub(crate) use comp::comp_list;
+pub(crate) use comp::comp_names; pub(crate) use comp::comp_list;
 
 use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
 pub(in crate::ui) use tr::t;
-use crate::ui::shell::draw_find_bar;
-use eframe::egui; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
+use crate::ui::shell::draw_find_bar; use eframe::egui; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index};
 use term_app::log::LogAction; use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
@@ -284,6 +281,7 @@ pub struct TerminalWindow {
     tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
     /// Preferences ▸ Proxy：全局默认代理的运行期副本。
     global_proxy_type: usize, global_proxy_host: String, global_proxy_port: u16,
+    tab_thumbnail_pct: usize,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各

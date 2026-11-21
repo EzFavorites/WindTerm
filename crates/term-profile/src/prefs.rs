@@ -446,6 +446,9 @@ pub struct Prefs {
     pub global_proxy_host: String,
     #[serde(default)]
     pub global_proxy_port: u16,
+    /// `Tabs ▸ Tab thumbnail radio`：缩略图相对标签宽度的百分比，0 = 关闭。
+    #[serde(default)]
+    pub tab_thumbnail_pct: usize,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -699,6 +702,7 @@ impl Default for Prefs {
             global_proxy_type: 0,
             global_proxy_host: String::new(),
             global_proxy_port: 0,
+            tab_thumbnail_pct: 0,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),

@@ -184,6 +184,16 @@ impl TerminalWindow {
             }
             // 悬停激活：同一条标签停够设置里的毫秒数才切；点击 / 拖动期间不抢。
             let identity = self.tabs[i].identity;
+            if self.tab_thumbnail_pct > 0 && resp.hovered() && !resp.dragged() {
+                let pct = self.tab_thumbnail_pct;
+                crate::ui::tab_thumbnail::paint(
+                    ui,
+                    rect,
+                    &self.tabs[i].view,
+                    &self.palette,
+                    pct,
+                );
+            }
             crate::ui::tab_hover::note_hover(
                 self,
                 ui,
