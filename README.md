@@ -5,8 +5,8 @@ A cross-platform terminal emulator for the desktop, written in Rust and built on
 semantics live in a pure crate with no I/O, no windowing, and no OS handles.
 
 > **Status:** `v1.0.0`. Core, connection, and transfer paths are implemented and
-> covered by an automated test suite (2000+ assertions). A small number of
-> heavyweight UI features are still being wired.
+> covered by an automated test suite (`cargo test --workspace` for the current
+> count). A small number of heavyweight UI features are still being wired.
 
 ## Highlights
 
@@ -37,7 +37,7 @@ semantics live in a pure crate with no I/O, no windowing, and no OS handles.
 crates/
   term-core       pure VT and terminal semantics (no I/O, no UI)
   term-app        application/domain logic, menus, capability registration
-  term-runtime    per-session runtime: PTY, supervisor, channels
+  term-runtime    compatibility facade: re-exports of the old import paths
   term-session    session control plane
   term-script     Rhai scripting engine
   term-bridge     JSON-RPC bridge
@@ -49,7 +49,8 @@ crates/
   term-vault      encrypted credential vault
   term-store      SQLite session library
   term-import     session import (MobaXterm exports)
-  term-io         PTY / serial / session logging
+  term-io         session I/O and threads: PTY / serial / Telnet channels,
+                  per-session supervisor, snapshot mailbox, session logging
   term-paths      path rules and data directories
   term-profile    user profile: preferences, layout, quick bar
 apps/
@@ -57,9 +58,11 @@ apps/
 ```
 
 Dependency direction is strictly one-way: `apps/desktop → term-app → term-core`,
-with side-effect crates (`term-ssh` / `term-tunnel` / `term-sftp`) isolated
-behind `term-runtime`. `tokio` is confined to those three network crates; the
-desktop UI performs zero `.await`.
+with side effects concentrated in a few leaf crates (`term-io`, `term-ssh`,
+`term-tunnel`, `term-sftp`). `tokio` is confined to those three network crates;
+the desktop UI performs zero `.await`. `term-runtime` is a compatibility facade
+over the old import paths only — new code depends on the implementation crates
+directly, and the dependency direction is enforced by the build gates.
 
 ## Installing
 
@@ -117,8 +120,11 @@ bash scripts/package-release.sh aarch64-apple-darwin 1.0.0 \
 - [`docs/scripting.md`](docs/scripting.md) — the Rhai API and the JSON-RPC
   bridge.
 - [`docs/design/README.md`](docs/design/README.md) — per-module design
-  documents: sessions and connection, terminal core, files and transfer,
-  scripting, UI shell, and the scope baseline.
+  documents: sessions and connection, terminal core, selection/find/scrollback,
+  tabs and layout, files and transfer, credentials, scripting and automation,
+  tmux, import and onboarding, crash hardening, theme and visual baseline,
+  capability surface and menus, UI shell, scope and requirements, persistence,
+  session I/O and threads.
 - [`docs/adr/README.md`](docs/adr/README.md) — architecture decision records,
   one decision per number, with superseded links.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to run the gates before sending a

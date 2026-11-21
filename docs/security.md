@@ -25,11 +25,18 @@
 | 内容 | 位置 | 说明 |
 |---|---|---|
 | 会话库 | `profile_dir/sessions.db` | SQLite；不含明文密码 |
-| 保险库 | `profile_dir/vault.*` | Argon2 加密 |
-| 偏好 / 布局 | `profile_dir/` 下的配置文件 | 人可读，便于备份与进版本控制 |
+| 保险库 | `profile_dir/vault.ztv` | Argon2 加密；扩展名是自造的，与普通数据文件区分 |
+| 偏好 / 布局 / 快捷栏 | `profile_dir/` 下的配置文件 | 人可读，便于备份与进版本控制 |
+| 命令历史 | `profile_dir/command_history.json` | 明文；不含经 `secret` 取的凭据 |
 | 会话日志 | 用户指定或默认目录 | 默认关闭；写入前做转义清洗 |
 
-`profile_dir` 由 `term-paths` 决定，可用 `WINDTERM_PROFILE_DIR` 覆盖。
+`profile_dir` 由 `term-paths` 决定，可用 `WINDTERM_PROFILE_DIR` 覆盖。目录布局、
+原子写规则、启动期搬迁与各文件的完整职责见
+[持久化与文件布局](design/15-persistence-and-file-layout.md)。
+
+所有整文件写入都走"同目录临时文件 + 改名"：临时名唯一（进程标识 + 时间戳 +
+序号），多进程共享同一份配置目录时不会互相覆盖。配置文件读失败不会被默认值
+静默覆盖。
 
 ## 网络面
 
