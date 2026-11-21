@@ -293,6 +293,23 @@ pub fn crt_template_to_ours(tpl: &str) -> String {
     out
 }
 
+const WEEKDAYS_SHORT: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAYS_LONG: [&str; 7] = [
+    "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+];
+const MONTHS_SHORT: [&str; 12] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+const MONTHS_LONG: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September",
+    "October", "November", "December",
+];
+
+/// `1970-01-01` 是周四；结果 0 = 周日。
+fn weekday_index(secs: u64) -> usize {
+    ((secs / 86_400) as i64 + 4).rem_euclid(7) as usize
+}
+
 /// 单个 `%X` 的展开（文件名与内容模板共用）。
 fn expand_one(next: Option<char>, session: &str, body: Option<&str>, secs: u64) -> String {
     let (y, mo, d, h, mi, s) = ymd_hms(secs);
@@ -319,6 +336,24 @@ fn expand_one(next: Option<char>, session: &str, body: Option<&str>, secs: u64) 
         Some('S') => {
             let _ = write!(out, "{s:02}");
         }
+        Some('a') => out.push_str(WEEKDAYS_SHORT[weekday_index(secs)]),
+        Some('A') => out.push_str(WEEKDAYS_LONG[weekday_index(secs)]),
+        Some('b') => out.push_str(MONTHS_SHORT[(mo as usize).saturating_sub(1).min(11)]),
+        Some('B') => out.push_str(MONTHS_LONG[(mo as usize).saturating_sub(1).min(11)]),
+        Some('C') => {
+            let _ = write!(out, "{:02}", y.div_euclid(100));
+        }
+        Some('e') => {
+            let _ = write!(out, "{d:2}");
+        }
+        Some('I') => {
+            let hour12 = match h % 12 {
+                0 => 12,
+                other => other,
+            };
+            let _ = write!(out, "{hour12:02}");
+        }
+        Some('p') => out.push_str(if h < 12 { "AM" } else { "PM" }),
         Some('n') => out.push_str(&slug(session)),
         Some('v') => match body {
             Some(b) => out.push_str(b),
@@ -445,6 +480,24 @@ mod tests {
 
     /// 2026-11-05T08:24:12Z（与 `log.rs` 的既有判据同一个锚点，别自己算）。
     const T: u64 = 1_793_867_052;
+
+    #[test]
+    fn the_document_placeholders_expand_to_the_same_utc_instant() {
+        // 2026-11-05 是周四、11 月、08:24（12 小时制 08 AM）。
+        assert_eq!(expand_one(Some('a'), "s", None, T), "Thu");
+        assert_eq!(expand_one(Some('A'), "s", None, T), "Thursday");
+        assert_eq!(expand_one(Some('b'), "s", None, T), "Nov");
+        assert_eq!(expand_one(Some('B'), "s", None, T), "November");
+        assert_eq!(expand_one(Some('C'), "s", None, T), "20");
+        assert_eq!(expand_one(Some('e'), "s", None, T), " 5");
+        assert_eq!(expand_one(Some('I'), "s", None, T), "08");
+        assert_eq!(expand_one(Some('p'), "s", None, T), "AM");
+        // 13 点应该是 01 PM；1970-01-01 是周四。
+        let midday = 13 * 3600;
+        assert_eq!(expand_one(Some('I'), "s", None, midday), "01");
+        assert_eq!(expand_one(Some('p'), "s", None, midday), "PM");
+        assert_eq!(expand_one(Some('a'), "s", None, 0), "Thu");
+    }
 
     #[test]
     fn the_default_name_template_matches_the_reference_screenshot() {
