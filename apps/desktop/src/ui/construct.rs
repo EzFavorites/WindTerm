@@ -149,6 +149,8 @@ impl TerminalWindow {
                 sftp_preserve_mtime: true,
                 sftp_preserve_dir_mtime: false,
                 sftp_fix_invalid_path: true,
+                clipboard_read_policy: 0,
+                clipboard_write_policy: 0,
                 initial_auto_wrap: true,
                 initial_cursor_keys_application: false,
                 backspace_sends: 0,
@@ -232,6 +234,8 @@ impl TerminalWindow {
             lock_timeout_secs: prefs.lock_timeout_secs,
             last_lock_activity: 0.0,
             auto_reconnect: prefs.auto_reconnect,
+            clipboard_requests: Vec::new(),
+            clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
             triggers: prefs.triggers.clone(),

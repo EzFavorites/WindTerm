@@ -30,8 +30,8 @@ use term_core::ansi::TextCleaner;
 use term_core::coords::ViewRange;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::session_runtime::{
-    Cancel, FacetKind, OutputReader, Session, SessionState, WaitError, WaitMatch,
-    WaitRegistration,
+    Cancel, ClipboardRequest, FacetKind, OutputReader, Session, SessionState, WaitError,
+    WaitMatch, WaitRegistration,
 };
 use term_core::vt::Terminal;
 use term_core::session::{Protocol, SessionConfig};
@@ -58,6 +58,8 @@ pub use term_core::session_runtime::SessionStatus;
 
 enum Command {
     Write(Vec<u8>),
+    /// UI 批准 `OSC 52` 读取后回送的剪贴板文本；VT 负责编码成应答写回 PTY。
+    ClipboardAnswer(String),
     Resize(usize, usize),
     Clear,
     /// 只丢历史（屏幕留着）。与 `Clear` 分开：兼容终端把「清屏 / 清历史 / 两者都清」
@@ -167,6 +169,8 @@ enum Event {
     /// （ADR-0028）。旧 `Screen` 变体一字不改。
     PreviewScreen(ScreenImage),
     Finished(String),
+    /// `OSC 52` 请求，由 UI 按会话策略放行 / 拒绝。
+    Clipboard(ClipboardRequest),
     /// 日志状态变化（开始 / 暂停 / 恢复 / 停止 / 失败）。
     ///
     /// 只在**变化**时发，不跟着每块输出发：字节数由界面直接问文件，
@@ -249,6 +253,8 @@ pub struct SupervisorHandle {
     pub status: SessionStatus,
     /// 会话日志状态（关闭 / 记录中 / 已暂停 / 失败）。
     pub log: LogStatus,
+    /// 本帧累积的 `OSC 52` 请求，UI 取走后按会话策略处理。
+    clipboard_requests: Vec<ClipboardRequest>,
     last_size: (usize, usize),
     /// 退出原因的最后落点（与监管者线程共享）。
     ///
@@ -285,6 +291,10 @@ impl SupervisorHandle {
                     self.status.alive = false;
                     changed = true;
                 }
+                Event::Clipboard(req) => {
+                    self.clipboard_requests.push(req);
+                    changed = true;
+                }
                 Event::Log(st) => {
                     self.log = st;
                     changed = true;
@@ -292,6 +302,16 @@ impl SupervisorHandle {
             }
         }
         changed
+    }
+
+    /// 取走本帧累积的 `OSC 52` 请求。策略在 UI 层，这里只搬运。
+    pub fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
+        std::mem::take(&mut self.clipboard_requests)
+    }
+
+    /// 回送用户批准的剪贴板文本（仅对 `ClipboardRequest::Read` 有意义）。
+    pub fn answer_clipboard(&self, text: String) {
+        self.send_cmd(Command::ClipboardAnswer(text));
     }
 
     /// 注入唤醒回调。UI 传 `ctx.request_repaint()`，让「有输出」能立刻重绘。
@@ -910,6 +930,7 @@ fn start(
             exit_status: None,
         },
         log: LogStatus::default(),
+        clipboard_requests: Vec::new(),
         last_size: (init_cols, init_rows),
         exit_note,
     }
@@ -976,6 +997,13 @@ fn run(
                 // P：预览请求进独立队列（ADR-0028）。
                 Command::RequestPreview(r) => preview_requested.push(r),
                 Command::Write(b) => ch.write(&b),
+                Command::ClipboardAnswer(text) => {
+                    vt.answer_clipboard(&text);
+                    let replies = vt.take_replies();
+                    if !replies.is_empty() {
+                        ch.write(&replies);
+                    }
+                }
                 Command::Resize(c, r) => {
                     ch.resize(c, r);
                     vt.resize(c, r);
@@ -1188,6 +1216,14 @@ fn run(
                 if vt.bell_seq != bells_before {
                     bell.on_bell();
                 }
+                // `OSC 52` 的请求只在这里取走一次：剪贴板归 UI 线程，这里只
+                // 把意图送出去，绝不自己读窗口系统。
+                if let Some(text) = vt.clipboard_request.take() {
+                    let _ = ev_tx.send(Event::Clipboard(ClipboardRequest::Write(text)));
+                }
+                if vt.clipboard_query.take().is_some() {
+                    let _ = ev_tx.send(Event::Clipboard(ClipboardRequest::Read));
+                }
                 let replies = vt.take_replies();
                 if !replies.is_empty() {
                     ch.write(&replies);
@@ -1388,6 +1424,14 @@ impl Session for SupervisedSession {
 
     fn screen(&self) -> Option<GridSnapshot> {
         self.handle.snapshot_once()
+    }
+
+    fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
+        self.handle.take_clipboard_requests()
+    }
+
+    fn answer_clipboard(&self, text: String) {
+        self.handle.answer_clipboard(text);
     }
 
     fn state(&self) -> SessionState {

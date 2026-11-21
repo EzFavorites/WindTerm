@@ -16,7 +16,7 @@
 //! **划分原则**：固定框架 / 可停靠 / 临时覆盖 / 模态，四类生命周期不同，
 //! 混在一起就是 此前那个 1,586 行的 `mod.rs`。
 
-mod comp;
+mod clipboard_policy; mod comp;
 mod construct;
 mod dialogs;
 mod dispatch;
@@ -101,8 +101,7 @@ use eframe::egui; use egui::emath::Align2;
 use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index};
-use term_app::log::LogAction;
-use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
+use term_app::log::LogAction; use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
 use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
 use term_app::state::ViewState; use term_app::viewport::Viewport;
 use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
@@ -283,6 +282,8 @@ pub struct TerminalWindow {
     lock_timeout_secs: u32, last_lock_activity: f64,
     /// `Preferences ▸ Behaviour ▸ Reconnect automatically`（出厂关）。
     auto_reconnect: bool,
+    /// `OSC 52` 请求队列与正在等用户确认的那一条。
+    clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -892,7 +893,7 @@ impl TerminalWindow {
                 changed = true;
             }
         }
-        self.poll_auto_reconnect();
+        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。

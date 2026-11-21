@@ -215,6 +215,15 @@ impl LogStatus {
 ///   用 `screen()` 取当前屏；
 /// - `screen_window` 恒 `None` → 界面显示空帧，而不是显示上一次的陈旧窗口；
 /// - `log_status` 恒 `Off` → 界面看到的是「没在记」，不会以为记上了。
+/// 远端通过 `OSC 52` 提出的剪贴板请求（协议无关，控制面与 UI 都能认）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClipboardRequest {
+    /// 想把这段文本写到系统剪贴板。
+    Write(String),
+    /// 想读取系统剪贴板（UI 批准后用 `Session::answer_clipboard` 回送）。
+    Read,
+}
+
 pub trait Session: Send {
     fn id(&self) -> SessionId;
 
@@ -271,6 +280,14 @@ pub trait Session: Send {
     fn snapshot(&self) -> Option<GridSnapshot> {
         self.screen()
     }
+
+    /// 取走本帧的 `OSC 52` 请求。默认空表——脚本 / 桥接不接剪贴板。
+    fn take_clipboard_requests(&mut self) -> Vec<ClipboardRequest> {
+        Vec::new()
+    }
+
+    /// 回送用户批准的剪贴板文本（仅对 `ClipboardRequest::Read` 有意义）。
+    fn answer_clipboard(&self, _text: String) {}
 
     /// 运行时状态（连接 / 存活 / 退出文本）。
     fn status(&self) -> SessionStatus {

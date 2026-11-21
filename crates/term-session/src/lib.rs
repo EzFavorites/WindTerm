@@ -47,8 +47,8 @@ use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::onekey::OneKey;
 use term_core::session::{ConfigError, Protocol, SessionConfig};
 use term_core::session_runtime::{
-    LogStatus, OutputReader, Session, SessionId, SessionState, SessionStatus, WaitError,
-    WaitRegistration,
+    ClipboardRequest, LogStatus, OutputReader, Session, SessionId, SessionState, SessionStatus,
+    WaitError, WaitRegistration,
 };
 use term_io::supervisor::{
     spawn, spawn_exec, spawn_with_channel, RawControl, SupervisedSession, SupervisorHandle,
@@ -589,6 +589,16 @@ impl SessionPool {
     /// 会话日志的当前状态。
     pub fn log_status(&self, id: SessionId) -> Option<LogStatus> {
         self.with(id, |s| s.log_status())
+    }
+
+    /// 取走本帧的 `OSC 52` 请求。策略与窗口系统都在 UI 层，这里只搬运。
+    pub fn take_clipboard_requests(&self, id: SessionId) -> Vec<ClipboardRequest> {
+        self.with(id, |s| s.take_clipboard_requests()).unwrap_or_default()
+    }
+
+    /// 回送用户批准的剪贴板文本，供 VT 编码成 `OSC 52` 应答写回 PTY。
+    pub fn answer_clipboard(&self, id: SessionId, text: String) {
+        let _ = self.with(id, |s| s.answer_clipboard(text));
     }
 
     /// 开始记录到 `dir` 下。文件名 / 行格式 / 覆盖方式 / 大小上限在 `opts` 里

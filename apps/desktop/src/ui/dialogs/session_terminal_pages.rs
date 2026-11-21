@@ -33,7 +33,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         3 => selection_page(win, ui),
         17 => bell_page(win, ui),
         18 => mode_page(win, ui),
-        19 => security_page(ui),
+        19 => security_page(win, ui),
         // 组头自己那两页 ：点组名不再只是折叠。
         22 => terminal_group_page(ui),
         23 => window_group_page(win, ui),
@@ -334,21 +334,25 @@ fn mode_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 }
 
 /// 19 `Terminal ▾ Security`：视觉基线 `common/07-security.png`。
-fn security_page(ui: &mut egui::Ui) {
+fn security_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let mut read = win.new_session.clipboard_read_policy;
+    let mut write = win.new_session.clipboard_write_policy;
     ui.label("When the remote wants to read the clipboard:");
-    for name in ["Ask", "Allow", "Forbid"] {
-        ui.add_enabled(false, egui::RadioButton::new(name == "Ask", name));
+    for (i, name) in ["Ask", "Allow", "Forbid"].iter().enumerate() {
+        ui.radio_value(&mut read, i, *name);
     }
     ui.add_space(6.0);
     ui.label("When the remote wants to overwrite the clipboard:");
-    for name in ["Ask", "Allow", "Forbid"] {
-        ui.add_enabled(false, egui::RadioButton::new(name == "Ask", name));
+    for (i, name) in ["Ask", "Allow", "Forbid"].iter().enumerate() {
+        ui.radio_value(&mut write, i, *name);
     }
     placeholder_note(
         ui,
-        "OSC 52 clipboard access is refused outright today, so there is no \
-         policy to store yet; the three choices await that switch.",
+        "Ask pops a confirmation for each OSC 52 request; Allow applies it immediately \
+         and Forbid ignores it. The clipboard itself stays with the UI thread.",
     );
+    win.new_session.clipboard_read_policy = read;
+    win.new_session.clipboard_write_policy = write;
 }
 
 /// 22 `Terminal`（**组头页**）：视觉基线 `common/01-terminal-page.png`。

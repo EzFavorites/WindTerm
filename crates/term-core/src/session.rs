@@ -227,6 +227,12 @@ pub struct SessionConfig {
     /// 与控制字符）替换成 `_`，源端路径不动。
     #[serde(default = "default_true")]
     pub sftp_fix_invalid_path: bool,
+    /// `Terminal ▾ Security`：远端读剪贴板的策略（0 = Ask / 1 = Allow / 2 = Forbid）。
+    #[serde(default)]
+    pub clipboard_read_policy: usize,
+    /// `Terminal ▾ Security`：远端写剪贴板的策略（同上）。
+    #[serde(default)]
+    pub clipboard_write_policy: usize,
     /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
     ///
     /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
@@ -435,6 +441,8 @@ impl SessionConfig {
             sftp_preserve_mtime: true,
             sftp_preserve_dir_mtime: false,
             sftp_fix_invalid_path: true,
+            clipboard_read_policy: 0,
+            clipboard_write_policy: 0,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
             backspace_sends: 0,

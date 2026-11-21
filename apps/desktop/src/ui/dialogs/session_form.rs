@@ -105,6 +105,8 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) sftp_preserve_mtime: bool,
     pub(in crate::ui) sftp_preserve_dir_mtime: bool,
     pub(in crate::ui) sftp_fix_invalid_path: bool,
+    pub(in crate::ui) clipboard_read_policy: usize,
+    pub(in crate::ui) clipboard_write_policy: usize,
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
     pub(in crate::ui) initial_cursor_keys_application: bool,
@@ -174,6 +176,8 @@ impl NewSessionData {
             sftp_preserve_mtime: config.sftp_preserve_mtime,
             sftp_preserve_dir_mtime: config.sftp_preserve_dir_mtime,
             sftp_fix_invalid_path: config.sftp_fix_invalid_path,
+            clipboard_read_policy: config.clipboard_read_policy,
+            clipboard_write_policy: config.clipboard_write_policy,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
             backspace_sends: config.backspace_sends,
@@ -266,6 +270,8 @@ impl NewSessionData {
         c.sftp_preserve_mtime = self.sftp_preserve_mtime;
         c.sftp_preserve_dir_mtime = self.sftp_preserve_dir_mtime;
         c.sftp_fix_invalid_path = self.sftp_fix_invalid_path;
+        c.clipboard_read_policy = self.clipboard_read_policy;
+        c.clipboard_write_policy = self.clipboard_write_policy;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.backspace_sends = self.backspace_sends;
@@ -661,6 +667,8 @@ mod tests {
         old.sftp_preserve_mtime = false;
         old.sftp_preserve_dir_mtime = true;
         old.sftp_fix_invalid_path = false;
+        old.clipboard_read_policy = 1;
+        old.clipboard_write_policy = 2;
         old.initial_auto_wrap = false;
         old.initial_cursor_keys_application = true;
         old.backspace_sends = 1;
@@ -679,6 +687,8 @@ mod tests {
         assert!(!f.sftp_preserve_mtime);
         assert!(f.sftp_preserve_dir_mtime);
         assert!(!f.sftp_fix_invalid_path);
+        assert_eq!(f.clipboard_read_policy, 1);
+        assert_eq!(f.clipboard_write_policy, 2);
         assert!(!f.initial_auto_wrap);
         assert!(f.initial_cursor_keys_application);
         assert_eq!(f.backspace_sends, 1);
@@ -698,6 +708,8 @@ mod tests {
         f.sftp_preserve_mtime = true;
         f.sftp_preserve_dir_mtime = false;
         f.sftp_fix_invalid_path = true;
+        f.clipboard_read_policy = 2;
+        f.clipboard_write_policy = 0;
         f.initial_auto_wrap = true;
         f.initial_cursor_keys_application = false;
         f.backspace_sends = 2;
@@ -716,6 +728,8 @@ mod tests {
         assert!(saved.sftp_preserve_mtime);
         assert!(!saved.sftp_preserve_dir_mtime);
         assert!(saved.sftp_fix_invalid_path);
+        assert_eq!(saved.clipboard_read_policy, 2);
+        assert_eq!(saved.clipboard_write_policy, 0);
         assert!(saved.initial_auto_wrap);
         assert!(!saved.initial_cursor_keys_application);
         assert_eq!(saved.backspace_sends, 2);
