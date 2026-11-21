@@ -162,6 +162,9 @@ fn default_one() -> usize {
 fn default_two() -> u32 {
     2
 }
+fn default_two_usize() -> usize {
+    2
+}
 
 /// 光标周期 / 宽度的反序列化缺省。老会话库没有这两条时回落出厂值，
 /// 行为与「2026-11-19 之前是渲染层常数」时完全一致。
@@ -233,6 +236,16 @@ pub struct SessionConfig {
     /// `Terminal ▾ Security`：远端写剪贴板的策略（同上）。
     #[serde(default)]
     pub clipboard_write_policy: usize,
+    /// `Modem` 页：拖放文件时用的协议（0 X / 1 Y / 2 Z，出厂 Z）。
+    #[serde(default = "default_two_usize")]
+    pub modem_protocol: usize,
+    #[serde(default)]
+    pub modem_upload_dir: String,
+    #[serde(default)]
+    pub modem_download_dir: String,
+    /// 拖放时不再询问（当前仍会弹确认框以选择具体文件，目录取这里的值）。
+    #[serde(default)]
+    pub modem_use_default: bool,
     /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
     ///
     /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
@@ -464,6 +477,10 @@ impl SessionConfig {
             sftp_fix_invalid_path: true,
             clipboard_read_policy: 0,
             clipboard_write_policy: 0,
+            modem_protocol: 2,
+            modem_upload_dir: String::new(),
+            modem_download_dir: String::new(),
+            modem_use_default: false,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
             backspace_sends: 0,

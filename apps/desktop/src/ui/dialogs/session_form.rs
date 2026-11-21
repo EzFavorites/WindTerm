@@ -107,6 +107,10 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) sftp_fix_invalid_path: bool,
     pub(in crate::ui) clipboard_read_policy: usize,
     pub(in crate::ui) clipboard_write_policy: usize,
+    pub(in crate::ui) modem_protocol: usize,
+    pub(in crate::ui) modem_upload_dir: String,
+    pub(in crate::ui) modem_download_dir: String,
+    pub(in crate::ui) modem_use_default: bool,
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
     pub(in crate::ui) initial_cursor_keys_application: bool,
@@ -178,6 +182,10 @@ impl NewSessionData {
             sftp_fix_invalid_path: config.sftp_fix_invalid_path,
             clipboard_read_policy: config.clipboard_read_policy,
             clipboard_write_policy: config.clipboard_write_policy,
+            modem_protocol: config.modem_protocol,
+            modem_upload_dir: config.modem_upload_dir.clone(),
+            modem_download_dir: config.modem_download_dir.clone(),
+            modem_use_default: config.modem_use_default,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
             backspace_sends: config.backspace_sends,
@@ -272,6 +280,10 @@ impl NewSessionData {
         c.sftp_fix_invalid_path = self.sftp_fix_invalid_path;
         c.clipboard_read_policy = self.clipboard_read_policy;
         c.clipboard_write_policy = self.clipboard_write_policy;
+        c.modem_protocol = self.modem_protocol;
+        c.modem_upload_dir = self.modem_upload_dir.clone();
+        c.modem_download_dir = self.modem_download_dir.clone();
+        c.modem_use_default = self.modem_use_default;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.backspace_sends = self.backspace_sends;

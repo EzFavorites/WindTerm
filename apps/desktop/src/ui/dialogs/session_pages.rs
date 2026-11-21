@@ -31,7 +31,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         13 => command_page(win, ui),
         14 => environment_page(ui),
         15 => serial_page(win, ui),
-        16 => modem_page(ui),
+        16 => modem_page(win, ui),
         20 => sftp_page(win, ui),
         21 => tcp_connection_page(win, ui),
         // Terminal / Window 两组（1 / 2 / 3 / 17 / 18 / 19）在
@@ -308,51 +308,56 @@ fn read_only_value(ui: &mut egui::Ui, value: &str) {
 /// ** / **：`NewSessionData` / `SessionConfig` 没有 modem 字段，控件按
 /// sftp_page 同一口径灰显（保留视觉基线文字与几何但不可编辑），页底说明原因。
 /// 页签切换存 egui memory，不进领域状态；点得动且真换内容。
-fn modem_page(ui: &mut egui::Ui) {
+fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     const TABS: [&str; 3] = ["X Modem", "Y Modem", "Z Modem"];
     const TAB_ID: &str = "new_session_modem_tab";
     let tab: usize = ui.memory(|m| m.data.get_temp::<usize>(egui::Id::new(TAB_ID)).unwrap_or(0));
     let hint = "/Users/unique/Downloads";
-    let protocol = 2usize; // 视觉基线协议下拉选中 `Z Modem`（拖放文件用）
-    let mut use_default = false;
-    let mut up_dir = String::new();
-    let mut down_dir = String::new();
+    let mut protocol = win.new_session.modem_protocol;
+    let mut use_default = win.new_session.modem_use_default;
+    let mut up_dir = win.new_session.modem_upload_dir.clone();
+    let mut down_dir = win.new_session.modem_download_dir.clone();
 
     // 视觉基线这行是单行小字；本项目内容区约 344pt，正文会折行，用 small 收进一行。
     ui.small("Specify the protocol when dragging and dropping files:");
-    ui.add_enabled_ui(false, |ui| {
-        // 视觉基线下拉框占满整个内容区宽度（不是按内容收缩）。
-        egui::ComboBox::from_id_salt("modem_protocol")
-            .selected_text(TABS[protocol])
-            .width(336.0)
-            .show_ui(ui, |_| {});
-    });
+    // 视觉基线下拉框占满整个内容区宽度（不是按内容收缩）。
+    egui::ComboBox::from_id_salt("modem_protocol")
+        .selected_text(TABS[protocol.min(2)])
+        .width(336.0)
+        .show_ui(ui, |ui| {
+            for (i, name) in TABS.iter().enumerate() {
+                if ui.selectable_label(protocol == i, *name).clicked() {
+                    protocol = i;
+                }
+            }
+        });
 
     // 目录框：标签在上，输入框（含右侧 `| ...`）在下一行占满宽。
     ui.label("Upload directory:");
     ui.horizontal(|ui| {
-        ui.add_enabled(
-            false,
+        ui.add(
             egui::TextEdit::singleline(&mut up_dir)
                 .hint_text(hint)
                 .desired_width(300.0),
         );
-        ui.add_enabled(false, egui::Button::new("...")).on_hover_text("Browse");
+        // 文件选择器还没接：目录可直接填，按钮保留灰显并说明。
+        ui.add_enabled(false, egui::Button::new("..."))
+            .on_hover_text("Type the directory in the box; no folder picker yet.");
     });
     ui.label("Download directory:");
     ui.horizontal(|ui| {
-        ui.add_enabled(
-            false,
+        ui.add(
             egui::TextEdit::singleline(&mut down_dir)
                 .hint_text(hint)
                 .desired_width(300.0),
         );
-        ui.add_enabled(false, egui::Button::new("...")).on_hover_text("Browse");
+        ui.add_enabled(false, egui::Button::new("..."))
+            .on_hover_text("Type the directory in the box; no folder picker yet.");
     });
 
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(&mut use_default, "Use this as the default and do not ask again"),
+    ui.checkbox(
+        &mut use_default,
+        "Use this as the default and do not ask again",
     );
     ui.add_space(5.0);
 
@@ -400,7 +405,17 @@ fn modem_page(ui: &mut egui::Ui) {
         _ => unreachable!("页签只有 0..=2"),
     }
     // 一行短说明：长句会折成两行，把底部按钮行顶出窗口（实测 Cancel 被裁）。
-    placeholder_note(ui, "Display-only until transfer layer support lands.");
+    placeholder_note(
+        ui,
+        "Dropping files onto the terminal opens the XMODEM transfer prompt with \
+         the dropped paths filled in. Directory boxes are session defaults; the \
+         per-protocol command and packet rows are display-only.",
+    );
+    let cfg = &mut win.new_session;
+    cfg.modem_protocol = protocol;
+    cfg.modem_use_default = use_default;
+    cfg.modem_upload_dir = up_dir;
+    cfg.modem_download_dir = down_dir;
 }
 
 /// 20 `SSH ▾ SFTP`：视觉基线 `shell/19-ssh-sftp.png`。

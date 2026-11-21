@@ -26,6 +26,7 @@ pub(crate) mod kit;
 pub(crate) use kit::type_scale;
 mod layout;
 mod lock_timeout;
+mod modem_drop;
 mod reconnect;
 mod overlays;
 mod panels;
@@ -101,8 +102,7 @@ use eframe::egui; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, Te
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index};
 use term_app::log::LogAction; use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
-use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
-use term_app::state::ViewState; use term_app::viewport::Viewport;
+use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::state::ViewState; use term_app::viewport::Viewport;
 use term_core::grid::{Rgb, GridSnapshot, ScreenImage}; use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
 use term_core::theme::Palette; use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
@@ -895,7 +895,7 @@ impl TerminalWindow {
                 changed = true;
             }
         }
-        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self);
+        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。
