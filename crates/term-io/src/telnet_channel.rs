@@ -44,7 +44,7 @@ use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, MutexGuard};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use term_core::session::{Protocol, SessionConfig};
 use term_core::telnet::{TelnetNegotiator, IAC, NAWS};
@@ -65,6 +65,18 @@ const WRITE_TIMEOUT: Duration = Duration::from_millis(500);
 /// 对 UI 启动来说太久；这里保留用户配置但夹到 1..=10 秒。
 const MIN_CONNECT_SECS: u32 = 1;
 const MAX_CONNECT_SECS: u32 = 10;
+
+/// 空包心跳间隔。`SessionConfig.keep_alive` 是秒，0 = 不发（出厂 SSH 那一档
+/// 也是 0）；Telnet 没有 SSH 的 `ServerAliveInterval`，所以在读线程里每过
+/// 这么多秒往线上写一个 NUL。NUL 是 Telnet 的 NOOP，对端不会把它显示出来，
+/// 但足以让中间的 NAT / 防火墙认为这条 TCP 还活着。
+fn keepalive_interval(secs: u32) -> Option<Duration> {
+    if secs == 0 {
+        None
+    } else {
+        Some(Duration::from_secs(u64::from(secs)))
+    }
+}
 
 /// 打开原生 Telnet 通道失败的原因。
 ///
@@ -227,6 +239,8 @@ impl TelnetChannel {
         let tx_bytes = Arc::new(AtomicU64::new(0));
         let stop = Arc::new(AtomicBool::new(false));
 
+        // 先取值再进闭包：`config` 只借到本函数，不能随 move 闭包逃到线程里。
+        let keep_alive = keepalive_interval(config.keep_alive);
         let thread_negotiator = Arc::clone(&negotiator);
         let thread_writer = Arc::clone(&writer);
         let thread_rx = Arc::clone(&rx_bytes);
@@ -245,6 +259,7 @@ impl TelnetChannel {
                     thread_tx,
                     thread_stop,
                     thread_description,
+                    keep_alive,
                 );
             })
             .map_err(|err| TelnetError::Setup {
@@ -461,12 +476,25 @@ fn reader_loop(
     tx_bytes: Arc<AtomicU64>,
     stop: Arc<AtomicBool>,
     description: String,
+    keep_alive: Option<Duration>,
 ) {
     let mut buf = [0u8; READ_CHUNK];
     let mut ending: Option<String> = None;
+    // 心跳计时起点 = 连接建立时刻，而不是第一次 read 超时：对端一直不说话时
+    // 也要按时发第一个 NUL。读线程每 50ms 至少醒来一次，所以精度够用。
+    let mut last_keepalive = Instant::now();
     loop {
         if stop.load(Ordering::SeqCst) {
             break;
+        }
+        if let Some(interval) = keep_alive {
+            if last_keepalive.elapsed() >= interval {
+                last_keepalive = Instant::now();
+                if let Err(err) = write_wire(&writer, &tx_bytes, b"\0") {
+                    ending = Some(format!("telnet keepalive failed: {description}: {err}"));
+                    break;
+                }
+            }
         }
         match stream.read(&mut buf) {
             Ok(0) => {
@@ -526,6 +554,15 @@ mod tests {
             vec![b'a', 0xFF, 0xFF, b'b']
         );
         assert_eq!(escape_iac(&[0xFF, 0xFF]), vec![0xFF, 0xFF, 0xFF, 0xFF]);
+    }
+
+    #[test]
+    fn keepalive_zero_means_off_and_other_values_are_seconds() {
+        // 出厂 0 = 不发；SSH 把同一字段解释成 ServerAliveInterval，Telnet 这里
+        // 必须逐秒照用，不能自己夹一个「最小 10 秒」之类的值。
+        assert_eq!(keepalive_interval(0), None);
+        assert_eq!(keepalive_interval(1), Some(Duration::from_secs(1)));
+        assert_eq!(keepalive_interval(3600), Some(Duration::from_secs(3600)));
     }
 
     #[test]

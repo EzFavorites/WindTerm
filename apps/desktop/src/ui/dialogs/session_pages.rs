@@ -462,7 +462,7 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 21 `Telnet ▾ Connection` / `Tcp ▾ Connection`：视觉基线里这两页截图逐字一致，
 /// 画的是 TCP 选项（不是 SSH 的 Host/Port）。
 ///
-/// 四个控件里两个已经有读者，两个还没有——所以这一页**部分真**，理由逐行写：
+/// 四个控件里三个已经有读者，一个还没有——所以这一页**部分真**，理由逐行写：
 ///
 /// - `Disable Nagle's algorithm` → `SessionConfig.tcp_low_delay`，建连时
 ///   `TcpStream::set_nodelay`（`term-io/telnet_channel.rs`）。
@@ -471,8 +471,9 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// - `Enable TCP keepalives` → `SessionConfig.tcp_keep_alive` 有值，但 Telnet
 ///   的套接字层还没有 `SO_KEEPALIVE` 的落地（SSH 路径已映射成
 ///   `TCPKeepAlive=yes/no`）。
-/// - `Sends null packet` → `SessionConfig.keep_alive` 是 SSH 的
-///   `ServerAliveInterval`；Telnet 的空包心跳还没写。
+/// - `Sends null packet` → `SessionConfig.keep_alive`。SSH 路径用它做
+///   `ServerAliveInterval`；Telnet 路径在读线程里按同一秒数写一个 NUL（NOOP），
+///   0 = 不发。两条协议同一个字段，语义一致。
 fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut nodelay = win.new_session.tcp_low_delay;
     let mut keepalive = win.new_session.tcp_keep_alive;
@@ -502,16 +503,16 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     );
     ui.add_space(6.0);
     heading(ui, "Sends null packet to keep session alive:");
-    ui.add_enabled(
-        false,
-        egui::DragValue::new(&mut null_pkt)
-            .range(0..=3600)
-            .custom_formatter(|n, _| seconds_text(n as u32)),
-    )
-    .on_disabled_hover_text(
-        "SSH uses this as ServerAliveInterval. Telnet does not send null-packet \
-         keepalives yet, so there is no consumer on these two pages.",
-    );
+    if ui
+        .add(
+            egui::DragValue::new(&mut null_pkt)
+                .range(0..=3600)
+                .custom_formatter(|n, _| seconds_text(n as u32)),
+        )
+        .changed()
+    {
+        win.new_session.keep_alive = null_pkt;
+    }
     ui.add_space(6.0);
     heading(ui, "Maximum connection timeout:");
     if ui
@@ -527,8 +528,8 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     placeholder_note(
         ui,
-        "Nagle's algorithm and the connection timeout apply immediately. \
-         SO_KEEPALIVE and the null-packet heartbeat still need a Telnet socket layer.",
+        "Nagle's algorithm, the connection timeout and the null-packet heartbeat \
+         apply immediately. SO_KEEPALIVE still needs a Telnet socket layer.",
     );
 }
 
