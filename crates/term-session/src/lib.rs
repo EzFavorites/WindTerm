@@ -775,9 +775,13 @@ mod tests {
     fn the_frame_pump_caches_the_snapshot_without_a_round_trip() {
         // 界面每帧走的是 poll → snapshot：poll 说有新事实才取快照，
         // 取的是已经收下的那一帧（不去问会话线程要）。
+        // 命令先睡一小段再输出、输出后保持存活片刻：瞬时 printf 会在控制面
+        // 第一次 poll 之前就跑完退出，监管通道断开后快照永远到不了屏幕
+        // （CI 的 Linux 上进程起得快，稳定复现）。留出登记窗口与存活窗口，
+        // 与 an_exec_session_flows_end_to_end 同一条理由。
         let pool = SessionPool::new();
         let id = pool
-            .open_exec("printf 'alpha\\n'", 80, 24)
+            .open_exec("sleep 0.3; printf 'alpha\\n'; sleep 1", 80, 24)
             .expect("起会话");
 
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
