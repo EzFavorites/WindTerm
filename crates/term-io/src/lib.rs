@@ -38,6 +38,7 @@
 //! 不归 `term-profile`。`preview` 同理：打开文件句柄、读字节、嗅探魔数，全是
 //! IO 与字节判定，投影层只该拿到一段已经变成 `String` 的文本和一个截断标记。
 
+pub mod bell;
 pub mod channel;
 pub mod error;
 pub mod host;

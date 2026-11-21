@@ -867,6 +867,7 @@ fn start(
             // 照常覆盖，这里只决定「还没收到任何转义序列时」的状态。
             let mut vt = Terminal::new(init_cols, init_rows, scrollback);
             apply_initial_modes(&mut vt, &config);
+            let bell = crate::bell::BellPolicy::from_config(&config).gate();
             let note = Arc::clone(&worker_exit_note);
             let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 run(
@@ -876,6 +877,7 @@ fn start(
                     worker_mailbox,
                     worker_exit_note,
                     vt,
+                    bell,
                 )
             }));
             if let Err(payload) = outcome {
@@ -926,6 +928,7 @@ fn run(
     mailbox: Arc<Mailbox>,
     exit_note: Arc<Mutex<Option<String>>>,
     mut vt: Terminal,
+    mut bell: crate::bell::BellGate,
 ) {
     let mut version = 0u64;
     // 有变化但还没能放进邮箱（上一份还没被取走）。下一轮槽空了就补上。
@@ -1178,7 +1181,13 @@ fn run(
                 // 打在 `process` 之前，因为「第几行」只有在喂字节之前才是确定的——
                 // 一批字节可能写穿好几行，事后再问光标在哪，问到的已经是最后一行。
                 vt.stamp_row(now_secs());
+                let bells_before = vt.bell_seq;
                 vt.process(&bytes);
+                // 一个 chunk 里多个 BEL 只算一次：去重门按「这批里有没有 BEL」
+                // 触发，而不是逐字节问——终端一次提示常常连发两三声。
+                if vt.bell_seq != bells_before {
+                    bell.on_bell();
+                }
                 let replies = vt.take_replies();
                 if !replies.is_empty() {
                     ch.write(&replies);

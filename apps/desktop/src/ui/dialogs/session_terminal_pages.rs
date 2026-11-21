@@ -31,7 +31,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         1 => keyboard_page(win, ui),
         2 => logging_page(win, ui),
         3 => selection_page(win, ui),
-        17 => bell_page(ui),
+        17 => bell_page(win, ui),
         18 => mode_page(win, ui),
         19 => security_page(ui),
         // 组头自己那两页 ：点组名不再只是折叠。
@@ -245,38 +245,51 @@ fn selection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 ///
 /// 响铃方式与去重窗口在 `SessionConfig` 里还没有字段，因此整页灰显 +
 /// 说明。选中的那一项按视觉基线画在 `Beep using the PC speaker` 上。
-fn bell_page(ui: &mut egui::Ui) {
-    let style = 1usize;
+fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let mut style = win.new_session.bell_style;
+    let mut sound = win.new_session.bell_sound.clone();
+    let mut dedup = win.new_session.bell_dedup_secs;
     ui.label("Bell styles:");
     for (i, name) in ["Mute", "Beep using the PC speaker", "Play the custom sound"]
         .iter()
         .enumerate()
     {
-        ui.add_enabled(false, egui::RadioButton::new(style == i, *name));
+        ui.radio_value(&mut style, i, *name);
     }
     ui.horizontal(|ui| {
         ui.add_space(24.0);
-        let mut sound = String::new();
-        ui.add_enabled(
-            false,
+        // 文件路径可直接填；`...` 的文件选择器还没接，保留灰显并在悬停说明。
+        ui.add(
             egui::TextEdit::singleline(&mut sound)
                 .hint_text("(no sound file)")
                 .desired_width(300.0),
         );
-        ui.add_enabled(false, egui::Button::new("..."));
+        ui.add_enabled(false, egui::Button::new("..."))
+            .on_disabled_hover_text("Type the sound file path in the box; no file picker yet.");
     });
     ui.add_space(8.0);
     ui.label("Ignore bells received more than once within:");
-    ui.add_enabled_ui(false, |ui| {
-        egui::ComboBox::from_id_salt("bell_dedup_combo")
-            .selected_text("2 seconds")
-            .show_ui(ui, |_ui| {});
-    });
+    egui::ComboBox::from_id_salt("bell_dedup_combo")
+        .selected_text(format!("{dedup} seconds"))
+        .show_ui(ui, |ui| {
+            for secs in [0u32, 1, 2, 5, 10] {
+                if ui
+                    .selectable_label(dedup == secs, format!("{secs} seconds"))
+                    .clicked()
+                {
+                    dedup = secs;
+                }
+            }
+        });
     placeholder_note(
         ui,
-        "The bell is not routed through SessionConfig yet: these three choices \
-         and the de-duplication window are read-only placeholders.",
+        "BEL reaches the session's bell policy: mute, a system beep, or a custom \
+         sound file (played without a shell). 0 seconds disables de-duplication.",
     );
+    let bell = &mut win.new_session;
+    bell.bell_style = style;
+    bell.bell_sound = sound;
+    bell.bell_dedup_secs = dedup;
 }
 
 /// 18 `Terminal ▾ Mode`：视觉基线 `common/05-mode.png` 的三个初始模式 + 两组键模式。

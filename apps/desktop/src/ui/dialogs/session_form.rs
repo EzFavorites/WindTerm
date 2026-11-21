@@ -112,6 +112,10 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) delete_sends: usize,
     pub(in crate::ui) alt_modifier_sends: usize,
     pub(in crate::ui) meta_modifier_sends: usize,
+    /// `Bell`：样式 / 自定义声音路径 / 去重窗口。
+    pub(in crate::ui) bell_style: usize,
+    pub(in crate::ui) bell_sound: String,
+    pub(in crate::ui) bell_dedup_secs: u32,
     /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
@@ -174,6 +178,9 @@ impl NewSessionData {
             delete_sends: config.delete_sends,
             alt_modifier_sends: config.alt_modifier_sends,
             meta_modifier_sends: config.meta_modifier_sends,
+            bell_style: config.bell_style,
+            bell_sound: config.bell_sound.clone(),
+            bell_dedup_secs: config.bell_dedup_secs,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
             selected_page: 0,
@@ -262,6 +269,9 @@ impl NewSessionData {
         c.delete_sends = self.delete_sends;
         c.alt_modifier_sends = self.alt_modifier_sends;
         c.meta_modifier_sends = self.meta_modifier_sends;
+        c.bell_style = self.bell_style;
+        c.bell_sound = self.bell_sound.clone();
+        c.bell_dedup_secs = self.bell_dedup_secs;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
@@ -653,6 +663,9 @@ mod tests {
         old.delete_sends = 2;
         old.alt_modifier_sends = 1;
         old.meta_modifier_sends = 0;
+        old.bell_style = 2;
+        old.bell_sound = "/tmp/beep.wav".to_string();
+        old.bell_dedup_secs = 5;
         old.sysmon = true;
         let mut f = NewSessionData::from_config(&old);
         assert_eq!(f.system, "windows");
@@ -667,6 +680,9 @@ mod tests {
         assert_eq!(f.delete_sends, 2);
         assert_eq!(f.alt_modifier_sends, 1);
         assert_eq!(f.meta_modifier_sends, 0);
+        assert_eq!(f.bell_style, 2);
+        assert_eq!(f.bell_sound, "/tmp/beep.wav");
+        assert_eq!(f.bell_dedup_secs, 5);
         assert!(f.sysmon);
 
         // 改一遍再落盘，确认 to_config 写的是表单值而非 base 的旧值。
@@ -682,6 +698,9 @@ mod tests {
         f.delete_sends = 0;
         f.alt_modifier_sends = 0;
         f.meta_modifier_sends = 1;
+        f.bell_style = 0;
+        f.bell_sound.clear();
+        f.bell_dedup_secs = 0;
         f.sysmon = false;
         let saved = f.to_config(old);
         assert_eq!(saved.system, "macos");
@@ -696,6 +715,9 @@ mod tests {
         assert_eq!(saved.delete_sends, 0);
         assert_eq!(saved.alt_modifier_sends, 0);
         assert_eq!(saved.meta_modifier_sends, 1);
+        assert_eq!(saved.bell_style, 0);
+        assert!(saved.bell_sound.is_empty());
+        assert_eq!(saved.bell_dedup_secs, 0);
         assert!(!saved.sysmon);
     }
 
@@ -714,6 +736,9 @@ mod tests {
         assert!(!f.initial_cursor_keys_application, "默认方向键是 Normal");
         assert_eq!(f.alt_modifier_sends, 0, "Alt 默认 8-bit characters");
         assert_eq!(f.meta_modifier_sends, 1, "Meta 默认 ESC 前缀");
+        assert_eq!(f.bell_style, 1, "Bell 默认 Beep");
+        assert!(f.bell_sound.is_empty());
+        assert_eq!(f.bell_dedup_secs, 2, "去重窗口默认 2 秒");
         assert!(!f.sysmon, "WindTerm 默认 Sysmon 关");
         assert!(f.shell_command.is_empty(), "Shell 协议未填命令时为空");
     }

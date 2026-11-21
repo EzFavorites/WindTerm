@@ -159,6 +159,9 @@ fn default_true() -> bool {
 fn default_one() -> usize {
     1
 }
+fn default_two() -> u32 {
+    2
+}
 
 /// 光标周期 / 宽度的反序列化缺省。老会话库没有这两条时回落出厂值，
 /// 行为与「2026-11-19 之前是渲染层常数」时完全一致。
@@ -242,6 +245,15 @@ pub struct SessionConfig {
     /// `Keyboard ▸ Meta modifier key sends:`：0 = 8-bit characters / 1 = ESC 前缀（出厂）。
     #[serde(default = "default_one")]
     pub meta_modifier_sends: usize,
+    /// `Terminal ▾ Bell ▸ Bell styles`：0 = Mute / 1 = Beep / 2 = 自定义声音。
+    #[serde(default = "default_one")]
+    pub bell_style: usize,
+    /// `Bell ▸ Play the custom sound` 的文件路径。空 = 没选文件（不发声音）。
+    #[serde(default)]
+    pub bell_sound: String,
+    /// `Bell ▸ Ignore bells received more than once within`：秒；0 = 不去重。
+    #[serde(default = "default_two")]
+    pub bell_dedup_secs: u32,
     /// 系统监控开关（WindTerm 默认 OFF）。
     #[serde(default)]
     pub sysmon: bool,
@@ -422,6 +434,9 @@ impl SessionConfig {
             delete_sends: 0,
             alt_modifier_sends: 0,
             meta_modifier_sends: 1,
+            bell_style: 1,
+            bell_sound: String::new(),
+            bell_dedup_secs: 2,
             sysmon: false,
             shell_command: String::new(),
             description: String::new(),

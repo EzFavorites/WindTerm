@@ -175,6 +175,9 @@ pub struct Terminal {
     replies: Vec<u8>,
     /// Total bytes received, for the status bar.
     pub received_bytes: u64,
+    /// 累计 BEL 次数。宿主靠它的**变化**决定要不要响铃；语义层自己不读钟、
+    /// 不发声，所以这个计数不进 `GridSnapshot`（金样本 JSON 也不包含它）。
+    pub bell_seq: u64,
 }
 
 impl Terminal {
@@ -251,6 +254,7 @@ impl Terminal {
             parser: Processor::new(),
             replies: Vec::new(),
             received_bytes: 0,
+            bell_seq: 0,
         }
     }
 
@@ -937,8 +941,8 @@ impl vte::ansi::Handler for Terminal {
     }
 
     fn bell(&mut self) {
-        // 语义平面不得读墙钟。响铃抑制属于宿主/投影层的表现逻辑，
-        // 这里只保留 trait 要求的空实现，不改变任何网格状态（零可见行为变化）。
+        // 语义平面不得读墙钟也不发声：只递增计数，宿主看变化量决定去重与播放。
+        self.bell_seq += 1;
     }
 
     fn scroll_up(&mut self, count: usize) {
@@ -1531,9 +1535,12 @@ mod tests {
 
     #[test]
     fn bell_has_no_observable_effect() {
-        // BEL 只触发过时间戳记录，从不进入快照；删除后网格状态必须逐项一致。
+        // BEL 从不进入快照；网格状态必须逐项一致。唯一的痕迹是给宿主看的
+        // `bell_seq`，它不属于事实窗口，截图与金样本都不受影响。
         let with_bell = feed("hi\x07there");
         let without_bell = feed("hithere");
+        assert_eq!(with_bell.bell_seq, 1);
+        assert_eq!(without_bell.bell_seq, 0);
         assert_eq!(with_bell.screen_text(), without_bell.screen_text());
         assert_eq!(
             (with_bell.cursor_row, with_bell.cursor_col),
