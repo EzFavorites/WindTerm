@@ -430,6 +430,9 @@ pub struct Prefs {
     /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
     #[serde(default)]
     pub auto_reconnect: bool,
+    /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 false（主题通常没声明字体）。
+    #[serde(default)]
+    pub prefer_theme_fonts: bool,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -674,6 +677,7 @@ impl Default for Prefs {
             auto_hide_menu_bar: false,
             lock_timeout_secs: 0,
             auto_reconnect: false,
+            prefer_theme_fonts: false,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),

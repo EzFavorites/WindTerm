@@ -15,6 +15,8 @@ impl TerminalWindow {
         // 控制面先建：下面每一条 tab 都要经它开会话（ADR-0019 档 1.1）。
         // 一个窗口一个池——`desk serve` 是另一个进程、另一个池（ADR-0022 §决策 7）。
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        // 调色板与字体都要读它：先取一份，避免同一个主题文件读两遍。
+        let palette = term_runtime::theme_load::load_palette();
         // 会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
         // 就退回出厂默认值，让一台新机器打开就有个能用的本地 shell。
         let (groups, sessions) = term_runtime::persist::load().unwrap_or_else(|| {
@@ -70,6 +72,19 @@ impl TerminalWindow {
             pane_groups.insert(init_pane, PaneGroup { order: vec![s], active: s });
         }
 
+        // 主题自带字体只在开关打开且主题真的声明了它时才覆盖用户选择；
+        // 缺任一项就回落 prefs，老主题不会突然换字体。
+        let (font_families, font_weight) = if prefs.prefer_theme_fonts {
+            let (family, weight) = palette.theme_fonts();
+            (
+                family.map(|f| [f, String::new(), String::new(), String::new()])
+                    .unwrap_or_else(|| prefs.font_family_value()),
+                weight.unwrap_or_else(|| prefs.font_weight_value()),
+            )
+        } else {
+            (prefs.font_family_value(), prefs.font_weight_value())
+        };
+
         Self {
             pool,
             tabs,
@@ -77,7 +92,7 @@ impl TerminalWindow {
             active,
             layout: Layout::single(init_pane),
             pane_groups,
-            palette: term_runtime::theme_load::load_palette(),
+            palette,
             // 字号在 `install` 之前就位：`load_with` 只给出厂 13pt，用户存过的
             // `prefs.font_size`（0 哨兵 → 出厂值）在这里换上去，第一次
             // `install` 就按它装字形、按它量 cell——不会先画一帧 13pt 再跳。
@@ -85,8 +100,7 @@ impl TerminalWindow {
             // 第一帧就是用户存的那套字（`load_with` 内部按需扫一次字体目录，
             // 四槽全空时一次 IO 都不做）。
             fonts: {
-                let mut fonts =
-                    TerminalFonts::load_with(prefs.font_family_value(), prefs.font_weight_value());
+                let mut fonts = TerminalFonts::load_with(font_families, font_weight);
                 fonts.set_size(prefs.font_size_value());
                 fonts
             },
@@ -234,6 +248,7 @@ impl TerminalWindow {
             lock_timeout_secs: prefs.lock_timeout_secs,
             last_lock_activity: 0.0,
             auto_reconnect: prefs.auto_reconnect,
+            prefer_theme_fonts: prefs.prefer_theme_fonts,
             clipboard_requests: Vec::new(),
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。

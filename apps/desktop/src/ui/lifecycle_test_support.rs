@@ -228,6 +228,7 @@ pub(in crate::ui) fn window_with(
         lock_timeout_secs: 0,
         last_lock_activity: 0.0,
         auto_reconnect: false,
+        prefer_theme_fonts: false,
         clipboard_requests: Vec::new(),
         clipboard_ask: None,
         triggers: Vec::new(),

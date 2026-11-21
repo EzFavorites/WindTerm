@@ -99,6 +99,8 @@ pub fn builtin_scheme(name: &str) -> Option<Palette> {
         default_bg: Rgb::new(bg[0], bg[1], bg[2]),
         ansi_source: format!("built-in scheme '{name}'"),
         theme_name: name.to_string(),
+        font_family: None,
+        font_weight: None,
     })
 }
 
@@ -132,12 +134,19 @@ pub struct Palette {
     /// Where the 16 ANSI colours came from: a theme file, or built-in defaults.
     pub ansi_source: String,
     pub theme_name: String,
+    /// 主题文件里声明的字体（没有就是 `None`）。
+    pub font_family: Option<String>,
+    pub font_weight: Option<u16>,
 }
 
 #[derive(Deserialize)]
 struct ThemeFile {
     styles: Vec<StyleEntry>,
+    /// 可选：主题自带的字体。`Prefer theme fonts` 打开时优先用它。
+    font: Option<ThemeFont>,
 }
+
+use crate::theme_font::ThemeFont;
 
 #[derive(Deserialize)]
 struct StyleEntry {
@@ -157,12 +166,15 @@ impl Palette {
     pub fn from_scheme(raw: &str, source: String, theme_name: &str) -> Option<Self> {
         let ansi = parse_scheme(raw)?;
         let (fg, bg) = parse_default_colors(raw);
+        let (theme_family, theme_weight) = parse_theme_font(raw);
         Some(Self {
             ansi,
             default_fg: rgb(fg),
             default_bg: rgb(bg),
             ansi_source: source,
             theme_name: theme_name.to_string(),
+            font_family: theme_family,
+            font_weight: theme_weight,
         })
     }
 
@@ -174,7 +186,14 @@ impl Palette {
             default_bg: rgb(DEFAULT_BG),
             ansi_source: ANSI_SOURCE_BUILTIN.to_string(),
             theme_name: theme_name.to_string(),
+            font_family: None,
+            font_weight: None,
         }
+    }
+
+    /// 主题声明的字体。`Prefer theme fonts` 读到它才有用；缺任一项就是回落。
+    pub fn theme_fonts(&self) -> (Option<String>, Option<u16>) {
+        (self.font_family.clone(), self.font_weight)
     }
 
     /// A 0..=255 xterm-256 colour palette entry.
@@ -204,47 +223,8 @@ impl Palette {
     }
 }
 
-/// The bundled `.theme` files start with a `//` comment line; strip comments, then parse.
-fn strip_json_comments(src: &str) -> String {
-    let mut out = String::with_capacity(src.len());
-    let bytes = src.as_bytes();
-    let mut i = 0;
-    let mut in_string = false;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if in_string {
-            out.push(c);
-            if c == '\\' && i + 1 < bytes.len() {
-                i += 1;
-                out.push(bytes[i] as char);
-            } else if c == '"' {
-                in_string = false;
-            }
-            i += 1;
-            continue;
-        }
-        match c {
-            '"' => {
-                in_string = true;
-                out.push(c);
-                i += 1;
-            }
-            '/' if i + 1 < bytes.len() && bytes[i + 1] == b'/' => {
-                while i < bytes.len() && bytes[i] != b'\n' {
-                    i += 1;
-                }
-            }
-            _ => {
-                out.push(c);
-                i += 1;
-            }
-        }
-    }
-    out
-}
-
 fn parse_scheme(src: &str) -> Option<[Rgb; 16]> {
-    let file: ThemeFile = serde_json::from_str(&strip_json_comments(src)).ok()?;
+    let file: ThemeFile = serde_json::from_str(&crate::theme_json::strip_comments(src)).ok()?;
     let mut ansi = ANSI_FALLBACK.map(rgb);
     let mut found = 0usize;
     for entry in &file.styles {
@@ -264,8 +244,13 @@ fn parse_scheme(src: &str) -> Option<[Rgb; 16]> {
     }
 }
 
+/// 可选的主题字体字段。解析失败一律当「没声明」，而不是让整个主题加载失败。
+fn parse_theme_font(src: &str) -> (Option<String>, Option<u16>) {
+    crate::theme_font::parse(&crate::theme_json::strip_comments(src))
+}
+
 fn parse_default_colors(src: &str) -> (u32, u32) {
-    if let Ok(file) = serde_json::from_str::<ThemeFile>(&strip_json_comments(src)) {
+    if let Ok(file) = serde_json::from_str::<ThemeFile>(&crate::theme_json::strip_comments(src)) {
         for entry in &file.styles {
             if entry.name == "text.default" {
                 let fg = entry

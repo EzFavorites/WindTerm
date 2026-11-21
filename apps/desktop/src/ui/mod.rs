@@ -281,7 +281,7 @@ pub struct TerminalWindow {
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
     lock_timeout_secs: u32, last_lock_activity: f64,
     /// `Preferences ▸ Behaviour ▸ Reconnect automatically`（出厂关）。
-    auto_reconnect: bool,
+    auto_reconnect: bool, prefer_theme_fonts: bool,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各

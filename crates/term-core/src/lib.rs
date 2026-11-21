@@ -58,6 +58,8 @@ pub mod surface;
 pub mod telnet;
 pub mod tunnel;
 pub mod theme;
+mod theme_font;
+mod theme_json;
 pub mod trigger;
 pub mod vt;
 pub mod width;

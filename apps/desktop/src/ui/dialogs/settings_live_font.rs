@@ -1,6 +1,6 @@
 //! `Text ▸ Font`：视觉基线 `14-text-font.png` 的 `Default Font` 分组框。
 //!
-//! # 这一页现在四行全真
+//! # 这一页现在五行全真
 //!
 //! - `Font family 1–4`：四槽字族，取自本机已装字面清单（`fonts::catalog`），
 //!   拉下拉选，选完当场重装字形 + 重量 cell 盒，并写回 `prefs.font_family`。
@@ -8,14 +8,8 @@
 //! - `Font weight`：主字族（槽 0）能选的字重，来自该字族真实装着的面
 //!   （`Regular` / `Bold` / `Medium` …）。写回 `prefs.font_weight`。
 //! - `Font size:`：绑 `Prefs.font_size`，改完当场 `TerminalFonts::set_size`。
-//! - `Prefer theme fonts`：**仍是灰的**，理由见 [`PREFER_THEME_NOTE`]。
-//!
-//! # 为什么第 5 行还灰着（而另外四行不是）
-//!
-//! 视觉基线那一行是「优先用主题里带的字体」。本仓库的主题（`term_core::theme`）
-//! 只有调色板，**没有任何字体数据**：勾上之后没有任何东西可以「优先」。
-//! 硬画成能点、点完什么都不发生，比灰着更糟。要接通它，先得有
-//! 「主题能描述字体」这件事——那是一套新数据，不是一次接线。
+//! - `Prefer theme fonts`：主题现在能声明可选字体（`Palette::theme_fonts`），
+//!   勾上后优先用它；没声明的主题保持现状，不替用户换字体。
 //!
 //! # 为什么显示值取生效值而不是读盘
 //!
@@ -33,17 +27,25 @@ use super::settings_pages_view::{field_label, field_row, group_box, label_col, s
 use crate::ui::*;
 use term_app::i18n::Lang;
 
-/// `Prefer theme fonts` 为什么还不能勾。挂在悬停上，与页底同一句口径。
-const PREFER_THEME_NOTE: &str = "Not wired: themes in this build carry colours only, no font data. \
-     There is nothing for this box to prefer yet.";
-
 /// 页底说明：这页现在哪些行真、哪一行还缺什么。
 ///
 /// 显式换行而不是让 egui 自动折行：这一页的行比右栏宽（140 标签 + 字段），
 /// 右栏的 `max_width` 会被这几行撑到比可见区域更宽，自动折行会把每行末尾
 /// 裁在窗口外（实测「terminal g」「weight s」）。分行写死，每行都在可见宽度内。
-const FONT_PAGE_NOTE: &str = "Family, weight and size apply immediately and are saved.\n\
-     Installed families are listed here; fixed-width ones are shown in bold.";
+const FONT_PAGE_NOTE: &str = "Family, weight, size and theme preference apply immediately and are \
+     saved.\nInstalled families are listed here; fixed-width ones are shown in bold.";
+
+fn persisted_fonts() -> [String; 4] {
+    term_runtime::prefs::load()
+        .map(|p| p.font_family_value())
+        .unwrap_or_default()
+}
+
+fn persisted_weight() -> u16 {
+    term_runtime::prefs::load()
+        .map(|p| p.font_weight_value())
+        .unwrap_or(400)
+}
 
 /// 一帧里被改动的那几项。`None` = 没动（load-modify-save 的 modify 半边）。
 #[derive(Default)]
@@ -52,19 +54,20 @@ struct FontEdit {
     family: Option<(usize, String)>,
     weight: Option<u16>,
     size: Option<f32>,
+    prefer_theme: Option<bool>,
     /// 字号要不要落盘。拖动中每帧都在变，松手才写一次 JSON。
     persist_size: bool,
 }
 
 impl FontEdit {
     fn touched(&self) -> bool {
-        self.family.is_some() || self.weight.is_some() || self.size.is_some()
+        self.family.is_some() || self.weight.is_some() || self.size.is_some() || self.prefer_theme.is_some()
     }
 
     /// 这一帧该不该写盘。拖字号的过程中不写（每帧一次 JSON 纯属噪声），
     /// 但选字族 / 选字重是「一次点击」，立刻写。
     fn should_save(&self) -> bool {
-        self.persist_size || self.family.is_some() || self.weight.is_some()
+        self.persist_size || self.family.is_some() || self.weight.is_some() || self.prefer_theme.is_some()
     }
 
     /// 只写自己动过的那几项。
@@ -79,6 +82,9 @@ impl FontEdit {
         }
         if let Some(s) = self.size {
             prefs.font_size = s;
+        }
+        if let Some(p) = self.prefer_theme {
+            prefs.prefer_theme_fonts = p;
         }
     }
 }
@@ -97,6 +103,24 @@ pub(in crate::ui) fn font(win: &mut TerminalWindow, ui: &mut egui::Ui, lang: Lan
     }
     if let Some(w) = edit.weight {
         win.fonts.set_weight(w);
+    }
+    if let Some(prefer) = edit.prefer_theme {
+        win.prefer_theme_fonts = prefer;
+        // 开：用主题声明覆盖槽 0 / 字重；关：从 prefs 恢复用户自己那套。
+        let (families, weight) = if prefer {
+            let (family, weight) = win.palette.theme_fonts();
+            (
+                family
+                    .map(|f| [f, String::new(), String::new(), String::new()])
+                    .unwrap_or_else(|| persisted_fonts()),
+                weight.unwrap_or_else(|| persisted_weight()),
+            )
+        } else {
+            (persisted_fonts(), persisted_weight())
+        };
+        let size = win.fonts.size();
+        win.fonts = TerminalFonts::load_with(families, weight);
+        win.fonts.set_size(size);
     }
     if let Some(size) = edit.size {
         // 只改目标值：`install` 每帧比较 size，变了才重装字形并让度量失效，
@@ -161,12 +185,17 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
     // 视觉基线 `14-text-font.png`：`Prefer theme fonts` 复选框在框**外**、框底之下
     // （与 `16-text-wrap.png` 的 `Show wrap symbols` 同一个位置关系）。
     ui.add_space(2.0);
-    let mut prefer_theme = false;
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(&mut prefer_theme, "Prefer theme fonts"),
-    )
-    .on_disabled_hover_text(PREFER_THEME_NOTE);
+    let mut prefer_theme = win.prefer_theme_fonts;
+    if ui
+        .checkbox(&mut prefer_theme, "Prefer theme fonts")
+        .on_hover_text(
+            "Use the font declared by the active theme (family / weight) instead of \
+             the four slots above. Themes without a font declaration keep the current fonts.",
+        )
+        .changed()
+    {
+        edit.prefer_theme = Some(prefer_theme);
+    }
     if apply_size {
         edit.size = Some(size);
     }
@@ -323,11 +352,9 @@ mod tests {
     }
 
     #[test]
-    fn the_remaining_grey_box_says_why_instead_of_pretending() {
-        // `Prefer theme fonts` 仍是灰的。它必须说清「缺的是主题字体数据」，
-        // 不能只写「未接线」——下一个人得知道该建什么数据。
-        assert!(PREFER_THEME_NOTE.contains("no font data"));
-        assert!(PREFER_THEME_NOTE.contains("themes"));
+    fn the_page_note_claims_all_five_rows() {
+        assert!(FONT_PAGE_NOTE.contains("theme preference"));
+        assert!(FONT_PAGE_NOTE.contains("saved"));
     }
 
     #[test]

@@ -515,6 +515,8 @@ mod tests {
             default_bg: term_core::grid::Rgb::new(0x1C, 0x1C, 0x1C),
             ansi_source: String::new(),
             theme_name: String::new(),
+            font_family: None,
+            font_weight: None,
         }
     }
 
