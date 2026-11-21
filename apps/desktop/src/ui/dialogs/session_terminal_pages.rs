@@ -1,8 +1,8 @@
 //! New Session 里 `Terminal ▾` 与 `Window ▾` 两组的页内容
 //! （Keyboard / Logging / Selection / Bell / Mode / Security）。
 //!
-//! 为什么从 `session_pages.rs` 拆出来：要求 `ui/` 下非 `mod.rs` 文件
-//! ≤ 450 行，2026-11-08 按视觉基线补了 Bell / Mode / Security 三页后原文件
+//! 为什么从 `session_pages.rs` 拆出来： 要求 `ui/` 下非 `mod.rs` 文件
+//! ≤ 450 行，按视觉基线补了 Bell / Mode / Security 三页后原文件
 //! 涨到 461 行。这里装的是**五个协议共用的那两组页**，剩下的协议专属页
 //! （Proxy / Command / Environment / Protocol / X/Y/Z Modem / SFTP / TCP 连接）
 //! 仍在 `session_pages.rs`，两边按「谁拥有这棵树」切，不按行数切。
@@ -13,8 +13,12 @@
 //! 页下标仍由 `session_nav::PAGES` 唯一决定，这里只认下标。
 
 use super::log_settings_spec::LogType;
-use super::session_form_body::form_row;
+use super::session_form_body::{form_row, LABEL_W};
 use super::session_pages::{grid, placeholder_note};
+use crate::ui::kit::form::{
+    dead_value, field_box, field_label, field_row, label_col, spin_field, underlined_label, Deco,
+    Slot, FIELD_TO_ROW, LABEL_TO_FIELD,
+};
 use crate::ui::*;
 
 /// WindTerm 出厂的选区分隔符（两组屏幕共用同一默认值）。
@@ -30,6 +34,9 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
         17 => bell_page(ui),
         18 => mode_page(ui),
         19 => security_page(ui),
+        // 组头自己那两页 ：点组名不再只是折叠。
+        22 => terminal_group_page(ui),
+        23 => window_group_page(win, ui),
         _ => {}
     }
 }
@@ -38,7 +45,7 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
 ///
 /// WindTerm 这一页是**按键编码行为**（Backspace/Delete/Modified keys/Alt/Meta 各自
 /// 怎么发），不是终端类型 / 光标样式——后者在 WindTerm 里分别归 Session 页与全局
-/// Appearance。所以这里渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
+/// Appearance。所以这里按  渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
 /// 目前不消费这些逐会话编码偏好）。这与本文件 `bell`/`mode`/`security` 三页同构。
 fn keyboard_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut backspace = 0usize; // Automatic
@@ -98,7 +105,7 @@ fn keyboard_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 绑的是**真状态**：`TerminalWindow::log_settings`——也就是 Session ▸ Log ▸
 /// Settings 那个独立窗口编辑的同一份记录（`LogSettingsData`）。两个入口、
 /// 一份数据，所以 New Session 里改的值，独立窗口再打开就是改后的样子，
-/// 落盘走 `LogSettingsData::save()`（写 prefs，不动语言与两个关闭抑制位）。
+/// 落盘走 `LogSettingsData::save `（写 prefs，不动语言与两个关闭抑制位）。
 ///
 /// 与视觉基线的差别只有一处：WindTerm 的这页是**每会话**设置，我们的日志
 /// 配置还是全局默认值，所以末尾有一行说明；等 per-session 字段落地再收掉。
@@ -175,7 +182,7 @@ fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 ///
 /// WindTerm 这一页是**两组屏幕各自的选区分隔符**（不是窗口尺寸 / 回滚）。
 /// 逐会话选区分隔符在 `SessionConfig` 里还没有字段，因此整页灰显 + 说明
-/// 两个文本框填入 WindTerm 出厂默认值 `"!@#$^*()={}[]:;'",.<>?`。
+///，两个文本框填入 WindTerm 出厂默认值 `"!@#$^* ={}[]:;'"<>?`。
 /// 这与本文件 `keyboard`/`bell`/`mode`/`security` 四页同构。
 fn selection_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut separators = DEFAULT_WORD_SEPARATORS.to_string();
@@ -277,5 +284,155 @@ fn security_page(ui: &mut egui::Ui) {
         ui,
         "OSC 52 clipboard access is refused outright today, so there is no \
          policy to store yet; the three choices await that switch.",
+    );
+}
+
+/// 22 `Terminal`（**组头页**）：视觉基线 `common/01-terminal-page.png`。
+///
+/// 组头本身就是一页。用户报「左侧树行为不对、点组名没有独立页面」，
+/// 根因是组头只挂了折叠命中区（`CollapsingHeader` 一个区域），点哪儿都只是
+/// 展开/收回。页表补了 22 / 23 之后，组名与三角才各管各的。
+///
+/// # 两项都没有后端
+///
+/// `Answer back`（ENQ 应答串）在 `SessionConfig` 里没有字段；擦屏用不用底色
+/// 由内核按当前底色决定，也没有开关。所以两者都画成只读并在页底说明——
+/// 做成「能填、看起来存了、实际没生效」的假控件比少一个控件更坏。
+fn terminal_group_page(ui: &mut egui::Ui) {
+    let mut erase_with_bg = true;
+    // 字段列与 `Session` 页同一条竖线（视觉基线里两者的框左缘都在 626 物理像素），
+    // 所以这里用共用的 `LABEL_W` 而不是按本页标签量宽。
+    field_row(
+        ui,
+        "Answer back:",
+        Slot::Inline,
+        LABEL_W,
+        "Answer-back string has no profile field yet.",
+        |ui| dead_value(ui, "Wind", Deco::None),
+    );
+    ui.horizontal(|ui| {
+        // 视觉基线里勾选框比标签列左缘再缩进 13 物理像素 ≈ 7 逻辑点。
+        ui.add_space(7.0);
+        ui.add_enabled(
+            false,
+            egui::Checkbox::new(&mut erase_with_bg, "Use background color to erase screen"),
+        );
+    });
+    placeholder_note(
+        ui,
+        "Neither item has a backend field yet: the answer-back string and the \
+         erase colour live in the terminal engine, not in the session profile.",
+    );
+}
+
+/// 23 `Window`（**组头页**）：视觉基线 `common/07-window-page.png`。
+///
+/// 六个「标签 + 字段」行 + 三段「抬头 + 控件」。与同组子页（`Selection`）不同的是
+/// 这一页的标签**左对齐**且列更宽：视觉基线里它的字段左缘在 740 物理像素，而
+/// `Session` / `Selection` 页在 626。所以列宽按本页最长标签现量
+/// （[`label_col`]），不套 `LABEL_W`——两处硬编码同一个数迟早会分叉。
+///
+/// # 哪些是真控件
+///
+/// | 控件 | 后端 |
+/// |---|---|
+/// | `Columns` / `Rows` / `Lines of scrollback` / `Roll the mouse wheel…` | `SessionConfig.cols` / `.rows` / `.scrollback` / `.wheel_lines`，`to_config` 已落盘 |
+/// | `Caret Style` | `SessionConfig.caret_style`（`CARET_STYLES` 八选一） |
+/// | `Time format` / `Datetime format` | **没有**字段：灰显占位 |
+/// | 两个勾选 | **没有**字段：灰显 + 页底说明 |
+fn window_group_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    use term_core::config::CARET_STYLES;
+    let col = label_col(
+        ui,
+        &[
+            "Columns:",
+            "Rows:",
+            "Lines of scrollback:",
+            "Caret Style:",
+            "Time format:",
+            "Datetime format:",
+        ],
+    );
+    let ns = &mut win.new_session;
+
+    // 四行数字框：`spin_field` 自己带盒子与右端 ▲▼（视觉基线每个数值框都有），
+    // 所以这里走「左对齐标签 + 自己画的框」，不再套 `field_row` 的盒子。
+    let number = |ui: &mut egui::Ui, label: &str, value: &mut usize, hi: usize| {
+        ui.horizontal(|ui| {
+            field_label(ui, label, col);
+            spin_field(ui, |ui| {
+                ui.add(egui::DragValue::new(value).range(1..=hi));
+            });
+        });
+    };
+    number(ui, "Columns:", &mut ns.cols, 1000);
+    number(ui, "Rows:", &mut ns.rows, 1000);
+    number(ui, "Lines of scrollback:", &mut ns.scrollback, 9_999_999);
+
+    // `Caret Style`：真下拉，取值就是 `SessionConfig.caret_style` 的八档。
+    let shown = ns.caret_style.min(CARET_STYLES.len() - 1);
+    ui.horizontal(|ui| {
+        field_label(ui, "Caret Style:", col);
+        field_box(ui, |ui| {
+            egui::ComboBox::from_id_salt("new_session_caret_style")
+                .selected_text(CARET_STYLES[shown])
+                .width(ui.available_width())
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .show_ui(ui, |ui| {
+                    for (i, name) in CARET_STYLES.iter().enumerate() {
+                        if ui.selectable_label(i == shown, *name).clicked() {
+                            ns.caret_style = i;
+                        }
+                    }
+                });
+        });
+    });
+
+    // `Timestamp of lines:` 是一行**没有字段**的小标题（视觉基线里它只有文字），
+    // 底下的 Time / Datetime 两行缩在同一个标签列里，不另起缩进。
+    ui.label("Timestamp of lines:");
+    for (label, value) in [
+        ("Time format:", "[HH:mm:ss]"),
+        ("Datetime format:", "yyyy-MM-dd HH:mm:ss"),
+    ] {
+        ui.horizontal(|ui| {
+            field_label(ui, label, col);
+            field_box(ui, |ui| dead_value(ui, value, Deco::None));
+        });
+    }
+
+    // `Roll the mouse wheel to scroll:`：抬头 + **通栏**数字框（视觉基线里这个框
+    // 从标签列左缘一直铺到右缘，比上面那几行宽）。
+    underlined_label(ui, "Roll the mouse wheel to scroll:");
+    ui.add_space(LABEL_TO_FIELD - FIELD_TO_ROW);
+    spin_field(ui, |ui| {
+        ui.add(egui::DragValue::new(&mut ns.wheel_lines).range(1..=100));
+    });
+
+    // 两段「抬头 + 缩进勾选」。两者都没有后端字段 → 灰显。
+    let mut adjust_rows = true;
+    let mut change_title = false;
+    for (heading, text, on) in [
+        (
+            "When window is resized:",
+            "Adjust the window rows and columns",
+            &mut adjust_rows,
+        ),
+        (
+            "When remote title is changed:",
+            "Change the tab title",
+            &mut change_title,
+        ),
+    ] {
+        underlined_label(ui, heading);
+        ui.horizontal(|ui| {
+            ui.add_space(7.0);
+            ui.add_enabled(false, egui::Checkbox::new(on, text));
+        });
+    }
+    placeholder_note(
+        ui,
+        "Time formats and the two window behaviours are read-only placeholders: \
+         the terminal engine decides them, the session profile has no field yet.",
     );
 }

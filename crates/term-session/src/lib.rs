@@ -7,15 +7,30 @@
 //! 任何客户端不得自持远端会话（那就是「静默执行」，本 crate 的存在
 //! 正是为了让这类分叉在类型层面不可能）。
 //!
-//! 协议无关（ADR-0019 最高原则）：本 crate 的公开 API 里**不出现**
+//! 协议无关（ADR-0019 §B.14 最高原则）：本 crate 的公开 API 里**不出现**
 //! SSH / SFTP / 隧道等协议专有概念。本地 PTY 会话由 [`SessionPool::open`]
 //! 直接拉起；其余协议由应用层建好 `TermChannel` 经 [`SessionPool::open_with_channel`]
 //! 注入——协议差异只存在于通道实现里，控制面对此一无所知。
 //!
-//! 线程模型（ADR-0019）：[`SessionPool`] 是 `&self` 的、可跨线程
+//! 线程模型（ADR-0019 §B.3）：[`SessionPool`] 是 `&self` 的、可跨线程
 //! 共享（UI 线程 / 脚本线程 / 桥接线程各持 `Arc<SessionPool>`）；
 //! 每个 `Session` 包在自己的 `Mutex` 里，与 `term-io` 的
 //! `Arc<Mutex>` 风格一致。零 `.await`、不声明 tokio（ADR-0017 笼子）。
+//!
+//! # 为什么登录方案（OneKey）的解析在这一层
+//!
+//! `SessionConfig` 里有一个 `onekey` 字段（方案名），而方案本身会把用户名与
+//! 当前系统的私钥覆盖进会话。这件事**必须在控制面做**，不能留给各客户端：
+//!
+//! - 系统 `ssh` 那条路径（`builtin_ssh = false`）由本 crate 直接 `spawn`，
+//!   应用层根本不经手命令行，只有在这里覆盖才轮得到它；
+//! - 内置客户端那条路径要拿覆盖后的用户名 / 私钥去组装认证，应用层在
+//!   `open_with_channel` 之前就得先问一次（[`SessionPool::onekey_for`]）。
+//!
+//! 于是「同一个会话名，换个客户端就少一个登录方案」这个分叉在这里被堵住：
+//! 解析只有 [`SessionPool::resolve_onekey`] 一处，两条路径都从它出来。
+//! 这一条不违反「协议无关」——`onekey` 是 `SessionConfig` 自己的字段，
+//! 与 `builtin_ssh` / `proxy_jump` 一样，控制面本来就在读。
 
 pub mod sysmon;
 pub mod sysmon_parse;
@@ -29,6 +44,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use term_core::channel::TermChannel;
 use term_core::coords::ViewRange;
 use term_core::grid::{GridSnapshot, ScreenImage};
+use term_core::onekey::OneKey;
 use term_core::session::{ConfigError, Protocol, SessionConfig};
 use term_core::session_runtime::{
     LogStatus, OutputReader, Session, SessionId, SessionState, SessionStatus, WaitError,
@@ -70,11 +86,11 @@ impl std::error::Error for ChannelFailure {}
 
 /// 通道工厂：把「按这份配置建一条字节通道」这件事交给应用层。
 ///
-/// 之前控制面只会说 `BuiltinChannelNeedsInjection`，于是每个客户端
+/// 此前控制面只会说 `BuiltinChannelNeedsInjection`，于是每个客户端
 /// 都得自己 `match` 协议、自己拿凭据、自己调 `open_with_channel`——控制面
 /// 号称「唯一会话所有者」，却把最重要的那类会话推给了调用方。
 /// 现在工厂由应用层在启动时注册一次；控制面依旧零协议知识（签名里只有
-/// `SessionConfig` 与 `TermChannel`），`open()` 成了所有客户端的唯一入口。
+/// `SessionConfig` 与 `TermChannel`），`open ` 成了所有客户端的唯一入口。
 pub type ChannelFactory = dyn Fn(
         &SessionConfig,
         usize,
@@ -118,7 +134,7 @@ impl std::error::Error for OpenError {}
 struct Entry {
     name: String,
     session: Arc<Mutex<dyn Session>>,
-    /// 原始字节旁路的控制端。会话本体在这里是 `dyn Session`，借不回
+    /// W3：原始字节旁路的控制端。会话本体在这里是 `dyn Session`，借不回
     /// `SupervisorHandle`；这一份在 `insert` 时就取好，透传旁路登记用。
     raw: RawControl,
     /// 非破坏性 tee 的控制端（hex 视图的字节来源）。与 `raw` 是同一个
@@ -135,6 +151,11 @@ pub struct SessionPool {
     sessions: Mutex<HashMap<SessionId, Entry>>,
     /// 应用层注册的通道工厂，只装一次、装完只读（无需表锁）。
     factory: OnceLock<Arc<ChannelFactory>>,
+    /// 登录方案表（`Prefs.onekeys` 的一份运行期副本）。
+    ///
+    /// 与 `factory` 不同，这份**可以反复灌**：工厂是代码（装两次就是两个实现
+    /// 在抢同一件事），方案是数据（用户改完一个方案就该立刻生效）。
+    onekeys: Mutex<Vec<OneKey>>,
 }
 
 /// ADR-0024：让会话名在池内唯一（名字是**寻址键**，歧义必须在插入时消掉）。
@@ -184,6 +205,41 @@ impl SessionPool {
         Self {
             sessions: Mutex::new(HashMap::new()),
             factory: OnceLock::new(),
+            onekeys: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 灌入登录方案表（OneKeys）。**可重复调用**，后一次覆盖前一次。
+    ///
+    /// 谁会调：界面在构造时灌一次、每次落盘 OneKeys 编辑页之后再灌一次
+    /// 无窗口路径（`desk script` / `desk serve`）在开会话前从 `prefs` 读一次。
+    /// 没灌过时表是空的——等价于「所有会话都没选方案」，不是错误。
+    pub fn set_onekeys(&self, schemes: Vec<OneKey>) {
+        *lock_or_recover(&self.onekeys) = schemes;
+    }
+
+    /// 会话 `onekey` 字段选中的**可用**方案（`None` = 没选 / 不存在 / 已停用）。
+    ///
+    /// 返回克隆而不是引用：方案表在 `Mutex` 后面，借出去就得让调用方持锁
+    /// 拼认证参数。方案是小结构（几个字符串），克隆比跨锁借更省心。
+    pub fn onekey_for(&self, name: &str) -> Option<OneKey> {
+        let schemes = lock_or_recover(&self.onekeys);
+        OneKey::active(&schemes, name).cloned()
+    }
+
+    /// 把会话选中方案的应用到配置上（返回克隆，不改调用方的配置）。
+    ///
+    /// **全仓唯一的 OneKey 落地处**：界面、脚本、桥接三条路径的连接都从这里
+    /// 拿到覆盖后的用户名 / 私钥。方案里留空的字段回落会话自己的值，
+    /// 停用的方案与会话没选等价（`OneKey::active` 那一处判定）。
+    ///
+    /// 凭据不在这里：密码与键盘交互应答属于保险库，控制面不认识保险库。
+    /// 应用层拿 [`onekey_for`](Self::onekey_for) 自己去配。
+    pub fn resolve_onekey(&self, config: &SessionConfig) -> SessionConfig {
+        let schemes = lock_or_recover(&self.onekeys);
+        match OneKey::active(&schemes, &config.onekey) {
+            Some(scheme) => scheme.apply_to(config),
+            None => config.clone(),
         }
     }
 
@@ -206,7 +262,12 @@ impl SessionPool {
     /// **绝不静默退化成系统 `ssh`**（行为分叉），也绝不假装成功。没装工厂时
     /// 仍报 [`OpenError::BuiltinChannelNeedsInjection`]：脚本 / 桥接靠这个分类
     /// 说清「漏装了一步」，既有失败分类单测因此不动。
+    ///
+    /// OneKey 在这里先落地（[`resolve_onekey`](Self::resolve_onekey)）：系统
+    /// `ssh` 的命令行由 `SpawnPlan` 从这份配置拼出来，**不在这一句之前覆盖，
+    /// 那条路径上的方案就永远读不到**——它不经过任何应用层代码。
     pub fn open(&self, config: &SessionConfig, cols: usize, rows: usize) -> Result<SessionId, OpenError> {
+        let config = &self.resolve_onekey(config);
         if config.protocol == Protocol::Ssh && config.builtin_ssh {
             let Some(factory) = self.factory.get() else {
                 return Err(OpenError::BuiltinChannelNeedsInjection);
@@ -230,6 +291,11 @@ impl SessionPool {
     /// ——`term-ssh::SshChannel` 实现 `TermChannel`，由应用层建立
     /// （凭据、主机密钥策略都是应用策略），控制面只管监管它。
     /// 与 `term_io::supervisor::spawn_with_channel` 同一接缝。
+    ///
+    /// 同样先过 [`resolve_onekey`](Self::resolve_onekey)：`open` 那一支已经把
+    /// 覆盖后的配置递过来了（再套一次是幂等的），而界面那条**直接注入通道**的
+    /// 路径是自己先解析的——它在建通道之前就要用方案里的用户名去认证。
+    /// 两条路都从这里收口，谁也不会绕开方案。
     pub fn open_with_channel(
         &self,
         config: &SessionConfig,
@@ -237,12 +303,13 @@ impl SessionPool {
         rows: usize,
         channel: Box<dyn TermChannel>,
     ) -> SessionId {
+        let config = &self.resolve_onekey(config);
         let handle = spawn_with_channel(config.clone(), cols, rows, channel);
         self.insert(config.name.clone(), handle)
     }
 
     fn insert(&self, name: String, handle: SupervisorHandle) -> SessionId {
-        // 先取旁路控制端再交出 handle：`session()` 借出去的是 `dyn Session`，
+        // 先取旁路控制端再交出 handle：`session ` 借出去的是 `dyn Session`，
         // 之后没有第二条路能拿回具体句柄。
         let raw = handle.raw_control();
         let tap = handle.raw_control();
@@ -393,7 +460,7 @@ impl SessionPool {
     /// 的全局函数闭包捕获会话后逐个调用，中间隔着解释器，没法折成
     /// `&self` 的控制面调用。
     ///
-    /// 边界（ADR-0019）：拿到的仍是**注册表里那一个**会话对象（同一个
+    /// 边界（ADR-0019 §B.3）：拿到的仍是**注册表里那一个**会话对象（同一个
     /// `Arc`），不是副本；关闭、列举、状态查询仍然只有控制面能做。
     /// 换句话说这条缝让脚本线程**用**会话，不让它**拥有**会话。
     /// 会话不存在返回 `None`——不悄悄新建一个来顶替。
@@ -438,14 +505,14 @@ impl SessionPool {
 
     /// 取登记表锁；中毒时照常取回数据（见 [`lock_or_recover`]）。
     ///
-    /// 2026-11-15 起全表的读 / 写路径统一走这里：此前只有寻址两条
+    /// 全表的读 / 写路径统一走这里：此前只有寻址两条
     /// （[`resolve`](Self::resolve) / [`name`](Self::name)）不 panic，其余
     /// 13 处「锁中毒就 expect」会在别的线程崩过之后把 GUI 一起带走。
     fn entries(&self) -> MutexGuard<'_, HashMap<SessionId, Entry>> {
         lock_or_recover(&self.sessions)
     }
 
-    // ── 驱动界面需要的门面（ADR-0019：desk 不再自己持句柄） ─────
+    // ── 驱动界面需要的门面（ADR-0019 档 1.1：desk 不再自己持句柄） ─────
     //
     // 这一组是「只有界面要」的方法：脚本与桥接读屏幕事实就够，不需要推事件、
     // 不需要开日志、不需要每帧读缓存快照。它们放在控制面上，是为了让
@@ -483,7 +550,7 @@ impl SessionPool {
     }
 
     /// P：请求一份预览用只读事实窗口（悬停滚动条时的历史快照）。第二通道，
-    /// 与 [`request_range`](SessionPool::request_range) 物理隔离（ADR-0028）。
+    /// 与 [`request_range`](SessionPool::request_range) 物理隔离（ADR-0026）。
     /// 结果从 [`preview_window`](SessionPool::preview_window) 取。
     pub fn request_preview_range(&self, id: SessionId, range: ViewRange) -> bool {
         self.with(id, |s| s.request_preview_range(range)).is_some()
@@ -576,7 +643,7 @@ mod tests {
     #[test]
     fn a_poisoned_table_still_serves_every_path() {
         // 锁中毒不是「表坏了」：只是曾经有线程持锁时 panic 过，数据仍在。
-        // 2026-11-15 前只有 resolve / name 两条能穿过它，其余 13 处会把 GUI
+        // 前只有 resolve / name 两条能穿过它，其余 13 处会把 GUI
         // 一起带走。这里把表侧 / 会话侧 / 写路径各走一遍，钉死收口后的行为。
         let pool = Arc::new(SessionPool::new());
         let mut cfg = SessionConfig::new(Protocol::Shell);
@@ -598,7 +665,7 @@ mod tests {
         assert_eq!(pool.name(id).as_deref(), Some("poison-me"));
         assert!(pool.session(id).is_some());
 
-        // 会话侧：with() 连着两把锁（表 + 会话本体）都要能穿过。
+        // 会话侧：with  连着两把锁（表 + 会话本体）都要能穿过。
         assert!(pool.state(id).is_some());
         assert!(pool.send(id, b"echo ok\n"));
 
@@ -690,7 +757,7 @@ mod tests {
         assert!(!pool.clear(999));
         assert!(!pool.stop_log(999));
         assert!(!pool.close(999));
-        // 原始字节旁路对未知会话同样是诚实的 false（不是「登记失败」）。
+        // W3：原始字节旁路对未知会话同样是诚实的 false（不是「登记失败」）。
         let (sink, _rx) = std::sync::mpsc::channel();
         assert!(!pool.attach_raw(999, sink));
         assert!(!pool.detach_raw(999));
@@ -848,8 +915,8 @@ mod tests {
 
     #[test]
     fn the_pool_opens_a_builtin_session_through_the_registered_factory() {
-        // 正题：客户端不必自己 match 协议、不必自己调
-        // `open_with_channel`，`open()` 一个入口就能把内置会话开起来。
+        //  的正题：客户端不必自己 match 协议、不必自己调
+        // `open_with_channel`，`open ` 一个入口就能把内置会话开起来。
         let pool = SessionPool::new();
         pool.set_channel_factory(stub_factory()).expect("首次注册");
         let mut cfg = SessionConfig::new(Protocol::Ssh);
@@ -915,5 +982,76 @@ mod tests {
             pool.open(&cfg, 80, 24).unwrap_err(),
             OpenError::BuiltinChannelNeedsInjection
         );
+    }
+
+    fn onekey(name: &str, enabled: bool) -> OneKey {
+        OneKey {
+            name: name.to_string(),
+            username: "ops".to_string(),
+            identity_files: [
+                "/keys/linux".to_string(),
+                "/keys/macos".to_string(),
+                "/keys/win".to_string(),
+            ],
+            enabled,
+            ..OneKey::default()
+        }
+    }
+
+    #[test]
+    fn a_system_ssh_command_line_carries_the_onekey_login() {
+        // 这一条是「下沉到控制面」的判据：系统 `ssh` 的命令行由 `SpawnPlan`
+        // 从配置拼出来，应用层根本不碰它。方案要是不在 `open` 之前落地，
+        // 这条路径就永远没有 `-l` / `-i`——而这正是用户报的那个缺口。
+        let pool = SessionPool::new();
+        pool.set_onekeys(vec![onekey("prod", true)]);
+        let mut cfg = SessionConfig::new(Protocol::Ssh);
+        // `SessionConfig::new(Ssh)` 默认走内置客户端；这里要的是系统 ssh 那条。
+        cfg.builtin_ssh = false;
+        cfg.onekey = "prod".to_string();
+        cfg.system = "macos".to_string();
+        cfg.host = "example.com".to_string();
+        cfg.username = String::new();
+
+        let resolved = pool.resolve_onekey(&cfg);
+        match resolved.spawn_plan().expect("命令行应当能拼出来") {
+            term_core::session::SpawnPlan::External(argv) => {
+                assert!(
+                    argv.windows(2).any(|w| w == ["-l", "ops"]),
+                    "方案的用户名要进命令行：{argv:?}"
+                );
+                assert!(
+                    argv.windows(2).any(|w| w == ["-i", "/keys/macos"]),
+                    "按 system=macos 取第二列私钥：{argv:?}"
+                );
+            }
+            // `SpawnPlan` 没有 `Debug`（它只服务于 spawn），所以这里不打印它。
+            _ => panic!("系统 ssh 应当是一条外部命令"),
+        }
+        // 原配置一个字都不动：覆盖发生在克隆上，落盘的仍是「选了方案 prod」。
+        assert!(cfg.username.is_empty());
+    }
+
+    #[test]
+    fn a_disabled_or_unset_scheme_leaves_the_command_line_alone() {
+        let pool = SessionPool::new();
+        pool.set_onekeys(vec![onekey("prod", false)]);
+        let mut cfg = SessionConfig::new(Protocol::Ssh);
+        cfg.builtin_ssh = false;
+        cfg.onekey = "prod".to_string();
+        cfg.username = "local".to_string();
+        cfg.identity_file = "/local/key".to_string();
+
+        // 停用 = 连接时跳过（保留编辑内容），与没选等价。
+        assert!(pool.onekey_for("prod").is_none());
+        let resolved = pool.resolve_onekey(&cfg);
+        assert_eq!(resolved.username, "local");
+        assert_eq!(resolved.identity_file, "/local/key");
+
+        // 表没灌过时同理：不是错误，就是「没有方案」。
+        let empty = SessionPool::new();
+        let resolved = empty.resolve_onekey(&cfg);
+        assert_eq!(resolved.username, "local");
+        assert_eq!(resolved.identity_file, "/local/key");
     }
 }

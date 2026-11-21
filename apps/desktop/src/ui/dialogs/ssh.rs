@@ -1,6 +1,6 @@
 //! 原生 SSH 的四个对话框与收线（把 `Connector` 的结果落到 tab 上）。
 //!
-//! 从 `ssh_connect.rs` 拆出（那个文件只留纯逻辑与 `Connector` 状态机，
+//! 从 `ssh_connect.rs` 拆出（4j：那个文件只留纯逻辑与 `Connector` 状态机，
 //! 「谁画谁」仍然各归各的文件）。这里全部是 `TerminalWindow` 的方法：
 //! 开始连接 / 每帧收结果 / 四个窗口（Connecting / Unknown host / Password / Failed）。
 
@@ -9,6 +9,7 @@ use crate::ui::dialogs::ssh_connect::{
 };
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
+use term_core::onekey::OneKey;
 // ④-0：落位时要按「窗格身份」建 group。
 use crate::ui::layout::PaneGroup;
 use crate::ui::layout::mint_pane_identity;
@@ -27,7 +28,7 @@ impl TerminalWindow {
 
     /// 同 [`begin_builtin_ssh`](Self::begin_builtin_ssh)，但指定**连上之后落在哪儿**。
     ///
-    /// Duplicate / Reopen / Split Group / 断线重连都要在连接完成之后才建 tab
+    /// S1：Duplicate / Reopen / Split Group / 断线重连都要在连接完成之后才建 tab
     /// （内置 SSH 的握手是异步的），所以「落在哪儿」必须跟着这条连接一起存着，
     /// 不能在调用点当场拍一个下标——那时 tab 还不存在。
     pub(in crate::ui) fn begin_builtin_ssh_with(
@@ -36,23 +37,34 @@ impl TerminalWindow {
         password: Option<String>,
         pending: PendingOpen,
     ) {
-        let password = password.or_else(|| self.stored_password(&config.name));
+        // OneKey：会话选了一个**启用**的方案时，先按方案覆盖用户名与当前系统的
+        // 私钥。这件事的**唯一实现**在控制面（`SessionPool::resolve_onekey`）——
+        // 系统 `ssh` 那条路径不经过本函数，只有控制面才能同时罩住两条。
+        // 这里问它要两份东西：覆盖后的配置（喂给 `ask`）和方案本身（凭据在
+        // 保险库里，控制面不认识保险库）。
+        let scheme = self.pool.onekey_for(&config.onekey);
+        let config = self.pool.resolve_onekey(&config);
+        let answers = scheme.as_ref().map(onekey_answers).unwrap_or_default();
+        let password = password
+            .or_else(|| self.stored_password(&config.name))
+            // 方案的密码在保险库里（条目 `onekey:<方案名>`）：会话自己没存密码
+            // 时就用它。「改一处 OneKey，所有用它的服务器都跟着变」——这句话
+            // 就落在这一句上。
+            .or_else(|| {
+                scheme
+                    .as_ref()
+                    .map(|s| self.onekey_password(&s.name))
+                    .filter(|p| !p.is_empty())
+            });
         let home = dirs::home_dir();
-        let connector = match ask(&config, password.as_deref(), home.as_deref()) {
+        let connector = match ask(&config, password.as_deref(), &answers, home.as_deref()) {
             Ask::Connect(auth) => {
                 let mut c = Connector::new(config, Step::Connecting).with_pending(pending);
                 c.launch(auth, &self.ctx);
                 c
             }
             Ask::Password => {
-                // 库里存着但锁着：说清楚该去哪解锁，别让人以为密码丢了。
-                let reason = if persist::vault_entry(&config.name).is_some() {
-                    "这个会话的密码存在保险库里，但保险库现在锁着——先在会话属性的 \
-                     Authentication 页解锁，或者直接在这里输入"
-                        .to_string()
-                } else {
-                    "这个会话没有保存密码（我们也不存明文）".to_string()
-                };
+                let reason = self.why_no_password(&config, scheme.is_some());
                 Connector::waiting_password_with(config, reason).with_pending(pending)
             }
             // 连不上就没有「落在哪儿」这回事，但 pending 还是记着——用户可能重试。
@@ -65,20 +77,47 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
+    /// 弹密码框之前的那句原因。三种情况必须分开说，否则用户不知道该去解锁、
+    /// 还是该去补方案，还是这台机器压根没存过密码。
+    fn why_no_password(&self, config: &SessionConfig, has_scheme: bool) -> String {
+        // 库里存着但锁着：说清楚该去哪解锁，别让人以为密码丢了。
+        if persist::vault_entry(&config.name).is_some() {
+            return "这个会话的密码存在保险库里，但保险库现在锁着——先在会话属性的 \
+                    Authentication 页解锁，或者直接在这里输入"
+                .to_string();
+        }
+        if has_scheme {
+            return if persist::has_vault() && !self.vault_unlocked() {
+                format!(
+                    "这条会话的 OneKey 方案「{}」把密码存在保险库里，但保险库现在 \
+                     锁着——先在会话属性的 Authentication 页解锁，或者直接在这里输入",
+                    config.onekey
+                )
+            } else {
+                format!(
+                    "OneKey 方案「{}」里没有可用的密码，这条会话也没有保存密码。\
+                     在 OneKeys 里给它填一个密码，或者直接在这里输入",
+                    config.onekey
+                )
+            };
+        }
+        "这个会话没有保存密码（我们也不存明文）".to_string()
+    }
+
     /// 每帧收一次后台结果。
     pub(in crate::ui) fn poll_connector(&mut self) {
         let Some(connector) = self.connector.as_mut() else {
             return;
         };
         // 结果到了没有由句柄回答（`None` = 还在连）；线程死了没留话这种事
-        // 也由句柄翻译成错误，这里不接触队列细节。
+        // 也由句柄翻译成错误，这里不接触队列细节（B2）。
         let outcome = connector.rx.as_mut().and_then(|rx| rx.try_result());
         match outcome {
             Some(Ok(channel)) => {
                 let connector = self.connector.take().expect("connector 刚还在");
                 // 隧道要用同一份凭据再连一次，所以把 auth 一起带过去。
                 let auth = connector.auth.clone();
-                // 「连上之后落在哪儿」跟着这条连接一起走过来的。
+                // 「连上之后落在哪儿」跟着这条连接一起走过来的（S1）。
                 self.adopt_channel(connector.config, channel, auth, connector.pending);
             }
             Some(Err(e)) => {
@@ -122,7 +161,7 @@ impl TerminalWindow {
         let tab = self.build_ssh_tab(config.clone(), Box::new(channel), pending);
         let slot = self.place_tab(tab, pending);
         self.set_active_slot(slot);
-        // 把这次用的凭据留在 tab 上，文件面板等下要用它再开一条连接。
+        // R13-f：把这次用的凭据留在 tab 上，文件面板等下要用它再开一条连接。
         // 只在内存里（`SessionConfig` 不存密码，落盘的那份在保险库里）。
         if let (Some(tab), Some(auth)) = (self.tabs.get_mut(slot), auth.clone()) {
             tab.auth = Some(auth);
@@ -159,7 +198,7 @@ impl TerminalWindow {
 
     /// 把建好的 tab 放进标签栏，返回它**实际**占的下标。
     ///
-    /// 这是落地点：所有「连上之后才存在」的入口（复制 / 重开 / 分屏 /
+    /// 这是 S1 的落地点：所有「连上之后才存在」的入口（复制 / 重开 / 分屏 /
     /// 重连）都在这里收口，不再各自去猜一个下标。
     fn place_tab(&mut self, tab: Tab, pending: PendingOpen) -> usize {
         match pending {
@@ -194,7 +233,7 @@ impl TerminalWindow {
                 // `anchor` 已经是窗格身份（`split_view` 在落地前翻译好的）；若分屏期间
                 // 锚点窗格被关掉，`split` 会退化成「整棵树 + 新叶子」，不会丢已有窗格。
                 self.layout.split(anchor, horizontal, new_pane);
-                // A2：结构变了，本帧末即时落盘（内置 SSH 分屏这类异步落地的入口）。
+                // 结构变了，本帧末即时落盘（内置 SSH 分屏这类异步落地的入口）。
                 self.pending_save_layout = true;
                 idx
             }
@@ -213,7 +252,7 @@ impl TerminalWindow {
         }
     }
 
-    /// 「重新连接会话」落到**当前标签**上（另一半）。
+    /// 「重新连接会话」落到**当前标签**上（S1 的另一半）。
     ///
     /// 以前它调 `connect_selected_session`——连的是**侧栏里选中**的那一条。
     /// 于是用户在一个断开的标签上点 Reconnect，连的却是侧栏高亮的另一台机器；
@@ -255,7 +294,7 @@ impl TerminalWindow {
         let c = self.connector.as_ref()?;
         match &c.step {
             Step::Connecting => {
-                // 这一句只为了**日志与状态栏**（`description()` 里没有密码、没有私钥
+                // 这一句只为了**日志与状态栏**（`description ` 里没有密码、没有私钥
                 // 路径）。跳板链书写有误时拼不出 `SshOptions`，但那时错误正显示在
                 // 失败窗口里——状态栏没必要跟着变成一片空白，退成 host:port 即可。
                 let target = match options_for(&c.config, SshAuth::Agent, FIRST_POLICY) {
@@ -321,7 +360,7 @@ impl TerminalWindow {
                     });
             }
             Step::NeedPassword { reason } => {
-                // 「能不能存」在进窗口之前问清楚：`vault_unlocked()` 借的是整个
+                // 「能不能存」在进窗口之前问清楚：`vault_unlocked ` 借的是整个
                 // `self`，而下面要可变借 `ssh_password` / `save_password`。
                 let can_save = self.vault_unlocked();
                 let password = &mut self.ssh_password;
@@ -444,4 +483,23 @@ impl TerminalWindow {
             }
         }
     }
+}
+
+/// OneKey 方案里键盘交互应答表的内容，按服务端提示顺序。
+///
+/// 编辑页按 `+` 加行、`-` 删行，中间不留空是一位用户很难做到的事，所以
+/// **在第一个空应答处停**：`term-ssh` 是按下标取答案的，空串会被原样发出去
+/// （服务端只会拒绝一次），截断比乱填诚实。
+///
+/// ⚠️ 这里的 `response` 目前是 `prefs.json` 里的**明文**——OneKeys 编辑页直接
+/// 写在那一格，而 `term_core::onekey` 的模块文档说的是「应答经 vault 保存」。
+/// 那条迁移还没做；做了之后只需要改这一个函数。
+fn onekey_answers(scheme: &OneKey) -> Vec<String> {
+    scheme
+        .keyboard_interactive
+        .iter()
+        .map(|pair| pair.response.as_str())
+        .take_while(|response| !response.is_empty())
+        .map(str::to_string)
+        .collect()
 }

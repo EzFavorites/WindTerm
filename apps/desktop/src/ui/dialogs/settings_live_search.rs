@@ -24,11 +24,11 @@
 //! # 下半截为什么仍是灰的
 //!
 //! `+ / − / ▲ ▼` 是「自定义引擎列表」的编辑按钮，而这一轮只存**一条** URL
-//! （`prefs.search_url`），没有存列表的字段；按下它们无处可写，所以灰显
+//! （`prefs.search_url`），没有存列表的字段；按下它们无处可写，所以按  灰显
 //! 并在页底写清缺的是哪一段。视觉基线那个 `Modify` 按钮的功能被上面这条可编辑
 //! URL 行取代，直接删掉——留一个点了没反应的按钮比少一个按钮更糟。
 
-use super::settings_pages_view::{field_label, group_box, label_col};
+use super::settings_pages_view::{field_row, group_box, label_col, Slot};
 use crate::ui::*;
 use term_runtime::prefs;
 use term_runtime::search::{self, SEARCH_ENGINES};
@@ -53,11 +53,13 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
     let mut picked: Option<usize> = None;
     let mut edited = false;
     let col = label_col(ui, &["Search engine:"]);
-    // 视觉基线 `视觉基线` 顶端那行字是这一块的标题（不是页级灰标题）：
+    // 视觉基线 `04-search.png` 顶端那行字是这一块的标题（不是页级灰标题）：
     // 它下面直接就是引擎表。这里保留同一行字，框内是简化版的一行控件。
     group_box(ui, Some("Search Engines"), |ui| {
-        ui.horizontal(|ui| {
-            field_label(ui, "Search engine:", col);
+        // 这一行是「标签 + 下拉」，与下面那条 URL 行走同一个 `field_row`：
+        // 下拉框必须套进 `field_box`，否则它给自己画的按钮底（`weak_bg_fill`
+        // = #262626）比同一页的文本框亮一档，一眼看得出「两个盒子」。
+        field_row(ui, "Search engine:", Slot::Inline, col, "", |ui| {
             // 组合框吃掉标签列之后的全部余量：视觉基线这一行是「标签 + 表头行」，
             // 右缘一路齐到框右边，不给自己留 230 的固定上限。
             egui::ComboBox::from_id_salt("prefs_search_engine")
@@ -78,15 +80,15 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
         // URL 行不跟标签挤一行：模板普遍 30 个字符以上（Stack Overflow 那条 36），
         // 140 标签之后只剩 ~190 像素，会被截掉一半——「显示的是哪条 URL」正是
         // 这一页最重要的信息。整行给它，换行不影响可读性。
-        ui.label("Query URL:");
-        ui.add_space(2.0);
-        edited = ui
-            .add(
-                egui::TextEdit::singleline(&mut url)
-                    .desired_width(ui.available_width())
-                    .hint_text(search::default_url()),
-            )
-            .changed();
+        field_row(ui, "Query URL:", Slot::Above, 0.0, "", |ui| {
+            edited |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut url)
+                        .desired_width(ui.available_width())
+                        .hint_text(search::default_url()),
+                )
+                .changed();
+        });
     });
 
     // 下拉被真的改动 → 套用它的模板（理由见模块文档）。

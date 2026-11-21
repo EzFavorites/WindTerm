@@ -1,5 +1,5 @@
 //! `session_nav.rs` 的单测。
-//! verify 要求 `ui/**/*.rs` ≤ 450 行：视觉基线树的逐字断言、
+//!  / verify 4j 要求 `ui/**/*.rs` ≤ 450 行：黄金树的逐字断言、
 //! 协议差异、页表唯一性等一共十几条测试，留在主文件会把它顶到 516 行，
 //! 所以按 `#[path]` 拆成同目录的测试模块（仍是 `super::*` 的私有作用域）。
 
@@ -10,7 +10,11 @@ fn labels_of(protocol: Protocol) -> Vec<&'static str> {
     for entry in nav_for(protocol) {
         match entry {
             NavEntry::Leaf(l) => out.push(l.label),
-            NavEntry::Group { label, children } => {
+            NavEntry::Group {
+                label,
+                page: _,
+                children,
+            } => {
                 out.push(label);
                 out.extend(children.iter().map(|c| c.label));
             }
@@ -73,8 +77,13 @@ fn ssh_tree_matches_windterm_golden_word_for_word() {
         })
         .collect();
     assert_eq!(groups, vec!["Terminal", "Window", "SSH"]);
-    assert_eq!(SSH_NAV.len(), 4, "视觉基线树只有四个一级条目");
-    assert_eq!(pages_for(Protocol::Ssh).len(), 17, "SSH 树只保留 17 个视觉基线叶子");
+    assert_eq!(SSH_NAV.len(), 4, "黄金树只有四个一级条目");
+    // 17 个视觉基线叶子 + `Terminal` / `Window` 两个组头页（组头自己也是页）。
+    assert_eq!(
+        pages_for(Protocol::Ssh).len(),
+        19,
+        "SSH 树 ＝ 17 个黄金叶子 + 两个组头页"
+    );
 }
 
 /// 另外三棵树也有截图（Telnet / Tcp / Serial），一并钉死。
@@ -107,7 +116,7 @@ fn every_protocol_has_a_different_configuration() {
     assert_ne!(labels_of(Protocol::Telnet), labels_of(Protocol::Tcp));
     let ssh = labels_of(Protocol::Ssh);
     for word in ["Ciphers", "Key Exchange", "MAC Hashes", "Public Keys", "SFTP", "X11"] {
-        assert!(ssh.contains(&word), "视觉基线 SSH 树缺少 {word:?}");
+        assert!(ssh.contains(&word), "黄金 SSH 树缺少 {word:?}");
     }
     assert!(labels_of(Protocol::Serial).contains(&"Protocol"));
     assert!(labels_of(Protocol::Shell).contains(&"Command"));
@@ -287,7 +296,10 @@ fn every_content_page_is_reachable_from_some_protocol() {
             ALL_NAVS.iter().any(|nav| {
                 nav.iter().any(|entry| match entry {
                     NavEntry::Leaf(l) => l.page == page,
-                    NavEntry::Group { children, .. } => children.iter().any(|l| l.page == page),
+                    // 组头自己也是一页（`Terminal` / `Window`），算挂上了树。
+                    NavEntry::Group { page: own, children, .. } => {
+                        *own == Some(page) || children.iter().any(|l| l.page == page)
+                    }
                 })
             }),
             "页 {page} 被所有协议排除，等于删了这页"

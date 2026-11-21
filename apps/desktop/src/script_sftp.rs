@@ -22,13 +22,22 @@
 use std::sync::Mutex;
 
 use term_core::session::SessionConfig;
+use term_session::SessionPool;
 use term_script::{DirEntry, FileStat, FsError, RemoteFiles, SessionsError};
 use term_sftp::BlockingClient;
 
 use crate::session_open::ssh_options_for;
 
 /// 为某条会话建一个远端文件端口。**不在这里连接**（见模块文档的懒连接）。
-pub(crate) fn for_session(config: &SessionConfig) -> Result<std::sync::Arc<dyn RemoteFiles>, SessionsError> {
+///
+/// `pool` 只用来做一件事：把会话选的 OneKey 方案应用到配置上
+/// （[`SessionPool::resolve_onekey`]）。控制面是这件事的唯一出处——
+/// 脚本这条路径要是自己再查一次 `prefs`，就会出现「终端连得上、SFTP 传不了」
+/// 那种最难解释的分歧。
+pub(crate) fn for_session(
+    pool: &SessionPool,
+    config: &SessionConfig,
+) -> Result<std::sync::Arc<dyn RemoteFiles>, SessionsError> {
     if !config.builtin_ssh {
         return Err(SessionsError::Unsupported(format!(
             "会话 {:?} 用的是系统 ssh 客户端，脚本拿不到它的连接句柄，\
@@ -44,7 +53,7 @@ pub(crate) fn for_session(config: &SessionConfig) -> Result<std::sync::Arc<dyn R
     }
     Ok(std::sync::Arc::new(SftpRemote {
         name: config.name.clone(),
-        config: config.clone(),
+        config: pool.resolve_onekey(config),
         client: Mutex::new(None),
     }))
 }

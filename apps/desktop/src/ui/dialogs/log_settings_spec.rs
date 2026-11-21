@@ -1,10 +1,10 @@
 //! Session Settings ▸ Logging 的**规格与状态**：视觉基线常量、协议/导航表、
 //! 跨帧表单数据与 `prefs.json` 往返。
 //!
-//! 与 `log_settings.rs`（只画）分开是为了 450 行上限：数据面 + 测试
+//! 与 `log_settings.rs`（只画）分开是为了  的 450 行上限：数据面 + 测试
 //! 和绘制面加起来 738 行，会一条门禁红掉整个阶段。
 //!
-//! 取色与几何逐点取自 2026-11-08 视觉基线 `clipboard-…e44425d2.png`
+//! 取色与几何逐点取自 视觉基线 `clipboard-…e44425d2.png`
 //! （1280×1140 @2x ⇒ 640×570 逻辑点），与菜单三态同一套灰阶：
 //! ```text
 //! 顶部  Shell(选中 #1C1C1C) | SSH | Telnet | Tcp | Serial（未选中 #333333）
@@ -145,7 +145,7 @@ pub(in crate::ui) const LOGGING_ROW: usize = 6;
 
 /// 左树：**从 `session_nav` 的树派生**，不再自己写第二份。
 ///
-/// 2026-11-08 之前这里是独立的十二行枚举（SSH 组只有三项、Shell 组叫
+/// 之前这里是独立的十二行枚举（SSH 组只有三项、Shell 组叫
 /// `Process`），与新视觉基线集里 New Session 的树对不上——同一个产品里两棵
 /// 「同一棵树」各自漂移，正是 `session_nav.rs` 模块头警告过的事。
 /// 现在行数、文字、层级全部来自 `nav_for` + `PAGES`，两处不可能再分叉。
@@ -163,7 +163,13 @@ pub(in crate::ui) fn nav_rows(protocol: Protocol) -> Vec<NavRow> {
                 group: None,
                 header: false,
             }),
-            super::session_nav::NavEntry::Group { label, children } => {
+            // `page` 是组头自己那一页的序号；这个列表只用 label / 层级，
+            // 行号沿用「组头一行 + 子项各一行」的旧口径，故忽略。
+            super::session_nav::NavEntry::Group {
+                label,
+                page: _,
+                children,
+            } => {
                 rows.push(NavRow {
                     label,
                     indent: 0.0,
@@ -234,7 +240,11 @@ mod tests {
             for entry in crate::ui::dialogs::session_nav::nav_for(protocol) {
                 match entry {
                     crate::ui::dialogs::session_nav::NavEntry::Leaf(l) => flat.push(l.label),
-                    crate::ui::dialogs::session_nav::NavEntry::Group { label, children } => {
+                    crate::ui::dialogs::session_nav::NavEntry::Group {
+                        label,
+                        page: _,
+                        children,
+                    } => {
                         flat.push(label);
                         flat.extend(children.iter().map(|c| c.label));
                     }

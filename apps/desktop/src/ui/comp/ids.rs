@@ -1,6 +1,6 @@
-//! `CompId` 的名字与判定表：`ALL` 名单、`name()` / `has_baseline()` / `page()` / `parse()`。
+//! `CompId` 的名字与判定表：`ALL` 名单、`name ` / `has_baseline ` / `page ` / `parse `。
 //!
-//! 从 `comp/mod.rs` 拆出来是为了行数约束（`ui/` 单文件代码行 ≤ 500，不含注释）：
+//! 从 `comp/mod.rs` 拆出来是为了 （`ui/` 单文件代码行 ≤ 500，不含注释）：
 //! `mod.rs` 767 行里 566 行是代码，越线了。拆分只挪位置，`CompId` 仍然只活在
 //! `ui` 内部（可见性一个字没改）。
 
@@ -67,8 +67,11 @@ impl CompId {
         CompId::NewSessionPage(19),
         CompId::NewSessionPage(20),
         CompId::NewSessionPage(21),
+        // ：`Terminal` / `Window` 两个组头页（组头自己也是一页）。
+        CompId::NewSessionPage(22),
+        CompId::NewSessionPage(23),
         // Preferences 同理按**页**登记：整张弹窗那张 `dialog_settings` 只守住
-        // 默认页（2026-11-15 起是 Application）的位置与外观。
+        // 默认页（是 Application）的位置与外观。
         // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 24 页；其中 5 页不在
         // 左栏显示，但逐页基线仍在。
         CompId::SettingsPage(0),
@@ -93,7 +96,7 @@ impl CompId {
         CompId::SettingsPage(19),
         CompId::SettingsPage(20),
         CompId::SettingsPage(21),
-        // 新增的 Triggers 页：下标 = `SettingsPage::ALL` 里 Triggers 的位置（22）。
+        //  新增的 Triggers 页：下标 = `SettingsPage::ALL` 里 Triggers 的位置（22）。
         CompId::SettingsPage(22),
         // `Terminal.ManageOneKeys`：凭据管理器页，下标 = 23。
         CompId::SettingsPage(23),
@@ -114,7 +117,7 @@ impl CompId {
     ];
 
     /// 视觉基线专用夹具：快捷命令 2 个 + 右键菜单 2 个 + 未挂接弹层 3 个。
-    /// 装配文件用一个 arm 收口它们，避免 500 行上限。
+    /// 装配文件用一个 arm 收口它们，避免  的 500 行上限。
     pub(in crate::ui) fn is_reference_popup(self) -> bool {
         matches!(
             self,
@@ -148,7 +151,7 @@ impl CompId {
             CompId::SshReplaceKey => "dialog_ssh_replace_key",
             CompId::FilerPrompt => "dialog_filer_prompt",
             CompId::ScriptRun => "dialog_script_run",
-            // 窗口 2026-11-18 首次冻结：编辑器只能从运行窗口的 `Edit`
+            // D8-3 的窗口 首次冻结：编辑器只能从运行窗口的 `Edit`
             // 进（两级入口），不单独出图就永远没人看过它的像素。
             CompId::ScriptEditor => "dialog_script_editor",
             CompId::Palette => "overlay_palette",
@@ -215,19 +218,19 @@ impl CompId {
             | CompId::ConfirmCloseSession
             | CompId::MenuSession
             | CompId::MenuLog => true,
-            // 十页的现状就是「当前实现的事实」，先冻结住，逐页比对时
+            // 十页的现状就是「当前实现的事实」，先冻结住，P5 逐页逐页比对时
             // 任何改动都会立刻显形——这比"改完再看有没有变丑"可靠。
             //
-            // 2026-11-08：17..21 是视觉基线补页（Bell / Mode / Security / SFTP /
+            // ：17..21 是视觉基线补页（Bell / Mode / Security / SFTP /
             // Telnet·Tcp 的 Connection），还没出过图，所以**不参与**逐字节
             // 比对；等首次冻结后再并进来（否则脚本会因为缺 PNG 直接红）。
-            // 2026-11-08：17..21 是视觉基线补页（Bell / Mode / Security / SFTP /
+            // ：17..21 是视觉基线补页（Bell / Mode / Security / SFTP /
             // Telnet·Tcp 的 Connection）。首轮只登记不出图（否则脚本因缺 PNG
             // 直接红）；**同日已首次出图并逐张核对**，现在一起并进逐字节比对。
             CompId::NewSessionPage(_) => true,
             // OneKeys：组件名单里**从来没有** `dialog_settings_onekeys.png`
-            // （git 无记录；整批基线在 2026-11-16 窗口容器改造后有意清空，
-            // 等这些模块落定再重冻，见 docs/facts.txt 的 `baselines=0`）。
+            // （git 无记录；整批基线在 窗口容器改造后有意清空，
+            // 等 /K1/K2/K3 落定再重冻，见 docs/facts.txt 的 `baselines=0`）。
             // 标成 gated 会让 `--components` 每次都报「基线不存在」——那是假红：
             // 不是图坏了，是这个组件从未冻结过。名单保留（夹具出图照样能看），
             // 但不进逐字节比对；重冻时 PNG 落进 git 再并回 gated。
@@ -240,8 +243,8 @@ impl CompId {
             // Preferences 的 24 页：首轮出图即冻结，之后「哪一页被改坏」是
             // 逐字节问题，不再需要在一整张默认页截图里靠肉眼找。
             CompId::SettingsPage(_) => true,
-            // 2026-11-08：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
-            // 对过（勾选栏几何见 visual-golden §7.23），纳入比对。
+            // B1-c：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
+            // 对过（勾选栏几何见 视觉基线），纳入比对。
             CompId::MenuMode => true,
             CompId::MenuEdit
             | CompId::MenuSearch
@@ -250,13 +253,13 @@ impl CompId {
             | CompId::MenuView
             | CompId::MenuWindow
             |             CompId::MenuHelp => true,
-            // 2026-11-08：换钥窗口出图核对过（高度按实测内容收回过一次，见
+            // ：换钥窗口出图核对过（高度按实测内容收回过一次，见
             // `REPLACE_RECT` 的注释），随首次出图一起纳入逐字节比对。
             CompId::SshReplaceKey => true,
             CompId::FilerPrompt => true,
             CompId::ScriptRun => true,
             CompId::ScriptEditor => true,
-            // 2026-11-12：7 个视觉基线组件已目视确认，纳入逐字节比对。
+            // ：7 个视觉基线组件已目视确认，纳入逐字节比对。
             CompId::QuickCommands => true,
             CompId::QuickConfig => true,
             CompId::TerminalContext => true,
@@ -286,7 +289,7 @@ impl CompId {
 
 /// Preferences 页的基线名：`dialog_settings_<页名>`。
 ///
-/// `<页名>` 是 `SettingsPage::key()` 的 slug（空格 / 斜杠换下划线、全小写），
+/// `<页名>` 是 `SettingsPage::key ` 的 slug（空格 / 斜杠换下划线、全小写），
 /// 例如 `Shortcut Keys` → `dialog_settings_shortcut_keys`。`&'static str` 没法
 /// 在运行期拼出来，所以只能逐页写成字面量；漏一页编译不过（穷尽 match），
 /// 「名字的次序与组件夹具页序一致」由 `settings_page_baselines_follow_the_page_keys` 守。

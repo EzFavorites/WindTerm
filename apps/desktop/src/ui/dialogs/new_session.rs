@@ -1,6 +1,6 @@
 //! New Session（兼 Session Properties）对话框：协议条 + 二级树 + 内容页 + 保存/连接。
 //!
-//! 从 `ui/mod.rs` 拆出；这张表单同时当「会话属性」用
+//!  从 `ui/mod.rs` 拆出；这张表单同时当「会话属性」用
 //! （见 `open_session_properties`）。表单与配置的双向映射在
 //! `dialogs/session_form.rs`（纯函数，带自己的单测），页面内容在
 //! `dialogs/session_pages.rs`。
@@ -9,7 +9,7 @@
 //! 全部走 `ui/harness.rs::StableWindow`。本文件只画内容（`draw_new_session_body`），
 //! 所以同一份内容既能放进整窗的弹窗位置，也能被组件夹具单独出图。
 
-use crate::ui::kit::window::{DialogId, DialogWindow};
+use super::session_dialog_shell::footer_button;
 use crate::ui::panels::tunnels;
 use crate::ui::*;
 
@@ -25,7 +25,7 @@ use crate::ui::*;
 ///   `Edit Default Session`、按钮 `Save`，保存时只写回 `default_session`、
 ///   **不进会话列表、不连接**。
 ///
-/// 用一个枚举取代原先 `editing_session: Option<(usize, String)>` + `edit_target()`
+/// 用一个枚举取代原先 `editing_session: Option<(usize, String)>` + `edit_target `
 /// 的布尔式判断：四个入口各带自己的参数（要编辑哪条、预置分组、是否连接），
 /// 渲染时只读 `kind` 即可分派标题 / 按钮 / 保存语义，不用再散落 `if editing`。
 #[derive(Clone)]
@@ -36,9 +36,9 @@ pub(in crate::ui) enum SessionDialogKind {
     ///
     /// 与 `Edit` 分开而不是给它加个 `reconnect: bool`：`Edit` 的调用方是
     /// 「会话设置…」菜单与侧边栏右键 `Properties`，语义是「改完就重连」；
-    /// 而地址栏 / 右键属性面板只是「改参数」。两者字段、预填、写回完全
+    /// 而  的地址栏 / 右键属性面板只是「改参数」。两者字段、预填、写回完全
     /// 相同，唯一的差别就是收尾那一步——所以差别放在这里、由
-    /// `should_connect()` 一处回答，而不是让调用方各自记住「保存后别连」。
+    /// `should_connect ` 一处回答，而不是让调用方各自记住「保存后别连」。
     Properties { index: usize },
     Default,
 }
@@ -46,7 +46,7 @@ pub(in crate::ui) enum SessionDialogKind {
 impl SessionDialogKind {
     /// 窗口标题（StableWindow 的 id 固定为 `new_session`，标题随 kind 变，
     /// 窗口状态不跟着变）。
-    fn title(&self) -> &'static str {
+    pub(in crate::ui) fn title(&self) -> &'static str {
         match self {
             SessionDialogKind::New { .. } => "New Session",
             // 属性面板与 `Edit` 同标题：用户看到的都是「这条会话的属性」，
@@ -126,7 +126,7 @@ const FORM_PAD_L: f32 = 10.0;
 const FORM_W: f32 = 402.0;
 
 /// 页脚按钮高与右边距/底边距（视觉基线 Cancel/Save 实测 23 高、距右 10、距底 10）。
-const BTN_H: f32 = 23.0;
+pub(in crate::ui) const BTN_H: f32 = 23.0;
 const FOOT_PAD: f32 = 10.0;
 
 /// 导航树的叶子：**整行**占宽、整行高亮。
@@ -174,74 +174,94 @@ fn nav_leaf(ui: &mut egui::Ui, selected: bool, label: &str, indent: f32) -> egui
     response
 }
 
-/// 页脚按钮。视觉基线 `default-session-ssh-session.png` 实测：高 23、2pt 圆角、
-/// 文字左右各留 15，最窄 74；主按钮（Save / Connect）是 `#3EA0EC` 蓝框 +
-/// `#333A42` 蓝灰底，次按钮（Cancel）是 `#3C3C3C` 灰框 + `#262626` 灰底。
-fn footer_button(ui: &mut egui::Ui, label: &str, primary: bool, enabled: bool) -> egui::Response {
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let text_w = ui
-        .painter()
-        .layout_no_wrap(label.to_owned(), font, egui::Color32::WHITE)
-        .size()
-        .x;
-    let w = (text_w + 30.0).max(74.0);
-    let fill = if primary {
-        egui::Color32::from_rgb(0x33, 0x3A, 0x42)
+/// 树上的一个分组头：`▾/▸` 与组名是**两个**命中区，返回 `(点三角, 点文字)`。
+///
+/// 与 [`nav_leaf`] 同一个行高、同一个高亮带，区别只在命中区：三角 20pt 宽，
+/// 其余整段都算「点了组名」。视觉基线里组头既能折叠又是自己的页
+/// （`common/07-window-page.png`：选中 `Window` 时右侧是它那十行）。
+fn nav_group_row(ui: &mut egui::Ui, label: &str, open: bool, selected: bool) -> (bool, bool) {
+    let s = &term_core::theme::CHROME_SCALE;
+    let width = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(width, 24.0), egui::Sense::hover());
+    // 三角中心在 `left + 16.5`、组名从 `left + 33` 起——与旧实现
+    // （`spacing .indent = 33` 的 `CollapsingHeader`）逐像素一致。
+    let arrow_zone = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 6.0, rect.top()),
+        egui::pos2(rect.left() + 28.0, rect.bottom()),
+    );
+    let label_zone = egui::Rect::from_min_max(
+        egui::pos2(rect.left() + 28.0, rect.top()),
+        egui::pos2(rect.right() - 4.0, rect.bottom()),
+    );
+    let arrow = ui.interact(arrow_zone, ui.id().with((label, "arrow")), egui::Sense::click());
+    let text = ui.interact(label_zone, ui.id().with((label, "label")), egui::Sense::click());
+    let hovered = arrow.hovered() || text.hovered();
+    let fill = if selected {
+        Some(s.selected)
+    } else if hovered {
+        Some(s.hover)
     } else {
-        egui::Color32::from_rgb(0x26, 0x26, 0x26)
+        None
     };
-    let stroke = if primary {
-        egui::Color32::from_rgb(0x3E, 0xA0, 0xEC)
+    if let Some(fill) = fill {
+        let band = egui::Rect::from_min_max(
+            egui::pos2(rect.left() + 10.0, rect.top()),
+            egui::pos2(rect.right() - 4.0, rect.bottom()),
+        );
+        ui.painter()
+            .rect_filled(band, egui::Rounding::ZERO, crate::theme::chrome(fill));
+    }
+    // 三角：`▾` 展开 / `▸` 收回（视觉基线是实心小三角，不是文字字形）。
+    let color = crate::theme::chrome(s.icon);
+    let c = egui::pos2(rect.left() + 16.5, rect.center().y);
+    let d = 4.0;
+    let points = if open {
+        vec![
+            egui::pos2(c.x - d, c.y - d * 0.6),
+            egui::pos2(c.x + d, c.y - d * 0.6),
+            egui::pos2(c.x, c.y + d * 0.7),
+        ]
     } else {
-        egui::Color32::from_rgb(0x3C, 0x3C, 0x3C)
+        vec![
+            egui::pos2(c.x - d * 0.6, c.y - d),
+            egui::pos2(c.x - d * 0.6, c.y + d),
+            egui::pos2(c.x + d * 0.7, c.y),
+        ]
     };
-    ui.add_enabled_ui(enabled, |ui| {
-        ui.add_sized(
-            egui::vec2(w, BTN_H),
-            egui::Button::new(label)
-                .fill(fill)
-                .stroke(egui::Stroke::new(1.0, stroke))
-                .rounding(2.0),
-        )
-    })
-    .inner
+    ui.painter()
+        .add(egui::Shape::convex_polygon(points, color, egui::Stroke::NONE));
+    let font = ui
+        .style()
+        .text_styles
+        .get(&egui::TextStyle::Body)
+        .cloned()
+        .unwrap_or_else(|| crate::ui::type_scale::heading());
+    ui.painter().text(
+        egui::pos2(rect.min.x + 33.0, rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        font,
+        crate::theme::chrome(s.text),
+    );
+    (arrow.clicked(), text.clicked())
 }
 
 impl TerminalWindow {
-    /// 弹窗入口：外框交给 harness，内容交给 `draw_new_session_body`。
-    ///
-    /// 这里曾经有 25 行手写的「空内容热身」补丁（sizing pass / fade_in /
-    /// fixed_rect / ID 冲突四件事混在一起）。它们全在
-    /// `harness::StableWindow::show` 里，只有一份——弹窗皮肤再改时不必
-    /// 每处各补一遍，下一个弹窗也不用重新踩那四轮。
-    pub(in crate::ui) fn draw_new_session_dialog(&mut self, ctx: &egui::Context) {
-        // 标题 / 按钮 / 保存语义全由 `session_dialog` 这一个枚举分派：
-        // New → "New Session" / Edit → "Session Properties" / Default →
-        // "Edit Default Session"。StableWindow 的 id 固定，标题变窗口状态不变。
-        let kind = self.session_dialog.clone();
-        // `tight()`：视觉基线的协议条是**通栏**的（tab 从弹窗左缘铺到右缘），
-        // 12pt 的内容内边距会让五个 tab 整体缩进、左右各留一条空隙。
-        // 页脚按钮的 10pt 边距改由 `draw_new_session_body` 自己给。
-        let open = DialogWindow::new(DialogId::NewSession, kind.title())
-            .tight()
-            .show(ctx, |ui| self.draw_new_session_body(ui, &kind));
-        // 右上角 × 与「Cancel」走同一条关闭路径（清编辑目标，防止下一次
-        // 「＋ New Session」误改上一条会话）。
-        if !open {
-            self.close_session_dialog();
-        }
-    }
-
     /// 弹窗内容：协议标签条 + 左侧二级树 + 右侧两列表单 + 右下按钮。
     ///
     /// 与窗口外框分开：尺寸 / 淡入 / 右上角 × / sizing-pass 热身都是
     /// `harness::StableWindow` 的事。分开之后同一份内容既能放进整窗的
-    /// 弹窗位置，也能被组件夹具单独画出来——这正是「独立渲染」。
+    /// 弹窗位置，也能被组件夹具单独画出来——这正是  要的「独立渲染」。
     ///
+    /// 视觉基线是 `视觉基线`（视觉基线）。与旧版的
     /// 结构差别见 `session_nav.rs` 的模块头：横排是协议、左侧是折叠树、
     /// 右侧是两列网格、按钮在右下。左侧树的文字逐字来自视觉基线，内容页
     /// 下标与显示名由 `session_nav::PAGES` 唯一提供。
-    fn draw_new_session_body(&mut self, ui: &mut egui::Ui, kind: &SessionDialogKind) {
+    pub(in crate::ui) fn draw_new_session_body(
+        &mut self,
+        ui: &mut egui::Ui,
+        kind: &SessionDialogKind,
+    ) {
         // 通栏布局：协议条贴弹窗左缘，块与块之间不额外加间距，全部由常量控制。
         ui.spacing_mut().item_spacing = egui::vec2(0.0, 0.0);
         self.draw_protocol_strip(ui);
@@ -292,7 +312,10 @@ impl TerminalWindow {
                     // 右栏内的垂直节奏按视觉基线：Sftp / Sysmon 两个开关的轨道
                     // 顶相距 18（轨道 16 + 2.5 缝）。Grid 用自己的 spacing，
                     // 不受这里影响；其它页的 label/checkbox 也只差几分。
-                    ui.spacing_mut().item_spacing = egui::vec2(8.0, 2.5);
+                    // 纵向节奏取**全仓唯一**的行距（`kit::form::FIELD_TO_ROW`）：
+                    // 设置页与会话弹窗两族的行距从此是同一个数，不再一边 13 一边 2.5。
+                    ui.spacing_mut().item_spacing =
+                        egui::vec2(8.0, crate::ui::kit::form::FIELD_TO_ROW);
                     egui::ScrollArea::vertical()
                         .max_width(right_w - FORM_PAD_L)
                         .max_height(BODY_H)
@@ -442,11 +465,11 @@ impl TerminalWindow {
         // 行距按视觉基线：20 行树、每行 24pt、行间零缝隙。
         ui.spacing_mut().item_spacing.y = 0.0;
         ui.spacing_mut().interact_size.y = 24.0;
-        // `CollapsingHeader` 用 `spacing().indent` 定位三角与组名
+        // `CollapsingHeader` 用 `spacing .indent` 定位三角与组名
         // (collapsing_header.rs:519)：三角中心在 `left + indent/2`、组名在
         // `left + indent`。视觉基线组名 x≈36（egui 还会再加 3pt 图标间距）⇒
         // indent = 33，此时三角中心落在 16.5（视觉基线 19.75，差 3pt，可接受）。
-        // body 用 `show_unindented()`，子项缩进由 `nav_leaf` 的 indent 自己给。
+        // body 用 `show_unindented `，子项缩进由 `nav_leaf` 的 indent 自己给。
         ui.spacing_mut().indent = 33.0;
         let selected = self.new_session.selected_page;
         let tree = nav_for(self.new_session.protocol);
@@ -459,25 +482,57 @@ impl TerminalWindow {
                         self.new_session.selected_page = leaf.page;
                     }
                 }
-                NavEntry::Group { label, children } => {
-                    egui::CollapsingHeader::new(egui::RichText::new(*label).strong())
-                        .id_salt(("new_session_nav", index))
-                        .default_open(true)
-                        .show_unindented(ui, |ui| {
-                            for leaf in children.iter() {
-                                if nav_leaf(ui, selected == leaf.page, leaf.label, 54.0).clicked()
-                                {
-                                    self.new_session.selected_page = leaf.page;
+                NavEntry::Group { label, page, children } => {
+                    // 折叠状态仍在 egui Memory 里（不给表单模型加视图字段），
+                    // 但**命中区拆成两个**：三角只管展开/收回，组名只管切页。
+                    // 视觉基线 `common/01-terminal-page.png` / `07-window-page.png`
+                    // 里组头点上去右侧是有内容的，`CollapsingHeader` 只有一个
+                    // 命中区，点哪都折叠——用户 「行为不对」。
+                    let open_id = ui.id().with(("new_session_nav_open", index));
+                    let mut open = ui.data(|d| d.get_temp::<bool>(open_id).unwrap_or(true));
+                    let selected_here = page.is_some_and(|p| selected == p);
+                    let (arrow, label_hit) = nav_group_row(ui, label, open, selected_here);
+                    if arrow {
+                        open = !open;
+                        ui.data_mut(|d| d.insert_temp(open_id, open));
+                    }
+                    if label_hit {
+                        match page {
+                            Some(p) => {
+                                self.new_session.selected_page = *p;
+                                // 点组名切到这一页时顺手展开：视觉基线里组头
+                                // 选中时子项是可见的。
+                                if !open {
+                                    open = true;
+                                    ui.data_mut(|d| d.insert_temp(open_id, open));
                                 }
                             }
-                        });
+                            // 协议组没有独立页：展开并进第一个子页。
+                            None => {
+                                if let Some(first) = children.first() {
+                                    self.new_session.selected_page = first.page;
+                                }
+                                if !open {
+                                    open = true;
+                                    ui.data_mut(|d| d.insert_temp(open_id, open));
+                                }
+                            }
+                        }
+                    }
+                    if open {
+                        for leaf in children.iter() {
+                            if nav_leaf(ui, selected == leaf.page, leaf.label, 54.0).clicked() {
+                                self.new_session.selected_page = leaf.page;
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    // 右侧表单本体（两列网格）现在在 `session_form_body.rs`
-    // （单文件 ≤ 450 行）。`self.draw_session_form(ui)` 是同一个 impl
+    // 右侧表单本体（ 两列网格）现在在 `session_form_body.rs`
+    // （ 单文件 ≤ 450 行）。`self.draw_session_form(ui)` 是同一个 impl
     // 上的固有方法，无需 import。
 
     /// 打开「会话属性」：把既有会话反向填进同一个表单。
@@ -539,9 +594,13 @@ impl TerminalWindow {
 
     // 原 Authentication / Tunnel 控件也随表单一起搬到 `session_form_body.rs`。
 
-    fn close_session_dialog(&mut self) {
+    pub(in crate::ui) fn close_session_dialog(&mut self) {
         self.view.show_new_session = false;
         self.session_dialog = SessionDialogKind::New { group: None };
+        // 系统窗口那几帧「要前台」的额度归零：下次打开要重新争一次，
+        // 否则第二次起窗口会埋在主窗口后面。
+        self.ctx
+            .data_mut(|d| d.insert_temp(egui::Id::new("session_dialog_focus_tries"), 0u8));
     }
 
     /// 保存：行为由 `session_dialog` 分派。
@@ -576,7 +635,7 @@ impl TerminalWindow {
         };
         let mut config = self.new_session.to_config(base);
         // 出网代理选了却填不全时，在关对话框之前拦下。复用表单级的
-        // `forward_error` 提示位（逐页比对时再拆成独立字段），避免为了
+        // `forward_error` 提示位（ 逐页逐页比对时再拆成独立字段），避免为了
         // 一个错误位改动 Proxy 页的组件基线。
         if let Some(why) = config.validate_proxy() {
             self.new_session.forward_error = Some(why);
@@ -601,7 +660,7 @@ impl TerminalWindow {
 
         let s_idx = match self.session_dialog {
             // `Properties` 与 `Edit` 走**同一段**写回：撞名静默改名、覆盖
-            // `sessions[index]`、选中它。两者只差收尾连不连（`should_connect()`），
+            // `sessions[index]`、选中它。两者只差收尾连不连（`should_connect `），
             // 所以不为 `Properties` 特判——两份写回逻辑迟早会不同步。
             SessionDialogKind::Edit { index } | SessionDialogKind::Properties { index } => {
                 // 名字撞上别人会让「按名字认 tab」失效（`tabs` 与
@@ -635,7 +694,7 @@ impl TerminalWindow {
         };
         self.selected_session = s_idx;
         self.save_sessions();
-        // `should_connect()` 必须在 `close_session_dialog()` **之前**读：关闭会把
+        // `should_connect ` 必须在 `close_session_dialog ` **之前**读：关闭会把
         // `session_dialog` 复位成 `New { group: None }`（下一张新建表单的初值），
         // 那之后读就永远是 true，属性面板会被连上。
         let connect = self.session_dialog.should_connect();

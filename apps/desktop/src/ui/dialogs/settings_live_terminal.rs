@@ -16,7 +16,7 @@
 //! - `When I select text, copy it to clipboard` → `Prefs.copy_on_select`，
 //!   判据 `term_app::mouse::should_copy_on_select`，读者只有 `pane.rs` 里
 //!   选区文本每帧刷新那一处（开关 + 非空 + 指针没按着 + 是新选区）。
-//! - `Enable local mode`（）→ 活动标签的 `Tab.local_mode`
+//! - `Enable local mode` → 活动标签的 `Tab.local_mode`
 //!   （`Window ▸ Local Mode` 同一位）。**它是这一页唯一不落盘的控件**：
 //!   勾的是「当前这条会话现在只读」，不是一条全局偏好——四个消费者
 //!   （`Tab::write` / `Tab::poll` / `terminal/pane.rs` / `terminal/view.rs`）
@@ -27,19 +27,19 @@
 //! `win.copy_on_select` 是同帧写回的内存副本，下一次手势读的就是它。
 
 use super::settings_live::save_prefs;
-use super::settings_pages_view::group_box;
+use super::settings_pages_view::{field_row, group_box, set_row_rhythm, Slot};
 use crate::ui::*;
 use term_app::mouse::RightClickAction;
 use term_app::shell::ShellAction;
 
 /// 只读查看（`Window ▸ Local Mode`）这一行到底做了什么。
 ///
-/// 起它不再是灰行：勾的是**活动标签**的 `Tab.local_mode`，与菜单
+/// 它不再是灰行：勾的是**活动标签**的 `Tab.local_mode`，与菜单
 /// `Window ▸ Local Mode` 是同一位——不是一条全局偏好，所以**不落盘**。
 const LOCAL_MODE_NOTE: &str = "Read-only view of this session: no input, no auto-scroll, triggers \
      and scripts paused. Scrolling, selecting and copying still work. Per session, not saved.";
 
-/// 右键三档的文案，下标与 `RightClickAction::index()` 一一对应。
+/// 右键三档的文案，下标与 `RightClickAction::index ` 一一对应。
 ///
 /// 第二、三档按参考页原文（`Paste text` / `Copy text if selected, otherwise
 /// paste text`）：第三档的文案就是它的判据，写短了（比如 `Copy or paste`）
@@ -71,10 +71,10 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut copy_on_select = win.copy_on_select;
     let mut mouse_changed = false;
 
-    // 视觉基线 `视觉基线`：内容区第一个字是组标题 `Features`，没有页级灰标题。
+    // 视觉基线 `07-terminal.png`：内容区第一个字是组标题 `Features`，没有页级灰标题。
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        // `Enable local mode` 从灰行接成真勾选。读的是**活动标签**的
+        set_row_rhythm(ui);
+        // ：`Enable local mode` 从灰行接成真勾选。读的是**活动标签**的
         // 只读态（与菜单 `Window ▸ Local Mode` 同一位），点了走同一条命令通道——
         // 不在这一页里直接翻 `Tab.local_mode`，否则「设置页改的」与「菜单改的」
         // 会变成两条写路径，迟早一处漏了取消脚本、一处漏了提示。
@@ -90,28 +90,27 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Mouse Actions"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         // 视觉基线 07-terminal.png：`Right click:` 自己一行，组合框在它**下方**
-        // 占满整行。generic 的 `draw_row` 是「标签 + 控件同一行」，这里按视觉基线
-        // 单独画。三档文案见 `right_click_label`。
-        ui.label("Right click:");
+        // 占满整行——即 `Slot::Above`。三档文案见 `right_click_label`。
         let current = RightClickAction::from_index(right_click);
-        egui::ComboBox::from_id_salt("terminal_right_click")
-            .selected_text(right_click_label(current))
-            .width(ui.available_width())
-            .wrap_mode(egui::TextWrapMode::Truncate)
-            .show_ui(ui, |ui| {
-                for action in RightClickAction::ALL {
-                    if ui
-                        .selectable_label(action == current, right_click_label(action))
-                        .clicked()
-                    {
-                        right_click = action.index();
-                        mouse_changed = true;
+        field_row(ui, "Right click:", Slot::Above, 0.0, "", |ui| {
+            egui::ComboBox::from_id_salt("terminal_right_click")
+                .selected_text(right_click_label(current))
+                .width(ui.available_width())
+                .wrap_mode(egui::TextWrapMode::Truncate)
+                .show_ui(ui, |ui| {
+                    for action in RightClickAction::ALL {
+                        if ui
+                            .selectable_label(action == current, right_click_label(action))
+                            .clicked()
+                        {
+                            right_click = action.index();
+                            mouse_changed = true;
+                        }
                     }
-                }
-            });
-        ui.add_space(4.0);
+                });
+        });
         mouse_changed |= ui
             .checkbox(
                 &mut copy_on_select,
@@ -134,7 +133,7 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     let mut changed = false;
     group_box(ui, Some("Paste Dialog"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         ui.label("When pasting multiple lines:");
         changed |= ui
             .checkbox(&mut main, "Show paste dialog on the main screen")

@@ -9,7 +9,7 @@
 //! 与 `settings_live.rs` 那七页唯一的差别：那七页整页都真，这三页只真一半。
 //!
 //! 规矩没变：不许把灰行画成能点（假装有读者），也不许把真控件画成灰的
-//! （假装没接线）；**灰行永远是空框**——勾代表「这项已生效」（假勾选）。
+//! （假装没接线）；**灰行永远是空框**——勾代表「这项已生效」（ 的假勾选）。
 //!
 //! # 三页各自真在哪
 //!
@@ -33,7 +33,7 @@
 
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, field_box, field_label, group_box, label_col};
+use super::settings_pages_view::{draw_row, field_label, group_box, label_col, set_row_rhythm, spin_field};
 use crate::ui::*;
 use term_app::shell::ShellAction;
 
@@ -55,14 +55,14 @@ const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs and focus the
 
 /// `Toolbar / Menu` 页的说明。
 ///
-/// Preferences 的橙色页脚按参考布局清空，「工具行开关不落盘」这条
+/// ：Preferences 的橙色页脚按兼容终端清空，「工具行开关不落盘」这条
 /// 边界从页脚并进这里，仍然写在用户看得见的地方。
 const TOOLBAR_NOTE: &str = "Show toolbar takes effect immediately, but the switch is not saved \
      (it is back on the next launch). There is no address bar in this build, and auto-hiding the \
      menu bar would need hover / Alt-key detection over the menu strip.";
 
-/// 多光标：已把编辑器语义删掉，连状态都没有。
-const MULTI_CARET_NOTE: &str = "Multiple carets were removed with the editor semantics; \
+/// 多光标： 已把编辑器语义删掉，连状态都没有。
+const MULTI_CARET_NOTE: &str = "Multiple carets were removed with the editor semantics (R10); \
      there is no caret collection to store.";
 
 /// 自动复制：会覆盖系统剪贴板，本轮不做。
@@ -117,11 +117,11 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut hide_cursor = win.hide_cursor_typing;
     let mut changed = false;
 
-    // 视觉基线 `视觉基线`：内容区第一个字是组标题 `Features`，没有页级灰标题。
+    // 视觉基线 `11-text.png`：内容区第一个字是组标题 `Features`，没有页级灰标题。
     // 标签列按本页最长的 `Character spacing:` 量，三个框的控件左缘因此对齐。
     let col = label_col(ui, &["Line spacing:", "Character spacing:", "Zoom level:"]);
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         disabled(ui, Row::DisabledCheck("Activate multiple carets"), MULTI_CARET_NOTE, col);
         changed |= ui
             .checkbox(&mut alt_row, "Alternate line background color")
@@ -139,7 +139,7 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Spacing"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         disabled(
             ui,
             Row::Combo { label: "Line spacing:", value: "Automatic" },
@@ -156,16 +156,16 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Zoom"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        // Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
+        set_row_rhythm(ui);
+        // ：Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
         // `Font size` 同一个值），这里显示「相对出厂字号的档位」，出厂 = 0。
         // 改完当场 `fonts.set_size`（重装字形 + 重新量 cell），松手落 prefs。
         ui.horizontal(|ui| {
             field_label(ui, "Zoom level:", col);
             let mut level = win.fonts.size() - crate::fonts::TERMINAL_FONT_SIZE;
-            // 字段框占满整行（视觉基线 `视觉基线` 的 Zoom 框从标签列一路到框右边）。
+            // 字段框占满整行（视觉基线 `11-text.png` 的 Zoom 框从标签列一路到框右边）。
             let mut changed = false;
-            field_box(ui, |ui| {
+            spin_field(ui, |ui| {
                 changed = ui
                     .add(
                         egui::DragValue::new(&mut level)
@@ -206,7 +206,7 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 内容区从组标题开始，不另画页级灰标题（那份标题与左栏选中项重复）。
     let col = label_col(ui, &[]);
     group_box(ui, Some("Session"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         // 真勾选：判据在 `confirm::should_confirm_close`，三处关闭共用。
         // 写回是**同一帧**的 `win.confirm.multi_tabs`——门控读的就是那份缓存，
         // 所以勾完立刻生效，不是「下次启动」。
@@ -236,7 +236,7 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Startup"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         disabled(
             ui,
             Row::DisabledCheck("Restore the previous session on launch"),
@@ -256,7 +256,7 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 它**不落盘**：`layout_state.json` 只存标签 / 分屏 / 停靠位，菜单栏 / 状态栏
 /// / 快捷栏那三个 `show_*` 也从不入盘，这里跟着它们——重启回默认（显示）。
 /// 页内 [`TOOLBAR_NOTE`] 写明这条边界；要它跨重启记住，得先给那三个一起做
-/// 持久化。（之前它挂在页脚，页脚已按参考布局清空。）
+/// 持久化。（之前它挂在页脚，页脚已按兼容终端清空。）
 pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut show = win.view.show_toolbar;
     let mut toggled = false;
@@ -264,7 +264,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let col = label_col(ui, &[]);
 
     group_box(ui, Some("Toolbar"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         toggled = ui.checkbox(&mut show, "Show toolbar").changed();
         disabled(
             ui,
@@ -276,7 +276,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Menu"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         disabled(
             ui,
             Row::DisabledCheck("Auto-hide the menu bar"),
@@ -287,7 +287,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 视觉基线没有页脚说明；灰行理由仍在各自的 hover 上。
 
     if toggled {
-        // `ViewState` 只由 reducer 写：这里派发动作，不直接赋值。
+        // `ViewState` 只由 reducer 写 ：这里派发动作，不直接赋值。
         // 勾选是「翻一下」，与 `ShellAction::ToggleToolbar` 的语义正好对齐。
         win.dispatch_action(Action::Shell(ShellAction::ToggleToolbar));
     }
@@ -307,7 +307,7 @@ mod tests {
 
     #[test]
     fn zoom_level_is_now_a_live_row_over_font_size() {
-        // Zoom level 不再是「没有字段」的灰行——它读写
+        // ：Zoom level 不再是「没有字段」的灰行——它读写
         // `Prefs.font_size`，显示值与 Font 页的 Font size 是同一个底层值。
         // 页底不能再说 zoom「没有字段可绑」（否则是反向的谎）。
         assert!(!ZOOM_NOTE.contains("not stored"), "接真后不能再说缩放没存储");
@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn the_toolbar_page_says_the_switch_is_not_saved() {
-        // 页脚按参考布局清空后，这条边界搬进**页内**说明
+        // 页脚按兼容终端清空后，这条边界搬进**页内**说明
         // （`TOOLBAR_NOTE`），仍然对用户可见，不能只写在注释里。
         assert!(TOOLBAR_NOTE.contains("not saved"), "页内要写清不落盘");
         assert!(TOOLBAR_NOTE.contains("immediately"), "同时要写清当场生效");

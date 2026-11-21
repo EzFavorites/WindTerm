@@ -2,7 +2,7 @@
 //!
 //! # 与视觉基线的关系
 //!
-//! `视觉基线` 是这一页的视觉基线。出厂值与截图逐项一致：
+//! `08-terminal-auto-completion.png` 是这一页的视觉基线。出厂值与截图逐项一致：
 //! 六个勾全空、`1 characters`、`7 rows`、`Nowhere`。以前整页灰显是因为没有
 //! 引擎；`term-core::completion` 落地后，十个参数都有真实读者：
 //!
@@ -13,7 +13,9 @@
 //! 键盘漏斗每帧读它——不读盘、不造第二份真相。
 
 use super::settings_live::save_prefs;
-use super::settings_pages_view::{field_box, field_label, group_box, label_col};
+use super::settings_pages_view::{
+    field_height, field_row, group_box, label_col, set_row_rhythm, Slot,
+};
 use crate::ui::*;
 use term_core::completion::Preselect;
 
@@ -46,9 +48,9 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
     // 标签列按本页最长的 `Preselect the best match:` 量，两个框的控件左缘因此对齐。
     let col = label_col(ui, &["Completion list height:", "Preselect the best match:"]);
 
-    // 视觉基线：内容区第一个字是组标题
+    // 视觉基线 `08-terminal-auto-completion.png`：内容区第一个字是组标题
     // `Completion`，没有页级灰标题。
-    ui.spacing_mut().item_spacing.y = 6.0;
+    set_row_rhythm(ui);
 
     group_box(ui, Some("Completion"), |ui| {
         ui.checkbox(&mut s.enabled, "Enable auto completion")
@@ -64,62 +66,71 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
             .on_hover_text("Whole lines from command history, ranked by frequency and recency.");
         ui.checkbox(&mut s.quick, "Quick Commands")
             .on_hover_text("Commands from the Quick Bar configuration.");
-        ui.label("Start completion after entering:");
-        egui::ComboBox::from_id_salt("completion_min_chars")
-            .selected_text(format!("{} characters", s.min_chars))
-            .width(ui.available_width())
-            .wrap_mode(egui::TextWrapMode::Truncate)
-            .show_ui(ui, |ui| {
-                for n in 1..=MIN_CHARS_MAX {
-                    let text = format!("{n} characters");
-                    if ui.selectable_label(s.min_chars == n, text).clicked() {
-                        s.min_chars = n;
-                    }
-                }
-            });
+        field_row(
+            ui,
+            "Start completion after entering:",
+            Slot::Above,
+            0.0,
+            "",
+            |ui| {
+                egui::ComboBox::from_id_salt("completion_min_chars")
+                    .selected_text(format!("{} characters", s.min_chars))
+                    .width(ui.available_width())
+                    .wrap_mode(egui::TextWrapMode::Truncate)
+                    .show_ui(ui, |ui| {
+                        for n in 1..=MIN_CHARS_MAX {
+                            let text = format!("{n} characters");
+                            if ui.selectable_label(s.min_chars == n, text).clicked() {
+                                s.min_chars = n;
+                            }
+                        }
+                    });
+            },
+        );
     });
     ui.add_space(6.0);
 
     group_box(ui, Some("Appearance"), |ui| {
         // 行内标签 + 通栏字段框（框里 `7 rows` 靠左、▲▼ 贴框右内缘），
         // 与 `Command History` / `Caret` 那几页的数字框同一套画法。
-        ui.horizontal(|ui| {
-            field_label(ui, "Completion list height:", col);
-            field_box(ui, |ui| {
-                let button_w = 40.0;
-                let field_w =
-                    (ui.available_width() - button_w - ui.spacing().item_spacing.x).max(1.0);
-                let mut text = format!("{} rows", s.list_height);
-                if ui
-                    .add(egui::TextEdit::singleline(&mut text).desired_width(field_w))
-                    .changed()
-                {
-                    // 只认前导数字：框里带着 ` rows` 后缀（视觉基线同形），
-                    // 用户改完还是「7 rows」这一种写法。
-                    let digits: String = text.chars().take_while(|c| c.is_ascii_digit()).collect();
-                    if let Ok(n) = digits.parse::<usize>() {
-                        s.list_height = n.clamp(1, LIST_HEIGHT_MAX);
-                    }
+        field_row(ui, "Completion list height:", Slot::Inline, col, "", |ui| {
+            let button_w = 40.0;
+            let field_w =
+                (ui.available_width() - button_w - ui.spacing().item_spacing.x).max(1.0);
+            let mut text = format!("{} rows", s.list_height);
+            if ui
+                .add(egui::TextEdit::singleline(&mut text).desired_width(field_w))
+                .changed()
+            {
+                // 只认前导数字：框里带着 ` rows` 后缀（视觉基线同形），
+                // 用户改完还是「7 rows」这一种写法。
+                let digits: String = text.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = digits.parse::<usize>() {
+                    s.list_height = n.clamp(1, LIST_HEIGHT_MAX);
                 }
-                // ▲▼ 按钮：单击 +1，按住 Shift 单击 -1，到边界回绕。
-                // 绝不画一个按下去没反应的箭头。
-                if ui
-                    .add_sized(egui::vec2(button_w, 18.0), egui::Button::new("▲▼"))
-                    .on_hover_text("Click: +1 row. Shift-click: -1 row. Wraps at bounds.")
-                    .clicked()
-                {
-                    let step = if ui.input(|i| i.modifiers.shift) {
-                        LIST_HEIGHT_MAX - 1
-                    } else {
-                        1
-                    };
-                    s.list_height = cycle_list_height(s.list_height, step);
-                }
-            });
+            }
+            // ▲▼ 按钮：单击 +1，按住 Shift 单击 -1，到边界回绕。
+            // 绝不画一个按下去没反应的箭头。
+            // 高度取 `field_height`：写死 18 会让按钮比左边那个文本行矮一截，
+            // 框里一高一矮两个盒子（实测）。
+            if ui
+                .add_sized(
+                    egui::vec2(button_w, field_height(ui)),
+                    egui::Button::new("▲▼"),
+                )
+                .on_hover_text("Click: +1 row. Shift-click: -1 row. Wraps at bounds.")
+                .clicked()
+            {
+                let step = if ui.input(|i| i.modifiers.shift) {
+                    LIST_HEIGHT_MAX - 1
+                } else {
+                    1
+                };
+                s.list_height = cycle_list_height(s.list_height, step);
+            }
         });
 
-        ui.horizontal(|ui| {
-            field_label(ui, "Preselect the best match:", col);
+        field_row(ui, "Preselect the best match:", Slot::Inline, col, "", |ui| {
             let selected = PRESELECT_ITEMS
                 .iter()
                 .position(|(p, _)| *p == s.preselect)

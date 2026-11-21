@@ -6,13 +6,13 @@
 //! 其余页是纯排版（控件没有字段可绑），全部走 `settings_pages` 的数据表；
 //! 这几页不行——它们的控件会真的改东西：
 //!
-//! - **Application ▸ Startup**：三档单选 + Session 1–4 下拉，
+//! - **Application ▸ Startup** ：三档单选 + Session 1–4 下拉，
 //!   绑 `TerminalWindow::startup`，改完写 prefs；启动时由 `restore_layout`
 //!   决定摆回哪些标签，被激活时才连（见 `term_app::startup` 模块文档）。
 //! - **Application ▸ Close And Exit**：两个勾选就是关闭确认弹窗里「不再提示」
 //!   的同两个位（`confirm.suppress_session` / `suppress_window`），改完写 prefs。
 //! - **Appearance ▸ Language**：`SetLanguage` 走 reducer，界面当场换语言。
-//! - **Appearance ▸ Window opacity**：开关 + 滑杆是真控件，绑
+//! - **Appearance ▸ Window opacity** ：开关 + 滑杆是真控件，绑
 //!   `Prefs.window_transparent` / `Prefs.window_opacity`，改完当场改窗口上的
 //!   运行期副本并 `save_prefs` 落盘；`main.rs::update` 每帧按钳制后的 alpha
 //!   把 `egui::Visuals` 背景与终端区底色画成半透明。
@@ -22,10 +22,12 @@
 //! - **Filer ▸ Show hidden items**：勾选绑 `win.filer.show_hidden`，列本地目录
 //!   时按它过滤（`local_dir::list`），改完当场重列并落 prefs。
 //!
-//! 从 `settings.rs` 拆出来是因为 `ui/` 下非 `mod.rs` 代码行 ≤ 500，
+//! 从 `settings.rs` 拆出来是因为 （`ui/` 下非 `mod.rs` 代码行 ≤ 500），
 //! 顺便把「哪几页是真的」这件事集中到一个文件里，一眼看得完。
 
-use super::settings_pages_view::{field_box, field_label, group_box, label_col};
+use super::settings_pages_view::{
+    field_height, field_label, group_box, label_col, set_row_rhythm, spin_field,
+};
 use crate::ui::tr::t;
 use crate::ui::*;
 use term_app::i18n::Lang;
@@ -45,14 +47,14 @@ const LABEL_W: f32 = 110.0;
 ///
 /// # 「文件读不出来」时这一串动作不会丢掉用户那份
 ///
-/// 这条路里 `load()` 的 `None` 被 `unwrap_or_default()` 收成了出厂值，看起来
+/// 这条路里 `load ` 的 `None` 被 `unwrap_or_default ` 收成了出厂值，看起来
 /// 下一步就要把磁盘上的原文件覆盖掉。**兜底在 `prefs::save` 里，不在这里**：
 /// 它在覆盖前会先看一眼旧文件读不读得出来，读不出来就逐字节另存成
 /// `prefs.json.bad-<时间戳>` 再写（连备份都做不到时这次就不写）。
 ///
 /// 为什么不在这一处修：写 `prefs.json` 的入口有十几处（本文件的五页、
 /// `settings.rs`、确认弹窗、日志设置页、搜索页…），每一处都写了同样的
-/// `load().unwrap_or_default()`；只在其中一处加保护，等于把同一个缺陷留在了
+/// `load .unwrap_or_default `；只在其中一处加保护，等于把同一个缺陷留在了
 /// 其它十几条路上。所以保护放在唯一的写口 `prefs::save`，这一层保持
 /// 「我只管改自己那几个字段」。
 pub(in crate::ui) fn save_prefs(edit: impl FnOnce(&mut term_runtime::prefs::Prefs)) {
@@ -118,7 +120,7 @@ fn label_row(
 }
 
 /// 控件宽度：占满标签列右边的余量，但不许超过视觉基线的 ≈238。
-/// Application 页的 Session 1..4 标签按参考布局**左对齐**（`视觉基线`）：
+/// Application 页的 Session 1..4 标签按兼容终端**左对齐**（`01-application.png`）：
 /// 「Session n:」起点与单选按钮文字对齐，下拉框从标签列右缘开始占满剩余宽度。
 /// 与本文件其它页的右对齐标签不同，不能混用。
 fn left_label(ui: &mut egui::Ui, text: &str) {
@@ -153,7 +155,7 @@ pub(in crate::ui) struct AppearanceEdit {
 ///
 /// - Language：选了立刻生效（reducer + 落盘都由调用方接手）；
 /// - Theme：只有 `dige-black` 一项，是真数据源但没有第二种选择；
-/// - Window opacity：**真控件**——开关管 OS 窗口能不能透，滑杆管
+/// - Window opacity ：**真控件**——开关管 OS 窗口能不能透，滑杆管
 ///   `[0.3, 1.0]` 的数值，改完调用方一并写回 `Prefs` 与运行期副本。
 ///   滑杆两端直接用 `prefs::WINDOW_OPACITY_MIN/MAX`，与渲染侧钳制同一份口径。
 pub(in crate::ui) fn appearance(
@@ -166,10 +168,10 @@ pub(in crate::ui) fn appearance(
     let mut current = window;
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线 `视觉基线`：`Application` 是**组标题**（画在框外上方），
+    // 视觉基线 `02-appearance.png`：`Application` 是**组标题**（画在框外上方），
     // 不是页级灰标题——框里直接就是 Language / Theme / Window opacity 三行。
     group_box(ui, Some(t(lang, "Application")), |ui| {
-        ui.spacing_mut().item_spacing.y = 8.0;
+        set_row_rhythm(ui);
         // 标签列固定 140 并右对齐到同一条竖线（视觉基线里三行的冒号在同一直线上）；
         // 星号画在文字**左侧**，所以按 right_to_left 先放文字再放星。
         label_row(ui, t(lang, "Language"), "Language", true, |ui| {
@@ -196,40 +198,37 @@ pub(in crate::ui) fn appearance(
                     let _ = ui.selectable_label(true, "dige-black");
                 });
         });
-        // Window opacity：真控件。视觉基线这一行就是和上面两行对齐的单个
-        // 数值框 `1.00`；这里保留真值编辑 + 透明开关，但排成**单行**：
-        // 数值框占满与前两行相同的宽度（field_w），透明开关压成一个紧凑勾选
-        // 贴在框右侧，不让 vertical 堆叠把这一行撑高、破坏三行栅格的整齐。
+        //  Window opacity：真控件。视觉基线 `02-appearance.png` 这一行是
+        // 「标签 + 通栏数值框 `1.00`」，与上面 Language / Theme 两行同宽同位。
+        //
+        // 原先把透明开关压成 18×18 的**空标签复选框**塞在数值框右边：数值框因此
+        // 窄 22 点、右缘缩进，而那个没有文字的方块孤零零浮在框右侧——用户
+        // 报的「右侧有个孤立方块」就是它。现在数值框按视觉基线占满整行（`spin_field`
+        // 补上 ▲▼），透明开关单独占一行，与 `Close And Exit` 组里的复选框同一种样式。
         label_row(ui, t(lang, "Window opacity"), "Window", false, |ui| {
-            ui.horizontal(|ui| {
-                let min = term_runtime::prefs::WINDOW_OPACITY_MIN;
-                let max = term_runtime::prefs::WINDOW_OPACITY_MAX;
-                let mut value = current.opacity.clamp(min, max);
+            let min = term_runtime::prefs::WINDOW_OPACITY_MIN;
+            let max = term_runtime::prefs::WINDOW_OPACITY_MAX;
+            let mut value = current.opacity.clamp(min, max);
+            spin_field(ui, |ui| {
                 let drag = egui::DragValue::new(&mut value)
                     .range(min..=max)
                     .speed(0.01)
                     .fixed_decimals(2);
-                let field = field_w(ui);
-                // 数值框占满与前两行几乎相同的宽度；透明开关压成框右侧一个
-                // 16px 的勾选方块（无文字，说明走 hover），肉眼上三行框右边界齐平。
-                let toggle_w = 18.0;
-                if ui
-                    .add_sized(egui::vec2((field - toggle_w - 4.0).max(40.0), 18.0), drag)
-                    .changed()
-                {                    current.opacity = value;
-                    opacity_edit = Some(current);
-                }
-                let mut transparent = current.transparent;
-                if ui
-                    .add_sized(egui::vec2(toggle_w, 18.0), egui::Checkbox::new(&mut transparent, ""))
-                    .on_hover_text("Transparent window — let the OS window background show through")
-                    .changed()
-                {
-                    current.transparent = transparent;
+                if ui.add(drag).changed() {
+                    current.opacity = value;
                     opacity_edit = Some(current);
                 }
             });
         });
+        let mut transparent = current.transparent;
+        if ui
+            .checkbox(&mut transparent, t(lang, "Transparent window"))
+            .on_hover_text("Let the OS window background show through")
+            .changed()
+        {
+            current.transparent = transparent;
+            opacity_edit = Some(current);
+        }
     });
     AppearanceEdit {
         lang: picked,
@@ -250,7 +249,7 @@ pub(in crate::ui) fn filer(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut on = win.filer.show_hidden;
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线 `视觉基线`：内容区第一个字就是组标题 `Features`，
+    // 视觉基线 `18-widgets-filer.png`：内容区第一个字就是组标题 `Features`，
     // 没有页级灰标题（老实现多画一行 `Filer`，整页因此整体下移 26 点）。
     group_box(ui, Some("Features"), |ui| {
         if ui.checkbox(&mut on, "Show hidden items").changed() {
@@ -290,11 +289,11 @@ pub(in crate::ui) fn shown_size(prefs: &term_runtime::prefs::Prefs) -> usize {
     prefs.history_capacity()
 }
 
-/// `Terminal ▸ Command History`：视觉基线 `视觉基线` 的两个分组框。
+/// `Terminal ▸ Command History`：视觉基线 `09-command-history.png` 的两个分组框。
 ///
 /// 三个字段**都有读者**，所以这页不该灰显：`command_history_size` /
 /// `command_history_days` 建的是内存历史表（`construct.rs` 的
-/// `command_history_store()`），`command_history_save` 决定退出时写不写盘
+/// `command_history_store `），`command_history_save` 决定退出时写不写盘
 /// （`main.rs::on_exit`）。但三处读者原先都只在启动那一刻取一次值，数据表里
 /// 的控件改了也没用。现在改容量 / TTL 会当场 `reconfigure`（超限的旧条目同一帧
 /// 就掉），并把**具体值**写回 `prefs.json`。
@@ -317,7 +316,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
 
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线 `视觉基线`：内容区第一个字是 `Capacity`（组标题），
+    // 视觉基线 `09-terminal-command-history.png`：内容区第一个字是 `Capacity`（组标题），
     // 没有页级灰标题。标签列按本页最长的 `Saved command history:` 量，两个框里的
     // 控件左缘因此对齐（用户口径：同一页输入框宽度一致）。
     let col = label_col(ui, &[
@@ -332,7 +331,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
             // （要永久就拖到 36500 天，事实上的永久）。
             // 字段框占满标签之后整段：视觉基线的数字靠左、▲▼ 贴右缘，不是一个小框。
             let mut r = None;
-            field_box(ui, |ui| {
+            spin_field(ui, |ui| {
                 r = Some(ui.add(egui::DragValue::new(&mut days).range(1..=36_500).speed(1.0)));
             });
             if let Some(r) = r {
@@ -343,7 +342,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
         ui.horizontal(|ui| {
             field_label(ui, "History size:", col);
             let mut r = None;
-            field_box(ui, |ui| {
+            spin_field(ui, |ui| {
                 r = Some(ui.add(
                     egui::DragValue::new(&mut size)
                         .range(1..=1_000_000)
@@ -365,10 +364,12 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
             .changed();
         ui.horizontal(|ui| {
             field_label(ui, "Saved command history:", col);
-            // Clear 与上面三个字段同宽：视觉基线里它是一个通栏按钮（文字居中）。
+            // Clear 与上面三个字段同宽同高：视觉基线里它是一个通栏按钮（文字居中）。
+            // 高度取 `field_height` 而不是写死 20——同页的真字段是那个公式算出来的
+            // 22 点，写死 20 就比旁边每一行都矮一档。
             if ui
                 .add_sized(
-                    egui::vec2(ui.available_width(), 20.0),
+                    egui::vec2(ui.available_width(), field_height(ui)),
                     egui::Button::new("Clear"),
                 )
                 .clicked()
@@ -403,7 +404,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     }
 
     if apply {
-        // 墙钟只在宿主读（`term-core` 零墙钟）：与 `main.rs` 那个 `now_secs()`
+        // 墙钟只在宿主读（`term-core` 零墙钟）：与 `main.rs` 那个 `now_secs `
         // 同一口径，core 只收注入值。
         win.command_history
             .reconfigure(size, days, crate::now_secs());
@@ -426,8 +427,8 @@ pub(in crate::ui) struct SettingsChange {
     pub(in crate::ui) suppress: bool,
 }
 
-/// `Application` 页：视觉基线 `视觉基线` 的两个分组框。
-/// 之前这里六个控件全是 `add_enabled(false)`：样子像参考布局，点下去什么也
+/// `Application` 页：视觉基线 `01-application.png` 的两个分组框。
+/// 此前这里六个控件全是 `add_enabled(false)`：样子像兼容终端，点下去什么也
 /// 不发生。现在三档与四个下拉都绑 `win.startup`，真正决定下次启动摆回哪些
 /// 会话；填的是**会话库里的名字**，不是自由文本——填一个库里不存在的名字
 /// 在恢复时会被跳过，那才是「静默失效」。
@@ -447,7 +448,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
     ui.add_space(6.0);
     group_box(ui, Some("Startup"), |ui| {
         // 视觉基线三档单选的行距约 49 物理像素；只靠默认 item_spacing 会挤到
-        // 36，后续四个下拉跟着整体上移。按比对结果在第一、二档后各补 13 物理
+        // 36，后续四个下拉跟着整体上移。按逐页比对结果在第一、二档后各补 13 物理
         // 像素（7.5 逻辑点），最后一档不补，框底才不会被多余空白顶开。
         for (i, mode) in StartupMode::ALL.iter().enumerate() {
             if ui
@@ -523,7 +524,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
             win.confirm.suppress_session = !show_tab;
             suppress = true;
         }
-        // 两行确认框同样按视觉基线补一行间距（参考布局中心距约 64 物理像素）。
+        // 两行确认框同样按视觉基线补一行间距（兼容终端中心距约 64 物理像素）。
         ui.add_space(12.0);
         let mut show_window = !win.confirm.suppress_window;
         if ui

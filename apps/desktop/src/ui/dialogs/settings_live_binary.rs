@@ -42,7 +42,7 @@
 //! 这一页自己定列宽（[`LABEL_W`]），长短都写全——四个标签是本页唯一的信息，
 //! 截掉一半等于没写。
 
-use super::settings_pages_view::{field_box, group_box};
+use super::settings_pages_view::{group_box, set_row_rhythm, spin_field};
 use crate::ui::terminal::HexParams;
 use crate::ui::*;
 
@@ -108,10 +108,10 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
     let mut persist = false;
 
     ui.add_space(6.0);
-    // 视觉基线 `视觉基线`：内容区第一个字就是组标题 `Binary`（老实现
+    // 视觉基线 `12-text-binary.png`：内容区第一个字就是组标题 `Binary`（老实现
     // 还多画了一行灰页标题，同一个词出现两次、整页下移 26 点）。
     group_box(ui, Some("Binary"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         // 顺序照视觉基线逐行对齐：base / columns / devision / grouped characters。
         // `devision` 夹在第二、四行之间，别按语义重排。
         let (a, b) = number_row(ui, BASE_LABEL, &mut base, 2..=16);
@@ -180,9 +180,9 @@ fn number_row(
     ui.horizontal(|ui| {
         // 标签列宽固定，「右缘对齐」靠它；返回值只在单测里读，这里不看。
         let _ = label_cell(ui, label);
-        // 占满标签列之后的整段：视觉基线 `视觉基线` 的数字框一路到框右
+        // 占满标签列之后的整段：视觉基线 `12-text-binary.png` 的数字框一路到框右
         // 边（数字靠左、▲▼ 贴右缘），不是标签旁边一个小方框。
-        field_box(ui, |ui| {
+        spin_field(ui, |ui| {
             let r = ui.add(egui::DragValue::new(value).range(range).speed(0.2));
             changed |= r.changed();
             // 与 Font 页同一判据：拖动过程中不写盘，松手或键盘改完才写。
@@ -204,7 +204,7 @@ fn number_row(
 /// 四行右缘 624.8 / 642.5 / 695.7 / 707.5，同一个逻辑列画成了四级台阶）。
 /// 要**占满**一列就得精确预留一块矩形，然后在这块矩形里自己画字。
 ///
-/// 返回值是 `rect.width()`（预留出来的那块，不是 [`LABEL_W`] 常量本身）：
+/// 返回值是 `rect.width `（预留出来的那块，不是 [`LABEL_W`] 常量本身）：
 /// 单测据此断言「四行都是同一列」。谁把它换回按内容收缩的 API，返回值立刻
 /// 变小，测试就红——只看图守不住这件事。
 fn label_cell(ui: &mut egui::Ui, text: &str) -> f32 {

@@ -10,18 +10,18 @@
 //! - `paint_resize_corner` / `paint_frame_interaction` 每窗算一遍角落与拖动区；
 //! - `where_to_put_header_background` 留一个 `Shape::Noop` 占位；
 //! - 内容一旦 exceed `min_size` 就会被撑开，于是不得不再加
-//!   `.max_size(vec2(rect.width(), min_size.y + 28.0))` —— 那个 `+ 28.0`
+//!   `.max_size(vec2(rect.width , min_size.y + 28.0))` —— 那个 `+ 28.0`
 //!   是 `font_height + 2×window_margin` 的硬编码快照，与 `TITLE_H` 无关。
 //!
 //! # 为什么位置不写在规格里
 //!
 //! 原先 23 个弹窗各自钉死一对绝对坐标，窗口一大一小的机器上它们会跑到
-//! 边角甚至屏外。这里改成**只存尺寸**，位置统一由 `screen_rect().center()`
+//! 边角甚至屏外。这里改成**只存尺寸**，位置统一由 `screen_rect .center `
 //! 推算：屏幕怎么变，弹窗永远在正中。
 //!
 //! # 为什么「零像素替换」做不到
 //!
-//! `egui::containers::window::TitleBar` 是私有类型，`Area` 无法对齐它画的
+//! `egui::containers::window::TitleBar` 是私有类型，`Area` 无法复刻它画的
 //! 标题栏。所以从 `Window` 迁到自绘**必然改变像素**，没有第三条路。这也正是
 //! 本仓此前「风格不统一」的物理来源：23 个弹窗是 egui 原生深色标题条，
 //! 而 `confirm` / `confirm_paste` 是自绘的 macOS 浅色条 + 三色圆点。
@@ -65,13 +65,127 @@ impl Chrome {
     };
 }
 
+/// 对话框的**统一表面**：底色 + 圆角 + 1pt 描边 + 投影。
+///
+/// 三个弹窗族（`DialogWindow` / `confirm` / `confirm_paste`）共用这一处。
+/// 此前三份 `Frame::none .fill(..).rounding(8).shadow(..)` 是各抄一遍的，
+/// 于是「给弹窗加描边」这种改动只加到一处，另两处仍是同色无边界——正是
+/// 用户反复说的「弹窗和主体一个颜色，区分不出来」。
+///
+/// # 为什么必须有描边
+///
+/// 深色主题里投影是黑的、主体被遮罩压得更黑，投影落在上面等于没有。弹窗边界
+/// 的**唯一**稳定信号是这条比弹窗本体更亮的线：`CHROME_SCALE.border`（#444444）
+/// 比弹窗底（#1C1C1C）亮，也比被压暗后的主体（#090909）亮得多。
+///
+/// 描边不参与布局：egui 的 `Frame::total_margin` 只算内外边距，`stroke` 以边线
+/// 为中心向两侧各画一半，所以加这一条不会让任何弹窗的尺寸或内容位置移动。
+pub(in crate::ui) fn dialog_frame() -> egui::Frame {
+    egui::Frame::none()
+        .fill(dialog_fill())
+        .rounding(ROUNDING)
+        .stroke(egui::Stroke::new(
+            1.0,
+            to_color32(term_core::theme::rgb(
+                term_core::theme::DESIGN_TOKENS.border,
+            )),
+        ))
+        .shadow(egui::Shadow {
+            offset: egui::vec2(0.0, 6.0),
+            blur: 18.0,
+            spread: 0.0,
+            color: egui::Color32::from_black_alpha(110),
+        })
+}
+
+/// 弹窗**底面**（只有底色，没有圆角 / 描边 / 投影）。
+///
+/// 给「系统外框的独立窗口」用：那种窗口的边界由窗管画，里面再套一圈 1pt 描边
+/// 与 8pt 圆角就成了「窗里还有一扇窗」。底色必须是同一个，否则新建会话与
+/// 属性弹窗并排就是两种黑。
+pub(in crate::ui) fn dialog_surface() -> egui::Frame {
+    egui::Frame::none().fill(dialog_fill())
+}
+
+/// 弹窗底色。三处（自绘外框 / 系统外框正文 / 遮罩对比度测试）共用一个值。
+pub(in crate::ui) fn dialog_fill() -> egui::Color32 {
+    to_color32(term_core::theme::rgb(
+        term_core::theme::DESIGN_TOKENS.panel_bg,
+    ))
+}
+
+/// 「系统外框」独立窗口的**外框位置**（屏幕坐标）：让 `size` 的内容区正好落在
+/// 主窗口正中。
+///
+/// `ViewportBuilder::with_position` 收的是外框左上角，而模型里所有矩形都是
+/// 内容区；macOS 上两者差一个标题栏高度（y 为负）。少这一个减法，窗口会整体
+/// 上移一条标题栏。与浮窗 `layout::dock_native` 里的 `builder_position` 同一
+/// 口径，区别只是这里只需要 `ctx`、不需要 `TerminalWindow`。
+pub(in crate::ui) fn centered_outer_position(
+    ctx: &egui::Context,
+    size: egui::Vec2,
+) -> egui::Pos2 {
+    let frame = ctx.input(|i| {
+        let vp = i.raw.viewports.get(&egui::ViewportId::ROOT)?;
+        Some((vp.inner_rect?, vp.outer_rect?))
+    });
+    let Some((inner, outer)) = frame else {
+        // 还没有 root 视口信息（单测 / 首帧）：交给窗管自己摆，别写一个假坐标。
+        return egui::Pos2::ZERO;
+    };
+    inner.center() - size / 2.0 + (outer.min - inner.min)
+}
+
+/// 把弹窗内**所有控件的常态底**拉回输入框底。
+///
+/// # 为什么必须在弹窗这一层做
+///
+/// egui 里两种输入控件读的是两个不同的色号：
+///
+/// - `TextEdit` / `DragValue` 读 `Visuals::extreme_bg_color`（= 输入框底 `#1C1C1C`）；
+/// - `ComboBox` 读 `WidgetVisuals::weak_bg_fill`（= 按钮底 `#262626`）。
+///
+/// 于是同一张表单里下拉框比文本框**亮一档**，看起来像两种控件混排。23 个弹窗
+/// 各有各的写法，逐个改调用点既改不完也守不住；而它们全部经过这里，所以把
+/// 「弹窗内的控件表面」收在这一处：`weak_bg_fill` → 输入框底，边框不变。
+///
+/// 按钮会跟着变平（底 = 弹窗底 + 1pt 描边），这正是兼容终端的样子——
+/// `Cancel` / `Connect` 都是深底加一圈描边，没有另起一档填充色。
+///
+/// 悬停 / 按下 / 展开四态**不改**：那是指向反馈，用户 明确过
+/// 「蓝底/hover 是指向色，不是固有底色」，这里只统一静止态的表面。
+fn unify_control_surface(ui: &mut egui::Ui) {
+    let field = ui.visuals().extreme_bg_color;
+    // 描边与圆角取 `kit::form` 的那一份：`TextEdit` / `ComboBox` 自己画框，
+    // 而设置页的字段框由 `field_box` 画。两边若不是同一圈线、同一个圆角，
+    // 同一张弹窗里就会出现「有的框圆有的框方」——用户说的「各不统一」。
+    let stroke = super::form::field_stroke();
+    let rounding = egui::Rounding::same(super::form::FIELD_ROUNDING);
+    let v = ui.visuals_mut();
+    for w in [
+        &mut v.widgets.noninteractive,
+        &mut v.widgets.inactive,
+        &mut v.widgets.active,
+        &mut v.widgets.open,
+    ] {
+        w.weak_bg_fill = field;
+        w.bg_stroke = stroke;
+        w.rounding = rounding;
+    }
+    // 「按下」与「展开」也只是同一个输入框的两个瞬间，不该跳成另一档按钮灰；
+    // 悬停保留 `hover`（#2A2A2A）——那是指向反馈，用户认它。悬停面只补描边与
+    // 圆角，填充色留着。
+    v.widgets.hovered.bg_stroke = stroke;
+    v.widgets.hovered.rounding = rounding;
+}
+
 /// 一个固定尺寸、居中、不可拖动的对话框。
 ///
 /// 用法：
 ///
 /// ```ignore
 /// let open = DialogWindow::new(DialogId::About, title)
-///     .show(ctx, |ui| { /* 业务内容 */ });
+///     .show(ctx, |ui| { /* 业务内容*/ });
 /// ```
 pub(in crate::ui) struct DialogWindow<'a> {
     id: &'a str,
@@ -164,17 +278,7 @@ impl<'a> DialogWindow<'a> {
                 // Area 内容起点即窗口左上角；尺寸由规格给定，高度不足时
                 // 内容自己撑高，锚定中心会自动把它重新摆正。
                 let win = egui::Rect::from_min_size(ui.min_rect().min, size);
-                egui::Frame::none()
-                    .fill(to_color32(term_core::theme::rgb(
-                        term_core::theme::DESIGN_TOKENS.panel_bg,
-                    )))
-                    .rounding(ROUNDING)
-                    .shadow(egui::Shadow {
-                        offset: egui::vec2(0.0, 6.0),
-                        blur: 18.0,
-                        spread: 0.0,
-                        color: egui::Color32::from_black_alpha(110),
-                    })
+                dialog_frame()
                     .show(ui, |ui| {
                         ui.set_width(size.x);
                         // 设计高度只当**下限**：内容更多时允许变高，锚定中心
@@ -219,6 +323,7 @@ impl<'a> DialogWindow<'a> {
                                     egui::pos2(win.min.x + pad, win.min.y + top),
                                     egui::pos2(win.max.x - pad, bottom),
                                 ));
+                                unify_control_surface(ui);
                                 add(ui, win);
                             });
                     });

@@ -10,6 +10,7 @@
 
 pub(in crate::ui) mod checkbox;
 pub(in crate::ui) mod footer;
+pub(in crate::ui) mod form;
 pub(in crate::ui) mod menu_row;
 pub(in crate::ui) mod spec;
 pub(in crate::ui) mod switch;

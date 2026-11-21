@@ -1,4 +1,4 @@
-//! `Preferences ▸ Highlight`：五行里**两行**有真实消费者，其余三行保持
+//! `Preferences ▸ Highlight`：五行里**两行**有真实消费者，其余三行按  保持
 //! 灰显空框 + 悬停说明。
 //!
 //! # 为什么前两行能接真
@@ -15,13 +15,13 @@
 //! （`marks_knob_on`），改完 `set_marks` 当场生效 + 落 `prefs`（新标签默认）。
 //!
 //! `Highlight the incremental search`（接）：它的情况**正好相反**——
-//! 效果本来就一直在画（`pane_overlays.rs` 的 F2 那段，命中铺底色），
+//! 效果本来就一直在画（`pane_overlays.rs` 的  那段，命中铺底色），
 //! 缺的只是「关掉它」的入口。所以这一行不是「补渲染」，是**补字段 + 补门控**：
 //! `Prefs.text_highlight_search`（出厂 `true`）→ `TerminalWindow.highlight_search`
 //! → `paint_overlays(...)` 那个 `if`。出厂开 = 接线前的行为，一张基线都不动。
 //!
 //! 两行的**作用域不同**，别顺手统一：caret line 落在 `Tab.marks`（每条标签各一份），
-//! search 落在窗口上（改完对全部标签立刻生效）。参考布局这两项也确实一层是会话级、
+//! search 落在窗口上（改完对全部标签立刻生效）。兼容终端这两项也确实一层是会话级、
 //! 一层是全局级。
 //!
 //! # 其余三行为什么仍灰
@@ -32,7 +32,7 @@
 
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, group_box, label_col};
+use super::settings_pages_view::{draw_row, group_box, label_col, set_row_rhythm};
 use crate::ui::terminal::MarksParams;
 use crate::ui::*;
 use term_app::shell::MarksKnob;
@@ -55,7 +55,7 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 就是分组框标题 `Highlight`，所以不再另画页级标题。
     let col = label_col(ui, &[]);
     group_box(ui, Some("Highlight"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         // 第一行真勾选：读活动标签当前值，勾完当场铺底色 + 落 prefs。
         if ui
             .checkbox(&mut on, "Highlight the caret line")
@@ -73,7 +73,7 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ] {
             draw_row(ui, &Row::DisabledCheck(label), HIGHLIGHT_NOTE, col);
         }
-        // 第四行真勾选（）：窗口级副本当帧生效，同时落 prefs。
+        // 第四行真勾选 ：窗口级副本当帧生效，同时落 prefs。
         // 顺序照视觉基线，不因为「能点的要放前面」而重排——那是改设计稿。
         if ui
             .checkbox(&mut search, "Highlight the incremental search")
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn the_search_row_is_no_longer_described_as_missing() {
-        // 这一行从「没有渲染器」变成真勾选。说明里若还留着
+        // ：这一行从「没有渲染器」变成真勾选。说明里若还留着
         // "incremental search" 作缺项，就是反着的谎，而且是**我们刚
         // 亲手确认过渲染早就在画**的那一项。
         assert!(

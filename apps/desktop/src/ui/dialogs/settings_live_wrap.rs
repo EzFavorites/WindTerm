@@ -1,4 +1,4 @@
-//! `Wrap` 页：两项真控件 + 一列号输入框（），
+//! `Wrap` 页：两项真控件 + 一列号输入框，
 //! 另外两档与 Marker style 仍按数据表画成灰的。
 //!
 //! # 为什么这三项能真接
@@ -16,7 +16,9 @@
 
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, field_label, group_box, label_col};
+use super::settings_pages_view::{
+    draw_row, field_height, field_row, group_box, label_col, set_row_rhythm, Slot,
+};
 use crate::ui::terminal::MarksParams;
 use crate::ui::*;
 
@@ -41,7 +43,7 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 标签列按本页最长的标签量（`Marker style:`），两个框里的控件左缘因此对齐。
     let col = label_col(ui, &["Wrap mode:", "Wrap column:", "Columns:", "Marker style:"]);
     group_box(ui, Some("Wrap"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         draw_row(
             ui,
             &Row::Combo { label: "Wrap mode:", value: "Wrap by character" },
@@ -65,12 +67,11 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     ui.add_space(6.0);
     group_box(ui, Some("Column Marker"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
-        ui.horizontal(|ui| {
-            field_label(ui, "Columns:", col);
+        set_row_rhythm(ui);
+        field_row(ui, "Columns:", Slot::Inline, col, "", |ui| {
             let mut text = if column == 0 { String::new() } else { column.to_string() };
             let resp = ui.add_sized(
-                egui::vec2(ui.available_width(), 20.0),
+                egui::vec2(ui.available_width(), field_height(ui)),
                 egui::TextEdit::singleline(&mut text).hint_text("80, 100, 120, ..."),
             );
             if resp.changed() {

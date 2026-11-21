@@ -2,15 +2,15 @@
 //!
 //! # 为什么需要这一层
 //!
-//! 之前 `SessionPool::open` 遇到内置 SSH（russh）只会报
+//! 此前 `SessionPool::open` 遇到内置 SSH（russh）只会报
 //! [`OpenError::BuiltinChannelNeedsInjection`]，通道得由应用层建好后经
 //! `open_with_channel` 注入；界面路径（`ui/dialogs/ssh_connect.rs`）有一整套
 //! 连接状态机，脚本与桥接这两条**无窗口**路径却没有。这个文件补的就是
 //! 那条缝：认证怎么解析、通道怎么建、失败怎么分类，只在这里写一遍。
 //!
-//! 此后控制面本体认了这条会话：本文件把那段逻辑注册成**通道工厂**
+//! 控制面本体认了这条会话：本文件把那段逻辑注册成**通道工厂**
 //! （`install_channel_factory`），`SessionPool::open` 自己调工厂并走同一套
-//! 监管路径。于是脚本 / 桥接只调一个 `open()`，界面仍用自己的对话框
+//! 监管路径。于是脚本 / 桥接只调一个 `open `，界面仍用自己的对话框
 //! （它要问密码、问指纹，工厂不该替它做这些决定）。
 //! `BuiltinChannelNeedsInjection` 特意留着：客户端忘了装工厂时，报出来的
 //! 是「漏装了一步」，而不是一句含糊的「连接失败」。
@@ -42,7 +42,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use term_core::onekey::OneKey;
 use term_core::session::{AuthMethod, OpenRequest, Protocol, ProxyType, SessionConfig};
 use term_core::session_runtime::SessionId;
 use term_runtime::channel::TermChannel;
@@ -107,6 +106,14 @@ pub(crate) fn open_session(
     if is_builtin_ssh(config) {
         install_channel_factory(pool);
     }
+    // 无窗口路径没有人替控制面灌方案表（界面在构造时灌一次、每次落盘 OneKeys
+    // 之后再灌一次）。这里读一次盘：`prefs.json` 才是这份数据的正本，
+    // 内存里那一份只是界面编辑用的副本。
+    pool.set_onekeys(
+        term_runtime::prefs::load()
+            .map(|p| p.onekeys)
+            .unwrap_or_default(),
+    );
     pool.open(config, cols, rows).map_err(open_failure)
 }
 
@@ -193,10 +200,15 @@ pub(crate) fn install_channel_factory(pool: &SessionPool) {
     let _ = pool.set_channel_factory(factory);
 }
 
-/// 会话配置 → SSH 连接参数（含 OneKey 覆盖与无凭据回退链）。
+/// 会话配置 → SSH 连接参数（含无凭据回退链）。
 ///
 /// **通道工厂与 SFTP 共用它**：同一个会话名，终端走一条参数、SFTP 走另一条，
 /// 就会出现「能登录但传不了文件」这种最难解释的分歧。
+///
+/// **OneKey 不在这里解析**：控制面（`SessionPool::open` / `open_with_channel`）
+/// 在把配置递到这两个消费者之前就已经覆盖好了用户名与私钥。这里再读一次
+/// `prefs` 就是同一件事两个出处——改了一边不会提醒另一边（之前
+/// 正是这样：只有无窗口路径吃方案，界面那条一次都没读）。
 ///
 /// `cols` / `rows` 对 SFTP 没意义（子系统不要终端尺寸），那两处照终端尺寸传
 /// 即可——它们只影响 `pty_req`，而子系统分支根本不发 `pty_req`。
@@ -205,20 +217,11 @@ pub(crate) fn ssh_options_for(
     cols: usize,
     rows: usize,
 ) -> Result<SshOptions, OpenFailure> {
-    // OneKey 登录方案：会话的 `onekey` 字段选中了一个方案时，用方案里的
-    // 用户名 / 公钥（按当前系统）覆盖会话自己的值。方案在 `prefs.onekeys`，
-    // 这里读一次；改完 `config` 是克隆，不影响调用方的原配置。
-    let config = apply_onekey(
-        config,
-        &term_runtime::prefs::load()
-            .map(|p| p.onekeys)
-            .unwrap_or_default(),
-    );
-    let auth = ssh_auth(&config, dirs::home_dir().as_deref())?;
-    let mut opts = ssh_options(&config, auth.clone(), cols, rows)?;
+    let auth = ssh_auth(config, dirs::home_dir().as_deref())?;
+    let mut opts = ssh_options(config, auth.clone(), cols, rows)?;
     // 接上无凭据回退链。空链 = 保持单方法行为不变；非空则把首选排在最前，
     // 由 `term_ssh::authenticate` 按顺序逐个尝试。
-    let fallbacks = ssh_fallback_chain(&config, dirs::home_dir().as_deref())?;
+    let fallbacks = ssh_fallback_chain(config, dirs::home_dir().as_deref())?;
     if !fallbacks.is_empty() {
         let mut chain = Vec::with_capacity(fallbacks.len() + 1);
         chain.push(auth);
@@ -226,38 +229,6 @@ pub(crate) fn ssh_options_for(
         opts.auth_chain = chain;
     }
     Ok(opts)
-}
-
-/// OneKey 方案应用到会话配置。
-///
-/// 方案在会话 `onekey` 字段选中时生效（`"None"` 或空 = 不应用）。只覆盖
-/// **方案里明确填了的**字段：`username` 非空才覆盖、`identity_files[system]`
-/// 非空才覆盖——方案的「留空」语义就是「回落会话自己的值」（与 OneKeys 编辑
-/// 页的说明一致）。`system` 从会话配置取（`linux` / `macos` / `windows`），
-/// 会话没写系统时回落 `linux`（出厂值）。
-///
-/// 无窗口路径（脚本 / 桥接）也走这里：OneKey 不是界面专属，headless 会话
-/// 同样该沿用用户配好的登录方案。证书类凭据（密码 / 键盘交互应答）仍走
-/// vault，本层不碰——那是 `ssh` 连接期的事。
-fn apply_onekey(config: &SessionConfig, onekeys: &[OneKey]) -> SessionConfig {
-    let mut out = config.clone();
-    let Some(scheme) = onekeys.iter().find(|k| k.name == config.onekey) else {
-        return out;
-    };
-    if !scheme.username.is_empty() {
-        out.username = scheme.username.clone();
-    }
-    let system = match config.system.as_str() {
-        "macos" => 1,
-        "windows" => 2,
-        _ => 0,
-    };
-    if let Some(path) = scheme.identity_files.get(system) {
-        if !path.is_empty() {
-            out.identity_file = path.clone();
-        }
-    }
-    out
 }
 
 /// 应用层的细分类 → 控制面的分类（工厂往上报时用）。
@@ -622,70 +593,19 @@ mod tests {
     }
 
     #[test]
-    fn a_configured_onekey_scheme_overrides_username_and_identity() {
-        // 会话的 `onekey` 选中了一个方案：用户名与公钥（按当前系统）覆盖会话值。
+    fn the_options_take_the_config_they_are_given_as_final() {
+        // OneKey 的覆盖现在只在控制面发生一次（`SessionPool::open` /
+        // `open_with_channel` 进门就 `resolve_onekey`）。这个函数只负责把
+        // **递给它的那份配置**翻成连接参数——再回查一次 `prefs` 就是同一件事
+        // 两个出处。用一份「已经解析过」的配置钉住这一点：`onekey` 还写着方案名，
+        // 但用户名与私钥已经是方案给的那一份，原样进 `SshOptions`。
         let mut config = ssh_config(AuthMethod::Agent, closed_port());
         config.onekey = "prod".to_string();
-        config.username = "local-qa".to_string();
-        config.identity_file = "/local/id_rsa".to_string();
-        config.system = "macos".to_string();
-        let scheme = OneKey {
-            name: "prod".to_string(),
-            username: "ops".to_string(),
-            identity_files: [
-                "/linux/key".to_string(),
-                "/macos/key".to_string(),
-                "/win/key".to_string(),
-            ],
-            ..OneKey::default()
-        };
-        let out = apply_onekey(&config, &[scheme]);
-        assert_eq!(out.username, "ops", "方案用户名覆盖会话自己的");
-        assert_eq!(out.identity_file, "/macos/key", "按 system=macos 取那一行公钥");
-        // 原配置未被改：覆盖发生在克隆上。
-        assert_eq!(config.username, "local-qa");
-        assert_eq!(config.identity_file, "/local/id_rsa");
-    }
-
-    #[test]
-    fn an_unmatched_or_none_onekey_leaves_the_config_untouched() {
-        // `SessionConfig` 没有 PartialEq（那边只为序列化服务），逐字段断言。
-        let mut config = ssh_config(AuthMethod::Agent, closed_port());
-        config.onekey = "None".to_string();
-        config.username = "qa".to_string();
-        let out = apply_onekey(&config, &[]);
-        assert_eq!(out.username, "qa", "None / 没有匹配方案 = 原样");
-        assert_eq!(out.identity_file, config.identity_file);
-
-        // 方案存在但会话没选它：同样不覆盖（不能因为列表里有就把别人带偏）。
-        config.onekey = "other".to_string();
-        let scheme = OneKey {
-            name: "prod".to_string(),
-            username: "ops".to_string(),
-            ..OneKey::default()
-        };
-        let out = apply_onekey(&config, &[scheme]);
-        assert_eq!(out.username, "qa", "没选中的方案不该覆盖用户名");
-        assert_eq!(out.identity_file, config.identity_file);
-    }
-
-    #[test]
-    fn a_scheme_with_empty_fields_falls_back_to_session_values() {
-        // 方案字段留空 = 「回落会话自己的值」，不是覆盖成空串。
-        let mut config = ssh_config(AuthMethod::Agent, closed_port());
-        config.onekey = "partial".to_string();
-        config.username = "qa".to_string();
-        config.identity_file = "/local/id_rsa".to_string();
-        config.system = "linux".to_string();
-        let scheme = OneKey {
-            name: "partial".to_string(),
-            username: String::new(), // 留空
-            identity_files: ["".to_string(), "/mac/key".to_string(), "".to_string()],
-            ..OneKey::default()
-        };
-        let out = apply_onekey(&config, &[scheme]);
-        assert_eq!(out.username, "qa", "用户名留空回落会话值");
-        assert_eq!(out.identity_file, "/local/id_rsa", "linux 行留空回落会话值");
+        config.username = "ops".to_string();
+        config.identity_file = "/macos/key".to_string();
+        let opts = ssh_options_for(&config, 80, 24).expect("agent 会话不需要凭据");
+        assert_eq!(opts.user, "ops", "用户名原样透传");
+        assert_eq!(opts.auth, SshAuth::Agent, "认证方式按配置走");
     }
 
     #[test]
@@ -788,7 +708,7 @@ mod tests {
 
     #[test]
     fn the_control_plane_itself_opens_builtin_ssh_once_the_factory_is_installed() {
-        // 判据：不经过 `open_session`，直接 `pool.open` 也不再是
+        //  的判据：不经过 `open_session`，直接 `pool.open` 也不再是
         // 「需要注入」，而是真的走工厂（这里连不上一个没人监听的端口，
         // 所以拿到的是带分类的连接失败）。
         let pool = SessionPool::new();

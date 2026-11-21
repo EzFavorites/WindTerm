@@ -16,7 +16,7 @@
 //! 三个字段在 `Prefs` 里都有名字，落盘和齿轮弹窗共用同一条 load-modify-save。
 
 use super::settings_live::save_prefs;
-use super::settings_pages_view::group_box;
+use super::settings_pages_view::{group_box, set_row_rhythm};
 use crate::ui::*;
 
 /// `Quick Bar` 页。复制出显示开关的副本，画完再一次性同步内存与磁盘。
@@ -28,7 +28,7 @@ pub(in crate::ui) fn quickbar(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 视觉基线里页首第一个字就是分组框标题 `Features`，不再另画页级标题
     //（老实现 `page_title("Quick Bar")` + 框内 `Features` 会多出一行）。
     group_box(ui, Some("Features"), |ui| {
-        ui.spacing_mut().item_spacing.y = 6.0;
+        set_row_rhythm(ui);
         if ui
             .checkbox(&mut in_order, "Show group commands in order")
             .on_hover_text("Off shows the commands in the bar sorted alphabetically.")

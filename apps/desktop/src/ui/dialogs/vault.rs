@@ -1,4 +1,4 @@
-//! 凭据保险库的解锁与保存（`apps/*` 持有实例，ADR-0017）。
+//! 凭据保险库的解锁与保存（`apps/*` 持有实例，ADR-0017 §未决问题 5）。
 //!
 //! 边界很窄：
 //! - 加解密在 `term-vault`（`Vault` / `Entry`）；
@@ -52,7 +52,7 @@ impl TerminalWindow {
         entry.secret().map(|s| s.to_string())
     }
 
-    /// 解锁 / 创建。`creating` 由调用方按 `persist::has_vault()` 决定。
+    /// 解锁 / 创建。`creating` 由调用方按 `persist::has_vault ` 决定。
     pub(in crate::ui) fn submit_vault_form(&mut self, creating: bool) {
         let password = self.vault_form.password.clone();
         if creating {
@@ -149,6 +149,10 @@ impl TerminalWindow {
         // 简单而诚实：只写 prefs；旧 id 残留由 `onekey_password` 的
         //「找不到就 None（空密码）」自然兜住，不悄悄删 vault 条目。
         save_prefs(|p| p.onekeys = self.onekeys.clone());
+        // 控制面持有的是方案表的**副本**（连接时读的是它，不是 `Prefs`）。
+        // 不在这里推一份，用户改完方案之后已开的窗口仍然按旧方案连接——
+        // 「改一处，所有用它的服务器都跟着变」当场失效。
+        self.pool.set_onekeys(self.onekeys.clone());
     }
 
     /// 锁定：内存里的条目与密钥就地清零，文件不动。

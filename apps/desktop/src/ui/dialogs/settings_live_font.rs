@@ -1,6 +1,6 @@
-//! `Text ▸ Font`：视觉基线 `视觉基线` 的 `Default Font` 分组框。
+//! `Text ▸ Font`：视觉基线 `14-text-font.png` 的 `Default Font` 分组框。
 //!
-//! # 这一页现在四行全真（）
+//! # 这一页现在四行全真
 //!
 //! - `Font family 1–4`：四槽字族，取自本机已装字面清单（`fonts::catalog`），
 //!   拉下拉选，选完当场重装字形 + 重量 cell 盒，并写回 `prefs.font_family`。
@@ -25,11 +25,11 @@
 //!
 //! # 分文件的原因
 //!
-//! 从 `settings_live.rs` 拆出来是因为那个文件已经贴着代码行上限
+//! 从 `settings_live.rs` 拆出来是因为那个文件已经贴着  的代码行上限
 //! （500），而本页要加下拉、过滤、读写 prefs、说明，塞回去就超了。
 
 use super::settings_live::{recovery_notice, save_prefs};
-use super::settings_pages_view::{field_box, field_label, group_box, label_col};
+use super::settings_pages_view::{field_label, field_row, group_box, label_col, spin_field, Slot};
 use crate::ui::*;
 use term_app::i18n::Lang;
 
@@ -125,7 +125,7 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
 
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 内容区第一个字就是组标题 `Default Font`（视觉基线 `视觉基线`）。
+    // 内容区第一个字就是组标题 `Default Font`（视觉基线 `14-text-font.png`）。
     // 标签列按本页最长的 `Font family N:` 量（`FAMILY_SLOTS` 那一档），三行对齐。
     let col = label_col(ui, &["Font size:", "Font family 1:", "Font weight:"]);
     group_box(ui, Some("Default Font"), |ui| {
@@ -144,7 +144,7 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
             // 套 `field_box`：`DragValue` 本身不画边框，裸放在这一页里和上面几行的
             // 灰字长得一样——「看起来能改」是这一页控件该有的样子；而且必须和
             // 上面三行下拉的左右缘齐平（同一个 `col` 标签列 + 同一个通栏余宽）。
-            field_box(ui, |ui| {
+            spin_field(ui, |ui| {
                 let r = ui.add(
                     egui::DragValue::new(&mut size)
                         .range(term_profile::prefs::FONT_SIZE_MIN..=term_profile::prefs::FONT_SIZE_MAX)
@@ -158,8 +158,8 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
             });
         });
     });
-    // 视觉基线 `视觉基线`：`Prefer theme fonts` 复选框在框**外**、框底之下
-    // （与 `视觉基线` 的 `Show wrap symbols` 同一个位置关系）。
+    // 视觉基线 `14-text-font.png`：`Prefer theme fonts` 复选框在框**外**、框底之下
+    // （与 `16-text-wrap.png` 的 `Show wrap symbols` 同一个位置关系）。
     ui.add_space(2.0);
     let mut prefer_theme = false;
     ui.add_enabled(
@@ -186,8 +186,8 @@ fn family_row(
     edit: &mut FontEdit,
     col: f32,
 ) {
-    ui.horizontal(|ui| {
-        field_label(ui, &format!("Font family {}:", slot + 1), col);
+    // 走 `field_row`：下拉必须套进 `field_box`，与同一页的文本框同一个底与描边。
+    field_row(ui, &format!("Font family {}:", slot + 1), Slot::Inline, col, "", |ui| {
         let info = win.fonts.slot_info(slot);
         // 字段里只写生效的字族名（与视觉基线一致）：`(automatic)` 这类注解
         // 挂在悬停上——那一行本身是「你现在的字」，不是状态栏。
@@ -210,10 +210,9 @@ fn family_row(
         } else {
             format!("{} (weight {})", info.family, info.weight)
         };
-        let field_w = ui.available_width().max(60.0);
         let combo = egui::ComboBox::from_id_salt(("prefs_font_family", slot))
             .selected_text(shown)
-            .width(field_w)
+            .width(ui.available_width())
             .wrap_mode(egui::TextWrapMode::Truncate)
             .show_ui(ui, |ui| {
                 // 过滤串存在 egui 的临时数据里：它纯属「这个下拉开着的时候
@@ -274,8 +273,7 @@ fn auto_label(info: &crate::fonts::SlotInfo) -> String {
 
 /// `Font weight` 一行：可选字重来自主字族真实装着的面。
 fn weight_row(ui: &mut egui::Ui, win: &TerminalWindow, edit: &mut FontEdit, col: f32) {
-    ui.horizontal(|ui| {
-        field_label(ui, "Font weight:", col);
+    field_row(ui, "Font weight:", Slot::Inline, col, "", |ui| {
         let info = win.fonts.slot_info(0);
         let choices = win.fonts.weight_choices();
         let current = choices
@@ -283,10 +281,9 @@ fn weight_row(ui: &mut egui::Ui, win: &TerminalWindow, edit: &mut FontEdit, col:
             .find(|(w, _)| *w == info.weight)
             .map(|(_, label)| label.clone())
             .unwrap_or_else(|| crate::fonts::catalog::canonical_weight(info.weight).to_string());
-        let field_w = ui.available_width().max(60.0);
         egui::ComboBox::from_id_salt("prefs_font_weight")
             .selected_text(current)
-            .width(field_w)
+            .width(ui.available_width())
             .wrap_mode(egui::TextWrapMode::Truncate)
             .show_ui(ui, |ui| {
                 for (weight, label) in &choices {

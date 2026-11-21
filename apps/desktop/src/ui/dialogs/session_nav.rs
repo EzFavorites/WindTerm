@@ -1,7 +1,9 @@
 //! New Session 的**按协议分派的二级导航树**。
+//! 视觉基线：`视觉基线`（ / ）。
 //!
 //! # 五棵树逐字取自视觉基线，别再自造分组名
 //!
+//! 用户重采了 98 张原生截图（`windterm-ui-screenshots/`），其中
 //! **四个协议各有自己的树**，不再只有 SSH 一张：
 //!
 //! ```text
@@ -30,7 +32,7 @@
 //! 上一版这里自造了 `Network / Security / Files / Algorithms / Transfer` 五组
 //! 八个名字，用户指出「二级菜单列表怎么不一样，看对比图」——差的就是这张表。
 //!
-//! 一处与视觉基线的已知差异（记在 `docs/design/11-theme-and-visual-baseline.md`）：
+//! 一处与视觉基线的已知差异（记在 `docs/ui-alignment-audit.md`）：
 //!
 //! 1. **Shell 树无视觉基线**（`00-shell-tab.png` 拍成了主窗口），
 //!    沿用同一结构类推，属未核实。
@@ -54,14 +56,14 @@
 //!
 //! [`PAGES`] 是内容页下标 → (显示名, 组件名) 的唯一表：右侧抬头读它、
 //! 组件夹具的名字也读它。树里的 `NavLeaf.label` 故意把视觉基线文字**再写一遍**
-//! （读代码就能逐字比对），由 `every_nav_leaf_label_is_the_page_table_label`
+//! （读代码就能逐字逐页比对），由 `every_nav_leaf_label_is_the_page_table_label`
 //! 保证两处不漂移。一个叶子一个下标，因此点进去不会几项内容雷同。
 //!
 //! # 边界
 //!
 //! - 折叠状态交给 `egui::CollapsingHeader` 的 `id_salt` 存在 egui Memory，
 //!   不给 `NewSessionData` 加视图字段。
-//! - 切换协议时若当前页不在新树里，`default_page()` 把它收回本协议第一页。
+//! - 切换协议时若当前页不在新树里，`default_page ` 把它收回本协议第一页。
 //! - SSH / Telnet / Tcp / Serial 四棵树的**条目**有视觉基线可据；Shell 那棵没有
 //!   （见上），不要把它当成「已核实」。
 //! - 树对了不等于页对了：`Connection` 在视觉基线里有**两个内容完全不同的页**
@@ -77,10 +79,10 @@ pub(in crate::ui) struct PageSpec {
     pub component: &'static str,
 }
 
-/// 22 页：视觉基线 SSH 树 17 个叶子 + 其余协议的专属页。新增页一律**追加在
+/// 24 页：视觉基线 SSH 树 17 个叶子 + 其余协议的专属页 + 两个组头页。新增页一律**追加在
 /// 末尾**，保住 0..16 的旧下标（`GOLDEN_FIXTURE`、组件夹具、既存测试都按
 /// 旧下标引用）。
-pub(in crate::ui) const PAGES: [PageSpec; 22] = [
+pub(in crate::ui) const PAGES: [PageSpec; 24] = [
     PageSpec { label: "Session",        component: "dialog_new_session_session" },
     PageSpec { label: "Keyboard",       component: "dialog_new_session_keyboard" },
     PageSpec { label: "Logging",        component: "dialog_new_session_logging" },
@@ -102,7 +104,7 @@ pub(in crate::ui) const PAGES: [PageSpec; 22] = [
     PageSpec { label: "Protocol",       component: "dialog_new_session_serial_port" },
     // 视觉基线里四个协议树的末项都写作 `X/Y/Z Modem`，页内容仍是既有的 modem 页。
     PageSpec { label: "X/Y/Z Modem",    component: "dialog_new_session_modem" },
-    // 2026-11-08 视觉基线 `common/*.png` 补的五页（追加，不动旧下标）。
+    // 视觉基线 `common/*.png` 补的五页（追加，不动旧下标）。
     PageSpec { label: "Bell",           component: "dialog_new_session_bell" },
     PageSpec { label: "Mode",           component: "dialog_new_session_mode" },
     PageSpec { label: "Security",       component: "dialog_new_session_security" },
@@ -110,12 +112,17 @@ pub(in crate::ui) const PAGES: [PageSpec; 22] = [
     // Telnet / Tcp 的 `Connection` 页：视觉基线里它画的是 TCP 选项，
     // 与 SSH 的 `Connection`（Host/Port/…）是两页，所以各占一个下标。
     PageSpec { label: "Connection",     component: "dialog_new_session_tcp_connection" },
+    // 视觉基线 `common/01-terminal-page.png` / `common/07-window-page.png`：
+    // 组头本身就是一页。此前组头只能用 `CollapsingHeader` 折叠、点不出内容，
+    // 用户报「左侧树行为不对」。追加在末尾，旧下标一个不动。
+    PageSpec { label: "Terminal",       component: "dialog_new_session_terminal_group" },
+    PageSpec { label: "Window",         component: "dialog_new_session_window_group" },
 ];
 
 pub(in crate::ui) const PAGE_COUNT: usize = PAGES.len();
 
 /// 视觉基线 `session-property.png` 定格的状态：SSH 协议、`Proxy` 整行高亮。
-/// 整窗弹窗夹具（`--demo newsession`）按它初始化，才能与视觉基线并排比对；
+/// 整窗弹窗夹具（`--demo newsession`）按它初始化，才能与视觉基线并排逐页比对；
 /// 真实「＋ New Session」仍从 Shell / Session 页开始，不受夹具影响。
 pub(in crate::ui) const GOLDEN_FIXTURE: (Protocol, usize) = (Protocol::Ssh, 5);
 
@@ -130,8 +137,14 @@ pub(in crate::ui) enum NavEntry {
     /// 一级独立项：视觉基线里 `Session` 就是**没有展开箭头**的一级项。
     Leaf(NavLeaf),
     /// 可折叠分组（一级）+ 缩进的二级页。
+    ///
+    /// `page` 是**组头自己的页**：视觉基线里 `Terminal ▾` / `Window ▾` 点上去
+    /// 右侧有内容（`common/01-terminal-page.png`、`common/07-window-page.png`），
+    /// 组头既是页也是折叠开关。协议那几组（`SSH ▾` 等）没有独立页，
+    /// 点文字＝展开并进第一个子页。
     Group {
         label: &'static str,
+        page: Option<usize>,
         children: &'static [NavLeaf],
     },
 }
@@ -146,6 +159,7 @@ const SESSION: NavEntry = NavEntry::Leaf(NavLeaf {
 /// `Terminal ▾`：视觉基线四个协议截图里**完全一致**，五项按字母序。
 const TERMINAL_GROUP: NavEntry = NavEntry::Group {
     label: "Terminal",
+    page: Some(22),
     children: &[
         NavLeaf { label: "Bell", page: 17 },
         NavLeaf { label: "Mode", page: 18 },
@@ -157,12 +171,14 @@ const TERMINAL_GROUP: NavEntry = NavEntry::Group {
 
 const WINDOW_GROUP: NavEntry = NavEntry::Group {
     label: "Window",
+    page: Some(23),
     children: &[NavLeaf { label: "Selection", page: 3 }],
 };
 
 /// 视觉基线的 `SSH ▾` 分组（`common/08-logging.png`）：十项，顺序与大小写都按截图。
 /// 本项目的 `Tunnels` 页已从可见树摘下，见模块头说明。
 const SSH_GROUP: NavEntry = NavEntry::Group {
+    page: None,
     label: "SSH",
     children: &[
         NavLeaf { label: "Connection", page: 4 },
@@ -182,6 +198,7 @@ const SSH_GROUP: NavEntry = NavEntry::Group {
 
 /// Shell：**没有对应视觉基线**，沿用同一结构类推（未核实）。
 const SHELL_GROUP: NavEntry = NavEntry::Group {
+    page: None,
     label: "Shell",
     children: &[
         NavLeaf { label: "Command", page: 13 },
@@ -192,6 +209,7 @@ const SHELL_GROUP: NavEntry = NavEntry::Group {
 
 /// Telnet（`telnet/01-telnet-connection.png`）：Connection / Proxy / X/Y/Z Modem。
 const TELNET_GROUP: NavEntry = NavEntry::Group {
+    page: None,
     label: "Telnet",
     children: &[
         NavLeaf { label: "Connection", page: 21 },
@@ -202,6 +220,7 @@ const TELNET_GROUP: NavEntry = NavEntry::Group {
 
 /// Tcp（`tcp/01-tcp-connection.png`）：与 Telnet 同构。
 const TCP_GROUP: NavEntry = NavEntry::Group {
+    page: None,
     label: "Tcp",
     children: &[
         NavLeaf { label: "Connection", page: 21 },
@@ -212,6 +231,7 @@ const TCP_GROUP: NavEntry = NavEntry::Group {
 
 /// 串口（`serial/01-serial-protocol.png`）：`Protocol` + `X/Y/Z Modem`，没有代理。
 const SERIAL_GROUP: NavEntry = NavEntry::Group {
+    page: None,
     label: "Serial",
     children: &[
         NavLeaf { label: "Protocol", page: 15 },
@@ -256,12 +276,19 @@ pub(in crate::ui) fn nav_for(protocol: Protocol) -> &'static [NavEntry] {
 }
 
 /// 该协议树上的全部页（扁平化）。
+///
+/// **组头自己那一页也在册**（`Terminal` / `Window`）：它们能被选中、右侧有内容，
+/// 所以「当前页是否属于这棵树」必须认它们，否则切协议时会把停在组头的选择
+/// 当成失效页踢走，`protocol_for_page` 也找不到能显示它的树。
 pub(in crate::ui) fn pages_for(protocol: Protocol) -> Vec<usize> {
     let mut out = Vec::new();
     for entry in nav_for(protocol) {
         match entry {
             NavEntry::Leaf(leaf) => out.push(leaf.page),
-            NavEntry::Group { children, .. } => out.extend(children.iter().map(|l| l.page)),
+            NavEntry::Group { page, children, .. } => {
+                out.extend(page);
+                out.extend(children.iter().map(|l| l.page));
+            }
         }
     }
     out
@@ -301,7 +328,7 @@ pub(in crate::ui) fn component_for(page: usize) -> &'static str {
 /// 顶部协议标签条的**顺序与显示名**，逐字取自视觉基线
 /// `session-property.png`：`Shell / SSH / Telnet / Tcp / Serial`。
 ///
-/// 刻意不复用 `Protocol::label()`：那是 core 的通用显示名，会话树、菜单、
+/// 刻意不复用 `Protocol::label `：那是 core 的通用显示名，会话树、菜单、
 /// 状态栏都在用（本地 Shell 显示成 `Local Shell`、顺序是 Serial 在 Tcp 前）。
 /// 为了一张弹窗去改全局会波及整条产品线，所以这里只描述这一条标签条。
 pub(in crate::ui) const PROTOCOL_TABS: [(Protocol, &str); 5] = [

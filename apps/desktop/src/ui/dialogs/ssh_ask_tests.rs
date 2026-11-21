@@ -1,6 +1,6 @@
-//! `ssh_ask.rs` 里那三项（跳板链 / agent 转发 / 私钥文件）的单测。
+//! `ssh_ask.rs` 里 V1-3 那三项（跳板链 / agent 转发 / 私钥文件）的单测。
 //!
-//! 拆成独立文件的理由与 `session_nav_tests.rs` 相同：verify 要求
+//! 拆成独立文件的理由与 `session_nav_tests.rs` 相同：（verify 4j）要求
 //! `ui/**/*.rs` ≤ 450 行。这里钉住的是「表单里填的三项真的进了连接参数」——
 //! 在这一批之前它们能填、能存、不生效，而这恰好是单测最容易漏的部分：
 //! 出错的形态是「什么都不报」，不是「报一个错」。
@@ -125,7 +125,7 @@ fn a_configured_identity_file_wins_over_the_default_key() {
 
     let mut c = ssh_session(AuthMethod::PublicKey);
     c.identity_file = chosen.to_string_lossy().into_owned();
-    match ask(&c, None, Some(&dir)) {
+    match ask(&c, None, &[], Some(&dir)) {
         Ask::Connect(SshAuth::PrivateKey { path, passphrase }) => {
             assert_eq!(path, chosen, "应当用表单里填的那把");
             assert!(passphrase.is_none());
@@ -144,7 +144,7 @@ fn a_tilde_identity_file_is_expanded_against_home() {
 
     let mut c = ssh_session(AuthMethod::PublicKey);
     c.identity_file = "~/.ssh/id_work".to_string();
-    match ask(&c, None, Some(&dir)) {
+    match ask(&c, None, &[], Some(&dir)) {
         Ask::Connect(SshAuth::PrivateKey { path, .. }) => {
             assert_eq!(path, ssh_dir.join("id_work"));
         }
@@ -161,7 +161,7 @@ fn a_missing_identity_file_is_reported_by_name() {
     let mut c = ssh_session(AuthMethod::PublicKey);
     c.identity_file = missing.to_string_lossy().into_owned();
 
-    match ask(&c, None, Some(&dir)) {
+    match ask(&c, None, &[], Some(&dir)) {
         Ask::Unsupported(msg) => {
             assert!(msg.contains("私钥文件不存在"), "{msg}");
             // 路径必须出现在文案里，否则用户不知道该改哪一行。
@@ -178,7 +178,7 @@ fn an_identity_file_is_ignored_for_password_and_agent_sessions() {
     let mut c = ssh_session(AuthMethod::Password);
     c.identity_file = "/definitely/not/here".to_string();
     assert_eq!(
-        ask(&c, Some("s3cret"), None),
+        ask(&c, Some("s3cret"), &[], None),
         Ask::Connect(SshAuth::Password {
             password: "s3cret".to_string()
         })
@@ -186,7 +186,7 @@ fn an_identity_file_is_ignored_for_password_and_agent_sessions() {
 
     let mut c = ssh_session(AuthMethod::Agent);
     c.identity_file = "/definitely/not/here".to_string();
-    assert_eq!(ask(&c, None, None), Ask::Connect(SshAuth::Agent));
+    assert_eq!(ask(&c, None, &[], None), Ask::Connect(SshAuth::Agent));
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn an_empty_identity_file_falls_back_to_the_default_key_order() {
 
     let mut c = ssh_session(AuthMethod::PublicKey);
     c.identity_file = "   ".to_string();
-    match ask(&c, None, Some(&dir)) {
+    match ask(&c, None, &[], Some(&dir)) {
         Ask::Connect(SshAuth::PrivateKey { path, .. }) => {
             assert!(path.ends_with(".ssh/id_rsa"), "{path:?}");
         }
@@ -256,7 +256,7 @@ fn an_incomplete_outbound_proxy_is_an_error_not_a_silent_direct_connection() {
     assert!(err.to_string().contains("代理主机"), "{err}");
 }
 
-// ── OneKey：界面路径的回退链 ─────────────────────────────────────────
+// ──  OneKey：界面路径的回退链 ─────────────────────────────────────────
 
 #[test]
 fn a_password_primary_plus_a_key_fallback_builds_a_two_step_chain() {

@@ -1,9 +1,9 @@
 //! WindTerm UI — 投影层。按组件分组的模块树，本文件只做装配。
 //!
-//! 之后每个 tab 只持有 `SessionId` 与一份只读 `GridSnapshot`；会话句柄在控制面上
-//! （ADR-0019：`Arc<SessionPool>` 才是所有者，tab 不握线程 / 队列 / 邮箱）。
+//! S2 之后每个 tab 只持有 `SessionId` 与一份只读 `GridSnapshot`；会话句柄在控制面上
+//! （ADR-0019 档 1.1：`Arc<SessionPool>` 才是所有者，tab 不握线程 / 队列 / 邮箱）。
 //! PTY、子进程、VT 网格、字节摄入全部在监管者线程里；
-//! 本文件只做三件事：收快照 / 画 / 发 Action（边界）。
+//! 本文件只做三件事：收快照 / 画 / 发 Action（B2、B3 边界）。
 //!
 //! # 模块树（按组件分类）
 //! ```text
@@ -14,7 +14,7 @@
 //!      overlays/ 临时覆盖层          layout/ 分屏与停靠
 //! ```
 //! **划分原则**：固定框架 / 可停靠 / 临时覆盖 / 模态，四类生命周期不同，
-//! 混在一起就是之前那个 1,586 行的 `mod.rs`。
+//! 混在一起就是 此前那个 1,586 行的 `mod.rs`。
 
 mod comp;
 mod construct;
@@ -41,7 +41,7 @@ pub(in crate::ui) use window_opacity::WindowOpacity;
 // 的那四个」——它锚在工具栏面板段上、有自己的输入焦点与候选表，所以自成一组。
 mod address;
 mod app_state;
-// 界面内部错误与「恢复自最近留存点」的同一行提示条。
+// L1 / L3（O 设计稿）：界面内部错误与「恢复自最近留存点」的同一行提示条。
 // 自成一组：它不是固定框架的一部分（不占布局），也不是那四个临时覆盖层之一
 // （它没有开关，只在真有话说时存在）。
 mod notice;
@@ -54,7 +54,7 @@ pub(in crate::ui) mod lifecycle_test_support;
 
 /// `Effect` 落地里**带命令 ID 入口**的那几条判据（`dispatch("…")`）。
 ///
-/// 单独成文件是被门禁逼的：判据扫 `ui/` 下一处 ID 字面量都不许有，只放过由
+/// 单独成文件是被 4e 逼的： 判据扫 `ui/` 下一处 ID 字面量都不许有，只放过由
 /// `#[cfg(test)] #[path = …] mod …;` 两行声明拉进来的纯测试模块——`effects.rs`
 /// 里内联的 `mod tests` 不在白名单里（判据回到声明处，不认文件名后缀，否则随便
 /// 起个 `_tests.rs` 就能藏命令 ID）。而这条判据又**必须**走字符串入口才成立。
@@ -62,16 +62,16 @@ pub(in crate::ui) mod lifecycle_test_support;
 #[path = "effects_menu_tests.rs"]
 mod effects_menu_tests;
 
-/// 窗口透明度里**带命令 ID 入口**的端到端判据（`dispatch("…")`）。
+///  窗口透明度里**带命令 ID 入口**的端到端判据（`dispatch("…")`）。
 ///
-/// 与 `effects_menu_tests` 同一个理由：扫 `ui/` 下一处 ID 字面量都不许有，
+/// 与 `effects_menu_tests` 同一个理由：4e 扫 `ui/` 下一处 ID 字面量都不许有，
 /// 只放过由 `#[cfg(test)] #[path = …] mod …;` 两行声明拉进来的纯测试模块。
 /// 这里的判据又必须走字符串入口，才能证明「菜单点下去 → Prefs 真的落盘」。
 #[cfg(test)]
 #[path = "window_opacity_tests.rs"]
 mod window_opacity_tests;
 
-/// 应用状态采集层（`app_state.rs`）的判据——`panels` 恒十条、
+/// Q2 刀1 验收③：应用状态采集层（`app_state.rs`）的判据——`panels` 恒十条、
 /// `zone/order/floating` 与 `DockLayout::placement` 逐条一致、可见性来自
 /// `ViewState`。同样走两行声明拉进来的纯测试模块（与上两条同一套组织）。
 #[cfg(test)]
@@ -122,25 +122,25 @@ const GRID_PAD: f32 = 4.0;
 
 /// The main terminal window.
 ///
-/// 原来 50 个字段里的 14 个纯死状态位（只写不读、照抄菜单配置）已删除，
-/// 其余视图开关集中到 `ViewState`，由 `reduce()` 这个纯函数唯一写入。
+/// S3：原来 50 个字段里的 14 个纯死状态位（只写不读、照抄菜单配置）已删除，
+/// 其余视图开关集中到 `ViewState`，由 `reduce ` 这个纯函数唯一写入。
 pub struct TerminalWindow {
     /// One entry per open tab.
     tabs: Vec<Tab>,
-    /// 分屏布局树。单叶子时走原来的渲染路径（视觉基线不变）。
+    /// R14-d：分屏布局树。单叶子时走原来的渲染路径（视觉基线不变）。
     layout: Layout,
-    /// 每片窗格（一个 `PaneId`）对应的会话集合与当前显示的那一条。
+    /// ④-0：每片窗格（一个 `PaneId`）对应的会话集合与当前显示的那一条。
     ///
     /// `Layout` 树只管「窗格怎么切分」，会话归属在这里——`draw_node` 渲染前经
     /// `pane_groups[pane].active` 解析出 `SessionId` 再交给终端绘制，
-    /// 窗格里切标签只改 `active`，不动布局树（详见 `docs/design/04-tabs-split-layout.md`）。
+    /// 窗格里切标签只改 `active`，不动布局树（详见 `docs/adr-0026-per-pane-tab-groups.md`）。
     /// 与 `groups: Vec<String>`（会话分组名）无关：那个字段早已被占用，故另起一名。
     pane_groups: HashMap<PaneId, PaneGroup>,
     /// The terminal's palette.
     palette: Palette,
     /// Font faces and the measured cell box.
     fonts: TerminalFonts,
-    /// 所有视图开关集中在这里，只能经 `reduce()` 修改。
+    /// B3：所有视图开关集中在这里，只能经 `reduce ` 修改。
     view: ViewState,
     /// Session groups (folders) in the tree, in creation order.
     groups: Vec<String>,
@@ -162,9 +162,9 @@ pub struct TerminalWindow {
     shell_tabs: Vec<Tab>,
     /// 面板内当前激活那条的**恒在身份**（`None` = 尚未选 / 空面板）。
     ///
-    /// ADR-0025：与主区 `active` 一样改用身份而非下标——关掉活动标签**之前**
+    /// ADR-0025 阶段 3：与主区 `active` 一样改用身份而非下标——关掉活动标签**之前**
     /// 的其它条目不再让活动位跟着挪（身份稳定）；面板的选中态也不进主区世界。
-    /// 取「第几条」统一走 `shell_active_index()`（身份反查 + 退化 0）。
+    /// 取「第几条」统一走 `shell_active_index `（身份反查 + 退化 0）。
     shell_active: Option<SessionId>,
     /// 面板标签列表（`≡` 下拉）里的过滤词。
     ///
@@ -241,11 +241,11 @@ pub struct TerminalWindow {
     wrap_symbols: bool,
     /// 0 = 不画参考列；>0 = 参考列号。
     column_marker_col: usize,
-    /// 补全偏好的运行期副本。设置页改完立刻写回这里供键盘漏斗每帧
+    /// I-AC：补全偏好的运行期副本。设置页改完立刻写回这里供键盘漏斗每帧
     /// 读取，落盘仍走 `settings_live::save_prefs` 那一个入口。
     /// 与 `caret_style` / `wrap_symbols` 同一写法：不每帧读盘。
     completion: term_core::completion::Settings,
-    /// 当前候选弹层的状态（含 owner 标签 id）。切换标签自动失效。
+    /// I-AC：当前候选弹层的状态（含 owner 标签 id）。切换标签自动失效。
     completion_state: terminal::completion_popup::CompletionState,
     /// hex 的**默认参数**（设置 ▸ Binary 页那四个数 + 一格斑马线，
     /// `Prefs.hex_*` 与 `Prefs.alternate_column_bg` 的渲染期副本）。
@@ -281,7 +281,13 @@ pub struct TerminalWindow {
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
     triggers: Vec<term_app::trigger::Rule>,
     /// OneKey 登录方案的运行期副本（来自 `Prefs.onekeys`）。OneKeys 编辑页
-    /// 读写它，保存时写回 `prefs`；连接流程按会话的 `onekey` 宏名从这里取方案。
+    /// 读写它，保存时写回 `prefs`。
+    ///
+    /// **连接时读的不是它**，是控制面里那一份（`SessionPool::onekey_for` /
+    /// `resolve_onekey`）——用户要的是「同一个方案，终端与 SFTP、界面与脚本
+    /// 看到的是同一份」，那只能由控制面持有。这份是**编辑用的正本**：
+    /// 构造时推一份过去，每次落盘（`save_onekeys`）再推一次。所以任何改动
+    /// 方案的路径都必须以 `save_onekeys ` 结尾，否则已开的窗口还会按旧方案连。
     onekeys: Vec<term_core::onekey::OneKey>,
     /// Tunnels 设置对话框的编辑草稿（`Some` = 对话框开着）。
     ///
@@ -307,13 +313,13 @@ pub struct TerminalWindow {
     /// OneKeys 页里用户刚敲的密码草稿 `(方案名, 明文)`。只在按 Save 并解锁
     /// 时写入 vault 之后清空——绝不进 prefs.json（凭据纪律）。
     ///
-    /// 2026-11-17：键从**下标**改成**方案名**。下标在删/复制方案之后会整体错位，
+    /// ：键从**下标**改成**方案名**。下标在删/复制方案之后会整体错位，
     /// 于是"密码存到隔壁方案上"——静默且很难发现。
     onekeys_password_draft: Option<(String, String)>,
-    /// 一行提示条——界面内部错误 / 恢复自最近留存点。
+    /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,
-    /// 连续「帧内 panic」次数。成功画完一帧就清零（见 `note_frame_ok`）。
+    /// L1：连续「帧内 panic」次数。成功画完一帧就清零（见 `note_frame_ok`）。
     frame_panics: u32,
     /// 逐行 span 缓存，未变化的行零构建成本。
     term_view: terminal::LineCache,
@@ -323,7 +329,7 @@ pub struct TerminalWindow {
     /// 一份时，交替写同一下标会**每帧把对方判成失效**：画得没错，但缓存等于没养
     /// （每行每帧重新 `build_spans`）。所以按槽位分两份。
     term_view_shell: terminal::LineCache,
-    /// 复制用的是选区文本，按帧从事实窗口推导，Effect 只负责「写剪贴板」。
+    /// F1：复制用的是选区文本，按帧从事实窗口推导，Effect 只负责「写剪贴板」。
     ///
     /// 这里存的是**主区**那份。读它的是 `effects`（复制 / 搜索 / 发送选区）、
     /// 工作台与右键菜单——那些动作都作用在活动标签上，所以读主区那份是对的。
@@ -334,54 +340,54 @@ pub struct TerminalWindow {
     /// 而窗口级只有一份字段时两块区域会互相覆盖「现在复制什么」。所以分两份，
     /// `Cmd+C` 按正在画的那块区域（`TabSlot`）决定读哪一份。
     selection_text_shell: String,
-    /// 窗口级命令行历史。各 tab 的回车行（`InputLine::feed` 吐出）汇总到这里，
+    /// W5-I：窗口级命令行历史。各 tab 的回车行（`InputLine::feed` 吐出）汇总到这里，
     /// 容量 / TTL 取自 `prefs`（`command_history_store`），纯内存。
     command_history: term_core::command_history::CommandHistory,
-    /// egui 上下文（写剪贴板需要在非 `draw` 参数里拿到 ctx）。
+    /// F1：egui 上下文（写剪贴板需要在非 `draw` 参数里拿到 ctx）。
     ctx: egui::Context,
-    /// 上一次周期留存的时刻（egui `i.time` 秒）。用于 30s 防抖。
+    /// N：上一次周期留存的时刻（egui `i.time` 秒）。用于 30s 防抖。
     /// `0` = 本次运行还没留存过。夹具模式 `i.time` 被钉在 0，永不触发。
     last_periodic_save: f64,
     /// 结构变化（分屏 / 关窗格 / 合并 / 内置 SSH 分屏落地 / sash 松手）需要在
     /// 本帧末即时落盘，复活 `Action::SaveLayout` 死路径——不再等 30s 周期或退出兜底。
-    /// 各变更点在 `draw_node` / 命令处理函数里只置这个标志，`draw()` 末尾统一
+    /// 各变更点在 `draw_node` / 命令处理函数里只置这个标志，`draw ` 末尾统一
     /// `dispatch_action(Action::SaveLayout)` 一次，避免渲染期 / 嵌套 dispatch 重入。
     pending_save_layout: bool,
-    /// 当前正被从标签栏拖拽的会话身份（`None` = 没在拖）。`draw_node` 的每片窗格
+    /// A3：当前正被从标签栏拖拽的会话身份（`None` = 没在拖）。`draw_node` 的每片窗格
     /// 读它判断「拖到我没」；松手落在某片窗格上（`drop_drag_on_pane`）即交换两格内容并置 `None`。
     /// 拖拽全程由标签的 `drag_started/dragged` 每帧续上，松手那帧由 `drag_released_this_frame` 兜清空。
     drag_session: Option<SessionId>,
-    /// 本帧松手结束拖拽但没落在任何窗格上（落空 / 拖回自己那片）。`draw()` 末尾据此清掉 `drag_session`，
+    /// A3：本帧松手结束拖拽但没落在任何窗格上（落空 / 拖回自己那片）。`draw ` 末尾据此清掉 `drag_session`，
     /// 避免拖拽态卡死在下帧。命中落点时 `drop_drag_on_pane` 已把它置回 `false`，这里便不再清。
     drag_released_this_frame: bool,
-    /// 菜单「粘贴」把焦点从终端带走了，本帧末要还回去。
+    /// F1-b：菜单「粘贴」把焦点从终端带走了，本帧末要还回去。
     restore_focus: bool,
     /// 底带 Shell 面板版的 `restore_focus`（两份各记一份）。
     ///
     /// 混成一份的下场：在面板里中键粘贴一次，主区那一帧就把旗子取走并抢走焦点，
     /// 下一次敲键盘进的是主区而不是面板——而粘贴的文字属于面板。
     restore_focus_shell: bool,
-    /// Find 输入框的编辑缓冲（控件状态，不是领域状态）。
+    /// R4：Find 输入框的编辑缓冲（控件状态，不是领域状态）。
     ///
     /// 为什么不能每帧用临时 `String` 喂 `TextEdit`：输入法的预编辑文本是写进
     /// 缓冲的，每帧重建会逐帧重复拼接。所以缓冲必须跨帧存活——但它只属于投影，
     /// `ViewState` 仍然只由 `reduce` 写。
     find_input: String,
-    /// 命令面板输入框的编辑缓冲（与 `find_input` 同一类）。
+    /// R14-c：命令面板输入框的编辑缓冲（与 `find_input` 同一类）。
     palette_input: String,
-    /// Goto 行号输入框的编辑缓冲（与 `find_input` 同一类）。
+    /// R14-d：Goto 行号输入框的编辑缓冲（与 `find_input` 同一类）。
     goto_input: String,
-    /// 工作台输入框的编辑缓冲（与 `find_input` 同一类）。
+    /// R14-f：工作台输入框的编辑缓冲（与 `find_input` 同一类）。
     center_input: String,
-    /// 锁屏主密码的跨帧缓冲（受控输入，不进 ViewState）。
+    /// V1-3：锁屏主密码的跨帧缓冲（受控输入，不进 ViewState）。
     lock_password: String,
-    /// 快捷键绑定表的覆盖项（下标 → 新和弦）与捕获态。
+    /// V1-2：快捷键绑定表的覆盖项（下标 → 新和弦）与捕获态。
     shortcut_overrides: Vec<(usize, String)>,
     shortcut_capture: Option<usize>,
     /// 两段式键（`Alt+W, Alt+H`）的等待态与解析好的运行期表。
     ///
     /// 都活在窗口上而不是 `ViewState`：前缀是**跨帧的控件状态**，不是业务事实。
-    /// 放进 `ViewState` 会逼出一个假读者（`verify.sh` 只认真读者），
+    /// 放进 `ViewState` 会逼出一个假读者（`verify.sh` 4h 只认真读者），
     /// 而且 reducer 测试里整份 `ViewState` 会被 `assert_eq!(state, before)`，
     /// 塞一个时间戳进去等于承认 reducer 碰墙钟。
     ///
@@ -390,20 +396,20 @@ pub struct TerminalWindow {
     /// 不进运行期表，否则它的第一段会白吞按键。
     keyseq: term_app::shortcuts::KeySeqState,
     seq_table: Vec<(Vec<term_app::shortcuts::Chord>, &'static str)>,
-    /// 标签 12 色（下标 → 调色板索引）。
+    /// V1-2：标签 12 色（下标 → 调色板索引）。
     tab_colors: Vec<Option<usize>>,
-    /// 隧道面板里「新增规则」的输入缓冲与解析错误（与 `find_input` 同类）。
+    /// R16：隧道面板里「新增规则」的输入缓冲与解析错误（与 `find_input` 同类）。
     tunnel_input: String,
     tunnel_error: Option<String>,
-    /// tmux 面板日志（投影层 IO 缓冲）。
+    /// V1-4：tmux 面板日志（投影层 IO 缓冲）。
     ///
-    /// 控制模式状态机已下移到每个 `Tab.tmux`——它只能喂本会话的字节流，
+    /// B2：控制模式状态机已下移到每个 `Tab.tmux`——它只能喂本会话的字节流，
     /// 窗口级单例会让「A 标签在跑 tmux，B 标签却判定 active」串线。
     /// 这里只留面板自己的日志 / 输入 / 命令块索引。
     tmux_log: Vec<String>,
     tmux_input: String,
     tmux_blocks: Vec<term_app::blocks::Block>,
-    /// 菜单触发的选区操作，等本帧算出事实窗口后再落地。
+    /// R11：菜单触发的选区操作，等本帧算出事实窗口后再落地。
     ///
     /// 为什么不立刻执行：落点要用「此刻画在屏上的那一屏」，而 `dispatch` 里
     /// 手上只有上一帧的窗口。攒一帧不会让人察觉到延迟（点击本身就发生在本帧绘制前）。
@@ -427,20 +433,20 @@ pub struct TerminalWindow {
     /// 与 `connector` 同一类：这是**副作用的持有者**，不是领域状态，所以不进
     /// `ViewState`（那会让 reducer 持有一个线程句柄）。
     tunnels: Vec<panels::RunningTunnel>,
-    /// 会话控制面（ADR-0019）：本窗口所有会话都登记在这里。不做全局单例，
-    /// 因为 `desk serve` 与 GUI 是两个进程、两个池（ADR-0022）。
+    /// 会话控制面（ADR-0019 档 1.1）：本窗口所有会话都登记在这里。不做全局单例，
+    /// 因为 `desk serve` 与 GUI 是两个进程、两个池（ADR-0022 §决策 7）。
     pool: Arc<term_session::SessionPool>,
     /// 已解锁的保险库（`None` = 还没解锁 / 还没建）。
-    /// ADR-0017：解锁一次、本次运行可用，所以实例放在 `apps/*` 里。
+    /// ADR-0017 §未决问题 5：解锁一次、本次运行可用，所以实例放在 `apps/*` 里。
     /// 它只持有密钥与条目（纯内存），文件读写走 `term-runtime::persist`。
     vault: Option<term_vault::Vault>,
     /// Authentication 页里的解锁区（主密码输入与错误提示）。
     vault_form: dialogs::vault::VaultForm,
-    /// 日志动作的一次性提示（与状态栏 `log_label()` 分工），失败也显示在界面上。
+    /// R14-a：日志动作的一次性提示（与状态栏 `log_label ` 分工），失败也显示在界面上。
     log_note: Option<String>,
     /// Session Settings ▸ Logging 配置页的跨帧控件态（数据在 dialogs::log_settings_spec，只画在 log_settings）。
     log_settings: dialogs::LogSettingsData,
-    /// 右侧文件面板（远端目录浏览）。
+    /// R13-f：右侧文件面板（远端目录浏览）。
     /// 与 `tunnels` 同一类：持有线程与队列（`SftpHandle`），不是领域状态；
     /// 领域状态只有 `view.show_filer` 那个 bool。
     filer: panels::Filer,
@@ -451,7 +457,7 @@ pub struct TerminalWindow {
     /// （`script_run::ScriptRun`），但它是**常驻**的：选脚本、点运行、看日志都在
     /// 面板里，不另开窗口。`ViewState` 只管「显不显示」（`show_pane_script`）。
     script_panel: panels::ScriptPanelState,
-    /// ADR-0025：脚本新开的会话从**这里**回到窗口。
+    /// ADR-0025 阶段 5：脚本新开的会话从**这里**回到窗口。
     ///
     /// 脚本线程没法直接往 `tabs` 里塞东西（那是 UI 线程的 `Vec<Tab>`），所以它
     /// 只把「我开了哪条会话、用什么配置开的」推进这个共享队列，窗口每帧 drain
@@ -470,19 +476,19 @@ pub struct TerminalWindow {
     script_asks: crate::script_human::AskQueue,
     /// 脚本文件框的队列（`pick_file`）。用户打的路径**当场**进授权信封。
     script_picks: std::sync::Arc<std::sync::Mutex<Vec<crate::script_human::PendingPick>>>,
-    /// 界面每帧抄进来的选区文本（`crt.GetSelection` 与 `selection()` 的事实源）。
+    /// 界面每帧抄进来的选区文本（`crt.GetSelection` 与 `selection ` 的事实源）。
     script_selection: crate::script_clip::SelectionSlot,
-    /// 界面当前激活的会话（脚本 `session_active()` 的事实源）。
+    /// 界面当前激活的会话（脚本 `session_active ` 的事实源）。
     script_active: std::sync::Arc<std::sync::Mutex<Option<SessionId>>>,
     /// 正在等答复的那个模态框（`None` = 没有脚本在问人）。
     script_ask: Option<overlays::AskModal>,
-    /// 同会话互斥登记簿（ADR-0027）：三条运行入口共用**同一本**。
+    /// 同会话互斥登记簿（ADR-0027 §S3）：三条运行入口共用**同一本**。
     ///
     /// 挂在窗口而不是各个对话框上：运行窗口、停靠面板、编辑器是三个独立的
     /// `Option<ScriptRun>`，各持一本的话「在面板里跑的时候，运行窗口那边还以为
     /// 会话是空的」，两条脚本就会对着同一个 PTY 交错读写。
     script_runs: std::sync::Arc<crate::script_run::ScriptRunRegistry>,
-    /// 哪些会话的登录脚本已经跑过（ADR-0027）。
+    /// 哪些会话的登录脚本已经跑过（ADR-0027 §S6）。
     ///
     /// 按 `SessionId` 而不是标签下标记：重排 / 分屏会让下标漂，而「这条会话的
     /// 登录脚本跑过了」是个**一次性**事实，认错对象就会跑两遍（登录脚本常常
@@ -497,7 +503,7 @@ pub struct TerminalWindow {
     /// 与 `address::save_recent_prefs` 同一套）。不每帧读盘：面板每帧都要拿它
     /// 拼下拉，一次 `read_to_string` + 反序列化放在帧里就是白烧 CPU。
     script_recent: Vec<String>,
-    /// 录制器（ADR-0027）。`None` = 没在录。
+    /// 录制器（ADR-0027 §S6）。`None` = 没在录。
     ///
     /// 包了一层 `Arc<Mutex<…>>` 而不是裸 `Option`：键盘漏斗在 `pane.rs` 里，
     /// 那里已经借走了 `tab`（`&mut self.tabs[i]`），再调 `&mut self` 的方法会
@@ -539,25 +545,25 @@ pub struct TerminalWindow {
     /// 与 `confirm` 同类：**一次待执行的副作用**，不进 `ViewState`——那里装的是
     /// 领域语义，装不下一段剪贴板文本与一个标签下标（reducer 不该认识剪贴板）。
     pending_paste: Option<dialogs::confirm_paste::PendingPaste>,
-    /// 2026-11-09：传输的两块投影态——在跑的句柄与路径输入弹层（各自 `None`
+    /// ：传输的两块投影态——在跑的句柄与路径输入弹层（各自 `None`
     /// 即「没有」）。**句柄绝不能每帧重建**：`XferHandle` 的 `Drop` 会取消传输。
     /// 两者与 `connector` / `script` 同类——持有线程句柄的投影态，不进 `ViewState`。
     xfer: Option<terminal::xfer::XferJob>,
     xfer_prompt: Option<dialogs::xfer::XferPrompt>,
     /// 视觉基线夹具：设置后第一帧生效，用完即清空。
     demo: Option<crate::demo::DemoSpec>,
-    /// hover 预览夹具冻定的轨道归一化位置（绝对 y）。仅 `--demo preview`
+    /// P4 §7.3：hover 预览夹具冻定的轨道归一化位置（绝对 y）。仅 `--demo preview`
     /// 时被 set，生产路径恒 `None`。与 `demo` 同生命周期——第一帧生效、跨帧持续，
-    /// 让预览框在每一帧都点亮（否则 `demo.take()` 之后只剩首帧有框，基线截图截到
+    /// 让预览框在每一帧都点亮（否则 `demo.take ` 之后只剩首帧有框，基线截图截到
     /// 的是末帧，框就消失了）。框内容（`preview_screen`）已挂在 `Tab` 上持久，
     /// 这里只持久「框位」。
     demo_preview_hover_y: Option<f32>,
-    /// 组件夹具：设置后整窗只画这一个组件，画布是纯色。
+    /// 组件夹具 ：设置后整窗只画这一个组件，画布是纯色。
     /// 与 `demo` 分开是因为两者回答的不是同一个问题：`demo` 问「整窗长什么样」，
     /// 这个问「这个组件长什么样」。混在一个字段里，组件出图就得先把终端铺好
     /// ——那正是「组件离不开整窗」的老毛病。
     comp_demo: Option<comp::CompId>,
-    /// 停靠位与浮动位。与 `layout`（分屏树）同类——**投影层的视图结构**，
+    /// P4：停靠位与浮动位。与 `layout`（分屏树）同类——**投影层的视图结构**，
     /// 不进 `ViewState`：它要处理矩形与指针，放进去就等于让 reducer 认识 `egui`。
     dock: DockLayout,
     /// 脚本侧应用控制面的请求队列（`script_app::AppQueue`）。
@@ -569,11 +575,11 @@ pub struct TerminalWindow {
     app_rev: u64,
     /// 偏好版本：偏好写入成功后 +1，与 `app_rev` 互相独立。
     prefs_rev: u64,
-    /// 正在拖的面板与按下点。松手时要靠这两样区分「点了一下」与「拖了一下」。
+    /// P4：正在拖的面板与按下点。松手时要靠这两样区分「点了一下」与「拖了一下」。
     dock_drag: Option<(PanelId, egui::Pos2)>,
     /// 三条带各自当前选中的标签（`None` = 用第一颗）。按 `DockZone::ALL` 的下标索引。
     ///
-    /// 从 `bottom_tab` 扩成整组：浮动带窗内也要用横向 tab 切成员，选择态
+    /// K3-b 从 `bottom_tab` 扩成整组：浮动带窗内也要用横向 tab 切成员，选择态
     /// 必须是「每带一份」，否则底带和浮起来的右带会抢同一个光标变量。
     /// 与 `dock` 同层：标签的选中态是**视图结构**，不是领域语义——`ViewState`
     /// 里没有「底带选中的是 Sender 还是 Shell」这种东西，重开窗口就该回到第一颗。
@@ -595,22 +601,22 @@ pub struct TerminalWindow {
     ///
     /// 左右带在自己的闭包里就地落地（画完这条带之后），但 Sidebar 走的是
     /// `draw_panel_body` 这条不认带的自绘通道，拿不到那条带的缓冲，只好挂到
-    /// 这里，由 `flush_pending_dock_cmds()` 在三条带都画完之后统一落地。
+    /// 这里，由 `flush_pending_dock_cmds ` 在三条带都画完之后统一落地。
     pending_dock_cmds: Vec<(crate::ui::layout::dock_bottom::Cmd, term_app::dock::DockZone)>,
     /// 底带高度。`egui` 的 `TopBottomPanel` 也记一份，这里是折起再展开时的回位值。
     bottom_height: f32,
     /// Sender 面板的控件状态（文本缓冲 / 编码 / 次数 / 间隔 / 目标 / 定时器）。
     ///
     /// 与 `find_input` 同一类：**控件状态**，不是领域语义。发送本身走的是
-    /// `SupervisorHandle::write`，没有第二条写 PTY 的路。
+    /// `SupervisorHandle::write`，没有第二条写 PTY 的路（这条判据在  上）。
     sender: panels::SenderPanel,
-    /// 工具栏面板被拖走后的左上角（`None` = 停靠在工具行里）。
+    /// P9-f：工具栏面板被拖走后的左上角（`None` = 停靠在工具行里）。
     ///
     /// 与 `dock_drag` 同一层：这是**投影态**（处理矩形与指针），不进 `ViewState`
     /// ——`ViewState` 只装领域语义，装不下一个浮点坐标。它与 `find_input` 同理，
     /// 只在本进程里活着，不落盘。
     toolbar_pos: Option<egui::Pos2>,
-    /// 本帧各停靠面板的**实际矩形**（落点要看面板真正画在哪，不能估算）。
+    /// P4：本帧各停靠面板的**实际矩形**（落点要看面板真正画在哪，不能估算）。
     ///
     /// 每帧重建：面板宽度可拖、带内位次可换，上一帧的矩形这一帧就可能是错的。
     dock_rects: Vec<(PanelId, DockZone, egui::Rect)>,
@@ -623,11 +629,11 @@ pub struct TerminalWindow {
     /// 官方行为（`restore-sessions/index.md:27`）：会话恢复成断开态，
     /// **视图被激活时才连**。这里只登记 id，不登记槽位——重连是
     /// `PendingOpen::Replace`，槽位不变但 tab 会被整个换掉，而 id 会保留。
-    /// ADR-0025：窗口打开标签的**恒在身份顺序**（与 `tabs` 等长、同序）。
+    /// ADR-0025 阶段 0：窗口打开标签的**恒在身份顺序**（与 `tabs` 等长、同序）。
     /// 身份键是 `Tab.identity`（`SessionId`），不随存活态 / 下标漂移；本阶段只在
-    /// `construct::new()` 与 `restore_layout` 处初始化，后续标签增删 / 重排再同步。
+    /// `construct::new ` 与 `restore_layout` 处初始化，后续标签增删 / 重排再同步。
     open_order: Vec<SessionId>,
-    /// ADR-0025：当前活动标签的恒在身份（`None` = 无标签）。
+    /// ADR-0025 阶段 0：当前活动标签的恒在身份（`None` = 无标签）。
     /// 取代「`active_tab` 下标即身份」的隐含假设；重排 / 关闭后活动身份不变。
     active: Option<SessionId>,
     /// 等待（重）连接的标签恒在身份：`restore_layout` 对内置 SSH 建出
@@ -651,21 +657,21 @@ pub struct TerminalWindow {
     /// （`recent`）与一条待显示的报错文案——`ViewState` 只装领域语义，装不下
     /// 矩形与文案（同 `find_input` / `palette_input` 的分界）。
     address: address::AddressBar,
-    /// 首次启动引导的状态（页号 / 探测到的主机 / 勾选位 / 提示语）。
+    /// D6：首次启动引导的状态（页号 / 探测到的主机 / 勾选位 / 提示语）。
     ///
     /// 同样不进 `ViewState`：它带着一串 `DetectedHost`（会话名 + 目标 + 来源
     /// 路径），`ViewState` 只装领域语义与开关（与 `address` / `find_input` 的
     /// 分界一致）。**可见性**那一个 bool 仍在 `ViewState::show_onboarding`——
     /// 两个字段恒定同步，改写点只有 `open_onboarding` / `finish_onboarding` 两处。
     onboarding: term_app::onboarding::OnboardingState,
-    /// 预览窗（Filer 双击 / 右键「预览」打开的文件）。
+    /// D6：预览窗（Filer 双击 / 右键「预览」打开的文件）。
     ///
     /// 不进 `ViewState`：它带着一张 `TextureHandle`（显存句柄）与一段已解码的
     /// 正文——`ViewState` 只装领域语义与开关，装不下显存。**可见性**那一个 bool
     /// 在 `ViewState::show_preview`，两边只在 `open_preview_*` / `close_preview`
     /// 三处一起改（与 `onboarding` 同一条边界）。
     preview: overlays::PreviewState,
-    /// 脚本编辑器。`None` = 没开过；`Some` 里带着可编辑缓冲与运行句柄。
+    /// D8-3：脚本编辑器。`None` = 没开过；`Some` 里带着可编辑缓冲与运行句柄。
     /// 与 `script`（只读路径的运行窗口）分开：那个按路径跑一次，这个能改能存。
     script_editor: Option<overlays::ScriptEditorState>,
 }
@@ -684,15 +690,15 @@ struct AppliedWindow {
     alpha_permille: Option<u32>,
 }
 
-// Tab 只是数据（字段多、没有绘制逻辑），搬到 `tab.rs` 让本文件留在 500 行内。
+// Tab 只是数据（字段多、没有绘制逻辑），搬到 `tab.rs` 让本文件留在 4o 的 500 行内。
 pub use tab::Tab;
 
 // --- Menu tree ---
-// 菜单树本身是纯数据，已迁到 `app/menu.rs`。本文件只剩绘制：
+// 菜单树本身是纯数据，已迁到 `app/menu.rs`（R3 / ）。本文件只剩绘制：
 // 点击把命令 ID 交给 `dispatch`，未接线的项由 `capability` 判定并置灰。
 
 impl TerminalWindow {
-    /// ADR-0025：往主区 `tabs` 追加一条标签，同步 `open_order`，返回其下标。
+    /// ADR-0025 阶段 1：往主区 `tabs` 追加一条标签，同步 `open_order`，返回其下标。
     /// 所有「打开新标签」的入口收口到这里，避免散落各文件各自写一遍登记。
     pub(in crate::ui) fn add_tab(&mut self, tab: Tab) -> usize {
         let idx = self.tabs.len();
@@ -701,17 +707,17 @@ impl TerminalWindow {
         idx
     }
 
-    /// ADR-0025：在 `tabs` 增删之后，从 `tabs` 重算 `open_order`（与 `tabs`
+    /// ADR-0025 阶段 1：在 `tabs` 增删之后，从 `tabs` 重算 `open_order`（与 `tabs`
     /// 等长、同序），让窗口恒在身份顺序始终反映真实标签集合。集中在这一处，
-    /// 漏一次增量维护就错位。`active` 的同步属后续阶段，本阶段不动。
+    /// 漏一次增量维护就错位。`active` 的同步属阶段 2，本阶段不动。
     fn sync_open_order(&mut self) {
         self.open_order = self.tabs.iter().map(|t| t.identity).collect();
     }
 
-    /// ADR-0025：当前活动标签的**槽位下标**，由 `active`（身份）反查。
-    /// 返回值供尚未身份化的消费者（分屏树 / 面板 / 绘制）沿用，直到把布局
+    /// ADR-0025 阶段 2：当前活动标签的**槽位下标**，由 `active`（身份）反查。
+    /// 返回值供尚未身份化的消费者（分屏树 / 面板 / 绘制）沿用，直到阶段 3 把布局
     /// 也改成按身份寻址。身份不存在时退化成 0，与旧 `active_tab` 出厂值一致；
-    /// 真正越界由 `.get()` 收口，不再有「下标指空」的隐患。
+    /// 真正越界由 `.get ` 收口，不再有「下标指空」的隐患。
     pub(in crate::ui) fn active_slot(&self) -> usize {
         match self.active {
             Some(id) => self.tabs.iter().position(|t| t.identity == id).unwrap_or(0),
@@ -719,17 +725,17 @@ impl TerminalWindow {
         }
     }
 
-    /// ADR-0025：`active`（身份）的写入收口——把槽位下标翻译成身份登记。
+    /// ADR-0025 阶段 2：`active`（身份）的写入收口——把槽位下标翻译成身份登记。
     /// 下标越界 / 空窗口时登记 `None`，等价「没有活动标签」，比旧 `active_tab`
     /// 存一个 stale 下标更安全。
     pub(in crate::ui) fn set_active_slot(&mut self, idx: usize) {
         self.active = self.tabs.get(idx).map(|t| t.identity);
-        // 单窗格时，那唯一一片窗格的 group 也要跟着 active 走，
+        // ④-0：单窗格时，那唯一一片窗格的 group 也要跟着 active 走，
         // 这样 split 时 `pane_of_session(self.active)` 才找得到锚点。
         self.sync_single_pane_to_active();
     }
 
-    /// 单窗格时把那唯一一片窗格的 group 指到当前 `active` 会话。
+    /// ④-0：单窗格时把那唯一一片窗格的 group 指到当前 `active` 会话。
     ///
     /// 分屏态不碰 group——每个窗格各显各的会话，切全局 active 不改叶子内容
     /// （与旧行为一致：`draw_node` 按 `pane_groups[pane].active` 渲染，而切全局
@@ -755,7 +761,17 @@ impl TerminalWindow {
     /// 主窗口在它们开着时仍可点（工作台里就摆着「切标签 / 关标签」的按钮）。
     fn modal_dialog_open(&self) -> bool {
         let v = &self.view;
-        v.show_new_session
+        // 新建会话默认在**系统独立窗口**里画（用户两次确认）：它自带
+        // 窗管外框，主体不需要被压暗——遮罩是「应用内弹层」的语义。只有在
+        // 应用内回退路径上（截图夹具 / 后端没有多视口）它才退化成普通模态弹窗，
+        // 那时照旧加罩，否则弹窗和终端糊成一片。
+        //
+        // 会话属性 / 默认模板始终是应用内弹层，一律加罩。
+        let new_session_in_app = match self.session_dialog {
+            dialogs::SessionDialogKind::New { .. } => harness::fixture_mode(),
+            _ => true,
+        } && v.show_new_session;
+        new_session_in_app
             || v.show_settings
             || v.show_about
             || v.show_log_settings
@@ -771,18 +787,18 @@ impl TerminalWindow {
             || self.xfer_prompt.is_some()
             || self.script.is_some()
             || self.script_ask.is_some()
-            // 判 `open` 而不是只判 `is_some()`：万一将来又有哪条路径留下
+            // 判 `open` 而不是只判 `is_some `：万一将来又有哪条路径留下
             // 「关着但还在」的状态，灰罩也不该因此永久盖住窗口。
             || self.script_editor.as_ref().is_some_and(|s| s.open)
             || self.filer.has_modal()
     }
 
     pub fn draw(&mut self, ctx: &egui::Context) {
-        // 提示条**第一个画**。`main.rs` 用 `catch_unwind` 包着整个 `draw`，
+        // L1/L3：提示条**第一个画**。`main.rs` 用 `catch_unwind` 包着整个 `draw`，
         // panic 之后本帧剩下的一半不会执行——画在最后就等于「崩了永远看不到为什么」。
         // 它是前景浮层，先画也压在上面。
         self.draw_notice(ctx);
-        // 故障注入（`WINDTERM_PANIC_FRAME=<n>`，只在 debug 构建里）：这里
+        // L1 的故障注入（`WINDTERM_PANIC_FRAME=<n>`，只在 debug 构建里）：这里
         // 是「提示条已画出、后面半帧还没画」的位置，panic 的形状与真实崩溃一致。
         harness::maybe_panic_on_frame();
         // 组件夹具——整窗只画一个组件，其余一律不画。放在最前面，
@@ -805,7 +821,7 @@ impl TerminalWindow {
         // Enter 归它，其余键与文字一律吃掉）。
         self.paste_pre_update(ctx);
         self.handle_global_shortcuts(ctx);
-        // 锁屏时只画遮罩，其余面板一律不画——否则「锁」只是装饰。
+        // V1-3：锁屏时只画遮罩，其余面板一律不画——否则「锁」只是装饰。
         if self.view.lock.locked {
             self.draw_lock(ctx);
             return;
@@ -838,8 +854,8 @@ impl TerminalWindow {
         self.poll_connector();
         self.poll_tunnels();
         self.poll_filer();
-        // 2026-11-09：传输线程不会通知 egui，跑着的时候靠这里按 120ms 要重绘
-        // （结束后就不再要，交回空闲 0 CPU 的约定）。
+        // ：传输线程不会通知 egui，跑着的时候靠这里按 120ms 要重绘
+        // （结束后就不再要，交回  的空闲 0 CPU 约定）。
         self.request_xfer_repaint(ctx);
 
         let mut changed = false;
@@ -879,7 +895,7 @@ impl TerminalWindow {
         // 每个面板都受自己的开关控制。专注模式压掉除菜单栏以外的一切——
         // **菜单栏必须留着**，否则用户点进专注模式后没有退出的路。
         let focus = self.view.focus_mode;
-        // 落点边带按「整窗可用区」算，必须在任何面板切分之前取。
+        // P4：落点边带按「整窗可用区」算，必须在任何面板切分之前取。
         let bounds = ctx.available_rect();
         self.dock_rects.clear();
 
@@ -892,8 +908,8 @@ impl TerminalWindow {
                 });
         }
 
-        // 两条底部横栏相邻、整窗宽。先声明的贴窗口最底边，所以状态栏
-        // 在前、快捷命令栏在它上方（视觉基线）。
+        // P9：两条底部横栏相邻、整窗宽。先声明的贴窗口最底边，所以状态栏
+        // 在前、快捷命令栏在它上方（视觉基线 G7/G8）。
         if self.view.show_status_bar && !focus {
             // 查找命中时整条状态栏换蓝底（视觉基线的联动），底色必须在这一层换。
             let accent = self.find_hit().is_some();
@@ -926,7 +942,7 @@ impl TerminalWindow {
             }
         }
 
-        // 2026-11-17：Find 栏是**全局栏**，不是终端区的一部分。
+        // ：Find 栏是**全局栏**，不是终端区的一部分。
         //
         // 原先它声明在 `CentralPanel` 之后——那时中央区已经把剩余空间吃光了，
         // 后建的 panel 分不到高度，结果是「夹具里 find 打开着，屏幕上却没有这条栏」。
@@ -944,7 +960,7 @@ impl TerminalWindow {
 
             // 先收集栏内动作，面板画完再统一 reduce，避免借用冲突。
             let mut find_actions: Vec<Action> = Vec::new();
-            // 状态只读、缓冲可变——两者是不同字段，借用互不干扰。
+            // R4：状态只读、缓冲可变——两者是不同字段，借用互不干扰。
             let find_state = &self.view.find;
             let input = &mut self.find_input;
             egui::TopBottomPanel::bottom("find_bar")
@@ -979,9 +995,9 @@ impl TerminalWindow {
             self.draw_dock_zone(ctx, DockZone::Bottom);
         }
 
-        // **发射点固定，成员与位次是数据**。两条竖带都必须在标签条之前
+        // P4：**发射点固定，成员与位次是数据**。两条竖带都必须在标签条之前
         // 声明，竖带才是整高的、标签条只横跨终端区（视觉基线里会话树与右侧
-        // Session 的标题都和标签条同一行）。2026-11-08 修正：右带原先排在
+        // Session 的标题都和标签条同一行）。修正：右带原先排在
         // 标签条之后，于是它矮了 56 点、标签条一路铺到右带上方，`A ＋ ≡`
         // 三颗也就永远对不上视觉基线里的位置。
         if !focus {
@@ -989,10 +1005,10 @@ impl TerminalWindow {
             self.draw_dock_zone(ctx, DockZone::Right);
         }
 
-        // 标签条与窗格工具行是两条独立顶栏（两种图示的结构）。
+        // T3 / P5：标签条与窗格工具行是两条独立顶栏（picture-1/2 的结构）。
         // 图标是窗格 chrome，总在；`show_quick_bar` 只管底部那条快捷命令栏。
         //
-        // 这三条**全窗**顶/底栏只在单窗格时画。分屏时每片 pane 自己画
+        // ④-1：这三条**全窗**顶/底栏只在单窗格时画。分屏时每片 pane 自己画
         // 一套（标签条 / 地址栏 / Sysmon，见 `layout/pane_chrome.rs`），否则
         // 会出现「全窗一条 + 每格一条」的重复 chrome。单窗格路径一个像素不动，
         // 12 张整窗视觉基线因此不受影响。
@@ -1027,7 +1043,7 @@ impl TerminalWindow {
 
         // 视觉基线终端区下沿的 Sysmon 细带：底带已在左右带之前声明（见上），
         // 查找栏在 CentralPanel 之后声明，是覆盖而非切分。
-        // 分屏时 Sysmon 由每片 pane 自己画（见 `pane_chrome`），这条全窗
+        // ④-1：分屏时 Sysmon 由每片 pane 自己画（见 `pane_chrome`），这条全窗
         // 底带只在单窗格时声明。
         if !focus && self.layout.is_single() {
             egui::TopBottomPanel::bottom("sysmon_bar")
@@ -1037,14 +1053,14 @@ impl TerminalWindow {
                 .show(ctx, |ui| self.draw_sysmon_bar(ui, None));
         }
 
-        // 拖拽中的落点提示（只在按住时画）+ 松手判定。两件都必须在三条带
+        // P4：拖拽中的落点提示（只在按住时画）+ 松手判定。两件都必须在三条带
         // 都画完之后做——它们要用本帧各面板的真实矩形。
         self.paint_drop_hint(ctx, bounds);
         self.flush_pending_dock_cmds();
         self.finish_dock_drag(ctx, bounds);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // 只有真的分了屏才进递归切分；单窗格保持原路径。
+            // R14-d：只有真的分了屏才进递归切分；单窗格保持原路径。
             if self.layout.is_single() {
                 self.draw_terminal_area(ui);
             } else {
@@ -1059,12 +1075,12 @@ impl TerminalWindow {
             self.draw_bottom_dock_overlay(ctx, bottom_overlay_rect);
         }
 
-        // 2026-11-09：传输进度行。与 `find_bar` 同一条位置逻辑——声明在
+        // ：传输进度行。与 `find_bar` 同一条位置逻辑——声明在
         // `CentralPanel` **之后**，覆盖终端底部一行而非切走它。**没有句柄时
         // 整段不执行**（连 panel 都不创建），空闲布局零变化。
         self.draw_xfer_status(ctx);
 
-        // 浮动面板画在中央区之后、对话框之前——它们盖在终端上，但不能
+        // P4：浮动面板画在中央区之后、对话框之前——它们盖在终端上，但不能
         // 盖住对话框（对话框是模态的，浮在它上面就没法操作了）。
         if !focus {
             self.draw_floating_panels(ctx);
@@ -1083,7 +1099,7 @@ impl TerminalWindow {
         if self.view.show_settings {
             self.draw_settings_dialog(ctx);
         }
-        // 2026-11-15：`Terminal.ManageTriggers` / `ManageOneKeys` 的落点是
+        // ：`Terminal.ManageTriggers` / `ManageOneKeys` 的落点是
         // **独立对话框**（兼容终端形态），不再借 Preferences 翻页。
         if self.view.show_triggers {
             self.draw_triggers_dialog(ctx);
@@ -1094,18 +1110,18 @@ impl TerminalWindow {
         if self.view.show_about {
             self.draw_about_dialog(ctx);
         }
-        // 2026-11-17：Tunnels 设置（`Terminal.TunnelSettings` / 菜单栏 Tunnels 下拉）。
+        // ：Tunnels 设置（`Terminal.TunnelSettings` / 菜单栏 Tunnels 下拉）。
         if self.tunnel_editor.is_some() {
             let names: Vec<String> = self.tabs.iter().map(|t| t.config.name.clone()).collect();
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("tunnel_session_names"), names));
             let _ = crate::ui::dialogs::tunnel_settings::draw(self, ctx);
         }
-        // 首次启动引导（Welcome → 探测到的 SSH 主机）。默认关闭时一行都不画，
+        // D6：首次启动引导（Welcome → 探测到的 SSH 主机）。默认关闭时一行都不画，
         // 所以五张视觉基线不受影响；打开与否的判定在 `construct.rs::init`。
         if self.view.show_onboarding {
             self.draw_onboarding(ctx);
         }
-        // 预览窗（Filer 双击 / 右键「预览」）。默认关闭时一行都不画，
+        // D6：预览窗（Filer 双击 / 右键「预览」）。默认关闭时一行都不画，
         // 所以七张视觉基线与组件图不受影响。放在对话框这一段，是因为它与
         // 其余窗口同级：浮在终端之上，但被模态（关闭确认 / 粘贴确认）压住。
         if self.view.show_preview {
@@ -1115,14 +1131,14 @@ impl TerminalWindow {
             self.draw_log_settings_dialog(ctx);
         }
         self.draw_ssh_dialogs(ctx);
-        // 2026-11-08：文件面板的写操作弹层（新建 / 改名 / 删除 / 权限）。
+        // ：文件面板的写操作弹层（新建 / 改名 / 删除 / 权限）。
         // 默认 `None` 时一行都不画。
         self.draw_filer_prompt(ctx);
-        // 目录同步的三个窗（扫描中 / 审阅 / 执行）。同样默认不画。
+        // XFER-06：目录同步的三个窗（扫描中 / 审阅 / 执行）。同样默认不画。
         // 放在写操作弹层之后：两者不会同时立起来（同步期间菜单的写操作是灰的）。
         self.draw_sync_prompt(ctx);
         // 「运行脚本」窗口。同样默认关闭。
-        // 先收脚本新开的会话（ADR-0025）：它不看窗口开没开，只看向队列里
+        // 先收脚本新开的会话（ADR-0025 阶段 5）：它不看窗口开没开，只看向队列里
         // 有没有东西——脚本线程可能在窗口关掉之后接着开会话。
         self.absorb_script_opened();
         // 脚本能看见的界面事实：选区与活动会话每帧抄一次（派生值，不是状态）。
@@ -1131,7 +1147,7 @@ impl TerminalWindow {
         self.drain_app_requests();
         // 脚本的 `session_activate`：把那条会话的标签切到前台。
         self.drain_script_activated();
-        // 登录脚本：标签带着活会话出现之后跑一次。放在 `poll_script` 之前，
+        // 登录脚本：标签带着活会话出现之后跑一次（§S6）。放在 `poll_script` 之前，
         // 这样登录脚本的第一条提示能在同一帧进状态栏。
         self.fire_logon_scripts();
         // 录制器：每帧看一眼屏幕是否安静（录制中才做事）。
@@ -1143,17 +1159,17 @@ impl TerminalWindow {
         self.draw_script_dialog(ctx);
         // 「脚本」停靠面板：每帧收一次运行结果（无论面板可见与否）。
         self.poll_script_panel();
-        // 脚本编辑器（从「运行脚本」窗口的 Edit 进入）。默认没有状态，
+        // D8-3：脚本编辑器（从「运行脚本」窗口的 Edit 进入）。默认没有状态，
         // 一行都不画。
         self.draw_script_editor(ctx);
-        // 2026-11-09：传输的路径输入弹层（发要文件、收要目录）。默认关闭。
+        // ：传输的路径输入弹层（发要文件、收要目录）。默认关闭。
         self.draw_xfer_prompt(ctx);
-        // 2026-11-08：关闭确认弹窗（关闭软件 / 关闭会话）与其他对话框同级。
+        // ：关闭确认弹窗（关闭软件 / 关闭会话）与其他对话框同级。
         self.draw_confirm_close_dialog(ctx);
-        // 2026-11-10：粘贴确认弹窗（`Terminal ▸ Show paste dialog on ...`）。
+        // ：粘贴确认弹窗（`Terminal ▸ Show paste dialog on ...`）。
         // 与关闭确认同级：默认没有待确认的粘贴时一行都不画。
         self.draw_paste_dialog(ctx);
-        // 三个浮层都放在最后画；默认关闭时一行都不画。
+        // R14-c / R14-d / R14-f：三个浮层都放在最后画；默认关闭时一行都不画。
         self.draw_command_palette(ctx);
         self.draw_goto(ctx);
         self.draw_center(ctx);
@@ -1177,7 +1193,7 @@ impl TerminalWindow {
             self.dispatch_action(Action::SaveLayout);
         }
 
-        // 本帧松手结束拖拽但没落在任何窗格（`drag_released_this_frame` 为真、
+        // A3：本帧松手结束拖拽但没落在任何窗格（`drag_released_this_frame` 为真、
         // `drop_drag_on_pane` 没把它清掉）→ 拖拽态作废，免得卡死在下帧。命中落点的
         // 情况 `drop_drag_on_pane` 已经把 `drag_session` 置 `None` 且本旗复位，这里不动。
         if self.drag_released_this_frame {

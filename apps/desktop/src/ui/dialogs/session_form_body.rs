@@ -1,13 +1,14 @@
 //! New Session 右侧**表单本体**：按 `selected_page` 分派到各内容页。
 //!
-//! verify 要求单文件代码行（非空非注释）≤ 500——**不是 450**，那个
-//! 旧阈值早在 2026-11-09 就并成一档了（见 `scripts/verify.sh` 里的注释）。
-//! 本文件现在 467 行。窗口外框 / 协议条 /
+//!  / verify 4j 要求单文件代码行（非空非注释）≤ 500——**不是 450**，那个
+//! 旧阈值早在 就并成一档了（见 `scripts/verify.sh` 里 4j 的注释）。
+//! 本文件现在 460 行。窗口外框 / 协议条 /
 //! 导航树在 `new_session.rs`，纯静态与半静态页在 `session_pages.rs`，
-//! SSH 算法页在 `session_ssh_pages.rs`；本文件只放**要写真实字段**的
+//! SSH 算法页在 `session_ssh_pages.rs`，`OneKey:` 那一行在
+//! `session_onekey_row.rs`；本文件只放**要写真实字段**的
 //! 四页（Session / Connection / Authentication / Tunnels）。
 //!
-//! 之前这四页里的 Authentication 与 Tunnels 控件是硬塞在 Connection
+//! 此前这四页里的 Authentication 与 Tunnels 控件是硬塞在 Connection
 //! 页底部的两段「extras」——视觉基线 `session-property.png` 里它们各自是
 //! `SSH ▾` 下的独立二级项。现在一棵树一个叶子、一个下标一页，点进去
 //! 不会再几项内容雷同，也没有任何已接线字段被删。
@@ -40,20 +41,21 @@ pub(in crate::ui) const FORM_W: f32 = 400.0;
 /// 的注释；它们还等着按那个语法重排，在那之前先保证不压到左栏树上。
 pub(in crate::ui) const LABEL_W: f32 = 93.0;
 
-/// 行高与行距。视觉基线量得：**画出来的框高 23**（两条 1pt 边框外沿相距 23）、
-/// 相邻框顶相距 29.375（8 行共 235pt）。egui 把 1pt 描边画在 rect 边界上、
-/// 各外扩半像素，所以 rect 要给 22 才画出 23；缺口补 7.4 凑成 29.4 的行距
-/// （29.4 与实测 29.375 相差 0.2pt，8 行累计 1.6pt，落在原图自身 ±1px 的
-/// 取整噪声内）。
-pub(in crate::ui) const ROW_H: f32 = 22.0;
-pub(in crate::ui) const ROW_GAP: f32 = 7.4;
+/// 行高与行距：**不再自己定**，两个都取 `kit::form` 那一份。
+///
+/// 视觉基线量得这个对话框的框高 23（1pt 描边外沿相距）、行距 29.4；设置页那一族
+/// 是同一档高度。两族原先各写一个数（这里 22 + 7.4、那边 21.5 + 13），于是同一天
+/// 里同一个产品有两种表单节拍。只有一个出处。
+pub(in crate::ui) const ROW_H: f32 = crate::ui::kit::form::FIELD_H;
+pub(in crate::ui) const ROW_GAP: f32 = crate::ui::kit::form::FIELD_TO_ROW;
 
-/// Grid 的标签列：右对齐到同一条竖线上（视觉基线的 `Host:` / `Port:` 就是右对齐）。
-/// 用 `with_layout` 包一层而不是直接 `ui.label`——后者会左对齐，网格列宽再准也散。
+/// Grid 的标签列：右对齐到同一条竖线上（视觉基线  的 `Host:` / `Port:` 就是右对齐）。
+///
+/// 画法取 `kit::form::label_right`——设置页正文页用左对齐的 `field_label`，
+/// `Appearance` 页与本对话框用右对齐的 `label_right`，两种对齐**共用同一份
+/// 格子实现**（宽度、行高、截断规则同源）。
 pub(in crate::ui) fn form_row(ui: &mut egui::Ui, label: &str) {
-    // 固定 LABEL_W 标签列并右对齐：只靠 with_layout 不指定宽度时 Grid 列宽
-    // 由最长标签决定，短标签会落回左边、整列对不齐。
-    form_row_colored(ui, label, crate::theme::chrome(term_core::theme::CHROME_SCALE.text));
+    crate::ui::kit::form::label_right(ui, label, LABEL_W);
 }
 
 /// 同一列但允许改色：视觉基线 Session 页只有 `OneKey:` 是橙色警示色。
@@ -103,7 +105,7 @@ fn fit_label(ui: &egui::Ui, label: &str) -> String {
 }
 
 /// 视觉基线里 `OneKey:` 是唯一橙色标签（提示它是宏/需留意），其余标签都是正文灰。
-fn form_row_accent(ui: &mut egui::Ui, label: &str) {
+pub(in crate::ui) fn form_row_accent(ui: &mut egui::Ui, label: &str) {
     form_row_colored(ui, label, egui::Color32::from_rgb(0xF5, 0x8C, 0x2E));
 }
 
@@ -118,8 +120,11 @@ fn form_row_accent(ui: &mut egui::Ui, label: &str) {
 /// 11pt、`item_spacing.y` 再给 2.5，剩下的 5 由这里补——少补 3pt 时实测
 /// 两个数值框整体比原图高 3~5pt。
 pub(in crate::ui) fn heading(ui: &mut egui::Ui, text: &str) {
-    ui.label(text);
-    ui.add_space(5.0);
+    // 与设置页同一个标签画法（首字符带访问下划线）与同一个间隙。
+    crate::ui::kit::form::underlined_label(ui, text);
+    // 与 `field_row` 同一条理由：egui 在标签分配的那一刻就按当时的
+    // `item_spacing` 推进了光标，这里只补差额。
+    ui.add_space(crate::ui::kit::form::LABEL_TO_FIELD - crate::ui::kit::form::FIELD_TO_ROW);
 }
 
 /// 整行 SpinBox：视觉基线 Connection 页那两个 `off` / `20 seconds` 是**占满
@@ -230,11 +235,6 @@ const CHARSETS: &[&str] = &[
     "UTF-8", "GBK", "GB2312", "ISO-8859-1", "ISO-8859-15", "KOI8-R", "EUC-KR", "EUC-JP",
     "Shift_JIS", "Big5",
 ];
-/// 下拉候选：OneKey 宏名。
-const ONEKEYS: &[&str] = &[
-    "None", "Ctrl+A", "Ctrl+E", "Ctrl+K", "Ctrl+U", "Ctrl+W", "Ctrl+Y", "Alt+B", "Alt+F",
-    "Alt+D",
-];
 
 /// `&str` 候选的下拉框：选中值写回 `current`；当前值不在候选里也保留显示。
 fn combo_str(ui: &mut egui::Ui, id: &str, options: &[&str], current: &mut String) {
@@ -279,7 +279,7 @@ fn combo_term(ui: &mut egui::Ui, current: &mut usize) {
 
 /// 认证方式在勾选块里的文案。逐字取自视觉基线
 /// `03-ssh-authentication.png`（`Attempt ssh-agent authentication` 等五条），
-/// 不用 `AuthMethod::to_string()`——那是日志与配置里的短名（`Password`、
+/// 不用 `AuthMethod::to_string `——那是日志与配置里的短名（`Password`、
 /// `GSSAPI with MIC`），放进界面既不是兼容终端措辞也读不出「尝试」的含义。
 fn attempt_label(m: AuthMethod) -> &'static str {
     match m {
@@ -296,17 +296,9 @@ impl TerminalWindow {
     pub(in crate::ui) fn draw_session_form(&mut self, ui: &mut egui::Ui) {
         // 视觉基线所有字段/下拉/开关的高度都是 23（行距 29）。
         ui.spacing_mut().interact_size.y = ROW_H;
-        // 视觉基线里输入框、下拉框、数值框的底**都是** `#1C1C1C`（与弹窗底同色，
-        // 只靠 1pt `#444444` 边框区分）。egui 的 `ComboBox` / `DragValue` 是非编辑
-        // 态的 Button，取 `widgets.inactive.weak_bg_fill` = 按钮色 `#262626`，
-        // 于是同一列里「文本框更暗、下拉框更亮」，比原图多出一档灰。
-        // 只改本表单子树，不动全局（工具栏与菜单的按钮仍是按钮色）。
-        let s = &term_core::theme::CHROME_SCALE;
-        let w = &mut ui.visuals_mut().widgets;
-        w.inactive.weak_bg_fill = crate::theme::chrome(s.field);
-        w.hovered.weak_bg_fill = crate::theme::chrome(s.hover);
-        w.active.weak_bg_fill = crate::theme::chrome(s.field);
-        w.open.weak_bg_fill = crate::theme::chrome(s.field);
+        // 控件表面（下拉框与文本框同底）**不在这里改**：那是每个对话框都要的，
+        // 已经收在 `kit::window::DialogWindow::show` 的 `unify_control_surface`
+        // 一处。这里再写一份，等于同一件事有两个出处——改了一边不会提醒另一边。
         let page = self.new_session.selected_page;
         match page {
             0 => self.session_page(ui),
@@ -395,8 +387,15 @@ impl TerminalWindow {
                             ui.end_row();
                         }
                     }
-                    form_row_accent(ui, "OneKey:");
-                    combo_str(ui, "sess_onekey", ONEKEYS, &mut self.new_session.onekey);
+                    // OneKey 登录方案：候选来自 `prefs.onekeys` 里**真实的方案名**，
+                    // 行内齿轮进 OneKeys 编辑页（兼容终端 `04-new-session/00-ssh-session.png`）。
+                    // 此前这里是一串 `Ctrl+A / Alt+B`（Win 终端的行编辑快捷键），
+                    // 用户在 OneKeys 里建的方案一个都选不到——见 `session_onekey_row`。
+                    let (schemes, current) = (&self.onekeys, &mut self.new_session.onekey);
+                    if super::session_onekey_row::row(ui, schemes, current) {
+                        self.ctx.request_repaint();
+                        self.view.show_onekeys = true;
+                    }
                     ui.end_row();
                     // WindTerm 的「Label」即本实现的显示名（内部仍是 `new_session.name`）。
                     form_row(ui, "Label:");

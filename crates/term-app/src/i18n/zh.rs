@@ -4,11 +4,12 @@
 //! 缺词退回英文这条兜底规则就在这里的 `_ => en` 一行——新词忘了登记不会让
 //! 界面变成空串，只是照原样显示英文（口径见 `i18n.rs` 的模块文档）。
 //!
-//! # 省略号（2026-11-14 订正）
+//! # 省略号
 //!
 //! 本表与菜单树里的文案**一律不带 `...`**。判据不是截图而是
-//! 英中对照，两侧一条省略号都没有。2026-11-08 照英文截图对齐菜单时，把截图上的
-//! `...` 抄进了菜单文案，又顺手抄进了这张表的 key；那一批省略号在 2026-11-14
+//! `reference/windterm-locales/windterm_en_zh.tsv`——1430 条官方
+//! 英中对照，两侧一条省略号都没有。照英文截图对齐菜单时，把截图上的
+//! `...` 抄进了菜单文案，又顺手抄进了这张表的 key；那一批省略号在
 //! 全部去掉，`menu/tree.rs` 与 `ui/shell/*` 的标签一并对齐。以后再看到「视觉基线上
 //! 带省略号」，先查这张 CSV，别照图改。
 
@@ -38,8 +39,8 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Open Recent" => "最近打开",
         "Save" => "保存",
         "Save Selection As" => "另存选区为",
-        // 2026-11-08 视觉基线：菜单文案改短（`Save` → `Save Session`）。
-        // 省略号那一半已于 2026-11-14 作废（见文件头）。
+        // 视觉基线：菜单文案改短（`Save` → `Save Session`）。
+        // 省略号那一半已于 作废（见文件头）。
         // `Open Session` / `Save Selection As` 两条老 key 保留：命令中心
         // （`center.rs`）还在用同一原文取词。
         "Save Session" => "保存会话",
@@ -48,14 +49,14 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Close View" => "关闭视图",
         "Close Window" => "关闭窗口",
         "Log" => "日志",
-        // 2026-11-08 视觉基线：Log 子菜单改成短文案。`Stop` 复用下方既有词条，
+        // 视觉基线：Log 子菜单改成短文案。`Stop` 复用下方既有词条，
         // `Settings` 复用上方 Preferences 子菜单的词条，不重复登记。
         "Start" => "开始",
         "Pause" => "暂停",
         "Resume" => "恢复",
         "Open Log File" => "打开日志文件",
         "Open Log Folder" => "打开日志目录",
-        // ── Session Settings ▸ Logging 配置页（2026-11-08 视觉基线）──
+        // ── Session Settings ▸ Logging 配置页（视觉基线）──
         "Session Settings" => "会话设置",
         "Logging" => "日志",
         "Keyboard" => "键盘",
@@ -111,7 +112,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Find" => "查找",
         "Find Next" => "查找下一个",
         "Find Previous" => "查找上一个",
-        // 2026-11-17：状态栏联动那条 `18 of 30 Found` 的后半截。
+        // ：状态栏联动那条 `18 of 30 Found` 的后半截。
         "Found" => "处匹配",
         "WindTerm Issues" => "问题反馈",
         "Find All" => "全部查找",
@@ -174,7 +175,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Toggle Status Bar" => "显示状态栏",
         "Toggle Quick Bar" => "显示快捷栏",
         "Toggle Sidebar" => "显示侧栏",
-        // ── 2026-11-08 Mode / View 菜单按视觉基线去掉了动词前缀 ──
+        // ── Mode / View 菜单按视觉基线去掉了动词前缀 ──
         // 键是英文原文，改文案等于改键：旧键连同 `Toggle` 一起删掉，
         // 不留两套说法（菜单上现在写的就是 `Hex Edit` / `Word Wrap` …）。
         "Hex Edit" => "十六进制编辑",
@@ -213,7 +214,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Tunnels" => "隧道",
         "Manage Triggers" => "管理触发器",
         "Manage One Keys" => "管理单键命令",
-        // ── 视觉基线 Tool 菜单（2026-11-08 对齐）──
+        // ── 视觉基线 Tool 菜单（对齐）──
         "OneKeys" => "单键命令",
         "Triggers" => "触发器",
         // ── 视觉基线 Selection 菜单平铺项 ──
@@ -343,7 +344,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Cell Size:" => "单元格尺寸：",
         "Terminal Type:" => "终端类型：",
         "Scrollback:" => "回滚行数：",
-        // 2026-11-08 视觉基线：设计页左栏 13 项分类树 + Application 组三字段。
+        // 视觉基线：设计页左栏 13 项分类树 + Application 组三字段。
         // （Search / Text 两词菜单与别的页面已有，不在此重复。）
         "Proxy" => "代理",
         "Security" => "安全",
@@ -359,12 +360,13 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Wrap" => "换行",
         "Theme" => "主题",
         "Window opacity" => "窗口不透明度",
+        "Transparent window" => "窗口透明",
         "* Requires a restart to take affect" => "* 需要重启才能生效",
         // ── 关于 ──
         "About WindTerm" => "关于 WindTerm",
-        "WindTerm" => "WindTerm 重建版",
+        "WindTerm 2.6.1 Rebuilt" => "WindTerm 2.6.1 重建版",
         "A Rust & egui terminal emulator." => {
-            "用 Rust 与 egui 净室对齐的 WindTerm。"
+            "用 Rust 与 egui 净室复刻的 WindTerm。"
         }
         "Supports Local Shell, SSH, Telnet, TCP and Serial via portable-pty." => {
             "经 portable-pty 支持本地 Shell、SSH、Telnet、TCP 与串口。"
@@ -392,7 +394,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Grey" => "灰",
         "White" => "白",
         "Activate this pane" => "激活此窗格",
-        // 2026-11-08：终端右键菜单的脚本入口 + 文件面板右键菜单的四项。
+        // ：终端右键菜单的脚本入口 + 文件面板右键菜单的四项。
         // 对话框**正文**仍然只有英文（与 SSH 那几个窗口一致）；这里翻译的是
         // 菜单项这类「chrome」，它们和菜单栏里的条目是同一类东西。
         "Run Script" => "运行脚本",
@@ -466,7 +468,8 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Remove" => "删除",
         "Property" => "属性",
         "Move" => "移动",
-        // ── 18 个子菜单补齐后的 56 条新文案 ──
+        // ── 18 个子菜单按 P1 补齐后的 56 条新文案 ──
+        // 逐条逐页比对 `windterm-ui-screenshots/01-menu-bar/{session,selection,goto,view}/`。
         // 纯数字标签（2 / 7 / 8 / 10 / 16）没有可翻译内容，
         // 由 `every_visible_label_has_a_translation` 的字母判据豁免（见下方注释）。
         "Reopen Closed View" => "重新打开关闭的视图",
@@ -525,7 +528,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Unfold Inside" => "展开内部",
         "Fold All" => "全部折叠",
         "Unfold All" => "全部展开",
-        // 命令面板的影子入口分组名与 tmux 面板菜单项。
+        // W2-b/c：命令面板的影子入口分组名与 tmux 面板菜单项。
         "Tab" => "标签",
         "Tmux Control Mode" => "tmux 控制模式",
         // hex 视图（`ui/terminal/bin.rs`）。整句那条必须整句进词表：它是一句
@@ -542,7 +545,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Selection and Find are unavailable in Bin mode (Mode ▸ Hex Edit to switch back)" => {
             "二进制模式下不能用选区与查找（菜单 模式 ▸ 十六进制编辑 可切回）"
         }
-        // 快捷命令栏（`ui/shell/quick_command_bar.rs`）：配置弹层、溢出
+        // P9 快捷命令栏（`ui/shell/quick_command_bar.rs`）：配置弹层、溢出
         // 下拉与按钮提示。带 `{cmd}` 的那条整句进表，占位符交给调用方替换。
         "Configure command groups" => "配置快捷命令分组",
         "Show command groups" => "显示快捷命令分组",
@@ -556,13 +559,13 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Edit commands" => "编辑快捷命令",
         "Open the quick command editor" => "打开快捷命令编辑器",
         "Default group is always shown" => "默认组始终显示，不能关闭",
-        // 2026-11-11：视觉基线两份右键菜单里，菜单树没覆盖到的 5 条 chrome 文案。
+        // ：视觉基线两份右键菜单里，菜单树没覆盖到的 5 条 chrome 文案。
         "Copy Command" => "复制命令",
         "Clear Scrollback" => "清除回滚缓冲",
         "Clear All" => "全部清除",
         "Session Triggers" => "会话触发器",
         "More" => "更多",
-        // 2026-11-12：未挂接弹层（Outline ⋮ 菜单 + 地址栏下拉）的 chrome 文案。
+        // ：未挂接弹层（Outline ⋮ 菜单 + 地址栏下拉）的 chrome 文案。
         "Enable Symbol Preview" => "启用符号预览",
         "switch to tab" => "切换到标签页",
         "Opened" => "已打开",
@@ -582,7 +585,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "This address has no host name." => "这个地址没有主机名。",
         "'{raw}' is not a port number (0-65535)." => "“{raw}”不是端口号（0-65535）。",
         "'{raw}' is not a valid user name." => "“{raw}”不是合法的用户名。",
-        // ── 首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
+        // ── D6：首次启动引导（`apps/desktop/src/ui/overlays/onboarding.rs`）──
         // 两页的全部文案。带 `{n}` / `{path}` 的两条整句进表：中文语序拼不出来，
         // 占位符由调用方替换（与 `… {n} items` 同一写法）。
         "Welcome" => "欢迎",
@@ -599,7 +602,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "No SSH hosts found — you can still add sessions from the sidebar later." => {
             "没有找到 SSH 主机 —— 之后仍可以从侧栏新建会话。"
         }
-        // ── 预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
+        // ── D6：预览窗（`apps/desktop/src/ui/overlays/preview.rs` + Filer 右键）──
         // 字符集名 / 图片格式 / `MiB` 单位 / 文件名 / 路径都是数据，不进词表。
         "Preview" => "预览",
         "Open Externally" => "用外部程序打开",
@@ -613,7 +616,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Downloading to a temporary file" => "正在下载到临时文件",
         "Could not download the file" => "无法下载这个文件",
         "Not connected to SFTP" => "未连接 SFTP",
-        // ── 脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
+        // ── D8-3：脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
         // 语法高亮的颜色与 token 名是数据，不进词表；这里是窗口 chrome 与按钮。
         "Script Editor" => "脚本编辑器",
         "Run" => "运行",
@@ -625,7 +628,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Done" => "完成",
         "Failed" => "失败",
         "Go to line {n}" => "跳到第 {n} 行",
-        // ── 「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
+        // ── D8-4：「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
         // 列头 + 两种空态。文件名是**数据**，不进词表。
         "Library" => "脚本库",
         "Recent" => "最近",

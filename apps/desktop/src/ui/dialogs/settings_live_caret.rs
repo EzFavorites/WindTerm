@@ -1,10 +1,10 @@
-//! `Text ▸ Caret` 页（视觉基线 `视觉基线`）。
+//! `Text ▸ Caret` 页（视觉基线 `13-caret.png`）。
 //!
 //! # 为什么单独一个文件
 //!
 //! 把 `Period` / `Width` 从灰显接成真控件之后，这一页要同时管
 //! 下拉、预览方块、两个套框数字框与三项写回，塞在 `settings_live.rs` 里把那个
-//! 文件顶过 500 代码行上限。拆分口径与 `settings_live_font` /
+//! 文件顶过  的 500 代码行上限。拆分口径与 `settings_live_font` /
 //! `settings_live_tabs` 一致：一页一个文件，页里的画法与它的写回放在一起。
 //!
 //! # 三项都是「新会话初值」
@@ -15,7 +15,9 @@
 //! （下一帧起新建时读它）与 `prefs.json`（下次启动的初值），不碰任何活动标签。
 
 use super::settings_live::{recovery_notice, save_prefs};
-use super::settings_pages_view::{field_box, field_label, group_box, label_col};
+use super::settings_pages_view::{
+    field_label, field_row, group_box, label_col, spin_field, Slot,
+};
 use crate::ui::*;
 
 /// `caret` 页的编辑结果。三个字段各自 `Option`：`None` = 这一项没动。
@@ -44,17 +46,20 @@ impl CaretEdit {
     }
 }
 
-/// `Text ▸ Caret`：视觉基线 `视觉基线` 的 `Caret` 分组框。
+/// `Text ▸ Caret`：视觉基线 `13-caret.png` 的 `Caret` 分组框。
 ///
 /// 八种样式就是 `term_core::config::CARET_STYLES`（0-3 不闪、4-7 闪），
 /// 它是 `SessionConfig.caret_style` 的全部取值，所以这里只放一个真下拉。
 ///
-/// 预览方块直接调 `terminal::draw_caret`——形状判定走
-/// `caret_style_to_shape_blink`，与终端里那一格光标同一个函数、同一份映射，
-/// 设置页里不另抄一套形状名。闪烁在静态画面里画不出来（预览画「亮着」那一相），
-/// 靠下拉里的 `Blinking …` 名字与预览上的悬停说明交代。
+/// 形状名就是 `term_core::config::CARET_STYLES`（0-3 不闪、4-7 闪），
+/// 「闪不闪」靠名字里的 `Blinking …` 前缀交代。
 ///
-/// `Period` / `Width` 两行从灰显接成真控件。此前它们是渲染层常数
+/// 这里原先还在下拉右边画了一个光标预览方块（调 `terminal::draw_caret`），
+/// 去掉：它挂在字段框**外面**，把 `Style` 一行的框挤得比
+/// `Period` / `Width` 短一截；而视觉基线 `13-text-caret.png` 的 `Shape` 行
+/// 只有一个 `▾`，没有预览。
+///
+/// ：`Period` / `Width` 两行从灰显接成真控件。此前它们是渲染层常数
 /// （`time*2 % 1` 的 1 Hz 方波、`cell_h*0.14` 的比例宽度），现在分别是
 /// `SessionConfig.caret_period`（秒，「亮多久 = 灭多久」）与 `caret_width`
 /// （像素，`Underline` / `Beam` 用）。
@@ -83,37 +88,29 @@ pub(in crate::ui) fn caret(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 画这一页，返回「哪几项被改了」。拆分出来只为让 [`caret`] 的写回部分读起来
 /// 是一段直线（画 → 判 → 写），不被几十行布局代码隔开。
 fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit {
-    use term_core::config::{caret_style_to_shape_blink, CARET_STYLES};
+    use term_core::config::CARET_STYLES;
 
     let mut edit = CaretEdit::default();
     // 越界（手改 prefs）按 Block 显示，与 `Prefs::caret_style_index` 同一条兜底。
     let shown = current.min(CARET_STYLES.len() - 1);
     recovery_notice(ui);
     ui.add_space(6.0);
-    // 视觉基线 `视觉基线`：内容区第一个字就是组标题 `Caret`。
+    // 视觉基线 `13-text-caret.png`：内容区第一个字就是组标题 `Caret`。
     // 老实现画了灰页标题 `Caret` + 框内标题 `Caret`，同一个词出现两次。
     // 标签列按本页最长的 `Width:` 量。
     let col = label_col(ui, &["Style:", "Period:", "Width:"]);
     group_box(ui, Some("Caret"), |ui| {
-        ui.horizontal(|ui| {
-            field_label(ui, "Style:", col);
-            // 这一行要塞下拉 + 预览方块两件东西。先把预览的宽度**固定**扣掉再给
-            // 下拉定宽（230 是视觉基线的值，装不下就缩）——否则下拉会吃掉全部余量，
-            // 预览被挤出分组框，进而把整页顶宽、裁掉页脚的 `Close`。
-            // 注意 ComboBox 的 `width` 是**下限**：选中文字更长时它会自己长一点，
-            // 所以这里留的是「预览 + 一点余量」，不是精确到像素。
-            let room = ui.available_width();
-            // 名字里带 `combo_` 是有原因的：这一层已经有一个 `width` 形参（光标
-            // 宽度，像素），下拉伸出来的同名局部量会把它遮住——预览方块随后要
-            // 用的正是那个形参，遮住之后预览画的是「下拉有多宽」。
-            //
-            // 不设上限：视觉基线 `视觉基线` 的 `Shape` 下拉一路铺到框右
-            // 内边距，只留出预览方块那 12 点。老实现封顶 230，右侧空出 71 点，
-            // 正是用户说的「留大段空白」。
-            let combo_w = (room - 12.0 - ui.spacing().item_spacing.x).max(80.0);
+        // `Style` 与同页 `Period` / `Width` 是同一个盒子：标签 + 通栏字段框。
+        //
+        // 这里原先在下拉右边另挂了一个 12×18 的光标预览方块，**挂在框外**——
+        // 于是这一行的框比另两行短 12 点，右缘对不齐；方块本身画出来是「下拉右边
+        // 多了一块白」，而视觉基线 `13-text-caret.png` 的 `Shape` 行只有一个 `▾`。
+        // 把预览整个拿掉：三行现在逐个对得上，形状名字（`Block` /
+        // `Blinking Block` …）本来就写在字段里，方块没多告诉用户什么。
+        field_row(ui, "Style:", Slot::Inline, col, "", |ui| {
             egui::ComboBox::from_id_salt("prefs_caret_style")
                 .selected_text(CARET_STYLES[shown])
-                .width(combo_w)
+                .width(ui.available_width())
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
                     for (i, name) in CARET_STYLES.iter().enumerate() {
@@ -122,26 +119,8 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
                         }
                     }
                 });
-            // 预览按**本帧的选择**画：点完立刻对上，不用等下一帧。
-            let (shape, blink) = caret_style_to_shape_blink(edit.style.unwrap_or(shown));
-            let (rect, resp) = ui.allocate_exact_size(egui::vec2(12.0, 18.0), egui::Sense::hover());
-            crate::ui::terminal::draw_caret(
-                ui.painter(),
-                rect,
-                shape,
-                ui.visuals().text_color(),
-                rect.width(),
-                rect.height(),
-                term_core::config::clamp_caret_width(width),
-            );
-            // 闪烁档与不闪档的**形状**一样，静态预览只能画「亮着」的那一半。
-            // 光靠图形会被当成选错，所以在预览上挂一句：下拉里的名字是
-            // `Blinking …`，这里说明预览画的是哪一相。
-            if blink {
-                resp.on_hover_text("This style blinks — the preview shows the lit phase.");
-            }
         });
-        // Period / Width 接成真控件（此前是渲染层常数）。
+        // ：Period / Width 接成真控件（此前是渲染层常数）。
         // 两行同一套画法：左对齐标签 + 通栏字段框（`field_box`：描边 + 占满整行，
         // 框内的 `DragValue` 不再画自己那层小框）。后缀与区间照视觉基线。
         let number = |ui: &mut egui::Ui,
@@ -154,7 +133,7 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
             let mut out = None;
             ui.horizontal(|ui| {
                 field_label(ui, label, col);
-                field_box(ui, |ui| {
+                spin_field(ui, |ui| {
                     let mut v = value;
                     let r = ui.add(
                         egui::DragValue::new(&mut v)
@@ -204,7 +183,7 @@ mod tests {
 
     #[test]
     fn the_caret_page_admits_period_and_width_are_real_fields_now() {
-        // Period / Width 已接真。页底若仍写「渲染层常数」
+        // ：Period / Width 已接真。页底若仍写「渲染层常数」
         // 就是反向的谎——用户会以为拖了没用，而它确实会进新会话。
         assert!(
             !CARET_PAGE_NOTE.contains("constants"),

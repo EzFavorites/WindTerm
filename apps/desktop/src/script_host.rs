@@ -2,7 +2,7 @@
 //!
 //! 这一层只在应用层（desk）存在，理由与 `session_open` 相同：`term-script`
 //! 声明 `Sessions`，但它不认识 `SessionPool`，也不认识「内置 SSH 的通道工厂装在哪」
-//! ——那些是应用策略（ADR-0019 / 单向依赖）。
+//! ——那些是应用策略（ADR-0019 §B.14 / I4 单向依赖）。
 //!
 //! # 谁在用
 //!
@@ -231,7 +231,7 @@ impl Sessions for PooledSessions {
     }
 
     fn index(&self, id: SessionId) -> Option<usize> {
-        // 顺序取 `list()` 的（按 id 升序）：脚本的 `session_at(i)` 与
+        // 顺序取 `list ` 的（按 id 升序）：脚本的 `session_at(i)` 与
         // 界面的标签栏顺序各自独立，但**同一个集合必须自洽**——两边都从
         // 这里拿，才不会出现「脚本说第 2 条、界面显示第 3 个」。
         self.list().iter().position(|row| row.id == id).map(|i| i + 1)
@@ -273,7 +273,7 @@ impl Sessions for PooledSessions {
                 "不知道会话 {name:?} 是怎么连的（没有它的配置），无法开 SFTP"
             )));
         };
-        crate::script_sftp::for_session(&config)
+        crate::script_sftp::for_session(&self.pool, &config)
     }
 }
 
@@ -399,7 +399,7 @@ mod tests {
         assert!(pool.close(id));
     }
 
-    /// 序号与 `list()` 同源：`index` 给 1 起位置，查不到给 `None`。
+    /// 序号与 `list ` 同源：`index` 给 1 起位置，查不到给 `None`。
     #[test]
     fn the_index_is_one_based_and_agrees_with_the_listing() {
         let pool = Arc::new(SessionPool::new());
