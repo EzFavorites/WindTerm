@@ -47,27 +47,27 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
 /// 怎么发），不是终端类型 / 光标样式——后者在 WindTerm 里分别归 Session 页与全局
 /// Appearance。所以这里按  渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
 /// 目前不消费这些逐会话编码偏好）。这与本文件 `bell`/`mode`/`security` 三页同构。
-fn keyboard_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
-    let mut backspace = 0usize; // Automatic
-    let mut delete = 0usize; // Automatic
+fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    let mut backspace = win.new_session.backspace_sends;
+    let mut delete = win.new_session.delete_sends;
     let mut modified = 0usize; // XTerm format
     grid(ui, "new_session_keyboard_grid", |ui| {
         form_row(ui, "Backspace sends:");
-        ui.add_enabled_ui(false, |ui| {
-            ui.vertical(|ui| {
-                ui.radio_value(&mut backspace, 0, "Automatic");
-                ui.radio_value(&mut backspace, 1, "Backspace");
-                ui.radio_value(&mut backspace, 2, "Delete");
-            });
+        ui.vertical(|ui| {
+            for (i, name) in ["Automatic", "Backspace", "Delete"].iter().enumerate() {
+                if ui.radio_value(&mut backspace, i, *name).changed() {
+                    win.new_session.backspace_sends = backspace;
+                }
+            }
         });
         ui.end_row();
         form_row(ui, "Delete sends:");
-        ui.add_enabled_ui(false, |ui| {
-            ui.vertical(|ui| {
-                ui.radio_value(&mut delete, 0, "Automatic");
-                ui.radio_value(&mut delete, 1, "Backspace");
-                ui.radio_value(&mut delete, 2, "Delete");
-            });
+        ui.vertical(|ui| {
+            for (i, name) in ["Automatic", "Backspace", "Delete"].iter().enumerate() {
+                if ui.radio_value(&mut delete, i, *name).changed() {
+                    win.new_session.delete_sends = delete;
+                }
+            }
         });
         ui.end_row();
         form_row(ui, "Modified other keys sends:");
@@ -95,8 +95,9 @@ fn keyboard_page(_win: &mut TerminalWindow, ui: &mut egui::Ui) {
     });
     placeholder_note(
         ui,
-        "Key encoding is decided by the terminal engine; these five \
-         choices are placeholders until the profile stores them.",
+        "Backspace and Delete are written into the key encoder at connect time; \
+         the program may still override them with escape sequences. Modified keys, Alt and Meta \
+         have no separate wire-format field yet — see the disabled controls.",
     );
 }
 

@@ -219,6 +219,14 @@ pub struct SessionConfig {
     /// `true` = 方向键发 `ESC O A`（应用模式），出厂 `false` = `ESC [ A`。
     #[serde(default)]
     pub initial_cursor_keys_application: bool,
+    /// `Terminal ▾ Keyboard ▸ Backspace sends:` 的下标（0 = Automatic / 1 = BS /
+    /// 2 = Delete 序列）。编码在 `crate::keys::backspace_bytes`。
+    #[serde(default)]
+    pub backspace_sends: usize,
+    /// `Terminal ▾ Keyboard ▸ Delete sends:` 的下标（0 = Automatic / 1 = BS /
+    /// 2 = DEL）。编码在 `crate::keys::delete_bytes`。
+    #[serde(default)]
+    pub delete_sends: usize,
     /// 系统监控开关（WindTerm 默认 OFF）。
     #[serde(default)]
     pub sysmon: bool,
@@ -387,6 +395,8 @@ impl SessionConfig {
             sftp_preserve_mtime: true,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
+            backspace_sends: 0,
+            delete_sends: 0,
             sysmon: false,
             shell_command: String::new(),
             description: String::new(),

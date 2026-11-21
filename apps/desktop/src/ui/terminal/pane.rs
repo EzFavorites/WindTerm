@@ -17,7 +17,7 @@ use super::pane_pointer::{pointer_selection, visible_separators, GridGeom};
 use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
 use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
 use term_app::scrollbar::preview_range;
-use term_app::selection;
+use term_app::selection; use term_core::keys;
 use term_core::session_runtime::SessionId;
 
 /// 内容绝对行 → 屏内下标；窗口外的行返回 `None`（那一行根本画不出来）。
@@ -526,7 +526,8 @@ impl TerminalWindow {
                             }
                             let bytes = match key {
                                 egui::Key::Enter => b"\r"[..].into(),
-                                egui::Key::Backspace => b"\x7f"[..].into(),
+                                egui::Key::Backspace => keys::backspace_bytes(tab.config.backspace_sends).as_bytes(),
+                                egui::Key::Delete => keys::delete_bytes(tab.config.delete_sends).as_bytes(),
                                 egui::Key::Tab => b"\t"[..].into(),
                                 egui::Key::Escape => b"\x1b"[..].into(),
                                 egui::Key::ArrowUp => arrow_bytes_for(Arrow::Up, tab.snapshot.application_cursor_keys).as_bytes(),

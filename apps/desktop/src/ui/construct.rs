@@ -149,6 +149,8 @@ impl TerminalWindow {
                 sftp_preserve_mtime: true,
                 initial_auto_wrap: true,
                 initial_cursor_keys_application: false,
+                backspace_sends: 0,
+                delete_sends: 0,
                 logon_script: String::new(),
                 cols: term_core::config::DEFAULT_COLS,
                 rows: term_core::config::DEFAULT_ROWS,

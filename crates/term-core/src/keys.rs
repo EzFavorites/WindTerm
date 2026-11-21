@@ -33,6 +33,31 @@ pub fn is_arrow(name: &str) -> bool {
     matches!(normalize(name).as_str(), "up" | "down" | "left" | "right")
 }
 
+/// `Session ▾ Keyboard ▸ Backspace sends:` 的三种编码。
+///
+/// `0` = Automatic，也就是 xterm / readline 通用的 0x7f（DEL）；
+/// `1` = 0x08（BS）；`2` = `ESC [ 3 ~`（Delete 键序列）。
+/// 越界一律回落 0，与设置页存的下标口径一致。
+pub fn backspace_bytes(mode: usize) -> &'static str {
+    match mode {
+        1 => "\x08",
+        2 => "\x1b[3~",
+        _ => "\x7f",
+    }
+}
+
+/// `Session ▾ Keyboard ▸ Delete sends:` 的三种编码。
+///
+/// `0` = Automatic（0x7f 之外另一半：Delete 键序列 `ESC [ 3 ~`）；
+/// `1` = 0x08（BS）；`2` = 0x7f（DEL）。
+pub fn delete_bytes(mode: usize) -> &'static str {
+    match mode {
+        1 => "\x08",
+        2 => "\x7f",
+        _ => "\x1b[3~",
+    }
+}
+
 /// 键名 → 字节。认不出来返回 `None`（调用方报参数错，不要静默发空串）。
 ///
 /// `application_cursor_keys` 只影响方向键，其余键名照旧。
@@ -165,6 +190,20 @@ fn alt(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backspace_and_delete_have_three_wire_formats() {
+        // 0 档是接线前的行为：Backspace 发 DEL，Delete 发 CSI 3~。
+        assert_eq!(backspace_bytes(0), "\x7f");
+        assert_eq!(delete_bytes(0), "\x1b[3~");
+        assert_eq!(backspace_bytes(1), "\x08");
+        assert_eq!(backspace_bytes(2), "\x1b[3~");
+        assert_eq!(delete_bytes(1), "\x08");
+        assert_eq!(delete_bytes(2), "\x7f");
+        // 手改配置写了越界值：与 0 档同，不猜、不 panic。
+        assert_eq!(backspace_bytes(9), "\x7f");
+        assert_eq!(delete_bytes(9), "\x1b[3~");
+    }
 
     #[test]
     fn enter_is_cr_not_lf() {

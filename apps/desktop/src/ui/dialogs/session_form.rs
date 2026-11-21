@@ -106,6 +106,9 @@ pub(in crate::ui) struct NewSessionData {
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
     pub(in crate::ui) initial_cursor_keys_application: bool,
+    /// `Keyboard ▸ Backspace / Delete sends:` 的两个下标。
+    pub(in crate::ui) backspace_sends: usize,
+    pub(in crate::ui) delete_sends: usize,
     /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
@@ -163,6 +166,8 @@ impl NewSessionData {
             sftp_preserve_mtime: config.sftp_preserve_mtime,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
+            backspace_sends: config.backspace_sends,
+            delete_sends: config.delete_sends,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
             selected_page: 0,
@@ -246,6 +251,8 @@ impl NewSessionData {
         c.sftp_preserve_mtime = self.sftp_preserve_mtime;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
+        c.backspace_sends = self.backspace_sends;
+        c.delete_sends = self.delete_sends;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
@@ -628,6 +635,8 @@ mod tests {
         old.sftp_preserve_mtime = false;
         old.initial_auto_wrap = false;
         old.initial_cursor_keys_application = true;
+        old.backspace_sends = 1;
+        old.delete_sends = 2;
         old.sysmon = true;
         let mut f = NewSessionData::from_config(&old);
         assert_eq!(f.system, "windows");
@@ -637,6 +646,8 @@ mod tests {
         assert!(!f.sftp_preserve_mtime);
         assert!(!f.initial_auto_wrap);
         assert!(f.initial_cursor_keys_application);
+        assert_eq!(f.backspace_sends, 1);
+        assert_eq!(f.delete_sends, 2);
         assert!(f.sysmon);
 
         // 改一遍再落盘，确认 to_config 写的是表单值而非 base 的旧值。
@@ -647,6 +658,8 @@ mod tests {
         f.sftp_preserve_mtime = true;
         f.initial_auto_wrap = true;
         f.initial_cursor_keys_application = false;
+        f.backspace_sends = 2;
+        f.delete_sends = 0;
         f.sysmon = false;
         let saved = f.to_config(old);
         assert_eq!(saved.system, "macos");
@@ -656,6 +669,8 @@ mod tests {
         assert!(saved.sftp_preserve_mtime);
         assert!(saved.initial_auto_wrap);
         assert!(!saved.initial_cursor_keys_application);
+        assert_eq!(saved.backspace_sends, 2);
+        assert_eq!(saved.delete_sends, 0);
         assert!(!saved.sysmon);
     }
 
