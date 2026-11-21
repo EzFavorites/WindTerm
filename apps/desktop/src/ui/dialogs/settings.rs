@@ -82,6 +82,7 @@ use super::settings_live_highlight;
 use super::settings_live_quickbar;
 use super::settings_live_completion;
 use super::settings_live_search;
+use super::settings_live_security;
 use super::settings_live_tabs;
 use super::settings_live_terminal;
 use super::settings_live_mouse;
@@ -537,6 +538,7 @@ impl TerminalWindow {
                         // Search 页同样自带读写（模板落 `prefs.search_url`，
                         // 消费者是 `effects.rs::search_online`）。
                         SettingsPage::Search => settings_live_search::search(ui),
+                        SettingsPage::Security => settings_live_security::security(self, ui),
                         // Binary 页四个数字框 + 一格斑马线：**只写默认参数**
                         // （`hex_defaults` + `prefs.hex_*` /
                         // `prefs.alternate_column_bg`），一个字节都不碰

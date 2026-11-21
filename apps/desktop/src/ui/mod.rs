@@ -25,6 +25,7 @@ mod harness;
 pub(crate) mod kit;
 pub(crate) use kit::type_scale;
 mod layout;
+mod lock_timeout;
 mod overlays;
 mod panels;
 mod shell;
@@ -81,10 +82,8 @@ mod app_state_tests;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use dialogs::SettingsData;
-use dialogs::{unique_name, Connector, NewSessionData, SessionDialogKind};
-use layout::{DockLayout, Layout, PaneGroup, PaneId};
-use shell::{ToolAction, ToolButton};
+use dialogs::SettingsData; use dialogs::{unique_name, Connector, NewSessionData, SessionDialogKind};
+use layout::{DockLayout, Layout, PaneGroup, PaneId}; use shell::{ToolAction, ToolButton};
 
 use terminal::make_tab;
 
@@ -99,8 +98,7 @@ pub(in crate::ui) use tr::t;
 use crate::ui::shell::draw_find_bar;
 use eframe::egui; use egui::emath::Align2;
 use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
-use term_app::action::{reduce, Action};
-use term_app::capability;
+use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId};
 use term_app::find::{self, current_index};
 use term_app::log::LogAction;
@@ -282,6 +280,8 @@ pub struct TerminalWindow {
     /// 否则收成细带。不落盘。
     /// `ui.input.time` 口径的「保持展开到」时刻，避免指针在细带附近抖动。
     auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
+    /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
+    lock_timeout_secs: u32, last_lock_activity: f64,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -829,6 +829,8 @@ impl TerminalWindow {
         // Enter 归它，其余键与文字一律吃掉）。
         self.paste_pre_update(ctx);
         self.handle_global_shortcuts(ctx);
+        // 空闲超时先判：它派发的 Lock 在下面这一帧就生效，不多留一帧空窗。
+        self.poll_lock_timeout(ctx);
         // V1-3：锁屏时只画遮罩，其余面板一律不画——否则「锁」只是装饰。
         if self.view.lock.locked {
             self.draw_lock(ctx);

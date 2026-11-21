@@ -134,17 +134,9 @@ pub(in crate::ui) const DISABLED_NOTE: &str = "Not stored yet: these settings co
 const PROXY_NOTE: &str = "Not wired: a global default proxy has no field in Prefs and no fallback \
      path into a connection. Per-session proxies live in New Session ▸ Proxy and do work.";
 
-/// `Security` 页。两个控件缺的是**两套不同的层**：
-///
-/// - Lock screen timeout：`term-app/src/lock.rs:16-19` 的 `LockState` 只有
-///   `locked` / `error`，没有 Timeout 这个状态，也没有「窗口级最后活动时刻」
-///   与计时器——锁屏只能手点，不会自己来。
-///
-/// 原先还有一组 `Login Wizard ▸ Username echo mode`。它已经**整组删除**：这个
-/// 项目根本没有登录向导子系统，回显也由 PTY 那侧决定，留一个「Do not echo
-/// characters」的下拉等于承诺一个不存在的设置项。
-const SECURITY_NOTE: &str = "Not wired: the timeout needs a window-level last-activity stamp and a \
-     timer — the lock state is only locked/error and has no timeout.";
+// `Security` 页 2026-11-21 起由 `settings_live_security` 绘制：锁屏超时有
+// 窗口级活动时钟与定时器（见 `ui/lock_timeout.rs`），登录向导那组此前已删除。
+// 数据表说明与 spec 都已移走，留在这里的旧文案会钉住一个不存在的页面。
 
 /// `AutoCompletion` 页已在 2026-11-19 接成十行真控件（`settings_live_completion`），
 /// 引擎在 `term-core::completion`。原先解释「整页灰显」的说明随之删除——
@@ -244,7 +236,7 @@ const ONEKEYS_NOTE: &str = "Credentials stored here are used automatically by SS
 pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
     match page {
         SettingsPage::Proxy => PROXY_NOTE,
-        SettingsPage::Security => SECURITY_NOTE,
+        SettingsPage::Security => "", // live 页，超时说明在页内
         SettingsPage::AutoCompletion => "", // live 页，无灰显说明
         SettingsPage::MouseTracking => "", // live 页，掩码说明在页内
         SettingsPage::Wrap => WRAP_NOTE,
@@ -320,17 +312,11 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         | SettingsPage::Highlight
         | SettingsPage::AutoCompletion
         | SettingsPage::Triggers
-        | SettingsPage::OneKeys => return None,
+        | SettingsPage::OneKeys
+        | SettingsPage::Security => return None,
         SettingsPage::Proxy => PageSpec {
             title: "Proxy Type",
             blocks: &[Block::Rows(&[Row::Combo { label: "", value: "No proxy" }])],
-        },
-        SettingsPage::Security => PageSpec {
-            title: "Security",
-            blocks: &[Block::Group {
-                title: "Lock Screen",
-                rows: &[Row::ComboAbove { label: "Lock screen timeout:", value: "Off" }],
-            }],
         },
         // Highlight 页 2026-11-19 接成真控件（settings_live_highlight）：
         // caret line 一行有完整读者（Prefs + Tab.marks + 渲染器），接真；

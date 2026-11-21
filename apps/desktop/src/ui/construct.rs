@@ -229,6 +229,8 @@ impl TerminalWindow {
             show_address_bar: prefs.show_address_bar,
             auto_hide_menu_bar: prefs.auto_hide_menu_bar,
             menu_bar_peek_until: 0.0,
+            lock_timeout_secs: prefs.lock_timeout_secs,
+            last_lock_activity: 0.0,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
             triggers: prefs.triggers.clone(),

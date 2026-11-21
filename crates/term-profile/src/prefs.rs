@@ -423,6 +423,9 @@ pub struct Prefs {
     /// 打开后菜单条收成一条细带，指针靠近顶端或按住 Alt 时展开。
     #[serde(default)]
     pub auto_hide_menu_bar: bool,
+    /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）。出厂 0 = 不自动锁。
+    #[serde(default)]
+    pub lock_timeout_secs: u32,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -665,6 +668,7 @@ impl Default for Prefs {
             // 地址栏面板出厂显示（与 serde `default_true` 对齐，守住视觉基线）。
             show_address_bar: true,
             auto_hide_menu_bar: false,
+            lock_timeout_secs: 0,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
@@ -1690,6 +1694,8 @@ mod tests {
         assert!(back.show_address_bar, "老文件缺这个键 = 沿用出厂态");
         assert!(!Prefs::default().auto_hide_menu_bar, "菜单栏出厂常驻");
         assert!(!back.auto_hide_menu_bar, "老文件缺这个键 = 菜单栏仍常驻");
+        assert_eq!(Prefs::default().lock_timeout_secs, 0, "出厂不自动锁");
+        assert_eq!(back.lock_timeout_secs, 0, "老文件缺键 = 仍不自动锁");
         assert_eq!(back.language, "en", "其余字段不许被连坐");
     }
 
