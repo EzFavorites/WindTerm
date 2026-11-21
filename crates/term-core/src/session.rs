@@ -246,6 +246,10 @@ pub struct SessionConfig {
     /// 拖放时不再询问（当前仍会弹确认框以选择具体文件，目录取这里的值）。
     #[serde(default)]
     pub modem_use_default: bool,
+    /// `Session ▾ Proxy ▸ Perform DNS lookup with proxy`。出厂 true：目标名
+    /// 交给代理解析；关掉时先本地解析再连代理。
+    #[serde(default = "default_true")]
+    pub dns_over_proxy: bool,
     /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
     ///
     /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
@@ -481,6 +485,7 @@ impl SessionConfig {
             modem_upload_dir: String::new(),
             modem_download_dir: String::new(),
             modem_use_default: false,
+            dns_over_proxy: true,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
             backspace_sends: 0,

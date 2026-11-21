@@ -164,6 +164,12 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                         .desired_width(FIELD_W),
                 );
                 ui.end_row();
+                form_row(ui, "DNS lookup:");
+                ui.checkbox(
+                    &mut win.new_session.dns_over_proxy,
+                    "Perform DNS lookup with proxy",
+                );
+                ui.end_row();
             });
             placeholder_note(
                 ui,

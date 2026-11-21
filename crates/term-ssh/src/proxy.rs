@@ -237,9 +237,9 @@ pub(crate) async fn connect(
 /// 建好第一段能承载 SSH 的流，并报出这条 TCP 的本机地址（供 `direct-tcpip`
 /// 的 originator 字段）。超时沿用会话的 `connect_timeout`。
 ///
-/// 有出网代理时**只解析代理地址**：目标主机（或第一跳跳板机）的名字原样
-/// 交给代理去解析。内网名字本地必然解析不了，先 `getaddrinfo` 一次就等于
-/// 把「DNS 走代理」这个功能废掉——官文明确要求它可用。
+/// 有出网代理时**只解析代理地址**：目标主机（或第一跳跳板机）的名字默认
+/// 原样交给代理去解析（`dns_over_proxy=true`）。内网名字本地必然解析不了，
+/// 先 `getaddrinfo` 一次就等于把「DNS 走代理」废掉。关掉这一档时才本地解析。
 async fn dial(
     target: &Target,
     opts: &SshOptions,
@@ -257,7 +257,14 @@ async fn dial(
     })?;
     let tcp = connect_tcp(addr, timeout, &proxy.label()).await?;
     let local = tcp.local_addr().ok();
-    let stream = outbound::handshake(tcp, proxy, &target.host, target.port, timeout).await?;
+    // 默认把目标主机名交给代理解析（远程 DNS，内网名字才能通）；关掉开关
+    // 时在本地解析好，再把 IP 交给代理。
+    let dial_host = if proxy.dns_over_proxy {
+        target.host.clone()
+    } else {
+        resolve_host(&target.host, target.port)?.ip().to_string()
+    };
+    let stream = outbound::handshake(tcp, proxy, &dial_host, target.port, timeout).await?;
     Ok((stream, local))
 }
 
@@ -569,6 +576,7 @@ mod tests {
             host: addr.ip().to_string(),
             port: addr.port(),
             auth: None,
+            dns_over_proxy: true,
         });
         let first = chain(&opts).remove(0);
         let (mut stream, local) = dial(&first, &opts).await.expect("经代理建链应当成功");
@@ -618,6 +626,7 @@ mod tests {
             host: addr.ip().to_string(),
             port: addr.port(),
             auth: None,
+            dns_over_proxy: true,
         });
         let first = chain(&opts).remove(0);
         let (_stream, local) = dial(&first, &opts).await.expect("SOCKS5 建链应当成功");

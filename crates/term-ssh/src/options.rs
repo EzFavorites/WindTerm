@@ -260,6 +260,9 @@ pub struct OutboundProxy {
     pub host: String,
     pub port: u16,
     pub auth: Option<ProxyAuth>,
+    /// 目标主机名交给代理解析（远程 DNS）。关掉时先在本地解析目标，
+    /// 再把 IP 交给代理——内网名字在本地解析不了时保持打开。
+    pub dns_over_proxy: bool,
 }
 
 impl OutboundProxy {
@@ -715,6 +718,7 @@ mod tests {
                 username: "pu".to_string(),
                 password: "proxy-pass".to_string(),
             }),
+            dns_over_proxy: true,
         });
 
         let shown = format!("{o:?}");
@@ -842,6 +846,7 @@ mod tests {
             host: "  ".to_string(),
             port: 8080,
             auth: None,
+            dns_over_proxy: true,
         });
         let e = o.validate().unwrap_err();
         assert!(matches!(e, SshError::Config(_)), "{e:?}");
@@ -856,6 +861,7 @@ mod tests {
             host: "127.0.0.1".to_string(),
             port: 1080,
             auth: None,
+            dns_over_proxy: true,
         });
         assert!(o.validate().is_ok());
         assert_eq!(

@@ -402,6 +402,7 @@ mod tests {
             host: addr.ip().to_string(),
             port: addr.port(),
             auth,
+            dns_over_proxy: true,
         }
     }
 

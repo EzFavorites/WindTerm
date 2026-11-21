@@ -280,6 +280,7 @@ pub(in crate::ui) fn options_for(
         port,
         // 凭据不落盘（ 接表单 + 保险库后再由调用方注入）。
         auth: None,
+        dns_over_proxy: config.dns_over_proxy,
     });
     // 界面路径的回退链。`auth` 里带着用户刚在对话框输入的密码，所以这里
     // 能把完整的「密码→公钥」OneKey 编进链（headless 路径拿不到密码，只能做

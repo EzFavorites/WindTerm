@@ -111,6 +111,7 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) modem_upload_dir: String,
     pub(in crate::ui) modem_download_dir: String,
     pub(in crate::ui) modem_use_default: bool,
+    pub(in crate::ui) dns_over_proxy: bool,
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
     pub(in crate::ui) initial_cursor_keys_application: bool,
@@ -186,6 +187,7 @@ impl NewSessionData {
             modem_upload_dir: config.modem_upload_dir.clone(),
             modem_download_dir: config.modem_download_dir.clone(),
             modem_use_default: config.modem_use_default,
+            dns_over_proxy: config.dns_over_proxy,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
             backspace_sends: config.backspace_sends,
@@ -284,6 +286,7 @@ impl NewSessionData {
         c.modem_upload_dir = self.modem_upload_dir.clone();
         c.modem_download_dir = self.modem_download_dir.clone();
         c.modem_use_default = self.modem_use_default;
+        c.dns_over_proxy = self.dns_over_proxy;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.backspace_sends = self.backspace_sends;

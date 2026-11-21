@@ -189,6 +189,7 @@ impl TerminalWindow {
                 modem_upload_dir: String::new(),
                 modem_download_dir: String::new(),
                 modem_use_default: false,
+                dns_over_proxy: true,
                 initial_auto_wrap: true,
                 initial_cursor_keys_application: false,
                 backspace_sends: 0,

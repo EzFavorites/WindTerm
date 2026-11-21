@@ -410,6 +410,7 @@ fn ssh_options(
         host: host.to_string(),
         port,
         auth: None,
+        dns_over_proxy: config.dns_over_proxy,
     });
     Ok(opts)
 }
