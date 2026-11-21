@@ -154,14 +154,9 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 form_row(ui, "Port:");
                 ui.add(DragValue::new(&mut win.new_session.proxy_port).range(1..=65535));
                 ui.end_row();
-                form_row(ui, "Working directory:");
-                ui.add_enabled(
-                    false,
-                    TextEdit::singleline(&mut win.new_session.working_dir)
-                        .hint_text("${HomeDir}")
-                        .desired_width(FIELD_W),
-                );
-                ui.end_row();
+                // Working directory 那一行**删掉**了：它和 Shell ▾ Command 页的
+                // `Working directory` 是同一个字段（form.working_dir），在代理页
+                // 灰着只是在展示一个不属于代理的重复入口。
                 form_row(ui, "Proxy command:");
                 ui.add(
                     TextEdit::singleline(&mut win.new_session.proxy_command)
@@ -174,8 +169,7 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 ui,
                 "Host and Port are used by both the built-in SSH client and the \
                  system ssh path. Proxy command overrides the generated nc command \
-                 only on the system ssh path; the built-in client uses Host/Port. \
-                 Working directory belongs to the local Shell command page.",
+                 only on the system ssh path; the built-in client uses Host/Port.",
             );
         }
     }
