@@ -20,6 +20,7 @@ use std::path::{Path, PathBuf};
 use russh_sftp::client::SftpSession;
 
 use crate::cancel::CancelToken;
+use crate::dest::{local_dest_for, remote_dest_for};
 use crate::entry::{self, collect};
 use crate::transfer::{self, Direction, TransferError};
 
@@ -408,6 +409,7 @@ pub fn remote_path_for(root: &str, rel: &str) -> String {
     entry::join(root, rel)
 }
 
+
 /// 建一个远端目录（已存在不算错——`mkdir -p` 的语义）。
 ///
 /// 为什么吞掉错误：重复建、权限拒绝……这些情况文件传输那一步会给出**更准**的
@@ -431,6 +433,8 @@ pub struct Job<'a> {
     /// 目录 mtime 是否也保留。与 `preserve`（文件）分开：默认关，因为
     /// `setstat` 目录在不少服务端上不被支持，不该悄悄多一次失败往返。
     pub preserve_dir: bool,
+    /// 是否把目标路径每一段的非法字符换成 `_`。只作用于目标侧，源端路径不动。
+    pub fix_invalid: bool,
     /// 取消旗子：与单文件传输**同一条**，所以「传一棵树传到第 3 个文件时按取消」
     /// 在第 3 个文件的分片边界上生效，第 4 个不会开始。
     pub cancel: &'a CancelToken,
@@ -451,13 +455,13 @@ async fn run_download(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Tran
     std::fs::create_dir_all(local_root).map_err(|e| format!("建本地目录 {local_root} 失败：{e}"))?;
     // 规则 2：先建全部目录（本地 create_dir_all 自带递归，按序建即可）。
     for d in &job.plan.dirs {
-        std::fs::create_dir_all(local_path_for(local_root, &d.rel))
+        std::fs::create_dir_all(local_dest_for(local_root, &d.rel, job.fix_invalid))
             .map_err(|e| format!("建本地目录 {} 失败：{e}", d.rel))?;
     }
     let mut total = 0u64;
     for f in &job.plan.files {
         let remote = remote_path_for(remote_root, &f.rel);
-        let local = local_path_for(local_root, &f.rel);
+        let local = local_dest_for(local_root, &f.rel, job.fix_invalid);
         let local_s = local.to_string_lossy().to_string();
         let (resume, preserve) = (job.resume, job.preserve);
         let progress = &mut *job.progress;
@@ -478,7 +482,7 @@ async fn run_download(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Tran
     // 在文件传完之前写会被后面的创建动作覆盖。
     if job.preserve_dir {
         for d in &job.plan.dirs {
-            let path = local_path_for(local_root, &d.rel);
+            let path = local_dest_for(local_root, &d.rel, job.fix_invalid);
             crate::preserve::write_local_dir_mtime(
                 &path,
                 d.mtime.and_then(|m| u32::try_from(m).ok()),
@@ -494,13 +498,13 @@ async fn run_upload(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Transf
     // 树根 + 全部子目录逐级建（SFTP 的 mkdir 不递归，计划的顺序保证父先于子）。
     ensure_remote_dir(sftp, remote_root).await;
     for d in &job.plan.dirs {
-        ensure_remote_dir(sftp, &remote_path_for(remote_root, &d.rel)).await;
+        ensure_remote_dir(sftp, &remote_dest_for(remote_root, &d.rel, job.fix_invalid)).await;
     }
     let mut total = 0u64;
     for f in &job.plan.files {
         let local = local_path_for(local_root, &f.rel);
         let local_s = local.to_string_lossy().to_string();
-        let remote = remote_path_for(remote_root, &f.rel);
+        let remote = remote_dest_for(remote_root, &f.rel, job.fix_invalid);
         let (resume, preserve) = (job.resume, job.preserve);
         let progress = &mut *job.progress;
         let bytes = transfer::upload(
@@ -519,7 +523,7 @@ async fn run_upload(sftp: &SftpSession, job: &mut Job<'_>) -> Result<u64, Transf
     // 与下载同一条理由：文件传完再写目录时间，否则会被 mkdir / 写文件覆盖。
     if job.preserve_dir {
         for d in &job.plan.dirs {
-            let remote = remote_path_for(remote_root, &d.rel);
+            let remote = remote_dest_for(remote_root, &d.rel, job.fix_invalid);
             crate::preserve::write_remote_mtime(
                 sftp,
                 &remote,
@@ -608,6 +612,21 @@ mod tests {
         assert_eq!(remote_path_for("/srv/", "sub/a.txt"), "/srv/sub/a.txt");
         // 根自己落回根——`create_dir` 根目录是多余且有风险的（可能没权限）。
         assert_eq!(remote_path_for("/srv", ""), "/srv");
+    }
+
+    #[test]
+    fn destination_paths_sanitize_each_segment_only_when_asked() {
+        assert_eq!(
+            local_dest_for("/tmp/out", "a/b?c.txt", false),
+            PathBuf::from("/tmp/out/a/b?c.txt")
+        );
+        assert_eq!(
+            local_dest_for("/tmp/out", "a/b?c.txt", true),
+            PathBuf::from("/tmp/out/a/b_c.txt")
+        );
+        assert_eq!(remote_dest_for("/srv", "a/b?c", true), "/srv/a/b_c");
+        // 根自己不带 rel，不加任何后缀（根目录名由调用方在入队前处理）。
+        assert_eq!(remote_dest_for("/srv", "", true), "/srv");
     }
 
     #[test]

@@ -54,6 +54,7 @@ pub enum Request {
         resume: bool,
         preserve: bool,
         preserve_dir: bool,
+        fix_invalid: bool,
     },
     /// 本地目录树 → 远端目录（`-r` 上传）。
     UploadTree {
@@ -62,6 +63,7 @@ pub enum Request {
         resume: bool,
         preserve: bool,
         preserve_dir: bool,
+        fix_invalid: bool,
     },
     /// 递归扫一棵远端目录树，**只出清单不传文件**（目录同步的输入）。
     ///
@@ -317,6 +319,7 @@ impl SftpHandle {
         resume: bool,
         preserve: bool,
         preserve_dir: bool,
+        fix_invalid: bool,
     ) {
         self.send(Request::DownloadTree {
             remote: remote.into(),
@@ -324,6 +327,7 @@ impl SftpHandle {
             resume,
             preserve,
             preserve_dir,
+            fix_invalid,
         });
     }
 
@@ -335,6 +339,7 @@ impl SftpHandle {
         resume: bool,
         preserve: bool,
         preserve_dir: bool,
+        fix_invalid: bool,
     ) {
         self.send(Request::UploadTree {
             local: local.into(),
@@ -342,6 +347,7 @@ impl SftpHandle {
             resume,
             preserve,
             preserve_dir,
+            fix_invalid,
         });
     }
 
@@ -544,6 +550,7 @@ pub fn start_in_background(
                                 resume,
                                 preserve,
                                 preserve_dir: false,
+                                fix_invalid: false,
                                 cancel: &worker_cancel,
                             },
                             &reporter,
@@ -573,6 +580,7 @@ pub fn start_in_background(
                                 resume,
                                 preserve,
                                 preserve_dir: false,
+                                fix_invalid: false,
                                 cancel: &worker_cancel,
                             },
                             &reporter,
@@ -585,6 +593,7 @@ pub fn start_in_background(
                         resume,
                         preserve,
                         preserve_dir,
+                        fix_invalid,
                     } => {
                         // 清位紧贴传输开始：句柄是复用的，上一次的取消不许顺延，
                         // 但「点了取消、这次还没开始」的那一下也要能生效——所以
@@ -603,6 +612,7 @@ pub fn start_in_background(
                                 resume,
                                 preserve,
                                 preserve_dir,
+                                fix_invalid,
                                 cancel: &worker_cancel,
                             },
                             &reporter,
@@ -615,6 +625,7 @@ pub fn start_in_background(
                         resume,
                         preserve,
                         preserve_dir,
+                        fix_invalid,
                     } => {
                         // 清位紧贴传输开始：句柄是复用的，上一次的取消不许顺延，
                         // 但「点了取消、这次还没开始」的那一下也要能生效——所以
@@ -633,6 +644,7 @@ pub fn start_in_background(
                                 resume,
                                 preserve,
                                 preserve_dir,
+                                fix_invalid,
                                 cancel: &worker_cancel,
                             },
                             &reporter,
@@ -788,6 +800,8 @@ struct TransferOpts<'a> {
     preserve: bool,
     /// 只对树传输有意义；单文件这一位恒为 false。
     preserve_dir: bool,
+    /// 同上：目标名非法字符替换，单文件由 UI 在入队前处理。
+    fix_invalid: bool,
     cancel: &'a CancelToken,
 }
 
@@ -809,6 +823,7 @@ async fn transfer_and_report(
         resume,
         preserve,
         preserve_dir: _,
+        fix_invalid: _,
         cancel,
     } = opts;
     let mut on_progress = |transferred: u64, total: u64| reporter.progress(&path, transferred, total);
@@ -875,6 +890,7 @@ async fn tree_and_report(
         resume: opts.resume,
         preserve: opts.preserve,
         preserve_dir: opts.preserve_dir,
+        fix_invalid: opts.fix_invalid,
         cancel: opts.cancel,
         progress: &mut on_progress,
         file_done: &mut on_file_done,

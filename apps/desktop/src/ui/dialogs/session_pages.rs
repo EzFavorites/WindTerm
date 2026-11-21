@@ -409,17 +409,23 @@ fn modem_page(ui: &mut egui::Ui) {
 /// 新建文件 / 新建目录时由 `term-sftp` 落到对端）；三个复选框等 `SftpOptions`
 /// 落地后才有字段。
 fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
-    let mut fix_invalid = true;
+    let mut fix_invalid = win.new_session.sftp_fix_invalid_path;
     let mut keep_dir_mtime = win.new_session.sftp_preserve_dir_mtime;
     let mut keep_mtime = win.new_session.sftp_preserve_mtime;
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(&mut fix_invalid, "Automatically fix invalid path characters"),
-    )
-    .on_disabled_hover_text(
-        "No path sanitizer exists in the SFTP layer yet; transfers keep the \
-         names the server reports.",
-    );
+    if ui
+        .checkbox(
+            &mut fix_invalid,
+            "Automatically fix invalid path characters",
+        )
+        .on_hover_text(
+            "Replace unsafe characters in each destination path segment with '_'. \
+             Two different names that collapse to the same target keep the filesystem's \
+             overwrite behaviour.",
+        )
+        .changed()
+    {
+        win.new_session.sftp_fix_invalid_path = fix_invalid;
+    }
     if ui
         .checkbox(
             &mut keep_mtime,
@@ -452,7 +458,7 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ui,
         "Modes apply to created items; overwrites keep theirs. File modification time \
          is written back after each transfer; directory timestamps are written after \
-         the whole tree arrives. Invalid-path fixing still awaits the SFTP layer.",
+         the whole tree arrives. Invalid destination characters become underscores.",
     );
 }
 

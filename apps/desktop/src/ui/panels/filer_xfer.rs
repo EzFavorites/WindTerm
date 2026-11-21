@@ -90,6 +90,10 @@ impl TerminalWindow {
     ///
     /// 重复入队也回一句话（「已经在队列里」）而不是沉默：点了就得有反应。
     pub(in crate::ui) fn start_filer_transfer(&mut self, pick: XferPick) -> String {
+        let fix_invalid = self
+            .tabs
+            .get(self.active_slot())
+            .is_none_or(|t| t.config.sftp_fix_invalid_path);
         match pick {
             XferPick::Download {
                 remote,
@@ -97,6 +101,12 @@ impl TerminalWindow {
                 size,
                 is_dir,
             } => {
+                // 目标名非法字符按会话配置替换；源端 `remote` 一个字节不动。
+                let name = if fix_invalid {
+                    term_sftp::sanitize_component(&name)
+                } else {
+                    name
+                };
                 // 目标目录用**此刻**的本地目录，之后就固定在任务里（见 enqueue）。
                 // 目录时它是一棵树的落点目录（walk::run 会 create_dir_all）。
                 let local = self
@@ -127,6 +137,12 @@ impl TerminalWindow {
                 size,
                 is_dir,
             } => {
+                // 目标名非法字符按会话配置替换；源端 `local` 一个字节不动。
+                let name = if fix_invalid {
+                    term_sftp::sanitize_component(&name)
+                } else {
+                    name
+                };
                 // 远端目标目录由当前 `filer.path` + 真名拼出；目录时是树根。
                 let remote = join_path(&self.filer.path, &name);
                 let enqueued = if is_dir {
@@ -169,16 +185,17 @@ impl TerminalWindow {
     fn launch_transfer(&mut self, task: XferTask, now: u64) {
         // 先取会话配置：`handle` 一借住 `self.filer`，`active_slot()` 就要整份
         // `&self`，两处借不动的是同一个窗口结构体（不是同一个字段）。
-        let (preserve, preserve_dir) = self
+        let (preserve, preserve_dir, fix_invalid) = self
             .tabs
             .get(self.active_slot())
             .map(|tab| {
                 (
                     tab.config.sftp_preserve_mtime,
                     tab.config.sftp_preserve_dir_mtime,
+                    tab.config.sftp_fix_invalid_path,
                 )
             })
-            .unwrap_or((true, false));
+            .unwrap_or((true, false, true));
         let Some(handle) = self.filer.handle.as_ref() else {
             // 兜底：入口已经按「有没有句柄」灰过一次，走到这里说明句柄是在排队
             // 之后才没有的（会话断了 / 面板重绑）。判一次失败，别让它永远挂着
@@ -193,11 +210,11 @@ impl TerminalWindow {
         // （term-sftp::walk），并在全部文件到齐后写目录时间。
         match (task.direction, task.tree) {
             (Direction::Upload, true) => {
-                handle.upload_tree(task.local, task.remote, true, preserve, preserve_dir)
+                handle.upload_tree(task.local, task.remote, true, preserve, preserve_dir, fix_invalid)
             }
             (Direction::Upload, false) => handle.upload(task.local, task.remote, true, preserve),
             (Direction::Download, true) => {
-                handle.download_tree(task.remote, task.local, true, preserve, preserve_dir)
+                handle.download_tree(task.remote, task.local, true, preserve, preserve_dir, fix_invalid)
             }
             (Direction::Download, false) => {
                 handle.download(task.remote, task.local, true, preserve)

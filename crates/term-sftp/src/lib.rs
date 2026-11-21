@@ -17,6 +17,7 @@
 pub mod blocking;
 mod background;
 mod cancel;
+mod dest;
 mod entry;
 mod error;
 mod mutate;
@@ -28,7 +29,7 @@ pub use background::{Event, Request, SftpHandle, start_in_background};
 pub use blocking::{Client as BlockingClient, RemoteStat};
 pub use cancel::{CancelToken, Disposition, Stop, disposition};
 pub use entry::{Entry, format_size, join, mtime_secs, parent, sort_entries};
-pub use mutate::{MAX_MODE, check_mode, check_path, merge_permissions};
+pub use mutate::{MAX_MODE, check_mode, check_path, merge_permissions, sanitize_component};
 pub use error::SftpError;
 pub use preserve::{from_epoch_secs, to_epoch_secs, write_local_dir_mtime, write_local_mtime, write_remote_mtime};
 pub use transfer::{

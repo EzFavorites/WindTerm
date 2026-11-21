@@ -697,7 +697,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
     let out_dir = std::env::temp_dir().join(format!("term-sftp-tree-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out_dir);
     let out_s = out_dir.to_string_lossy().to_string();
-    handle.download_tree(logs.clone(), out_s.clone(), false, false, false);
+    handle.download_tree(logs.clone(), out_s.clone(), false, false, false, false);
     let (files, bytes) = wait_tree(&mut handle, &logs);
     assert_eq!(files, 3, "符号链接不算文件：a/b/c 三个");
     assert_eq!(bytes, 18);
@@ -713,7 +713,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
     // 2) 递归上传：把刚下载的树原样传回远端另一个位置，远端要长出同一棵树
     //    （含空目录），链接依旧缺席。
     let uploaded = join(&home, "logs-back");
-    handle.upload_tree(out_s.clone(), uploaded.clone(), false, false, false);
+    handle.upload_tree(out_s.clone(), uploaded.clone(), false, false, false, false);
     let (files, bytes) = wait_tree(&mut handle, &uploaded);
     assert_eq!(files, 3);
     assert_eq!(bytes, 18);
@@ -727,7 +727,7 @@ fn a_tree_downloads_and_uploads_against_the_real_server() {
 
     // 3) `-r` 撞上单文件：明确失败，提示去掉 -r，而不是把文件当空目录传。
     let single = join(&home, "hello.txt");
-    handle.download_tree(single.clone(), out_s, false, false, false);
+    handle.download_tree(single.clone(), out_s, false, false, false, false);
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
         assert!(Instant::now() < deadline, "10 秒内没等到 Failed 事件");
@@ -1519,6 +1519,7 @@ fn uploading_a_tree_can_preserve_directory_mtimes() {
         false,
         false,
         true,
+        false,
     );
     let (files, bytes) = wait_tree(&mut handle, &uploaded);
     assert_eq!(files, 1);

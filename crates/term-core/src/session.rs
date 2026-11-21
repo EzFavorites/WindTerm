@@ -221,6 +221,12 @@ pub struct SessionConfig {
     /// 文件 mtime 已经是默认保真；目录这一档由用户显式打开。
     #[serde(default)]
     pub sftp_preserve_dir_mtime: bool,
+    /// `Session ▾ Sftp ▸ Automatically fix invalid path characters`。
+    ///
+    /// WindTerm 出厂勾选：目标路径每一段的非法字符（`< > : " / \ | ? *`
+    /// 与控制字符）替换成 `_`，源端路径不动。
+    #[serde(default = "default_true")]
+    pub sftp_fix_invalid_path: bool,
     /// `Terminal ▾ Mode ▸ Auto Wrap Mode (DECAWM)` 的初始值。
     ///
     /// 出场 `true` 与内核 `Terminal::new` 的出厂态一致；远端随后发来的
@@ -428,6 +434,7 @@ impl SessionConfig {
             sftp: true,
             sftp_preserve_mtime: true,
             sftp_preserve_dir_mtime: false,
+            sftp_fix_invalid_path: true,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,
             backspace_sends: 0,

@@ -104,6 +104,7 @@ pub(in crate::ui) struct NewSessionData {
     /// `Sftp ▸ Preserve original file modification time`（传输时写回 mtime）。
     pub(in crate::ui) sftp_preserve_mtime: bool,
     pub(in crate::ui) sftp_preserve_dir_mtime: bool,
+    pub(in crate::ui) sftp_fix_invalid_path: bool,
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
     pub(in crate::ui) initial_cursor_keys_application: bool,
@@ -172,6 +173,7 @@ impl NewSessionData {
             sftp: config.sftp,
             sftp_preserve_mtime: config.sftp_preserve_mtime,
             sftp_preserve_dir_mtime: config.sftp_preserve_dir_mtime,
+            sftp_fix_invalid_path: config.sftp_fix_invalid_path,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
             backspace_sends: config.backspace_sends,
@@ -263,6 +265,7 @@ impl NewSessionData {
         c.sftp = self.sftp;
         c.sftp_preserve_mtime = self.sftp_preserve_mtime;
         c.sftp_preserve_dir_mtime = self.sftp_preserve_dir_mtime;
+        c.sftp_fix_invalid_path = self.sftp_fix_invalid_path;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.backspace_sends = self.backspace_sends;
@@ -657,6 +660,7 @@ mod tests {
         old.sftp = false;
         old.sftp_preserve_mtime = false;
         old.sftp_preserve_dir_mtime = true;
+        old.sftp_fix_invalid_path = false;
         old.initial_auto_wrap = false;
         old.initial_cursor_keys_application = true;
         old.backspace_sends = 1;
@@ -674,6 +678,7 @@ mod tests {
         assert!(!f.sftp);
         assert!(!f.sftp_preserve_mtime);
         assert!(f.sftp_preserve_dir_mtime);
+        assert!(!f.sftp_fix_invalid_path);
         assert!(!f.initial_auto_wrap);
         assert!(f.initial_cursor_keys_application);
         assert_eq!(f.backspace_sends, 1);
@@ -692,6 +697,7 @@ mod tests {
         f.sftp = true;
         f.sftp_preserve_mtime = true;
         f.sftp_preserve_dir_mtime = false;
+        f.sftp_fix_invalid_path = true;
         f.initial_auto_wrap = true;
         f.initial_cursor_keys_application = false;
         f.backspace_sends = 2;
@@ -709,6 +715,7 @@ mod tests {
         assert!(saved.sftp);
         assert!(saved.sftp_preserve_mtime);
         assert!(!saved.sftp_preserve_dir_mtime);
+        assert!(saved.sftp_fix_invalid_path);
         assert!(saved.initial_auto_wrap);
         assert!(!saved.initial_cursor_keys_application);
         assert_eq!(saved.backspace_sends, 2);
@@ -732,6 +739,7 @@ mod tests {
         assert!(f.sftp, "WindTerm 默认 Sftp 开");
         assert!(f.sftp_preserve_mtime, "WindTerm 默认保留文件 mtime");
         assert!(!f.sftp_preserve_dir_mtime, "目录 mtime 默认关（setstat 非通用）");
+        assert!(f.sftp_fix_invalid_path, "非法路径修正默认开");
         assert!(f.initial_auto_wrap, "默认自动换行与内核出厂态一致");
         assert!(!f.initial_cursor_keys_application, "默认方向键是 Normal");
         assert_eq!(f.alt_modifier_sends, 0, "Alt 默认 8-bit characters");

@@ -26,6 +26,30 @@ pub fn check_path(path: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// 一段文件名里在所有常见文件系统上都不安全的字符。
+///
+/// 保守集：`< > : " / \ | ? *` 与 ASCII 控制字符。`/` 与 `\` 在这里只是
+/// 名字里的字符（路径分隔符由调用方按段拆开后才会拼接），出现在名字里就
+/// 会把一段变成两段，必须替换。Unicode、空格、`.` 都保留。
+const INVALID_NAME_CHARS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+/// 把一段文件名里的非法字符换成 `_`。
+///
+/// 只动**文件名**，不碰路径分隔符（调用方按 `/` 拆好逐段调用）。
+/// 两个不同源名替换后可能撞成同一个目标名，这里不发明后缀策略——
+/// 交给文件系统的既有覆盖语义，并在设置页说明这一条。
+pub fn sanitize_component(name: &str) -> String {
+    name.chars()
+        .map(|ch| {
+            if ch.is_control() || INVALID_NAME_CHARS.contains(&ch) {
+                '_'
+            } else {
+                ch
+            }
+        })
+        .collect()
+}
+
 /// 权限模式必须落在 `0o0000`–`0o7777`。
 pub fn check_mode(mode: u32) -> Result<(), String> {
     if mode > MAX_MODE {
@@ -59,6 +83,17 @@ mod tests {
         assert!(check_path("   ").is_err());
         assert!(check_path("/").is_ok());
         assert!(check_path("sub/file.txt").is_ok());
+    }
+
+    #[test]
+    fn invalid_name_characters_become_underscores() {
+        assert_eq!(sanitize_component("a/b"), "a_b");
+        assert_eq!(sanitize_component("a\\b"), "a_b");
+        assert_eq!(sanitize_component("a:b?c*d"), "a_b_c_d");
+        assert_eq!(sanitize_component("a\nb"), "a_b");
+        assert_eq!(sanitize_component("你好.txt"), "你好.txt");
+        // 路径分隔符不在这里处理：调用方按段拆开后逐段调用。
+        assert_eq!(sanitize_component("sub/deep/a.txt"), "sub_deep_a.txt");
     }
 
     #[test]
