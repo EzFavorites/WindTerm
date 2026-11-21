@@ -49,12 +49,10 @@ const TEXT_NOTE: &str = "Alternate line background, hiding the cursor while typi
      copy-on-select and the zoom level apply immediately. Line and character spacing still have \
      no field to bind — see each row's tooltip.";
 
-/// `Behaviour` 页的说明。
-///
-/// 两个勾选都当场生效（下一次关闭 / 下一次开标签就读到新值）。灰的只剩自动重连：
-/// 它缺「重试策略 + 事件钩子」。
-const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs and focus the new tab both apply \
-     immediately. Auto-reconnect still has no field — see its tooltip.";
+/// `Behaviour` 页的说明。三个勾选都当场生效：关闭确认、新标签焦点、断线自动重连。
+const BEHAVIOUR_NOTE: &str = "Confirm before closing multiple tabs, focus the new tab and \
+     automatic reconnect all apply immediately. Reconnect uses a 1/2/4/8 second backoff and gives \
+     up after four attempts; an explicit Disconnect is never retried.";
 
 /// `Toolbar / Menu` 页的说明。
 ///
@@ -86,9 +84,8 @@ const ZOOM_NOTE: &str = "Zoom level is the offset from the factory font size; it
 // 接上字段后它**删掉**了而不是留着：同一页上「已经能勾」与「没有这个粒度」
 // 并存，正是 Tabs 页上次那份自相矛盾的说明。一页只能有一份说明。
 
-/// 自动重连：需要重试策略（退避 / 次数上限）并订阅会话状态事件。
-const RECONNECT_NOTE: &str = "Auto-reconnect would need a retry policy (backoff, attempt limit) \
-     and a hook on the session status events; today reconnect is an explicit action.";
+// 自动重连 2026-11-21 接真（`Prefs.auto_reconnect`）：断线边沿排一次退避，
+// 1/2/4/8 秒后原地重连，连上清零；显式 Disconnect 不重试。策略在 `ui/reconnect.rs`。
 
 // 恢复会话那一行也从 Behaviour 页**删掉**了：它不是「缺字段」，而是在
 // Application ▸ Startup 里已经有一个真控件。同一件事有两个入口、其中一个还是
@@ -200,17 +197,18 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     }
 }
 
-/// `Behaviour` 页：`Session` 两个真勾选 + 一行灰行（自动重连）。
+/// `Behaviour` 页：`Session` 三个真勾选。
 ///
 /// 原来的 `Startup` 组只有一行指向 `Application ▸ Startup` 的灰指针，已整组删除：
 /// 指路牌不是控件，而那个真控件一直都在。
 pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut focus_new = win.focus_new_tab;
     let mut multi = win.confirm.multi_tabs;
+    let mut reconnect = win.auto_reconnect;
+    let mut reconnect_toggled = false;
 
     // `Behaviour` / `Toolbar / Menu` 两页没有视觉基线，结构与其它页保持一致：
     // 内容区从组标题开始，不另画页级灰标题（那份标题与左栏选中项重复）。
-    let col = label_col(ui, &[]);
     group_box(ui, Some("Session"), |ui| {
         set_row_rhythm(ui);
         // 真勾选：判据在 `confirm::should_confirm_close`，三处关闭共用。
@@ -222,12 +220,12 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let focus_toggled = ui
             .checkbox(&mut focus_new, "Focus the new tab after opening")
             .changed();
-        disabled(
-            ui,
-            Row::DisabledCheck("Reconnect automatically when the connection drops"),
-            RECONNECT_NOTE,
-            col,
-        );
+        reconnect_toggled = ui
+            .checkbox(
+                &mut reconnect,
+                "Reconnect automatically when the connection drops",
+            )
+            .changed();
         if multi_toggled {
             win.confirm.multi_tabs = multi;
             save_prefs(|prefs| prefs.confirm_close_multi_tabs = multi);
@@ -237,6 +235,10 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             // 在这里改它等于每帧都「改一次」，会把 prefs 写成一堆无意义的 IO。
             win.focus_new_tab = focus_new;
             save_prefs(|prefs| prefs.focus_new_tab = focus_new);
+        }
+        if reconnect_toggled {
+            win.auto_reconnect = reconnect;
+            save_prefs(|prefs| prefs.auto_reconnect = reconnect);
         }
     });
 
@@ -334,9 +336,11 @@ mod tests {
     }
 
     #[test]
-    fn the_behaviour_page_names_what_auto_reconnect_is_missing() {
-        // 自动重连缺的是「策略 + 事件钩子」，不能只说「未实现」。
-        assert!(RECONNECT_NOTE.contains("backoff"));
+    fn the_behaviour_page_states_the_reconnect_policy() {
+        // 接真之后页底要写清退避与上限，而不是「还没实现」。
+        assert!(BEHAVIOUR_NOTE.contains("backoff"));
+        assert!(BEHAVIOUR_NOTE.contains("four attempts"));
+        assert!(BEHAVIOUR_NOTE.contains("explicit Disconnect"));
     }
 
     #[test]
@@ -353,10 +357,10 @@ mod tests {
     }
 
     #[test]
-    fn the_behaviour_note_claims_both_live_switches_and_names_the_dead_one() {
-        // 两个勾选当场生效，页底必须说清；灰的那一行也要点名缺什么。
+    fn the_behaviour_note_claims_all_three_live_switches() {
+        // 三个勾选当场生效，页底必须说清；自动重连还要写清上限与显式断开的边界。
         assert!(BEHAVIOUR_NOTE.contains("immediately"), "要写清哪些当场生效");
-        assert!(BEHAVIOUR_NOTE.contains("Auto-reconnect"), "灰行要逐行点名");
+        assert!(BEHAVIOUR_NOTE.contains("automatic reconnect"), "三个开关都要点名");
         // 关多标签那一行已经接上字段：页底不许再说「没有这个粒度」。
         assert!(
             !BEHAVIOUR_NOTE.contains("no 'only when several tabs are open'"),

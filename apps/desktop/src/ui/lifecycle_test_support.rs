@@ -227,6 +227,7 @@ pub(in crate::ui) fn window_with(
         menu_bar_peek_until: 0.0,
         lock_timeout_secs: 0,
         last_lock_activity: 0.0,
+        auto_reconnect: false,
         triggers: Vec::new(),
         onekeys: Vec::new(),
         // 2026-11-17 Tunnels：测试窗口不配隧道、对话框关着、总线开关按出厂开着。

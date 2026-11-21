@@ -79,6 +79,9 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         shadow: crate::automation::Shadow::new(),
         was_live: false,
             just_connected: false,
+            auto_reconnect_at: None,
+            auto_reconnect_attempts: 0,
+            auto_reconnect_blocked: false,
         // 折叠与输入行表出厂为空（空集合 = 渲染一屏不变，夹具不受影响）。
         folds: term_app::folds::Folds::new(),
         input_rows: std::cell::RefCell::new(Vec::new()),

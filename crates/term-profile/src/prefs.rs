@@ -426,6 +426,10 @@ pub struct Prefs {
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）。出厂 0 = 不自动锁。
     #[serde(default)]
     pub lock_timeout_secs: u32,
+    /// `Preferences ▸ Behaviour ▸ Reconnect automatically when the connection drops`。
+    /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
+    #[serde(default)]
+    pub auto_reconnect: bool,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
     /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
     ///
@@ -669,6 +673,7 @@ impl Default for Prefs {
             show_address_bar: true,
             auto_hide_menu_bar: false,
             lock_timeout_secs: 0,
+            auto_reconnect: false,
             // 出厂没有任何触发器规则。
             triggers: Vec::new(),
             onekeys: Vec::new(),
@@ -1696,6 +1701,8 @@ mod tests {
         assert!(!back.auto_hide_menu_bar, "老文件缺这个键 = 菜单栏仍常驻");
         assert_eq!(Prefs::default().lock_timeout_secs, 0, "出厂不自动锁");
         assert_eq!(back.lock_timeout_secs, 0, "老文件缺键 = 仍不自动锁");
+        assert!(!Prefs::default().auto_reconnect, "出厂不自动重连");
+        assert!(!back.auto_reconnect, "老文件缺键 = 仍不自动重连");
         assert_eq!(back.language, "en", "其余字段不许被连坐");
     }
 

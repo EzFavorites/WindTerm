@@ -63,7 +63,12 @@ impl Tab {
     /// `rules` 是全局触发器规则（来自 `Prefs`，经窗口缓存），`run_commands` 收集
     /// 本轮命中里 `RunCommand` 动作要派发的命令 ID——真正的 `dispatch` 在窗口层
     /// （`RunCommand` 走既有命令通道，需要窗口级的 `Action` 分发器，本 tab 没有）。
-    pub(in crate::ui) fn poll(&mut self, rules: &[Rule], run_commands: &mut Vec<String>) -> bool {
+    pub(in crate::ui) fn poll(
+        &mut self,
+        rules: &[Rule],
+        run_commands: &mut Vec<String>,
+        auto_reconnect: bool,
+    ) -> bool {
         let now = now_secs();
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
         // 此刻看到的顶部绝对行，末尾再按新的 history 钉回去。
@@ -143,6 +148,9 @@ impl Tab {
             // 重连会换一个新 `SessionId`，`was_live` 那时已是 false，所以边沿
             // 会再来一次——这正是重连后要重新开一份日志的原因。
             self.just_connected = true;
+            // 连上就把退避清零：下次掉线从 1 秒重新起算。
+            self.auto_reconnect_at = None;
+            self.auto_reconnect_attempts = 0;
             self.triggers.reset();
             self.shadow.reset();
             let hits = self.triggers.event(rules, TriggerOn::Connect, now);
@@ -159,6 +167,17 @@ impl Tab {
             self.shadow_check(sig, &v1);
             for hit in hits {
                 self.apply_trigger(hit, run_commands);
+            }
+            // 掉线边沿：显式 Disconnect / 本地 shell / 已达上限都不排；
+            // 其余按 1/2/4/8 秒退避，尝试次数在连上时清零。
+            if auto_reconnect
+                && !self.auto_reconnect_blocked
+                && self.config.protocol != term_core::session::Protocol::Shell
+            {
+                if let Some(delay) = super::super::reconnect::backoff(self.auto_reconnect_attempts) {
+                    self.auto_reconnect_at = Some(now + delay);
+                    self.auto_reconnect_attempts += 1;
+                }
             }
         }
         if live && !self.local_mode {

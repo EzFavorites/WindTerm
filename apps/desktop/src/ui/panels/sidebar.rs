@@ -178,6 +178,9 @@ impl TerminalWindow {
             return;
         };
         let name = tab.config.name.clone();
+        // 显式断开不自动重连：用户亲手点的就是「别再连了」。
+        tab.auto_reconnect_blocked = true;
+        tab.auto_reconnect_at = None;
         // 关会话必须经控制面：句柄现在在池里，丢一个 `SessionId` 什么都不会发生。
         tab.close();
         // 隧道跟着会话走——终端断了，转发没有理由还留着。

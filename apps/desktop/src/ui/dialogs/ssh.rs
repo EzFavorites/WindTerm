@@ -260,12 +260,19 @@ impl TerminalWindow {
     /// 激活旧标签）。菜单项写的是 "Reconnect Session"，指的就是眼前这条。
     pub(in crate::ui) fn reconnect_active_tab(&mut self) {
         let slot = self.active_slot();
+        self.reconnect_tab_at(slot, true);
+    }
+
+    /// 按**槽位**重连。`activate=false` 给自动重连用：后台那条断开的标签
+    /// 在原位复活，不抢用户当前正在看的另一条。
+    pub(in crate::ui) fn reconnect_tab_at(&mut self, slot: usize, activate: bool) {
         let Some(cfg) = self.tabs.get(slot).map(|t| t.config.clone()) else {
             return;
         };
         // 活着的先按「断开」处理：Reconnect 的语义是重来一次，不是再开一条。
         // 这一步同时收掉隧道与文件面板——它们不该比会话活得久。
-        if self.tabs[slot].session.is_some() {
+        if self.tabs[slot].session.is_some() && activate {
+            // 手动 Reconnect 才需要先断开；自动重连走到这里时本来就是断开态。
             self.disconnect_active_tab();
         }
         // N：保存待恢复的运行态（新 tab 会替换旧的，字段要在新 tab 上重建）
@@ -285,7 +292,9 @@ impl TerminalWindow {
         tab.restore_history_len = restore_history_len;
         tab.maybe_apply_restore();
         let slot_idx = self.place_tab(tab, PendingOpen::Replace { slot });
-        self.set_active_slot(slot_idx);
+        if activate {
+            self.set_active_slot(slot_idx);
+        }
         self.ctx.request_repaint();
     }
 

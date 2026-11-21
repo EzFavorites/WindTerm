@@ -26,6 +26,7 @@ pub(crate) mod kit;
 pub(crate) use kit::type_scale;
 mod layout;
 mod lock_timeout;
+mod reconnect;
 mod overlays;
 mod panels;
 mod shell;
@@ -99,16 +100,14 @@ use crate::ui::shell::draw_find_bar;
 use eframe::egui; use egui::emath::Align2;
 use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
-use term_app::dock::{DockZone, PanelId};
-use term_app::find::{self, current_index};
+use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index};
 use term_app::log::LogAction;
 use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS};
 use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections};
 use term_app::state::ViewState; use term_app::viewport::Viewport;
 use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
 use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
-use term_core::theme::Palette;
-use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
+use term_core::theme::Palette; use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
 /// Cell padding around the grid, in points.
 const GRID_PAD: f32 = 4.0;
@@ -282,6 +281,8 @@ pub struct TerminalWindow {
     auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
     lock_timeout_secs: u32, last_lock_activity: f64,
+    /// `Preferences ▸ Behaviour ▸ Reconnect automatically`（出厂关）。
+    auto_reconnect: bool,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -879,7 +880,7 @@ impl TerminalWindow {
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll(rules, &mut run_commands) {
+            if self.tabs[i].poll(rules, &mut run_commands, self.auto_reconnect) {
                 changed = true;
             }
         }
@@ -887,10 +888,11 @@ impl TerminalWindow {
         // 一条都不能漏。少了哪一条，它的字节环就没人搬（tap 是无界 channel），
         // 而面板这边还照旧画着上一帧——长输出等于一条静默的内存泄漏。
         for tab in &mut self.shell_tabs {
-            if tab.poll(rules, &mut run_commands) {
+            if tab.poll(rules, &mut run_commands, false) {
                 changed = true;
             }
         }
+        self.poll_auto_reconnect();
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。

@@ -168,6 +168,9 @@ pub(in crate::ui) fn tab_from(
             shadow: crate::automation::Shadow::new(),
             was_live: false,
             just_connected: false,
+            auto_reconnect_at: None,
+            auto_reconnect_attempts: 0,
+            auto_reconnect_blocked: false,
             // 折叠：新建标签还没折过任何一段，输入行表也是空的（第一批要等用户
             // 真的敲一次回车）。与 `marks` 一样是「每条会话一份」的显示状态。
             folds: term_app::folds::Folds::new(),
@@ -536,13 +539,13 @@ mod tests {
         assert_eq!(tab.mode, DisplayMode::Text, "出厂是文本模式");
 
         tx.send(b"first chunk".to_vec()).expect("送第一块");
-        assert!(tab.poll(&[], &mut Vec::new()), "环里进了字节，就该说「有新事实」");
+        assert!(tab.poll(&[], &mut Vec::new(), false), "环里进了字节，就该说「有新事实」");
         assert_eq!(tab.raw.ring.len(), 11, "Text 模式下字节也必须进环");
 
         // 切到 Bin：不清环、不重挂 tap，只换一种画法。历史必须接着算。
         tab.mode = DisplayMode::Bin;
         tx.send(b" more".to_vec()).expect("送第二块");
-        assert!(tab.poll(&[], &mut Vec::new()));
+        assert!(tab.poll(&[], &mut Vec::new(), false));
         assert_eq!(tab.raw.ring.len(), 16, "切模式不清历史，新字节接着攒");
         assert_eq!(tab.raw.ring.take(0, 16), b"first chunk more".to_vec());
     }

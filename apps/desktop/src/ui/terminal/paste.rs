@@ -81,6 +81,9 @@ mod tests {
             shadow: crate::automation::Shadow::new(),
             was_live: false,
             just_connected: false,
+            auto_reconnect_at: None,
+            auto_reconnect_attempts: 0,
+            auto_reconnect_blocked: false,
             // 折叠与输入行表出厂为空：粘贴测试不折任何东西（空集合 = 一屏不变）。
             folds: term_app::folds::Folds::new(),
             input_rows: std::cell::RefCell::new(Vec::new()),

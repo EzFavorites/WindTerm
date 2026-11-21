@@ -209,6 +209,12 @@ pub struct Tab {
     /// 每一帧都是 `Off`，按状态判会立刻自动重开，变成界面与自己打架。
     /// 边沿只来一次，这才是「连上时按设置开一份」的正确时点。
     pub(in crate::ui) just_connected: bool,
+    /// 自动重连的下一次尝试时刻（`now_secs()` 口径），`None` = 没有待办。
+    pub(in crate::ui) auto_reconnect_at: Option<u64>,
+    /// 本次断开已经退避了几次（最多 4 次，连上后清零）。
+    pub(in crate::ui) auto_reconnect_attempts: u8,
+    /// 显式 Disconnect 的标签不自动重连：用户亲手断开就是不要它再连。
+    pub(in crate::ui) auto_reconnect_blocked: bool,
 
     // ── N：恢复时注入的运行态（持久化只存，不主动读；restore_layout 里写入）──
 

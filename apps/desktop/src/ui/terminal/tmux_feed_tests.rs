@@ -55,6 +55,9 @@ fn bare_tab() -> Tab {
         shadow: crate::automation::Shadow::new(),
         was_live: false,
             just_connected: false,
+            auto_reconnect_at: None,
+            auto_reconnect_attempts: 0,
+            auto_reconnect_blocked: false,
         // 折叠与输入行表出厂为空（空集合 = 渲染一屏不变，夹具不受影响）。
         folds: term_app::folds::Folds::new(),
         input_rows: std::cell::RefCell::new(Vec::new()),
@@ -108,7 +111,7 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     tx.send(b"in 1700000000 42 0\r\n".to_vec())
         .expect("送第二块");
 
-    assert!(tab.poll(&[], &mut Vec::new()), "有新字节就该请求重绘");
+    assert!(tab.poll(&[], &mut Vec::new(), false), "有新字节就该请求重绘");
     assert!(tab.tmux.in_notification);
     assert!(tab.tmux.panes.is_empty());
     assert!(tab.tmux_pending.is_empty());
@@ -119,7 +122,7 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     );
     // 手动喂与自动喂是两条独立来源：这里再喂一条只进面板日志的测试行，
     // 不会把 tap 那条重复喂一遍（pending 已空，环不会多出字节）。
-    assert!(!tab.poll(&[], &mut Vec::new()), "tap 已空，第二帧不该再报新事实");
+    assert!(!tab.poll(&[], &mut Vec::new(), false), "tap 已空，第二帧不该再报新事实");
     assert_eq!(tab.raw.ring.take(0, 24).len(), 24, "环没有被重复追加");
 }
 
