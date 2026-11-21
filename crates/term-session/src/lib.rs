@@ -677,9 +677,13 @@ mod tests {
     #[test]
     fn an_exec_session_flows_end_to_end() {
         // 第一刀的验收形状：起会话 → wait 命中 → 屏幕上有事实 → 关闭。
+        // 命令先睡一小段再输出：wait 是「先登记后消费」，瞬时 printf 会在
+        // wait_register 之前就把输出喂完并退出，监管通道断开后 wait 收到
+        // Closed（CI 的 Linux 上进程起得快，稳定复现）。留一个登记窗口，
+        // 输出后再保持会话存活片刻，让命中与后续状态查询都在册。
         let pool = SessionPool::new();
         let id = pool
-            .open_exec("printf 'hello ctl-plane'", 80, 24)
+            .open_exec("sleep 0.3; printf 'hello ctl-plane\\n'; sleep 1", 80, 24)
             .expect("起 exec 会话");
 
         let w = pool
