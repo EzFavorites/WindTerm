@@ -16,8 +16,7 @@ use super::pane_overlays::{paint_overlays, OverlayToggles};
 use super::pane_pointer::{pointer_selection, visible_separators, GridGeom};
 use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
 use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
-use term_app::scrollbar::preview_range;
-use term_app::selection; use term_core::keys;
+use term_app::scrollbar::preview_range; use term_app::selection; use term_core::keys;
 use term_core::session_runtime::SessionId;
 
 /// 内容绝对行 → 屏内下标；窗口外的行返回 `None`（那一行根本画不出来）。
@@ -499,8 +498,11 @@ impl TerminalWindow {
             ui.input(|i| {
                 for event in &i.events {
                     match event {
+                        // 用 `Event::Text` 而不是 `Event::Key`：macOS 的
+                        // Option+字母只在 Text 里给出最终字符。编码口径在纯层。
                         egui::Event::Text(text) => {
-                            key_bytes.extend_from_slice(text.as_bytes());
+                            let b = keys::text_bytes_for_modifiers(text, i.modifiers.alt, i.modifiers.command, tab.config.alt_modifier_sends, tab.config.meta_modifier_sends).unwrap_or_else(|| text.as_bytes().to_vec());
+                            key_bytes.extend_from_slice(&b);
                         }
                         egui::Event::Copy => want_copy = true,
                         egui::Event::Paste(text) => {

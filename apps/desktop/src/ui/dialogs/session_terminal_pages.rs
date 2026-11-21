@@ -43,14 +43,35 @@ pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page
 
 /// 1 `Terminal ▾ Keyboard`：视觉基线 `common/06-keyboard.png` 的按键编码页。
 ///
-/// WindTerm 这一页是**按键编码行为**（Backspace/Delete/Modified keys/Alt/Meta 各自
-/// 怎么发），不是终端类型 / 光标样式——后者在 WindTerm 里分别归 Session 页与全局
-/// Appearance。所以这里按  渲染 WindTerm 的五个控件，全部灰显 + 说明（终端引擎
-/// 目前不消费这些逐会话编码偏好）。这与本文件 `bell`/`mode`/`security` 三页同构。
+/// WindTerm 这一页是**按键编码行为**（Backspace/Delete/Alt/Meta 各自怎么发），
+/// 不是终端类型 / 光标样式。四项已经接真：Backspace/Delete 走
+/// `term_core::keys`，Alt/Meta 由 `modifier_bytes` 编码；`Modified other keys`
+/// 仍灰显——仓库没有第二套线格式（Fixterm），硬造序列会把错字节写进 PTY。
+const MODIFIER_FORMATS: [&str; 2] = ["8-bit characters", "Characters preceded by ESC"];
+
+/// 一个「标签 + 通栏下拉」的按键编码行，返回是否改动。
+fn combo(ui: &mut egui::Ui, id: &str, items: &[&str], selected: &mut usize) -> bool {
+    let mut changed = false;
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(items[*selected])
+        .show_ui(ui, |ui| {
+            for (i, name) in items.iter().enumerate() {
+                if ui.selectable_label(*selected == i, *name).clicked() {
+                    *selected = i;
+                    changed = true;
+                }
+            }
+        });
+    changed
+}
+
 fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut backspace = win.new_session.backspace_sends;
     let mut delete = win.new_session.delete_sends;
+    let mut alt_sends = win.new_session.alt_modifier_sends;
+    let mut meta_sends = win.new_session.meta_modifier_sends;
     let mut modified = 0usize; // XTerm format
+    let mut changed = false;
     grid(ui, "new_session_keyboard_grid", |ui| {
         form_row(ui, "Backspace sends:");
         ui.vertical(|ui| {
@@ -79,26 +100,22 @@ fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         });
         ui.end_row();
         form_row(ui, "Alt modifier key sends:");
-        ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("kbd_alt")
-                .selected_text("8-bit characters")
-                .show_ui(ui, |_ui| {});
-        });
+        changed |= combo(ui, "kbd_alt", &MODIFIER_FORMATS, &mut alt_sends);
         ui.end_row();
         form_row(ui, "Meta modifier key sends:");
-        ui.add_enabled_ui(false, |ui| {
-            egui::ComboBox::from_id_salt("kbd_meta")
-                .selected_text("Characters preceded by ESC")
-                .show_ui(ui, |_ui| {});
-        });
+        changed |= combo(ui, "kbd_meta", &MODIFIER_FORMATS, &mut meta_sends);
         ui.end_row();
     });
     placeholder_note(
         ui,
-        "Backspace and Delete are written into the key encoder at connect time; \
-         the program may still override them with escape sequences. Modified keys, Alt and Meta \
-         have no separate wire-format field yet — see the disabled controls.",
+        "Backspace, Delete, Alt and Meta are written into the key encoder at connect \
+         time; the program may still override them with escape sequences. Modified keys have no \
+         second wire format (Fixterm) in this build — see the disabled control.",
     );
+    if changed {
+        win.new_session.alt_modifier_sends = alt_sends;
+        win.new_session.meta_modifier_sends = meta_sends;
+    }
 }
 
 /// 2 `Terminal ▾ Logging`：视觉基线 `common/08-logging.png` 的完整表单。

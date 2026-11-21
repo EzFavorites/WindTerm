@@ -151,6 +151,8 @@ impl TerminalWindow {
                 initial_cursor_keys_application: false,
                 backspace_sends: 0,
                 delete_sends: 0,
+                alt_modifier_sends: 0,
+                meta_modifier_sends: 1,
                 logon_script: String::new(),
                 cols: term_core::config::DEFAULT_COLS,
                 rows: term_core::config::DEFAULT_ROWS,

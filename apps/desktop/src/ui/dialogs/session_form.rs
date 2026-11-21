@@ -109,6 +109,8 @@ pub(in crate::ui) struct NewSessionData {
     /// `Keyboard ▸ Backspace / Delete sends:` 的两个下标。
     pub(in crate::ui) backspace_sends: usize,
     pub(in crate::ui) delete_sends: usize,
+    pub(in crate::ui) alt_modifier_sends: usize,
+    pub(in crate::ui) meta_modifier_sends: usize,
     /// 登录脚本路径（ADR-0027）。空串 = 这条会话连上后不跑脚本。
     pub(in crate::ui) logon_script: String,
     pub(in crate::ui) cols: usize,
@@ -168,6 +170,8 @@ impl NewSessionData {
             initial_cursor_keys_application: config.initial_cursor_keys_application,
             backspace_sends: config.backspace_sends,
             delete_sends: config.delete_sends,
+            alt_modifier_sends: config.alt_modifier_sends,
+            meta_modifier_sends: config.meta_modifier_sends,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
             selected_page: 0,
@@ -253,6 +257,8 @@ impl NewSessionData {
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;
         c.backspace_sends = self.backspace_sends;
         c.delete_sends = self.delete_sends;
+        c.alt_modifier_sends = self.alt_modifier_sends;
+        c.meta_modifier_sends = self.meta_modifier_sends;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
@@ -641,6 +647,8 @@ mod tests {
         old.initial_cursor_keys_application = true;
         old.backspace_sends = 1;
         old.delete_sends = 2;
+        old.alt_modifier_sends = 1;
+        old.meta_modifier_sends = 0;
         old.sysmon = true;
         let mut f = NewSessionData::from_config(&old);
         assert_eq!(f.system, "windows");
@@ -652,6 +660,8 @@ mod tests {
         assert!(f.initial_cursor_keys_application);
         assert_eq!(f.backspace_sends, 1);
         assert_eq!(f.delete_sends, 2);
+        assert_eq!(f.alt_modifier_sends, 1);
+        assert_eq!(f.meta_modifier_sends, 0);
         assert!(f.sysmon);
 
         // 改一遍再落盘，确认 to_config 写的是表单值而非 base 的旧值。
@@ -664,6 +674,8 @@ mod tests {
         f.initial_cursor_keys_application = false;
         f.backspace_sends = 2;
         f.delete_sends = 0;
+        f.alt_modifier_sends = 0;
+        f.meta_modifier_sends = 1;
         f.sysmon = false;
         let saved = f.to_config(old);
         assert_eq!(saved.system, "macos");
@@ -675,6 +687,8 @@ mod tests {
         assert!(!saved.initial_cursor_keys_application);
         assert_eq!(saved.backspace_sends, 2);
         assert_eq!(saved.delete_sends, 0);
+        assert_eq!(saved.alt_modifier_sends, 0);
+        assert_eq!(saved.meta_modifier_sends, 1);
         assert!(!saved.sysmon);
     }
 
@@ -690,6 +704,8 @@ mod tests {
         assert!(f.sftp_preserve_mtime, "WindTerm 默认保留文件 mtime");
         assert!(f.initial_auto_wrap, "默认自动换行与内核出厂态一致");
         assert!(!f.initial_cursor_keys_application, "默认方向键是 Normal");
+        assert_eq!(f.alt_modifier_sends, 0, "Alt 默认 8-bit characters");
+        assert_eq!(f.meta_modifier_sends, 1, "Meta 默认 ESC 前缀");
         assert!(!f.sysmon, "WindTerm 默认 Sysmon 关");
         assert!(f.shell_command.is_empty(), "Shell 协议未填命令时为空");
     }

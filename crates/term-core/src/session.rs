@@ -156,6 +156,9 @@ fn default_onekey() -> String {
 fn default_true() -> bool {
     true
 }
+fn default_one() -> usize {
+    1
+}
 
 /// 光标周期 / 宽度的反序列化缺省。老会话库没有这两条时回落出厂值，
 /// 行为与「2026-11-19 之前是渲染层常数」时完全一致。
@@ -227,6 +230,12 @@ pub struct SessionConfig {
     /// 2 = DEL）。编码在 `crate::keys::delete_bytes`。
     #[serde(default)]
     pub delete_sends: usize,
+    /// `Keyboard ▸ Alt modifier key sends:`：0 = 8-bit characters（出厂）/ 1 = ESC 前缀。
+    #[serde(default)]
+    pub alt_modifier_sends: usize,
+    /// `Keyboard ▸ Meta modifier key sends:`：0 = 8-bit characters / 1 = ESC 前缀（出厂）。
+    #[serde(default = "default_one")]
+    pub meta_modifier_sends: usize,
     /// 系统监控开关（WindTerm 默认 OFF）。
     #[serde(default)]
     pub sysmon: bool,
@@ -404,6 +413,8 @@ impl SessionConfig {
             initial_cursor_keys_application: false,
             backspace_sends: 0,
             delete_sends: 0,
+            alt_modifier_sends: 0,
+            meta_modifier_sends: 1,
             sysmon: false,
             shell_command: String::new(),
             description: String::new(),

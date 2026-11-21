@@ -58,6 +58,47 @@ pub fn delete_bytes(mode: usize) -> &'static str {
     }
 }
 
+/// Alt / Meta 修饰的单字符编码。
+///
+/// `mode = 0`：8-bit characters，把高位设起来（`a` → `0xE1`）；
+/// 其它值：ESC 前缀（`a` → `ESC a`）。非 ASCII 原样返回——那种字符可能来自
+/// 输入法组合（例如 macOS 的 Option+e 产生 `é`），擅自分高位会造出一个
+/// 两字节的 UTF-8 序列，对端读到的不是任何一个键。
+pub fn modifier_bytes(ch: char, mode: usize) -> Vec<u8> {
+    if !ch.is_ascii() {
+        return ch.to_string().into_bytes();
+    }
+    let byte = ch as u8;
+    if mode == 0 {
+        vec![byte | 0x80]
+    } else {
+        vec![0x1b, byte]
+    }
+}
+
+/// 一帧文本事件在 Alt / Meta 修饰下的最终字节。
+///
+/// `None` = 不是「恰好一个 ASCII 字符 + 恰好一个修饰键」，调用方原样写文本。
+/// 这条判据放在纯层，避免界面里出现两套「Alt+X 该发什么」的逻辑。
+pub fn text_bytes_for_modifiers(
+    text: &str,
+    alt: bool,
+    meta: bool,
+    alt_mode: usize,
+    meta_mode: usize,
+) -> Option<Vec<u8>> {
+    if alt == meta {
+        return None;
+    }
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(ch), None) if ch.is_ascii() => {
+            Some(modifier_bytes(ch, if alt { alt_mode } else { meta_mode }))
+        }
+        _ => None,
+    }
+}
+
 /// 键名 → 字节。认不出来返回 `None`（调用方报参数错，不要静默发空串）。
 ///
 /// `application_cursor_keys` 只影响方向键，其余键名照旧。
@@ -190,6 +231,24 @@ fn alt(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn alt_and_meta_have_two_wire_formats() {
+        assert_eq!(modifier_bytes('a', 0), vec![0xE1]);
+        assert_eq!(modifier_bytes('A', 0), vec![0xC1]);
+        assert_eq!(modifier_bytes('a', 1), vec![0x1b, b'a']);
+        assert_eq!(modifier_bytes('1', 1), vec![0x1b, b'1']);
+        // 输入法合成的非 ASCII 不拆字节，原样交给对端。
+        assert_eq!(modifier_bytes('é', 0), "é".as_bytes().to_vec());
+
+        // 文本层的判据：恰好一个 ASCII 字符 + 恰好一个修饰键才特殊编码。
+        assert_eq!(text_bytes_for_modifiers("a", true, false, 0, 1), Some(vec![0xE1]));
+        assert_eq!(text_bytes_for_modifiers("a", false, true, 0, 1), Some(vec![0x1b, b'a']));
+        assert_eq!(text_bytes_for_modifiers("a", false, false, 0, 1), None);
+        assert_eq!(text_bytes_for_modifiers("a", true, true, 0, 1), None);
+        assert_eq!(text_bytes_for_modifiers("ab", true, false, 0, 1), None);
+        assert_eq!(text_bytes_for_modifiers("é", true, false, 0, 1), None);
+    }
 
     #[test]
     fn backspace_and_delete_have_three_wire_formats() {
