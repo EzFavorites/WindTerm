@@ -546,6 +546,8 @@ pub enum GotoMode {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum GotoAction {
     Open(GotoMode),
+    /// 行模式里 `+N` 的相对基准（当前光标的内容行号），由投影层注入。
+    SetBase(i64),
     SetInput(String),
     /// `total` 是投影层此刻可见的条目数（只读派生值），用来做选中回绕。
     Move(i32, usize),

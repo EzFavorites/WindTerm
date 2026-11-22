@@ -24,6 +24,8 @@ pub struct GotoState {
     pub selected: usize,
     /// 上一次输入解析失败（只由 reducer 写，面板只读）。
     pub error: bool,
+    /// Line 模式 `+N` 的相对基准（当前光标内容行号）。
+    pub line_base: i64,
 }
 
 impl Default for GotoState {
@@ -34,6 +36,7 @@ impl Default for GotoState {
             input: String::new(),
             selected: 0,
             error: false,
+            line_base: 0,
         }
     }
 }
@@ -46,9 +49,20 @@ pub use crate::vocab::GotoAction;
 /// 只允许纯整数（可带前导 `-`），空串 / 空白 / 带单位 / 小数一律拒绝。
 /// 解析在这里做，投影层就不需要第二套「什么算合法行号」的判断（F3 教训）。
 pub fn parse_line(input: &str) -> Option<i64> {
+    parse_line_with_base(input, 0)
+}
+
+/// 带相对基准的解析：`+N` = 当前行往后 N 行，`-N` 仍是回看绝对行号。
+pub fn parse_line_with_base(input: &str, base: i64) -> Option<i64> {
     let s = input.trim();
     if s.is_empty() {
         return None;
+    }
+    if let Some(digits) = s.strip_prefix('+') {
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        return digits.parse::<i64>().ok().map(|n| base + n);
     }
     let digits = s.strip_prefix('-').unwrap_or(s);
     if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
@@ -69,6 +83,10 @@ pub fn parse(id: &str) -> Option<GotoAction> {
 
 pub fn reduce(state: &mut GotoState, action: GotoAction) -> Vec<Effect> {
     match action {
+        GotoAction::SetBase(base) => {
+            state.line_base = base;
+            Vec::new()
+        }
         GotoAction::Open(mode) => {
             state.visible = true;
             state.mode = mode;
@@ -97,7 +115,7 @@ pub fn reduce(state: &mut GotoState, action: GotoAction) -> Vec<Effect> {
             Vec::new()
         }
         GotoAction::Confirm => match state.mode {
-            GotoMode::Line => match parse_line(&state.input) {
+            GotoMode::Line => match parse_line_with_base(&state.input, state.line_base) {
                 Some(row) => {
                     reset(state);
                     vec![Effect::GotoLine(row)]
@@ -152,11 +170,12 @@ mod tests {
     }
 
     #[test]
-    fn line_parsing_accepts_only_plain_integers_with_optional_minus() {
+    fn line_parsing_accepts_only_plain_integers_with_optional_sign() {
         assert_eq!(parse_line("0"), Some(0));
         assert_eq!(parse_line("-12"), Some(-12));
         assert_eq!(parse_line(" 42 "), Some(42));
-        assert_eq!(parse_line("+7"), None, "不带加号，避免和终端行号混淆");
+        // `+N` 是相对当前行的跳转，基准由投影层注入；0 基准下 +7 = 7。
+        assert_eq!(parse_line("+7"), Some(7));
         assert_eq!(parse_line(""), None);
         assert_eq!(parse_line("   "), None);
         assert_eq!(parse_line("12a"), None);

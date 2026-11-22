@@ -22,7 +22,7 @@ impl TerminalWindow {
         let lang = self.lang();
         let disconnected = self.tr(" (disconnected)");
         // 只读派生值：标签标题与当前可回看的历史上限，都由事实状态现算。
-        let labels: Vec<String> = self
+        let entries: Vec<(usize, String)> = self
             .tabs
             .iter()
             .enumerate()
@@ -32,21 +32,37 @@ impl TerminalWindow {
                 } else {
                     format!("{}{disconnected}", tab.config.name)
                 };
-                format!("{} · {}", i + 1, state)
+                (i, format!("{} · {}", i + 1, state))
             })
             .collect();
-        let history = self
-            .tabs
-            .get(self.active_slot())
-            .map(|t| t.snapshot.history as i64)
+        let needle = self.view.goto.input.trim().to_lowercase();
+        // Sessions 模式按输入过滤；targets 把「过滤后第 n 项」映射回真实标签。
+        let filtered: Vec<(usize, String)> = if self.view.goto.mode == GotoMode::Sessions && !needle.is_empty() {
+            entries
+                .into_iter()
+                .filter(|(_, label)| label.to_lowercase().contains(&needle))
+                .collect()
+        } else {
+            entries
+        };
+        let targets: Vec<usize> = filtered.iter().map(|(i, _)| *i).collect();
+        let labels: Vec<String> = filtered.into_iter().map(|(_, label)| label).collect();
+        let active = self.tabs.get(self.active_slot());
+        let history = active.map(|t| t.snapshot.history as i64).unwrap_or(0);
+        // `+N` 的基准是当前光标所在的内容行；视图 range 已经是内容行号。
+        let line_base = active
+            .and_then(|t| t.view.cursor.map(|(row, _)| t.view.range.start + row))
             .unwrap_or(0);
+        if self.view.goto.visible && self.view.goto.line_base != line_base {
+            self.dispatch_action(Action::Goto(GotoAction::SetBase(line_base)));
+        }
 
         let mut actions: Vec<Action> = Vec::new();
         {
             let state = &self.view.goto;
             let input = &mut self.goto_input;
             let mut dispatch = |action: Action| actions.push(action);
-            draw_panel(ctx, state, input, &labels, history, lang, &mut dispatch);
+            draw_panel(ctx, state, input, &labels, &targets, history, lang, &mut dispatch);
         }
         for action in actions {
             self.dispatch_action(action);
@@ -59,6 +75,7 @@ fn draw_panel(
     state: &GotoState,
     input: &mut String,
     labels: &[String],
+    targets: &[usize],
     history: i64,
     lang: Lang,
     dispatch: &mut dyn FnMut(Action),
@@ -90,6 +107,12 @@ fn draw_panel(
         return;
     }
     if enter {
+        // 过滤后的选中下标要映射回真实标签，否则 Confirm 会切到错误的会话。
+        if !is_line {
+            if let Some(target) = selected.and_then(|s| targets.get(s).copied()) {
+                dispatch(Action::Goto(GotoAction::Select(target)));
+            }
+        }
         dispatch(Action::Goto(GotoAction::Confirm));
         return;
     }
@@ -132,7 +155,7 @@ fn draw_panel(
                 for (idx, label) in labels.iter().enumerate() {
                     let row = ui.selectable_label(Some(idx) == selected, label.clone());
                     if row.clicked() {
-                        dispatch(Action::Goto(GotoAction::Select(idx)));
+                        dispatch(Action::Goto(GotoAction::Select(targets.get(idx).copied().unwrap_or(idx))));
                         dispatch(Action::Goto(GotoAction::Confirm));
                     }
                 }
@@ -148,12 +171,14 @@ fn draw_panel(
 
 #[cfg(test)]
 mod tests {
-    use term_app::goto::parse_line;
+    use term_app::goto::{parse_line, parse_line_with_base};
 
     #[test]
     fn line_mode_input_is_parsed_in_the_pure_layer() {
         // 面板不重复实现「什么算合法行号」；这里只复核接线用的纯函数。
         assert_eq!(parse_line("-7"), Some(-7));
         assert_eq!(parse_line("7x"), None);
+        assert_eq!(parse_line_with_base("+3", 10), Some(13));
+        assert_eq!(parse_line_with_base("+x", 10), None);
     }
 }
