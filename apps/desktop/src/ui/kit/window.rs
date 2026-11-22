@@ -73,6 +73,14 @@ impl Chrome {
         title_text: None,
         close: None,
     };
+
+    /// 首次启动的目录选择：深灰标题条 + 亮起的红黄绿三点 + 白色粗标题，无关闭 ×。
+    pub(in crate::ui) const CHOOSER: Self = Self {
+        title_bar: 0x444444,
+        traffic: [0xFF5F57, 0xFEBC2E, 0x28C840],
+        title_text: Some(0xF0F0F0),
+        close: None,
+    };
 }
 
 /// 对话框的**统一表面**：底色 + 圆角 + 1pt 描边 + 投影。

@@ -16,6 +16,8 @@ mod modal;
 // 生命周期与「临时覆盖层」一致：不属于固定框架、不参与停靠、默认不画。
 mod onboarding;
 mod palette;
+// 首次启动的 profile 目录选择。它必须先于 onboarding 完成。
+mod profile_choice;
 // 预览窗（Filer 双击 / 右键「预览」）。同属临时覆盖层：不参与停靠、
 // 默认不画。它与引导的区别是同一个窗口会被反复打开，所以状态（内容 / 纹理）
 // 留在 `PreviewState` 里，绘制只读。
@@ -52,4 +54,10 @@ pub(in crate::ui) fn resolve_ask(modal: &AskModal, answer: term_script::Answer) 
     ask::resolve(modal, answer)
 }
 pub(in crate::ui) use preview::PreviewState;
+pub(in crate::ui) use profile_choice::ProfileChoiceState;
 pub(in crate::ui) use script_editor::ScriptEditorState;
+
+/// 画首次启动的目录选择对话框（关闭时一行都不画）。
+pub(in crate::ui) fn draw_profile_choice(ctx: &egui::Context, win: &mut crate::ui::TerminalWindow) {
+    profile_choice::draw(ctx, win);
+}

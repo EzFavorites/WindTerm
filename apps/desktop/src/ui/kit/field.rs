@@ -97,7 +97,10 @@ fn paint_choice(
     // 此前「选中」走 egui 原生 Checkbox、「未选中」走这份手绘，两者
     // 大小与描边都不同，一眼就能看出不是一组控件。
     let box_side = 12.0;
-    let width = box_side + 6.0 + galley.size().x;
+    // 1pt 描边有一半落在矩形外，而对话框内容区的 clip 从 rect.left() 起——
+    // 整体右移 1pt，左半圈描边才不会被裁掉。
+    let inset = 1.0;
+    let width = inset + box_side + 6.0 + galley.size().x;
     let sense = if interactive {
         egui::Sense::click()
     } else {
@@ -116,7 +119,7 @@ fn paint_choice(
     let ink = ui.visuals().text_color();
     let hovered = interactive && resp.hovered();
     let mark = egui::Rect::from_min_size(
-        egui::pos2(rect.left(), rect.center().y - box_side / 2.0),
+        egui::pos2(rect.left() + inset, rect.center().y - box_side / 2.0),
         egui::vec2(box_side, box_side),
     );
     let stroke = egui::Stroke::new(1.0, ink);
@@ -161,7 +164,7 @@ fn paint_choice(
         }
     }
     p.galley(
-        egui::pos2(rect.left() + box_side + 6.0, rect.center().y - galley.size().y / 2.0),
+        egui::pos2(rect.left() + inset + box_side + 6.0, rect.center().y - galley.size().y / 2.0),
         galley,
         ink,
     );

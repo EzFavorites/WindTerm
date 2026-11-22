@@ -62,6 +62,8 @@ pub(in crate::ui) enum DialogId {
     OneKeys,
     Triggers,
     Onboarding,
+    /// 首次启动的 Choose Profiles Directory 对话框。
+    ProfileChoice,
     Preview,
     ScriptEditor,
     ScriptRun,
@@ -76,14 +78,11 @@ pub(in crate::ui) enum DialogId {
 impl DialogId {
     /// 全部固定尺寸弹窗，供穷举门禁（唯一 key / 正尺寸 / 键盘表）共用。
     pub(in crate::ui) const ALL: &'static [DialogId] = &[
-        DialogId::About, DialogId::NewSession, DialogId::Settings,
-        DialogId::QuickCommands, DialogId::Shortcuts, DialogId::SessionLogging,
-        DialogId::SshConnecting, DialogId::SshHostkey, DialogId::SshPassword,
-        DialogId::SshFailed, DialogId::SshReplaceKey, DialogId::OneKeys,
-        DialogId::Triggers, DialogId::Onboarding, DialogId::Preview,
-        DialogId::ScriptEditor, DialogId::ScriptRun, DialogId::XferPrompt,
-        DialogId::FilerPrompt, DialogId::FilerSyncScan, DialogId::FilerSyncRun,
-        DialogId::FilerSyncReview,
+        DialogId::About, DialogId::NewSession, DialogId::Settings, DialogId::QuickCommands,
+        DialogId::Shortcuts, DialogId::SessionLogging, DialogId::SshConnecting, DialogId::SshHostkey,
+        DialogId::SshPassword, DialogId::SshFailed, DialogId::SshReplaceKey, DialogId::OneKeys,
+        DialogId::Triggers, DialogId::Onboarding, DialogId::ProfileChoice, DialogId::Preview, DialogId::ScriptEditor,
+        DialogId::ScriptRun, DialogId::XferPrompt, DialogId::FilerPrompt, DialogId::FilerSyncScan, DialogId::FilerSyncRun, DialogId::FilerSyncReview,
     ];
 
     /// egui 的稳定 id。
@@ -106,6 +105,7 @@ impl DialogId {
             Self::OneKeys => "onekeys",
             Self::Triggers => "triggers",
             Self::Onboarding => "onboarding",
+            Self::ProfileChoice => "profile_choice",
             Self::Preview => "preview",
             Self::ScriptEditor => "script_editor",
             Self::ScriptRun => "script_run",
@@ -137,6 +137,7 @@ impl DialogId {
             Self::OneKeys => egui::vec2(702.0, 655.0),
             Self::Triggers => egui::vec2(745.0, 510.0),
             Self::Onboarding => egui::vec2(600.0, 380.0),
+            Self::ProfileChoice => egui::vec2(720.0, 300.0),
             Self::Preview => egui::vec2(640.0, 540.0),
             Self::ScriptEditor => egui::vec2(920.0, 630.0),
             // 2026-11-18（脚本库收口）：多出来的是两份清单（脚本库 / 最近用过）。

@@ -111,7 +111,7 @@ impl super::spec::DialogId {
                 lifecycle: DialogLifecycle::Draft,
                 ..DialogKeys::ESC_ONLY
             },
-            D::SshConnecting | D::SshHostkey | D::SshReplaceKey | D::FilerSyncScan
+            D::ProfileChoice | D::SshConnecting | D::SshHostkey | D::SshReplaceKey | D::FilerSyncScan
             | D::FilerSyncReview | D::Onboarding => DialogKeys::ESC_ONLY,
         }
     }

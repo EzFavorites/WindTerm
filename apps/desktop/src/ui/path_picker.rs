@@ -14,6 +14,8 @@ pub(in crate::ui) enum PathTarget {
     BellSound,
     ModemUploadDir,
     ModemDownloadDir,
+    /// 首次启动「Choose Profiles Directory」的指定目录。
+    ProfileDir,
 }
 
 pub(in crate::ui) struct PathPicker {
@@ -50,6 +52,7 @@ fn apply(win: &mut TerminalWindow, target: PathTarget, path: String) {
         PathTarget::BellSound => win.new_session.bell_sound = path,
         PathTarget::ModemUploadDir => win.new_session.modem_upload_dir = path,
         PathTarget::ModemDownloadDir => win.new_session.modem_download_dir = path,
+        PathTarget::ProfileDir => win.profile_choice.custom_dir = path,
     }
 }
 
@@ -60,7 +63,9 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     };
     let title = match picker.target {
         PathTarget::BellSound => "Choose sound file",
-        PathTarget::ModemUploadDir | PathTarget::ModemDownloadDir => "Choose directory",
+        PathTarget::ModemUploadDir | PathTarget::ModemDownloadDir | PathTarget::ProfileDir => {
+            "Choose directory"
+        }
     };
     let mut chosen: Option<String> = None;
     let mut cancel = false;

@@ -354,6 +354,7 @@ pub(in crate::ui) fn window_with(
         // 首次启动引导默认关着；生命周期用例不碰它（探测要读家目录，
         // 用例里也不该依赖那台机器上有没有 `~/.ssh/config`）。
         onboarding: term_app::onboarding::OnboardingState::new(),
+            profile_choice: overlays::ProfileChoiceState::default(),
         // 预览窗默认关着；这些生命周期用例不碰它（打开要读真实文件，
         // 用例里不该依赖那台机器上有哪个文件）。
         preview: Default::default(),
