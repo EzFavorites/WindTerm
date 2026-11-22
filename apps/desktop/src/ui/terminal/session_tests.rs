@@ -33,7 +33,7 @@ fn an_externally_closed_session_turns_the_tab_into_a_disconnected_one() {
     assert!(pool.close(id), "关一条在册的会话必须成功");
 
     let mut commands = Vec::new();
-    let redraw = tab.poll(&[], &mut commands, false, &[]);
+    let redraw = tab.poll(&[], &mut commands, false, &[], &std::collections::HashMap::new());
 
     assert!(redraw, "会话没了是**新事实**，必须要求重绘一次");
     assert!(!tab.is_live(), "标签要转成断开形态，不能永远显示活着");
@@ -59,7 +59,7 @@ fn a_session_that_is_still_in_the_pool_is_left_alone() {
 
     // 连跑几帧：第一帧可能真的带回新事实，之后没有——两种都不该改 `session`。
     for _ in 0..3 {
-        tab.poll(&[], &mut Vec::new(), false, &[]);
+        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
         assert_eq!(tab.session(), Some(id), "在册的会话不许被对账改成断开");
         assert!(tab.is_live());
     }
@@ -80,18 +80,18 @@ fn the_connect_edge_is_reported_once_per_connection_and_consumed() {
     let mut tab = fake_tab(&pool, &ctx, 0, &closes);
     let id = tab.session().expect("夹具应当绑上一条会话");
 
-    tab.poll(&[], &mut Vec::new(), false, &[]);
+    tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
     assert!(tab.take_just_connected(), "首帧是「没连过 → 连着」，必须报边沿");
 
     // 同一次连接里的后续帧不再报：自动日志因此只开一份。
     for _ in 0..3 {
-        tab.poll(&[], &mut Vec::new(), false, &[]);
+        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
         assert!(!tab.take_just_connected(), "同一次连接只配一个边沿");
     }
 
     // 断开那一帧不是「连上」边沿（那是 Disconnect 触发器的活）。
     pool.close(id);
-    tab.poll(&[], &mut Vec::new(), false, &[]);
+    tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
     assert!(!tab.is_live());
     assert!(!tab.take_just_connected(), "断开不该被认成连上");
 }

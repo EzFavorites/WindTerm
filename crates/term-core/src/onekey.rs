@@ -108,6 +108,11 @@ pub fn ki_vault_id(name: &str) -> String {
     format!("onekey:{name}:ki")
 }
 
+/// Account 页 Password 组的 `Send` 应答（密码）也进保险库，不留在 `prefs.json`。
+pub fn autofill_vault_id(name: &str) -> String {
+    format!("onekey:{name}:autofill")
+}
+
 /// 保险库条目里应答的序列化格式：一个 JSON 字符串数组。
 /// 解析失败按空表处理——凭据读不出来时宁可不答，也不能静默发空串冒充。
 pub fn encode_ki_answers(answers: &[String]) -> String {
@@ -211,6 +216,7 @@ mod tests {
         assert_eq!(decode_ki_answers(&raw), answers);
         assert_eq!(decode_ki_answers("not json"), Vec::<String>::new());
         assert_eq!(ki_vault_id("prod"), "onekey:prod:ki");
+        assert_eq!(autofill_vault_id("prod"), "onekey:prod:autofill");
     }
 
     #[test]

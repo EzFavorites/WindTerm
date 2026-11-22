@@ -95,8 +95,8 @@ use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
 pub(in crate::ui) use tr::t; use crate::ui::shell::draw_find_bar; use eframe::egui; use term_app::state::ViewState; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index}; use term_app::log::LogAction;
-use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS}; use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::viewport::Viewport;
-use term_core::grid::{Rgb, GridSnapshot, ScreenImage}; use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
+use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS}; use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::viewport::Viewport; use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
+use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
 use term_core::theme::Palette; use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
 /// Cell padding around the grid, in points.
@@ -323,7 +323,8 @@ pub struct TerminalWindow {
     /// 于是"密码存到隔壁方案上"——静默且很难发现。
     onekeys_password_draft: Option<(String, String)>,
     /// OneKey 键盘交互应答草稿（方案名 → 按提示顺序的答案）。
-    onekeys_ki_draft: Option<(String, Vec<String>)>, tab_list_filter: String,
+    /// Account 页 Password 组的应答草稿（方案名 → 密码），保存时写 vault。
+    onekeys_ki_draft: Option<(String, Vec<String>)>, onekeys_autofill_draft: Option<(String, String)>, tab_list_filter: String,
     /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,
@@ -878,12 +879,14 @@ impl TerminalWindow {
         // 统一处理（tab 层没有 `Action` 分发器）。按下标遍历而非 `&mut self.tabs`
         // 迭代器，以便同时持有一份 `&self.triggers` 不可变借用，互不打架。
         let rules = &self.triggers;
-        let n = self.tabs.len();
+        // Account OneKey 的密码应答在保险库里，Tab 不认识保险库；这里派生一份
+        // 「方案名 → 密码」表给本帧所有标签共用（锁着时是空表，静默跳过）。
+        let n = self.tabs.len(); let autofill = self.onekey_autofill_map();
         let mut run_commands: Vec<String> = Vec::new();
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll(rules, &mut run_commands, self.auto_reconnect, &self.onekeys) {
+            if self.tabs[i].poll(rules, &mut run_commands, self.auto_reconnect, &self.onekeys, &autofill) {
                 changed = true;
             }
         }
@@ -891,7 +894,7 @@ impl TerminalWindow {
         // 一条都不能漏。少了哪一条，它的字节环就没人搬（tap 是无界 channel），
         // 而面板这边还照旧画着上一帧——长输出等于一条静默的内存泄漏。
         for tab in &mut self.shell_tabs {
-            if tab.poll(rules, &mut run_commands, false, &[]) {
+            if tab.poll(rules, &mut run_commands, false, &[], &autofill) {
                 changed = true;
             }
         }

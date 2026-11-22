@@ -398,7 +398,7 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
         // idx 为 None 就直接丢弃——不可持久，但观感与视觉基线一致。
         match edit.tab {
             Tab::Ssh => ssh_editor(win, ui, &mut key, edit),
-            Tab::Account => account_editor(ui, &mut key, &mut edit.show_password_send),
+            Tab::Account => account_editor(win, ui, &mut key, &mut edit.show_password_send),
             Tab::Sessions => sessions_editor(win, ui, &key, &mut edit.session_filter),
         }
         // 「Click the lock to make changes」是硬约束：锁着时页面可以照常看，

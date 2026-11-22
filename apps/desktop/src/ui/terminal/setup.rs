@@ -557,13 +557,13 @@ mod tests {
         assert_eq!(tab.mode, DisplayMode::Text, "出厂是文本模式");
 
         tx.send(b"first chunk".to_vec()).expect("送第一块");
-        assert!(tab.poll(&[], &mut Vec::new(), false, &[]), "环里进了字节，就该说「有新事实」");
+        assert!(tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()), "环里进了字节，就该说「有新事实」");
         assert_eq!(tab.raw.ring.len(), 11, "Text 模式下字节也必须进环");
 
         // 切到 Bin：不清环、不重挂 tap，只换一种画法。历史必须接着算。
         tab.mode = DisplayMode::Bin;
         tx.send(b" more".to_vec()).expect("送第二块");
-        assert!(tab.poll(&[], &mut Vec::new(), false, &[]));
+        assert!(tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()));
         assert_eq!(tab.raw.ring.len(), 16, "切模式不清历史，新字节接着攒");
         assert_eq!(tab.raw.ring.take(0, 16), b"first chunk more".to_vec());
     }

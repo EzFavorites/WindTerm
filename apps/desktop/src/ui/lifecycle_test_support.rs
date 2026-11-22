@@ -250,6 +250,7 @@ pub(in crate::ui) fn window_with(
         onekeys_edit: None,
         onekeys_password_draft: None,
         onekeys_ki_draft: None,
+        onekeys_autofill_draft: None,
         tab_list_filter: String::new(),
         // 测试窗口从「没话说、没崩过」开始。
         notice: None,

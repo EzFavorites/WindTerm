@@ -69,6 +69,7 @@ impl Tab {
         run_commands: &mut Vec<String>,
         auto_reconnect: bool,
         onekeys: &[term_core::onekey::OneKey],
+        autofill: &std::collections::HashMap<String, String>,
     ) -> bool {
         let now = now_secs();
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
@@ -155,7 +156,16 @@ impl Tab {
                         }
                         if term_core::onekey::expect_matches(expect, &text) {
                             self.onekey_expects_fired.insert(expect.expect.clone());
-                            self.write(expect.send.as_bytes());
+                            // Password 组的 Send 不在 prefs（明文），应答从保险库
+                            // 派生的表里取；空串说明没存过，不静默发空密码。
+                            let answer = if expect.send.is_empty() {
+                                autofill.get(&scheme.name).map(String::as_str).unwrap_or("")
+                            } else {
+                                expect.send.as_str()
+                            };
+                            if !answer.is_empty() {
+                                self.write(answer.as_bytes());
+                            }
                         }
                     }
                 }

@@ -446,6 +446,7 @@ impl TerminalWindow {
             onekeys_edit: None,
             onekeys_password_draft: None,
             onekeys_ki_draft: None,
+            onekeys_autofill_draft: None,
             tab_list_filter: String::new(),
             // L1/L3：出厂没有话说、也没有崩过。两条都只由 `announce_recovery`
             // 与 `main.rs` 的 `catch_unwind` 写入。

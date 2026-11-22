@@ -41,6 +41,24 @@ impl TerminalWindow {
         }
     }
 
+    /// Account 页 Password 组的自动应答（保险库里的 `onekey:<name>:autofill`）。
+    pub(in crate::ui) fn onekey_autofill(&self, name: &str) -> Option<String> {
+        self.vault
+            .as_ref()?
+            .find(&onekey::autofill_vault_id(name))
+            .and_then(|e| e.secret())
+            .map(str::to_string)
+    }
+
+    /// 本帧所有 OneKey 方案的密码应答表（方案名 → 密码）。
+    /// `Tab::poll` 不认识保险库，由这里一次性派生，锁着时是空表。
+    pub(in crate::ui) fn onekey_autofill_map(&self) -> std::collections::HashMap<String, String> {
+        self.onekeys
+            .iter()
+            .filter_map(|k| self.onekey_autofill(&k.name).map(|v| (k.name.clone(), v)))
+            .collect()
+    }
+
     /// 这条会话的密码（保险库锁着、没存、条目丢了都返回 `None`）。
     ///
     /// 只读：查不到就是查不到，**不**在这里顺手弹解锁框——连接流程有自己的
@@ -208,6 +226,26 @@ impl TerminalWindow {
                             &id,
                             &name,
                             &onekey::encode_ki_answers(&answers),
+                        ))
+                        .is_ok()
+                    {
+                        if let Ok(bytes) = vault.seal() {
+                            persist::save_vault(&bytes);
+                        }
+                    }
+                }
+            }
+        }
+        // Account 页 Password 组的应答同样是密码：只进 vault，prefs 里那一格
+        // 永远是空串。不这么做就等于把 OneKey 的登录密码明文写进 prefs.json。
+        if let Some((name, password)) = self.onekeys_autofill_draft.take() {
+            if self.vault_unlocked() && names.contains(&name) && !password.is_empty() {
+                if let Some(vault) = self.vault.as_mut() {
+                    if vault
+                        .upsert(Entry::password(
+                            &onekey::autofill_vault_id(&name),
+                            &name,
+                            &password,
                         ))
                         .is_ok()
                     {

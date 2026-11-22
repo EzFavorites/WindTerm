@@ -219,6 +219,7 @@ fn expect_group(
 /// Account 标签：`expects[0]` = Username 组，`expects[1]` = Password 组。
 /// 视觉基线只有这两组；多余的历史条目保留在数据里，不在这一页展示。
 pub(in crate::ui) fn account_editor(
+    win: &mut TerminalWindow,
     ui: &mut egui::Ui,
     key: &mut OneKey,
     show_password: &mut bool,
@@ -243,6 +244,19 @@ pub(in crate::ui) fn account_editor(
         },
         &mut user[0], false, show_password,
     );
+    // Password 组的 Send 是密码：显示时临时从 vault 取，画完立刻放回草稿，
+    // `prefs.json` 里的那一格永远是空串。否则用户按文档把密码填进 Account 页，
+    // 退出时明文就进了 preferences——与保险库模型正面冲突。
+    let stored = std::mem::take(&mut pass[0].send);
+    if let Some(vault) = win.vault.as_ref() {
+        if let Some(secret) = vault
+            .find(&term_core::onekey::autofill_vault_id(&key.name))
+            .and_then(|e| e.secret())
+        {
+            pass[0].send = secret.to_string();
+        }
+    }
+    let before_edit = pass[0].send.clone();
     expect_group(
         ui, o, "Password",
         GroupLayout {
@@ -254,6 +268,10 @@ pub(in crate::ui) fn account_editor(
         },
         &mut pass[0], true, show_password,
     );
+    if pass[0].send != before_edit {
+        win.onekeys_autofill_draft = Some((key.name.clone(), pass[0].send.clone()));
+    }
+    pass[0].send = stored; // 原样放回（空串），明文不进草稿 / prefs
     // 绝对定位不占流式高度。
     ui.advance_cursor_after_rect(egui::Rect::from_min_size(
         o,
