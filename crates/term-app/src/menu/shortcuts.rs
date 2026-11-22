@@ -174,7 +174,63 @@ pub const DEFAULT_SHORTCUT_SEQS: &[SeqShortcut] = &[
         chord: "Alt+W, Alt+G",
         id: "Window.CloseActiveGroup",
     },
+    // 右键菜单 margin 五列：菜单列与这里同源（CONTEXT_SEQ_ROWS），按下去真翻列。
+    SeqShortcut {
+        chord: "Alt+T, Alt+B",
+        id: "Text.MarginBlank",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+N",
+        id: "Text.MarginNumber",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+F",
+        id: "Text.MarginFoldColumn",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+S",
+        id: "Text.MarginSymbol",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+T",
+        id: "Text.MarginTimestamp",
+    },
 ];
+
+/// 右键菜单里显示的两段式键：margin 五列。
+///
+/// 它们不在菜单栏的 `shortcut_text` 表里（右键菜单自成一份），但**必须**与
+/// `DEFAULT_SHORTCUT_SEQS` 的绑定逐字一致——审计里「菜单写着键、按下去不动」
+/// 的那一类偏差就是从这里漏掉的。右键菜单绘制直接读这张表，不再手写字符串。
+pub const CONTEXT_SEQ_ROWS: &[(&str, &str)] = &[
+    ("Text.MarginBlank", "Alt+T, Alt+B"),
+    ("Text.MarginNumber", "Alt+T, Alt+N"),
+    ("Text.MarginFoldColumn", "Alt+T, Alt+F"),
+    ("Text.MarginSymbol", "Alt+T, Alt+S"),
+    ("Text.MarginTimestamp", "Alt+T, Alt+T"),
+];
+
+/// margin 列 → 右键菜单显示（且绑定表已装）的两段式键原文。
+/// UI 按枚举取，不写命令 ID 字面量。
+pub fn margin_seq(part: crate::vocab::MarginPart) -> &'static str {
+    use crate::vocab::MarginPart;
+    let id = match part {
+        MarginPart::Blank => "Text.MarginBlank",
+        MarginPart::Number => "Text.MarginNumber",
+        MarginPart::Fold => "Text.MarginFoldColumn",
+        MarginPart::Symbol => "Text.MarginSymbol",
+        MarginPart::Timestamp => "Text.MarginTimestamp",
+    };
+    context_seq_for(id).unwrap_or("")
+}
+
+/// 右键菜单行 id → 它显示的两段式键原文。
+pub fn context_seq_for(id: &str) -> Option<&'static str> {
+    CONTEXT_SEQ_ROWS
+        .iter()
+        .find(|(candidate, _)| *candidate == id)
+        .map(|(_, chord)| *chord)
+}
 
 /// 绑定表里按和弦查一条命令 ID（投影层捕获按键后调用）。
 pub fn shortcut_for(chord_text: &str) -> Option<&'static str> {

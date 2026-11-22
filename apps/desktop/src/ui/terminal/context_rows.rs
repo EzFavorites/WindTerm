@@ -597,14 +597,15 @@ pub(in crate::ui) fn margin_rows(
         separator: false,
     };
     vec![
-        mk(t(lang, "Margin Blank"), "Alt+T, Alt+B", Some(Work::Margin(MarginPart::Blank)), margin.get(MarginPart::Blank)),
-        mk(t(lang, "Margin Number"), "Alt+T, Alt+N", Some(Work::Margin(MarginPart::Number)), margin.get(MarginPart::Number)),
+        // 键位原文取 `term-app` 那张表——与绑定表同源，菜单写着什么就真能按出什么。
+        mk(t(lang, "Margin Blank"), term_app::menu::margin_seq(MarginPart::Blank), Some(Work::Margin(MarginPart::Blank)), margin.get(MarginPart::Blank)),
+        mk(t(lang, "Margin Number"), term_app::menu::margin_seq(MarginPart::Number), Some(Work::Margin(MarginPart::Number)), margin.get(MarginPart::Number)),
         // 2026-11-19：折叠引擎（2026-11-14 接通）已有折叠头绘制读者
         // （`terminal/margin.rs::is_fold_head`），这里缺的只是一行 Work——
         // 与上下四列开关同走 `Action::Margin(Toggle(Fold))`，接真。
-        mk(t(lang, "Margin Fold"), "Alt+T, Alt+F", Some(Work::Margin(MarginPart::Fold)), margin.get(MarginPart::Fold)),
-        mk(t(lang, "Margin Symbol"), "Alt+T, Alt+S", Some(Work::Margin(MarginPart::Symbol)), margin.get(MarginPart::Symbol)),
-        mk(t(lang, "Margin Timestamp"), "Alt+T, Alt+T", Some(Work::Margin(MarginPart::Timestamp)), margin.get(MarginPart::Timestamp)),
+        mk(t(lang, "Margin Fold"), term_app::menu::margin_seq(MarginPart::Fold), Some(Work::Margin(MarginPart::Fold)), margin.get(MarginPart::Fold)),
+        mk(t(lang, "Margin Symbol"), term_app::menu::margin_seq(MarginPart::Symbol), Some(Work::Margin(MarginPart::Symbol)), margin.get(MarginPart::Symbol)),
+        mk(t(lang, "Margin Timestamp"), term_app::menu::margin_seq(MarginPart::Timestamp), Some(Work::Margin(MarginPart::Timestamp)), margin.get(MarginPart::Timestamp)),
         sep(),
         // Symbols / White Spaces / Folds：View 里同名（未接线），手绘灰显箭头行。
         sub(t(lang, "Symbols"), Some(0)),

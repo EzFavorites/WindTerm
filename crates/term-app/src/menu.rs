@@ -46,7 +46,8 @@ pub use bars::{
     TAB_NEW_TAB_ID, TAB_TOOLS, TUNNEL_ITEMS, ZOOM_ITEMS,
 };
 pub use shortcuts::{
-    shortcut_for, shortcut_text, SeqShortcut, Shortcut, DEFAULT_SHORTCUTS, DEFAULT_SHORTCUT_SEQS,
+    context_seq_for, margin_seq, shortcut_for, shortcut_text, SeqShortcut, Shortcut,
+    CONTEXT_SEQ_ROWS, DEFAULT_SHORTCUTS, DEFAULT_SHORTCUT_SEQS,
 };
 pub use tree::menus;
 

@@ -596,6 +596,13 @@ fn the_sequence_table_equals_the_menu_columns_two_segment_rows() {
         .into_iter()
         .map(|(id, shown)| (id, canonical_seq(id, shown)))
         .filter(|(_, seq)| seq.len() > 1)
+        // 右键菜单的两段式键不在菜单栏的 shortcut_text 里，但在同一张绑定表
+        // 里；它们也算「菜单写着键」的那一类，必须一起参与精确比对。
+        .chain(
+            crate::menu::shortcuts::CONTEXT_SEQ_ROWS
+                .iter()
+                .map(|(id, shown)| (*id, canonical_seq(id, shown))),
+        )
         .collect();
 
     let added: Vec<String> = from_table
@@ -630,6 +637,11 @@ fn the_wired_sequences_are_exactly_the_ones_missing_from_known_unwired() {
         .into_iter()
         .filter(|(id, shown)| canonical_seq(id, shown).len() > 1)
         .map(|(id, _)| id)
+        .chain(
+            crate::menu::shortcuts::CONTEXT_SEQ_ROWS
+                .iter()
+                .map(|(id, _)| *id),
+        )
         .collect();
     let expected: BTreeSet<&str> = two_segment.difference(&unwired).copied().collect();
     let wired: BTreeSet<&str> = DEFAULT_SHORTCUT_SEQS
