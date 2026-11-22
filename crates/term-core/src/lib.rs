@@ -61,5 +61,6 @@ pub mod theme;
 mod theme_font;
 mod theme_json;
 pub mod trigger;
+mod trigger_expand;
 pub mod vt;
 pub mod width;

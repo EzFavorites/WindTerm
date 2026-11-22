@@ -508,12 +508,9 @@ pub struct Hit {
 }
 
 impl Hit {
+    /// 造一次命中，并把 `${match}` 展开成这次真正匹配到的文本。
     pub fn new(rule: &Rule, matched: String) -> Self {
-        Self {
-            rule_id: rule.id.clone(),
-            actions: rule.actions.clone(),
-            matched,
-        }
+        crate::trigger_expand::hit_with(rule, matched)
     }
 }
 
