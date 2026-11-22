@@ -24,6 +24,10 @@ pub(in crate::ui) struct VaultForm {
     pub(in crate::ui) password: String,
     pub(in crate::ui) confirm: String,
     pub(in crate::ui) error: Option<String>,
+    /// 解锁后的「改主密码」表单：展开时显示新密码 + 确认两格。
+    pub(in crate::ui) changing: bool,
+    pub(in crate::ui) new_password: String,
+    pub(in crate::ui) new_confirm: String,
 }
 
 impl TerminalWindow {
@@ -68,6 +72,33 @@ impl TerminalWindow {
         let id = persist::vault_entry(session)?;
         let entry = vault.find(&id)?;
         entry.secret().map(|s| s.to_string())
+    }
+
+    /// 改主密码。`Vault::change_password` 只换内存里的密钥和 KDF 盐，
+    /// 必须紧接着 `seal()` 落盘，否则下次解锁还是旧密码。
+    pub(in crate::ui) fn submit_change_password(&mut self) {
+        if self.vault_form.new_password != self.vault_form.new_confirm {
+            self.vault_form.error = Some("两次输入的新主密码不一致".to_string());
+            return;
+        }
+        let Some(vault) = self.vault.as_mut() else {
+            return;
+        };
+        if let Err(e) = vault.change_password(&self.vault_form.new_password) {
+            self.vault_form.error = Some(e.to_string());
+            return;
+        }
+        match vault.seal() {
+            Ok(bytes) if persist::save_vault(&bytes) => {
+                self.vault_form.changing = false;
+                self.vault_form.new_password.clear();
+                self.vault_form.new_confirm.clear();
+                self.vault_form.error = None;
+                self.log_note = Some("Master password changed".to_string());
+            }
+            Ok(_) => self.vault_form.error = Some("写不进保险库文件".to_string()),
+            Err(e) => self.vault_form.error = Some(e.to_string()),
+        }
     }
 
     /// 解锁 / 创建。`creating` 由调用方按 `persist::has_vault ` 决定。
@@ -288,8 +319,31 @@ impl TerminalWindow {
             ui.strong(self.vault_status());
         });
         if self.vault_unlocked() {
-            if ui.button("Lock vault").clicked() {
-                self.lock_vault();
+            ui.horizontal(|ui| {
+                if ui.button("Lock vault").clicked() {
+                    self.lock_vault();
+                }
+                if ui.button("Change master password").clicked() {
+                    self.vault_form.changing = !self.vault_form.changing;
+                }
+            });
+            if self.vault_form.changing {
+                heading(ui, "New master password:");
+                ui.add_sized(
+                    egui::vec2(FORM_W, ROW_H),
+                    TextEdit::singleline(&mut self.vault_form.new_password).password(true),
+                );
+                heading(ui, "Again:");
+                ui.add_sized(
+                    egui::vec2(FORM_W, ROW_H),
+                    TextEdit::singleline(&mut self.vault_form.new_confirm).password(true),
+                );
+                if ui.button("Change password").clicked() {
+                    self.submit_change_password();
+                }
+                if let Some(error) = &self.vault_form.error {
+                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
+                }
             }
             ui.add(
                 egui::Label::new(
