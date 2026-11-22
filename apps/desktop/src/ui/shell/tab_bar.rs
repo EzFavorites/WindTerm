@@ -290,7 +290,18 @@ impl TerminalWindow {
                             ui,
                             egui::Button::new("").frame(false).min_size(rect.size()),
                             |ui| {
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.tab_list_filter)
+                                        .hint_text("Filter sessions")
+                                        .desired_width(160.0),
+                                );
+                                let needle = self.tab_list_filter.trim().to_lowercase();
                                 for (i, (title, _)) in labels.iter().enumerate() {
+                                    if !needle.is_empty()
+                                        && !title.to_lowercase().contains(&needle)
+                                    {
+                                        continue;
+                                    }
                                     if ui
                                         .selectable_label(i == active, title.as_str())
                                         .clicked()

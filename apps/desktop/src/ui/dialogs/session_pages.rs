@@ -124,14 +124,23 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         PROXY_JUMP => {
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Jump & identity:").strong());
+            let mut hops: Vec<String> = win
+                .new_session
+                .proxy_jump
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .collect();
+            hops.resize(4, String::new());
             grid(ui, "new_session_jump_grid", |ui| {
-                form_row(ui, "ProxyJump chain:");
-                ui.add(
-                    TextEdit::singleline(&mut win.new_session.proxy_jump)
-                        .hint_text("bastion.example.com,user@jump2:2222")
-                        .desired_width(FIELD_W),
-                );
-                ui.end_row();
+                for i in 0..4 {
+                    form_row(ui, &format!("Jump {}:", i + 1));
+                    ui.add(
+                        TextEdit::singleline(&mut hops[i])
+                            .hint_text(if i == 0 { "bastion.example.com" } else { "user@jump2:2222" })
+                            .desired_width(FIELD_W),
+                    );
+                    ui.end_row();
+                }
                 // IdentityFile 与 agent 的完整控件在 `Public Keys` 页（页 10）；
                 // 这里保留 Proxy 页需要的 Jump 链，不重复画同一个输入框。
                 info_row(
@@ -140,6 +149,12 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                     if win.new_session.agent_forward { "on (-A)" } else { "off" },
                 );
             });
+            win.new_session.proxy_jump = hops
+                .into_iter()
+                .map(|h| h.trim().to_string())
+                .filter(|h| !h.is_empty())
+                .collect::<Vec<_>>()
+                .join(",");
         }
         _ => {
             // HTTP / SOCKS5：Host / Port / Proxy command / DNS lookup 都是真控件。
