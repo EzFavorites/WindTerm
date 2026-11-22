@@ -153,6 +153,7 @@ pub mod tmux_layout;
 #[cfg(feature = "planned")]
 pub mod trigger;
 pub mod trigger_builtins;
+pub mod trigger_queue;
 
 // Trigger 的简化正则（分组 / 选择都不支持）；只在 `trigger` 内部使用。
 #[cfg(feature = "planned")]

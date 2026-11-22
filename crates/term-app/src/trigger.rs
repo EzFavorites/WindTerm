@@ -44,11 +44,41 @@ pub struct Matcher {
     idle_fired: HashSet<String>,
     before_connect_fired: HashSet<String>,
     before_disconnect_fired: HashSet<String>,
+    /// 等提示符 / 换行 / Send Later 的命中。
+    queue: crate::trigger_queue::TriggerQueue,
 }
 
 impl Matcher {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 把一批命中按 Send Condition / Send Later 排队；立即放行的原样返回。
+    pub fn schedule(&mut self, hits: Vec<Hit>, rules: &[Rule], now: u64) -> Vec<Hit> {
+        self.queue.schedule(hits, rules, now)
+    }
+
+    /// 提示符到达：放行等 Prompt 的命中，顺带收下已到期的 Send Later。
+    pub fn on_prompt(&mut self, now: u64) -> Vec<Hit> {
+        let mut out = self.queue.on_event(term_core::trigger_schedule::Gate::Prompt);
+        out.extend(self.queue.due(now));
+        out
+    }
+
+    /// 换行到达：放行等 LineBreak 的命中，顺带收下已到期的 Send Later。
+    pub fn on_line_break(&mut self, now: u64) -> Vec<Hit> {
+        let mut out = self.queue.on_event(term_core::trigger_schedule::Gate::LineBreak);
+        out.extend(self.queue.due(now));
+        out
+    }
+
+    /// 仅检查 Send Later 是否到期（宿主空闲时也要调用，不能只靠输出事件）。
+    pub fn due(&mut self, now: u64) -> Vec<Hit> {
+        self.queue.due(now)
+    }
+
+    pub fn pending_count(&self) -> usize {
+        self.queue.len()
     }
 
     /// 喂一段输出；返回本轮命中的规则（按 `rules` 顺序，保证稳定）。
