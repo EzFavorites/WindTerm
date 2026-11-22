@@ -23,6 +23,8 @@
 //! 「永远 `finished == false`」这类故障，只能在测试里把会话掐掉。
 #![allow(dead_code)]
 
+#[path = "../src/xfer_conflict.rs"]
+mod xfer_conflict;
 #[path = "../src/xfer_run.rs"]
 mod xfer_run;
 

@@ -27,6 +27,8 @@
 // 集成测试只能看到 crate 的 **lib** 目标，而 desk 是纯 bin（没有 lib.rs）。
 // 用 `#[path]` 把驱动模块直接编进本测试二进制：测的就是 `src/` 里那份源码，
 // 不复制、不改造。模块里的私有项（`resolve_name`）也因此在同一 crate 内可见。
+#[path = "../src/xfer_conflict.rs"]
+mod xfer_conflict;
 #[path = "../src/xfer_run.rs"]
 // 本测试二进制只用到驱动面的一部分（比如不跑 XMODEM-1K）；模块里其余公开项
 // 在 bin 里由 `main.rs` 的 `#![allow(dead_code)]` 统一豁免，这里补同一条。

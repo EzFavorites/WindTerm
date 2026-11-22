@@ -200,6 +200,18 @@ impl XferHandle {
         protocol: XferProtocol,
         target: PathBuf,
     ) -> Result<Self, String> {
+        Self::start_with_policy(pool, session, kind, protocol, target, Default::default())
+    }
+
+    /// 带同名冲突策略的入口；UI 重构完成后由设置页把选择传进来。
+    pub fn start_with_policy(
+        pool: Arc<SessionPool>,
+        session: SessionId,
+        kind: XferKind,
+        protocol: XferProtocol,
+        target: PathBuf,
+        policy: crate::xfer_conflict::ConflictPolicy,
+    ) -> Result<Self, String> {
         if pool.state(session).is_none() {
             return Err(format!("控制面里查不到这个会话（id={session}）"));
         }
@@ -291,7 +303,7 @@ impl XferHandle {
                         pool: pool.clone(),
                         session,
                     };
-                    run(pool, session, engine, progress, cancel, sink_rx, dir, kind);
+                    run(pool, session, engine, progress, cancel, sink_rx, dir, kind, policy);
                 })
         };
         let join = match spawned {
@@ -638,6 +650,9 @@ pub(crate) struct Sink<'a> {
     pub(crate) mtime: Option<u32>,
     /// 当前文件对端给的权限位。**只记录不落盘**，见 [`Sink::close`]。
     pub(crate) mode: Option<u32>,
+    pub(crate) policy: crate::xfer_conflict::ConflictPolicy,
+    /// `Skip` 命中：字节照收但丢弃，不建文件。
+    pub(crate) skipping: bool,
 }
 
 impl Sink<'_> {
@@ -656,6 +671,31 @@ impl Sink<'_> {
         };
         self.close()?;
         let path = dir.join(&name);
+        let existing = std::fs::metadata(&path).ok().map(|m| {
+            crate::xfer_conflict::Existing {
+                modified_secs: m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs()),
+                len: m.len(),
+            }
+        });
+        let path = match crate::xfer_conflict::decide(
+            &path,
+            existing,
+            meta.mtime,
+            None,
+            self.policy,
+        ) {
+            crate::xfer_conflict::Decision::Write(path) => path,
+            crate::xfer_conflict::Decision::Skip => {
+                self.skipping = true;
+                self.mtime = meta.mtime;
+                self.mode = meta.mode;
+                return Ok(());
+            }
+        };
         let file = OpenOptions::new()
             .create(true)
             .write(true)
@@ -669,6 +709,9 @@ impl Sink<'_> {
     }
 
     pub(crate) fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
+        if self.skipping {
+            return Ok(());
+        }
         let Some((path, file)) = self.file.as_mut() else {
             return Err("还没收到文件头就收到了数据".to_string());
         };
@@ -688,6 +731,12 @@ impl Sink<'_> {
     /// 超出本次范围。所以这里只是显式消费它（`take()`），让「读到了但决定不用」
     /// 在代码里可见，而不是悄悄丢掉。
     pub(crate) fn close(&mut self) -> Result<(), String> {
+        if self.skipping {
+            self.skipping = false;
+            self.mtime = None;
+            self.mode = None;
+            return Ok(());
+        }
         let Some((path, mut file)) = self.file.take() else {
             return Ok(());
         };
@@ -721,6 +770,7 @@ fn run(
     rx: mpsc::Receiver<Vec<u8>>,
     dir: Option<PathBuf>,
     kind: XferKind,
+    policy: crate::xfer_conflict::ConflictPolicy,
 ) {
     let mut sink = Sink {
         pool: &pool,
@@ -729,6 +779,8 @@ fn run(
         file: None,
         mtime: None,
         mode: None,
+        policy,
+        skipping: false,
     };
     let mut step = pump(begin(&engine), &mut sink, &progress);
     refresh(&engine, &progress, kind);

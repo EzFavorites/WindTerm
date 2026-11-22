@@ -51,6 +51,7 @@ mod new_window;
 mod theme;
 mod ui;
 // 文件传输驱动（XMODEM / YMODEM 跑在后台线程上，界面只持不透明句柄）。
+mod xfer_conflict;
 mod xfer_run;
 // 目录同步的组装层（两端清单 → `term_xfer::sync` 的计划）。放这里而不是
 // 任何一个 crate 里：`term-xfer` 零依赖、`term-sftp` 不认识 `SyncOp`，映射只能在

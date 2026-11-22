@@ -43,6 +43,8 @@
 
 // 集成测试只能看到 crate 的 **lib** 目标，而 desk 是纯 bin（没有 lib.rs）。
 // 用 `#[path]` 把驱动模块直接编进本测试二进制：测的就是 `src/` 里那份源码。
+#[path = "../src/xfer_conflict.rs"]
+mod xfer_conflict;
 #[path = "../src/xfer_run.rs"]
 #[allow(dead_code)]
 mod xfer_run;
@@ -522,6 +524,8 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             file: None,
             mtime: None,
             mode: None,
+            policy: xfer_conflict::ConflictPolicy::Overwrite,
+            skipping: false,
         };
         sink.open(
             "with.bin",
@@ -550,6 +554,8 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             file: None,
             mtime: None,
             mode: None,
+            policy: xfer_conflict::ConflictPolicy::Overwrite,
+            skipping: false,
         };
         sink.open(name, xfer_run::FileMeta { mtime, mode: None })
             .expect("开文件");
