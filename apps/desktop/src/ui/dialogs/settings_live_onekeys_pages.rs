@@ -17,7 +17,6 @@
 use super::dialog_chrome::{dark_field, fill_field, place, rgb};
 use crate::ui::*;
 use term_core::onekey::{ExpectFlags, ExpectSend, OneKey};
-use term_core::session::SessionConfig;
 
 const PANEL_W: f32 = 420.0;
 const BOX_W: f32 = 420.5;
@@ -302,10 +301,12 @@ fn session_glyph(p: &egui::Painter, center: egui::Pos2, name: &str) {
     }
 }
 
-/// Sessions 标签：整宽 Filter + `Session | OneKey` 两列表格（只读）。
-/// 分配关系归会话表单的 OneKey 下拉管，这里改就是双写（见旧版注释）。
+/// Sessions 标签：整宽 Filter + `Session | OneKey` 两列表格。
+/// 点一行即可把当前方案分配给该会话（再点一次撤销）；会话表单里的下拉
+/// 读的是同一个 `SessionConfig.onekey`，所以这里不是双写，而是同一份数据的
+/// 第二个入口。
 pub(in crate::ui) fn sessions_editor(
-    win: &TerminalWindow,
+    win: &mut TerminalWindow,
     ui: &mut egui::Ui,
     key: &OneKey,
     filter: &mut String,
@@ -369,12 +370,14 @@ pub(in crate::ui) fn sessions_editor(
     );
 
     let needle = filter.trim().to_lowercase();
-    let assigned: Vec<&SessionConfig> = win
+    let assigned: Vec<(usize, String, String)> = win
         .sessions
         .iter()
-        .filter(|c| needle.is_empty() || c.name.to_lowercase().contains(&needle))
+        .enumerate()
+        .filter(|(_, c)| needle.is_empty() || c.name.to_lowercase().contains(&needle))
+        .map(|(idx, c)| (idx, c.name.clone(), c.onekey.clone()))
         .collect();
-    for (i, c) in assigned.iter().enumerate() {
+    for (i, (session_idx, name, onekey)) in assigned.iter().enumerate() {
         let ry = head.bottom() + i as f32 * ROW_H;
         if ry + ROW_H > table.bottom() {
             break;
@@ -387,15 +390,15 @@ pub(in crate::ui) fn sessions_editor(
             p.rect_filled(row, egui::Rounding::ZERO, rgb(0x2E2E2E));
         }
         let cy = row.center().y;
-        session_glyph(&p, egui::pos2(row.left() + 20.0, cy), &c.name);
+        session_glyph(&p, egui::pos2(row.left() + 20.0, cy), name);
         p.text(
             egui::pos2(row.left() + 36.0, cy),
             egui::Align2::LEFT_CENTER,
-            &c.name,
+            name,
             font.clone(),
             rgb(0xC8C8C8),
         );
-        let value = if c.onekey.is_empty() { "None" } else { &c.onekey };
+        let value = if onekey.is_empty() { "None" } else { onekey.as_str() };
         p.text(
             egui::pos2(divider + 10.0, cy),
             egui::Align2::LEFT_CENTER,
@@ -403,7 +406,20 @@ pub(in crate::ui) fn sessions_editor(
             font.clone(),
             rgb(0xC8C8C8),
         );
+        if ui
+            .interact(row, egui::Id::new(("onekey_assign", *session_idx)), egui::Sense::click())
+            .on_hover_text("Click to assign / unassign this OneKey scheme")
+            .clicked()
+        {
+            if let Some(config) = win.sessions.get_mut(*session_idx) {
+                config.onekey = if onekey == &key.name {
+                    "None".to_string()
+                } else {
+                    key.name.clone()
+                };
+                win.save_sessions();
+            }
+        }
     }
-    let _ = key; // 只读页：当前方案名只用于调用方签名一致。
     ui.advance_cursor_after_rect(egui::Rect::from_min_size(o, egui::vec2(PANEL_W + 264.0, TABLE_TOP + 551.0)));
 }
