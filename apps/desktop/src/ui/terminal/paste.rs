@@ -27,9 +27,10 @@ impl TerminalWindow {
             return;
         };
         let written = tab.write_paste(text);
+        let scope = tab.config.system.clone();
         // `tab` 的借用到这里结束，才轮得到窗口级的命令行历史。
         for line in written.lines {
-            self.command_history.push(&line, now_secs());
+            self.command_history.push_for(&line, &scope, now_secs());
         }
     }
 }

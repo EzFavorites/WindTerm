@@ -24,6 +24,10 @@ use serde::{Deserialize, Serialize};
 struct Entry {
     ts: u64,
     line: String,
+    /// 所属系统/会话（文档要求「同系统分组」）。老文件缺键时为空串，
+    /// 与无分组的历史完全等价。
+    #[serde(default)]
+    scope: String,
 }
 
 /// 命令行历史存储。内存态 + 序列化，无副作用。
@@ -51,7 +55,7 @@ impl CommandHistory {
     pub fn from_entries(entries: Vec<(u64, String)>, capacity: usize, ttl_days: u64) -> Self {
         let entries = entries
             .into_iter()
-            .map(|(ts, line)| Entry { ts, line })
+            .map(|(ts, line)| Entry { ts, line, scope: String::new() })
             .collect();
         let mut h = Self {
             entries,
@@ -64,23 +68,44 @@ impl CommandHistory {
         h
     }
 
-    /// 记录一行输入。`now` 为调用方注入的纪元秒。
-    ///
-    /// - 空行（仅空白 / 仅回车）忽略；
-    /// - 与最新一条相同则只更新其时间戳（去重），不新增条目；
-    /// - 否则追加到末尾，随后按 TTL 与容量裁剪。
+    /// 以带分组的条目重建（宿主从磁盘反序列化后用）。
+    pub fn from_scoped_entries(
+        entries: Vec<(u64, String, String)>,
+        capacity: usize,
+        ttl_days: u64,
+    ) -> Self {
+        let entries = entries
+            .into_iter()
+            .map(|(ts, line, scope)| Entry { ts, line, scope })
+            .collect();
+        let mut h = Self { entries, capacity, ttl_days };
+        let now = h.entries.last().map(|e| e.ts).unwrap_or(0);
+        h.trim_ttl(now);
+        h.trim_to_capacity();
+        h
+    }
+
+    /// 记录一行输入（无分组，兼容旧调用方）。
     pub fn push(&mut self, line: &str, now: u64) {
+        self.push_for(line, "", now);
+    }
+
+    /// 带系统/会话分组的记录。去重只在**同一 scope** 内进行——
+    /// 两台机器敲同一条命令不该互相吞掉历史。
+    pub fn push_for(&mut self, line: &str, scope: &str, now: u64) {
         let line = line.trim_end_matches(['\n', '\r']).to_string();
         if line.trim().is_empty() {
             return;
         }
+        // 只对**紧邻**的上一条同 scope 同命令去重：中间夹了别的系统/命令
+        // 就算新一轮输入，不能把上上条老记录的时间戳悄悄改掉。
         if let Some(last) = self.entries.last_mut() {
-            if last.line == line {
+            if last.scope == scope && last.line == line {
                 last.ts = now;
                 return;
             }
         }
-        self.entries.push(Entry { ts: now, line });
+        self.entries.push(Entry { ts: now, line, scope: scope.to_string() });
         self.trim_ttl(now);
         self.trim_to_capacity();
     }
@@ -140,6 +165,100 @@ impl CommandHistory {
             .collect()
     }
 
+    /// 某个系统/会话的最近 `limit` 条（最新在前）。空 scope = 不过滤。
+    pub fn recent_for(&self, scope: &str, limit: usize) -> Vec<&str> {
+        if scope.is_empty() {
+            return self.recent(limit);
+        }
+        self.entries
+            .iter()
+            .rev()
+            .filter(|e| e.scope == scope)
+            .take(limit)
+            .map(|e| e.line.as_str())
+            .collect()
+    }
+
+    /// 某个系统/会话的最近 `limit` 条（带时间戳）。空 scope = 不过滤。
+    pub fn recent_with_ts_for(&self, scope: &str, limit: usize) -> Vec<(&str, u64)> {
+        if scope.is_empty() {
+            return self.recent_with_ts(limit);
+        }
+        self.entries
+            .iter()
+            .rev()
+            .filter(|e| e.scope == scope)
+            .take(limit)
+            .map(|e| (e.line.as_str(), e.ts))
+            .collect()
+    }
+
+    /// 某个系统/会话的子串检索（最新在前）。空 scope = 不过滤。
+    pub fn search_for(&self, scope: &str, query: &str) -> Vec<&str> {
+        if scope.is_empty() {
+            return self.search(query);
+        }
+        if query.is_empty() {
+            return self.recent_for(scope, usize::MAX);
+        }
+        self.entries
+            .iter()
+            .rev()
+            .filter(|e| e.scope == scope && e.line.contains(query))
+            .map(|e| e.line.as_str())
+            .collect()
+    }
+
+    /// `!` 历史展开：`!!` / `!N` / `!-N` / `!prefix`。
+    /// 找不到就 `None`，调用方原样保留输入——绝不静默执行一条猜出来的命令。
+    pub fn expand_bang(&self, input: &str) -> Option<String> {
+        let token = input.strip_prefix('!')?;
+        if token == "!" {
+            return self.entries.last().map(|e| e.line.clone());
+        }
+        if token.is_empty() || token.starts_with('!') {
+            return None;
+        }
+        if let Ok(n) = token.parse::<usize>() {
+            if n == 0 {
+                return None;
+            }
+            return self.entries.get(n - 1).map(|e| e.line.clone());
+        }
+        if let Ok(n) = token.parse::<i64>() {
+            if n >= 0 {
+                return None;
+            }
+            let idx = self.entries.len() as i64 + n;
+            if idx < 0 {
+                return None;
+            }
+            return self.entries.get(idx as usize).map(|e| e.line.clone());
+        }
+        self.entries
+            .iter()
+            .rev()
+            .find(|e| e.line.starts_with(token))
+            .map(|e| e.line.clone())
+    }
+
+    /// Ctrl+R 反向检索：返回 `after` 之前（更旧）的那一条匹配。
+    pub fn search_reverse_from(&self, query: &str, after: Option<&str>) -> Option<&str> {
+        let mut seen_after = after.is_none();
+        for entry in self.entries.iter().rev() {
+            if !entry.line.contains(query) {
+                continue;
+            }
+            if seen_after {
+                return Some(entry.line.as_str());
+            }
+            if Some(entry.line.as_str()) == after {
+                seen_after = true;
+            }
+        }
+        None
+    }
+
     /// 当前条目数。
     pub fn len(&self) -> usize {
         self.entries.len()
@@ -178,6 +297,46 @@ impl CommandHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scoped_history_keeps_systems_apart_and_expands_bangs() {
+        let mut h = CommandHistory::new(100, 0);
+        h.push_for("ls -la", "linux", 1);
+        h.push_for("dir", "windows", 2);
+        h.push_for("pwd", "linux", 3);
+        assert_eq!(h.recent_for("linux", 10), vec!["pwd", "ls -la"]);
+        assert_eq!(h.search_for("windows", ""), vec!["dir"]);
+        // `!!` 取全局最近一条；`!前缀` 也按全局最近匹配。
+        assert_eq!(h.expand_bang("!!").as_deref(), Some("pwd"));
+        assert_eq!(h.expand_bang("!ls").as_deref(), Some("ls -la"));
+        assert_eq!(h.expand_bang("!2").as_deref(), Some("dir"));
+        assert_eq!(h.expand_bang("!-2").as_deref(), Some("dir"));
+        assert_eq!(h.expand_bang("!nope"), None, "找不到就原样留给调用方");
+    }
+
+    #[test]
+    fn dedupe_is_scoped_to_one_system() {
+        let mut h = CommandHistory::new(100, 0);
+        h.push_for("same", "linux", 1);
+        h.push_for("same", "windows", 2);
+        h.push_for("same", "linux", 3);
+        assert_eq!(h.len(), 3, "同命令在不同系统各记一次，同系统连续才去重");
+        assert_eq!(h.expand_bang("!!").as_deref(), Some("same"));
+    }
+
+    #[test]
+    fn ctrl_r_walks_backwards_one_match_at_a_time() {
+        let mut h = CommandHistory::new(100, 0);
+        h.push("echo one", 1);
+        h.push("other", 2);
+        h.push("echo two", 3);
+        assert_eq!(h.search_reverse_from("echo", None).map(str::to_string), Some("echo two".into()));
+        assert_eq!(
+            h.search_reverse_from("echo", Some("echo two")).map(str::to_string),
+            Some("echo one".into())
+        );
+        assert_eq!(h.search_reverse_from("echo", Some("echo one")), None);
+    }
 
     #[test]
     fn push_and_recent_newest_first() {

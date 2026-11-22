@@ -31,13 +31,14 @@ pub(in crate::ui) fn prepare_sources(
     enabled: bool,
     history: &term_core::command_history::CommandHistory,
     quickbar: &term_profile::quickbar::QuickBarConfig,
+    scope: &str,
 ) -> (Vec<(String, u64)>, Vec<String>) {
     if !enabled {
         return (Vec::new(), Vec::new());
     }
     (
         history
-            .recent_with_ts(2000)
+            .recent_with_ts_for(scope, 2000)
             .into_iter()
             .map(|(line, ts)| (line.to_owned(), ts))
             .collect(),

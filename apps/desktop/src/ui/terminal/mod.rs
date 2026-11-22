@@ -15,6 +15,7 @@ mod margin;
 /// `marks_paint.rs`。拆成两个文件是单文件上限的老规矩：`view.rs` 已贴着单文件上限，
 /// 而这些判据要能被没有窗口的单测钉死。
 mod highlights;
+mod history_scope;
 mod marks;
 /// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
 mod marks_paint;

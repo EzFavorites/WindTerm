@@ -11,13 +11,10 @@ use super::{bin, ensure_view, margin, select};
 // 正文二选一与正文之后的叠层各自成文件（单文件 500 行上限）。
 // 两个都是**自由函数**——`draw_tab` 手上握着借自 `self.tabs` 的 `&mut Tab`，
 // 方法调用会同时要 `&mut self`（E0499），所以那边只收拆分好的借用。
-use super::pane_body::paint_body;
-use super::pane_overlays::{paint_overlays, OverlayToggles};
-use super::pane_pointer::{pointer_selection, visible_separators, GridGeom};
-use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
-use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
-use term_app::scrollbar::preview_range; use term_app::selection; use term_core::keys;
-use term_core::session_runtime::SessionId;
+use super::history_scope::system_of; use super::pane_body::paint_body;
+use super::pane_overlays::{paint_overlays, OverlayToggles}; use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
+use super::pane_pointer::{pointer_selection, visible_separators, GridGeom}; use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
+use term_app::scrollbar::preview_range; use term_app::selection; use term_core::keys; use term_core::session_runtime::SessionId;
 
 /// 内容绝对行 → 屏内下标；窗口外的行返回 `None`（那一行根本画不出来）。
 ///
@@ -107,10 +104,12 @@ impl TerminalWindow {
         // 与 `tab` 借的 `self.tabs` 是不同字段，先克隆出来后面就不必再碰窗口。
         // 总开关关着时这两张表保持空，一帧只多两次 Vec::new()。
         let completion_enabled = self.completion.enabled;
+        let completion_scope = system_of(self);
         let (completion_history, completion_quick) = completion_popup::prepare_sources(
             completion_enabled,
             &self.command_history,
             &self.quick_bar,
+            &completion_scope,
         );
 
         let recorder = std::sync::Arc::clone(&self.recorder);
@@ -731,8 +730,9 @@ impl TerminalWindow {
             }
         }
         // 把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
+        let history_scope = system_of(self);
         for line in completed_lines {
-            self.command_history.push(&line, now_secs());
+            self.command_history.push_for(&line, &history_scope, now_secs());
         }
         // 左边缘（margin 栏）是**另一份**右键菜单：只在 margin 可见时挂，注册在
         // 内容 resp 之后（重叠区压在上面 → 右键命中它弹 margin 菜单）。
