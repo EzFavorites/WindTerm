@@ -309,6 +309,7 @@ impl TerminalWindow {
             tab_focus,
             // `show_toolbar` 出厂 `true`（在此之前工具行无条件绘制）；它不落盘，
             // 重启回默认——与菜单栏 / 状态栏 / 快捷栏三个开关同一条边界。
+            show_sync_channels: false,
             view: ViewState {
                 lang,
                 // D6：「要不要打开首次启动引导」的初值来自**这一处已经读好的**

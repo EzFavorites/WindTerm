@@ -123,7 +123,8 @@ pub struct TerminalWindow {
     /// Font faces and the measured cell box.
     fonts: TerminalFonts,
     /// B3：所有视图开关集中在这里，只能经 `reduce ` 修改。
-    view: ViewState,
+    /// 状态栏 SYNC 徽标点开的通道分配面板。投影态，不进 ViewState。
+    view: ViewState, show_sync_channels: bool,
     /// Session groups (folders) in the tree, in creation order.
     groups: Vec<String>,
     /// List of session profiles (the tree's entries).

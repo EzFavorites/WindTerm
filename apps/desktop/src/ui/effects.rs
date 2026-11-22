@@ -126,14 +126,17 @@ impl TerminalWindow {
     /// 静默跳过比报错更合适（用户看到的 `SYNC` 徽标说明的是「生效范围」）。
     pub(super) fn broadcast_input(&self, bytes: &[u8]) {
         let active_id = self.tabs.get(self.active_slot()).map(|t| t.identity);
-        let members = &self.view.sync_channels[0];
+        let recipients = active_id
+            .map(|id| term_app::sync_input::recipients(&self.view, id))
+            .unwrap_or_default();
+        let has_members = self.view.sync_channels.iter().any(|c| !c.is_empty());
         for tab in &self.tabs {
             if Some(tab.identity) == active_id {
                 continue;
             }
             // 老 prefs 只有 `sync_input=true`、没有成员表时沿用「所有标签」；
-            // 只要成员表非空就按显式名单写，用户才能只同步其中几台。
-            if !members.is_empty() && !members.contains(&tab.identity) {
+            // 有成员表就只写它在的通道里的其它成员——用户能挑「只同步这几台」。
+            if has_members && !recipients.contains(&tab.identity) {
                 continue;
             }
             tab.write(bytes);

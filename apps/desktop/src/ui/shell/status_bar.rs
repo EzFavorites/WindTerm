@@ -151,6 +151,47 @@ impl TerminalWindow {
             });
         });
 
+        // SYNC 徽标只在同步输入开着时出现（视觉基线的出厂态是关的，所以
+        // 基线一个像素都不变）。点开的是 4 通道成员分配面板——后端早就有
+        // join/leave/targets，缺的只是「用户能选哪几条标签进哪条通道」。
+        if self.view.sync_input {
+            let open_sync = ui
+                .add(egui::Label::new(egui::RichText::new("🔗 SYNC").color(fg))
+                    .sense(egui::Sense::click()))
+                .on_hover_text("Choose which sessions share each of the 4 input channels")
+                .clicked();
+            if open_sync {
+                self.show_sync_channels = true;
+            }
+        }
+        if self.show_sync_channels {
+            let ids: Vec<_> = self.tabs.iter().map(|t| (t.identity, t.config.name.clone())).collect();
+            let open = crate::ui::harness::AnchoredWindow::new(
+                "sync_channels", "Synchronized input", 340.0,
+            )
+            .with_close_button()
+            .show(ui.ctx(), |ui| {
+                ui.label("Tick a session into a channel. Keys typed in a member are written to the other members of that channel.");
+                for ch in 0..term_app::sync_input::CHANNEL_COUNT {
+                    ui.separator();
+                    ui.label(format!("Channel {}", ch + 1));
+                    for (id, name) in &ids {
+                        let mut member = term_app::sync_input::is_member(&self.view, ch, *id);
+                        if ui.checkbox(&mut member, name).changed() {
+                            if member {
+                                term_app::sync_input::join(&mut self.view, ch, *id);
+                            } else {
+                                term_app::sync_input::leave(&mut self.view, ch, *id);
+                            }
+                        }
+                    }
+                }
+            });
+            if !open {
+                self.show_sync_channels = false;
+            }
+        }
+
         // 点击只收集意图，闭包结束后再派发，避免绘制期间借用冲突。
         if open_help {
             self.dispatch_action(Action::Shell(ShellAction::Help));

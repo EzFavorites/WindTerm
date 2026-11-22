@@ -180,6 +180,7 @@ pub(in crate::ui) fn window_with(
         palette: term_runtime::theme_load::load_palette(),
         fonts: Default::default(),
         view: Default::default(),
+        show_sync_channels: false,
         // 测试夹具用出厂词表，不碰真实 profile 目录里的 quickbar.config。
         quick_bar: term_runtime::quickbar::QuickBarConfig::default(),
         quick_bar_display: term_runtime::quickbar::QuickBarDisplay::default(),

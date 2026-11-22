@@ -51,6 +51,23 @@ pub fn targets(state: &ViewState, index: usize, exclude: SessionId) -> Vec<Sessi
         .collect()
 }
 
+/// `from` 敲下的字节该写给谁：把它所在的**所有**通道的成员并起来（去掉自己）。
+/// 空表（老 prefs 只有总开关、没成员表）返回空，调用方据此回落「所有标签」。
+pub fn recipients(state: &ViewState, from: SessionId) -> Vec<SessionId> {
+    let mut out = Vec::new();
+    for channel in &state.sync_channels {
+        if !channel.contains(&from) {
+            continue;
+        }
+        for id in channel {
+            if *id != from && !out.contains(id) {
+                out.push(*id);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -67,6 +84,20 @@ mod tests {
         assert_eq!(targets(&state, 2, 1), Vec::<SessionId>::new());
         assert!(is_member(&state, 0, 2));
         assert!(!is_member(&state, 1, 2));
+    }
+
+    #[test]
+    fn recipients_union_every_channel_the_sender_belongs_to() {
+        let mut state = ViewState::default();
+        join(&mut state, 0, 1);
+        join(&mut state, 0, 2);
+        join(&mut state, 2, 1);
+        join(&mut state, 2, 3);
+        join(&mut state, 1, 4); // 发送者不在这一条里，4 不该收到
+        let mut got = recipients(&state, 1);
+        got.sort_unstable();
+        assert_eq!(got, vec![2, 3]);
+        assert!(recipients(&ViewState::default(), 1).is_empty(), "空表走旧语义");
     }
 
     #[test]
