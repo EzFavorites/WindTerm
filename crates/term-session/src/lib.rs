@@ -46,6 +46,7 @@ use term_core::coords::ViewRange;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::onekey::OneKey;
 use term_core::session::{ConfigError, GlobalProxy, Protocol, SessionConfig};
+use term_core::trigger::TriggerOn;
 use term_core::session_runtime::{
     ClipboardRequest, LogStatus, OutputReader, Session, SessionId, SessionState, SessionStatus,
     WaitError, WaitRegistration,
@@ -158,6 +159,8 @@ pub struct SessionPool {
     onekeys: Mutex<Vec<OneKey>>,
     /// Preferences ▸ Proxy 的运行期副本；会话没配代理时回落到它。
     global_proxy: Mutex<Option<GlobalProxy>>,
+    /// 会话生命周期事件的钩子；触发器求值层在这里挂上来。
+    event_sink: Mutex<Option<Arc<dyn Fn(TriggerOn) + Send + Sync>>>,
 }
 
 /// ADR-0024：让会话名在池内唯一（名字是**寻址键**，歧义必须在插入时消掉）。
@@ -209,6 +212,7 @@ impl SessionPool {
             factory: OnceLock::new(),
             onekeys: Mutex::new(Vec::new()),
             global_proxy: Mutex::new(None),
+            event_sink: Mutex::new(None),
         }
     }
 
@@ -275,6 +279,18 @@ impl SessionPool {
         *guard = proxy;
     }
 
+    /// 注册 BeforeConnect / BeforeDisconnect 的求值钩子。重复注册以最后一次为准。
+    pub fn set_event_sink(&self, sink: Option<Arc<dyn Fn(TriggerOn) + Send + Sync>>) {
+        let mut guard = lock_or_recover(&self.event_sink);
+        *guard = sink;
+    }
+
+    fn fire_event(&self, on: TriggerOn) {
+        if let Some(sink) = lock_or_recover(&self.event_sink).as_ref() {
+            sink(on);
+        }
+    }
+
     /// 会话自己没配代理就套上全局默认，再过 OneKey 覆盖。
     fn resolve_proxy(&self, config: &SessionConfig) -> SessionConfig {
         let mut resolved = config.clone();
@@ -283,6 +299,7 @@ impl SessionPool {
     }
 
     pub fn open(&self, config: &SessionConfig, cols: usize, rows: usize) -> Result<SessionId, OpenError> {
+        self.fire_event(TriggerOn::BeforeConnect);
         let config = &self.resolve_onekey(&self.resolve_proxy(config));
         if config.protocol == Protocol::Ssh && config.builtin_ssh {
             let Some(factory) = self.factory.get() else {
@@ -643,6 +660,7 @@ impl SessionPool {
 
     /// 关闭并移除一个会话。返回它之前是否存在。
     pub fn close(&self, id: SessionId) -> bool {
+        self.fire_event(TriggerOn::BeforeDisconnect);
         let mut map = self.entries();
         match map.remove(&id) {
             Some(entry) => {
@@ -663,7 +681,38 @@ impl Default for SessionPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use term_core::channel::TermChannel;
     use term_core::coords::ViewRow;
+
+    struct DummyChannel;
+    impl TermChannel for DummyChannel {
+        fn drain(&mut self) -> Vec<u8> { Vec::new() }
+        fn write(&mut self, _: &[u8]) {}
+        fn resize(&mut self, _: usize, _: usize) {}
+        fn poll(&mut self) -> Option<String> { None }
+        fn finished(&self) -> bool { false }
+        fn close(&mut self) {}
+        fn description(&self) -> &str { "dummy" }
+    }
+
+    #[test]
+    fn lifecycle_events_fire_before_open_and_close() {
+        let pool = SessionPool::new();
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink_seen = Arc::clone(&seen);
+        pool.set_event_sink(Some(Arc::new(move |on| {
+            sink_seen.lock().unwrap().push(on);
+        })));
+        let cfg = SessionConfig::new(Protocol::Ssh);
+        let id = pool.open_with_channel(&cfg, 20, 3, Box::new(DummyChannel));
+        pool.close(id);
+        assert_eq!(*seen.lock().unwrap(), vec![TriggerOn::BeforeDisconnect]);
+        // open 的 BeforeConnect 由 open() 入口触发；open_with_channel 是接缝，
+        // 不在这里重复触发，否则内置 SSH 会报两次。
+        assert!(pool.open(&cfg, 20, 3).is_err(), "没有工厂时必须有明确失败");
+        assert_eq!(*seen.lock().unwrap(),
+            vec![TriggerOn::BeforeDisconnect, TriggerOn::BeforeConnect]);
+    }
     use std::time::Duration;
 
     #[test]

@@ -56,6 +56,17 @@ impl Matcher {
     /// 每条规则每轮最多一条 `Hit`：同一 chunk 里出现多次也只报最早那次——
     /// 动作本身是幂等的意图，重复报只会让 `SendLine` 发两遍。
     pub fn feed(&mut self, rules: &[Rule], chunk: &str, now: u64) -> Vec<Hit> {
+        self.feed_for(rules, chunk, now, None)
+    }
+
+    /// 带标签上下文的 feed：规则 `Sessions` 页的目标表在这里生效。
+    pub fn feed_for(
+        &mut self,
+        rules: &[Rule],
+        chunk: &str,
+        now: u64,
+        target: Option<term_core::trigger_target::Target<'_>>,
+    ) -> Vec<Hit> {
         if chunk.is_empty() {
             return Vec::new();
         }
@@ -64,6 +75,9 @@ impl Matcher {
         let mut hits = Vec::new();
         for rule in rules {
             if !rule.enabled || rule.on != TriggerOn::Output || rule.pattern.is_empty() {
+                continue;
+            }
+            if !term_core::trigger_target::rule_matches(rule, target) {
                 continue;
             }
             let mut window = self.tails.remove(&rule.id).unwrap_or_default();
@@ -90,9 +104,23 @@ impl Matcher {
     /// `Idle` 只在「距 `last_output_at` 至少 `idle_secs` 秒」且本段空闲还没报过时
     /// 命中；下次 `feed` 一有输出就重新计。
     pub fn event(&mut self, rules: &[Rule], on: TriggerOn, now: u64) -> Vec<Hit> {
+        self.event_for(rules, on, now, None)
+    }
+
+    /// 带标签上下文的事件求值；目标过滤与 `feed_for` 同一套判据。
+    pub fn event_for(
+        &mut self,
+        rules: &[Rule],
+        on: TriggerOn,
+        now: u64,
+        target: Option<term_core::trigger_target::Target<'_>>,
+    ) -> Vec<Hit> {
         let mut hits = Vec::new();
         for rule in rules {
             if !rule.enabled || rule.on != on {
+                continue;
+            }
+            if !term_core::trigger_target::rule_matches(rule, target) {
                 continue;
             }
             if on == TriggerOn::Idle && now.saturating_sub(self.last_output_at) < rule.idle_secs {

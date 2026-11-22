@@ -8,9 +8,10 @@
 use serde::{Deserialize, Serialize};
 
 /// 触发源：什么事件会让规则进入匹配。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TriggerOn {
     /// 终端输出里出现匹配文本。
+    #[default]
     Output,
     /// 会话建立成功（一次性）。
     Connect,
@@ -448,7 +449,7 @@ pub struct RuleConfig {
 }
 
 /// 一条规则。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
     /// 稳定标识，UI 用它定位（不参与匹配）。同一批规则里必须唯一。
     pub id: String,
