@@ -8,6 +8,7 @@
 
 use eframe::egui;
 use term_app::action::{reduce, Action};
+use term_app::shell::ShellAction;
 
 use super::TerminalWindow;
 
@@ -90,6 +91,9 @@ impl TerminalWindow {
     /// 为什么不给按钮也传命令 ID：命令 ID 只出现在 `menu.rs` 与各能力的
     /// `parse()`。对话框按钮本来就持有强类型动作，绕回字符串只会多一层错配机会。
     pub(super) fn dispatch_action(&mut self, action: Action) {
+        // 同步输入的通道成员关系需要会话身份，reducer 手上没有；在这里补齐。
+        // 总开关仍由 reducer 翻转，这里只决定「哪条标签加入/离开哪条通道」。
+        let toggle_sync = matches!(action, Action::Shell(ShellAction::SyncInput));
         // `Action::AddressBar` 是**纯投影层**的意图（打开地址栏浮层），
         // 它在 `ViewState` 里没有对应的领域状态——地址栏开着还是关着是控件
         // 状态，和 `find_input` / `palette_input` 同一层。所以这里消费掉它，
@@ -106,6 +110,20 @@ impl TerminalWindow {
         // 菜单里点「查找下一个」和屏幕上看到的那一屏是同一个坐标系。
         let window = self.tabs.get(self.active_slot()).map(|t| &t.view);
         let effects = reduce(&mut self.view, action, window);
+        if toggle_sync {
+            let ids: Vec<_> = self.tabs.iter().map(|t| t.identity).collect();
+            if self.view.sync_input {
+                // 开启：所有当前活着的标签加入通道 0，等价于旧「写给其它所有标签」；
+                // 之后用户可以按会话把某些成员移出，这就是 4 通道模型的价值。
+                for id in ids {
+                    term_app::sync_input::join(&mut self.view, 0, id);
+                }
+            } else {
+                for id in ids {
+                    term_app::sync_input::leave_all(&mut self.view, id);
+                }
+            }
+        }
         for effect in effects {
             self.apply_effect(effect);
         }

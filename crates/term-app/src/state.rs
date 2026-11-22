@@ -202,6 +202,9 @@ pub struct ViewState {
     /// 同步输入开关。开着时键盘输入写给**所有**活着的标签，
     /// 读者是 `ui/terminal.rs` 的按键处理与状态栏的 SYNC 徽标。
     pub sync_input: bool,
+    /// 4 条同步输入通道：每条是一组成员身份。空表 = 该通道无人；
+    /// `sync_input` 仍表示「是否开着」，两者由 `sync_channels` 的辅助函数同步。
+    pub sync_channels: [Vec<term_core::session_runtime::SessionId>; 4],
     /// 隧道管理面板。读者是 `ui/tunnel_manager.rs`。
     pub show_tunnels: bool,
 
@@ -263,6 +266,7 @@ impl Default for ViewState {
             show_quick_commands: false,
             show_tmux: false,
             sync_input: false,
+            sync_channels: Default::default(),
             show_tunnels: false,
             lang: crate::i18n::Lang::default(),
             margin: MarginState::default(),

@@ -52,6 +52,7 @@ impl TerminalWindow {
         let closed_id = self.tabs[index].id;
         let closed_identity = self.tabs[index].identity;
         let mut closed = self.tabs.remove(index);
+        term_app::sync_input::leave_all(&mut self.view, closed_identity);
         closed.close(); // 先摘 tee 再关会话；Tab::close 已定义好这条顺序
         // ADR-0025：摘掉一条标签后，恒在身份顺序要立刻跟着重算。
         self.sync_open_order();
@@ -177,6 +178,9 @@ impl TerminalWindow {
     /// 「关掉视图」在界面上要留一个能继续敲的窗格，所以关空之后补一条本地 shell；
     /// 退出路径不需要这个补位，见 [`Self::close_all_sessions`]。
     pub(in crate::ui) fn close_all_tabs(&mut self) {
+        for id in self.tabs.iter().map(|t| t.identity).collect::<Vec<_>>() {
+            term_app::sync_input::leave_all(&mut self.view, id);
+        }
         self.close_all_sessions();
         self.ensure_tab();
     }

@@ -102,6 +102,7 @@ pub mod shell;
 pub mod shortcuts;
 pub mod startup;
 pub mod state;
+pub mod sync_input;
 pub mod tab;
 pub mod tmux;
 pub mod vocab;

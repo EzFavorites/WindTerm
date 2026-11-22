@@ -109,8 +109,15 @@ impl TerminalWindow {
     /// 只写有 PTY 句柄的标签：断开的、只剩快照的标签没有输入目标，
     /// 静默跳过比报错更合适（用户看到的 `SYNC` 徽标说明的是「生效范围」）。
     pub(super) fn broadcast_input(&self, bytes: &[u8]) {
-        for (i, tab) in self.tabs.iter().enumerate() {
-            if i == self.active_slot() {
+        let active_id = self.tabs.get(self.active_slot()).map(|t| t.identity);
+        let members = &self.view.sync_channels[0];
+        for tab in &self.tabs {
+            if Some(tab.identity) == active_id {
+                continue;
+            }
+            // 老 prefs 只有 `sync_input=true`、没有成员表时沿用「所有标签」；
+            // 只要成员表非空就按显式名单写，用户才能只同步其中几台。
+            if !members.is_empty() && !members.contains(&tab.identity) {
                 continue;
             }
             tab.write(bytes);
