@@ -682,8 +682,8 @@ impl TerminalWindow {
 
 }
 
-/// Help 的落点。本项目是 WindTerm 的 Rust 重写，指向上游仓库。
-const HELP_URL: &str = "https://github.com/kingToolbox/WindTerm";
+/// Help 的落点：本项目自己的仓库（About 与状态栏的链接都走这里）。
+const HELP_URL: &str = "https://github.com/EzFavorites/WindTerm";
 
 /// 新标签建好之后 `active_tab` 该取什么值（`Behaviour ▸ Focus the new tab`）。
 ///

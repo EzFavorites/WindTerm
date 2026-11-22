@@ -15,6 +15,7 @@
 //!
 //! 三个字段在 `Prefs` 里都有名字，落盘和齿轮弹窗共用同一条 load-modify-save。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{group_box, set_row_rhythm};
 use crate::ui::*;
@@ -29,22 +30,19 @@ pub(in crate::ui) fn quickbar(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     //（老实现 `page_title("Quick Bar")` + 框内 `Features` 会多出一行）。
     group_box(ui, Some("Features"), |ui| {
         set_row_rhythm(ui);
-        if ui
-            .checkbox(&mut in_order, "Show group commands in order")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show group commands in order", "", &mut in_order, true, UnderlineStyle::None)
             .on_hover_text("Off shows the commands in the bar sorted alphabetically.")
-            .changed()
+            .clicked()
         {
             display.alphabetical = !in_order;
         }
-        if ui
-            .checkbox(&mut display.show_group_title, "Show group title")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show group title", "", &mut display.show_group_title, true, UnderlineStyle::None)
             .on_hover_text("Shows the group name above its commands in the bottom bar.")
-            .changed()
+            .clicked()
         {}
-        if ui
-            .checkbox(&mut display.show_multiple_groups, "Show multiple groups")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show multiple groups", "", &mut display.show_multiple_groups, true, UnderlineStyle::None)
             .on_hover_text("Off collapses the bottom bar to its first group.")
-            .changed()
+            .clicked()
         {}
     });
     if display == before {

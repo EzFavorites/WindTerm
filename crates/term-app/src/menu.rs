@@ -78,7 +78,8 @@ pub struct Menu {
 /// - [`CheckState::Fixed`]：编译期常量。只能用在**没有运行期状态可读**的行上
 ///   （本版剩下 Mode 的四条「模式」行），它们也都没接线、点不动；
 /// - [`CheckState::Live`]：投影层每帧按当前会话现读。只能用在**已接线**的行上
-///   （十行栅格可视化），否则屏幕上会出现一个点了不动、勾也不动的框。
+///   （hex 三组互斥档位 + 十行栅格可视化），否则屏幕上会出现一个点了不动、
+///   勾也不动的框。
 ///
 /// 判据在 `menu_check_tests.rs::a_wired_command_must_read_live_state`，
 /// 它把两个方向都钉死——这不是风格问题：勾错方向的唯一症状是「屏幕撒谎」，
@@ -116,14 +117,17 @@ pub enum Item {
     /// | Multiple Caret | ☐ | 同上 |
     ///
     /// 另有一种 [`CheckState::Live`]：**这一行是个勾选框，
-    /// 勾不勾由投影层按当前会话现读**。十行栅格可视化（`View ▸ Symbols`
-    /// 四项 / `View ▸ White Spaces ▸ Hide All` / `Text ▸ Highlight Caret Line`）
-    /// 走这一种——它们真的能切，而一个不跟着状态走的勾正是问题所在
-/// （「有开关、没反馈」）。
+    /// 勾不勾由投影层按当前会话现读**。hex 三张子菜单的 13 档互斥单选
+    /// （`View ▸ Hex Base / Hex Columns / Hex Group Chars`）与十行栅格可视化
+    /// （`View ▸ Symbols` 四项 / `View ▸ White Spaces ▸ Hide All` /
+    /// `Text ▸ Highlight Caret Line`）走这一种——它们真的能切，而一个不跟着
+    /// 状态走的勾正是问题所在（「有开关、没反馈」）。
     ///
     /// 谁来读：`apps/desktop/src/ui/shell/menu_items.rs::live_check`，走
-    /// `Action::parse(id)` → `ShellAction::Marks(knob)` →
-    /// `TerminalWindow::marks_knob_on(knob)` → 活动标签的 `Tab.marks`。
+    /// `Action::parse(id)` → `ShellAction::Marks(knob)` /
+    /// `ShellAction::HexBase|HexColumns|HexGroupChars(value)` →
+    /// `TerminalWindow::marks_knob_on(knob)` / `active_hex()` →
+    /// 活动标签的 `Tab.marks` / `Tab.hex`。
     /// 两条护栏互锁（见 `menu_check_tests.rs::a_wired_command_must_read_live_state`）：
     /// `Fixed` 必须**没有**接线，`Live` 必须**已经**接线——写反任一方向，
     /// 屏幕上的勾都会撒谎。

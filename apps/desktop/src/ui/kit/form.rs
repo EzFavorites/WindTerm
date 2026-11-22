@@ -137,35 +137,52 @@ pub(in crate::ui) fn spin_field(
     ui: &mut egui::Ui,
     add: impl FnOnce(&mut egui::Ui),
 ) -> egui::Response {
+    spin_field_delta(ui, add).0
+}
+
+/// 带**可点击箭头**的数字框：返回 `(字段 Response, 点中的方向)`，
+/// 方向是 `+1`（点 `▲`）或 `-1`（点 `▼`），由调用方按自己的数值类型改值。
+/// 箭头顺序与命中区只在这里定义（此前顺序画反且只有图形没有交互）。
+pub(in crate::ui) fn spin_field_delta(
+    ui: &mut egui::Ui,
+    add: impl FnOnce(&mut egui::Ui),
+) -> (egui::Response, Option<i32>) {
     let resp = field_box(ui, add);
-    paint_spin_arrows(
-        ui,
-        resp.rect.right() - SPIN_INSET,
-        resp.rect.center().y,
-        crate::theme::chrome(term_core::theme::CHROME_SCALE.icon),
-    );
-    resp
+    let cx = resp.rect.right() - SPIN_INSET;
+    let cy = resp.rect.center().y;
+    let color = crate::theme::chrome(term_core::theme::CHROME_SCALE.icon);
+    paint_triangle(ui, cx, cy - 4.0, true, color);
+    paint_triangle(ui, cx, cy + 4.0, false, color);
+
+    // 上下各注册一个命中区；用 `ui.interact` 不推进光标，不影响字段布局。
+    let half = egui::vec2(7.0, 4.5);
+    let up_hit = egui::Rect::from_center_size(egui::pos2(cx, cy - 4.5), half);
+    let down_hit = egui::Rect::from_center_size(egui::pos2(cx, cy + 4.5), half);
+    let up = ui
+        .interact(up_hit, ui.id().with("spin_up"), egui::Sense::click())
+        .clicked();
+    let down = ui
+        .interact(down_hit, ui.id().with("spin_down"), egui::Sense::click())
+        .clicked();
+    (resp, if up { Some(1) } else if down { Some(-1) } else { None })
 }
 
 /// `▲▼` 距字段框右缘的距离（与下拉框 `▾` 的图标位同一档）。
 const SPIN_INSET: f32 = 12.0;
 
-/// 画一对上下三角：中心 `(cx, cy)`、半宽 3。
-fn paint_spin_arrows(ui: &egui::Ui, cx: f32, cy: f32, color: egui::Color32) {
-    let p = ui.painter();
+/// 单个三角：`up = true` 画朝上的 `▲`，否则画 `▼`。
+fn paint_triangle(ui: &egui::Ui, cx: f32, cy: f32, up: bool, color: egui::Color32) {
     let d = 3.0;
-    for dir in [-1.0_f32, 1.0] {
-        let y = cy + dir * 4.0;
-        p.add(egui::Shape::convex_polygon(
-            vec![
-                egui::pos2(cx - d, y + dir * d / 2.0),
-                egui::pos2(cx + d, y + dir * d / 2.0),
-                egui::pos2(cx, y - dir * d / 2.0),
-            ],
-            color,
-            egui::Stroke::NONE,
-        ));
-    }
+    let dir = if up { -1.0 } else { 1.0 };
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![
+            egui::pos2(cx - d, cy - dir * d / 2.0),
+            egui::pos2(cx + d, cy - dir * d / 2.0),
+            egui::pos2(cx, cy + dir * d / 2.0),
+        ],
+        color,
+        egui::Stroke::NONE,
+    ));
 }
 
 /// 只读字段的**值**：文字靠左、装饰贴右缘，不注册任何交互。
@@ -236,7 +253,10 @@ pub(in crate::ui) fn read_only(ui: &mut egui::Ui, value: &str, color: egui::Colo
                 egui::Stroke::NONE,
             ));
         }
-        Deco::Spin => paint_spin_arrows(ui, cx, cy, color),
+        Deco::Spin => {
+            paint_triangle(ui, cx, cy - 4.0, true, color);
+            paint_triangle(ui, cx, cy + 4.0, false, color);
+        }
     }
 }
 

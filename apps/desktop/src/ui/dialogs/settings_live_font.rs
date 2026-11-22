@@ -22,9 +22,10 @@
 //! 从 `settings_live.rs` 拆出来是因为那个文件已经贴着  的代码行上限
 //! （500），而本页要加下拉、过滤、读写 prefs、说明，塞回去就超了。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::{recovery_notice, save_prefs};
-use super::settings_pages_view::{field_label, field_row, group_box, label_col, spin_field, Slot};
+use super::settings_pages_view::{field_label, field_row, group_box, label_col, spin_field_delta, Slot};
 use crate::ui::*;
 use term_app::i18n::Lang;
 
@@ -169,26 +170,34 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
             // 套 `field_box`：`DragValue` 本身不画边框，裸放在这一页里和上面几行的
             // 灰字长得一样——「看起来能改」是这一页控件该有的样子；而且必须和
             // 上面三行下拉的左右缘齐平（同一个 `col` 标签列 + 同一个通栏余宽）。
-            spin_field(ui, |ui| {
-                let r = ui.add(
-                    egui::DragValue::new(&mut size)
-                        .range(term_profile::prefs::FONT_SIZE_MIN..=term_profile::prefs::FONT_SIZE_MAX)
-                        .speed(0.5)
-                        .suffix(" pixels"),
-                );
-                apply_size |= r.changed();
-                // 松手（或者键盘改 / 点箭头）才落盘：拖动过程中每帧写一次
-                // `prefs.json` 纯属噪声。
-                persist_size |= r.drag_stopped() || (r.changed() && !r.dragged());
-            });
+            let (_, stepped) = spin_field_delta(
+                ui,
+                |ui| {
+                    let r = ui.add(
+                        egui::DragValue::new(&mut size)
+                            .range(term_profile::prefs::FONT_SIZE_MIN..=term_profile::prefs::FONT_SIZE_MAX)
+                            .speed(0.5)
+                            .suffix(" pixels"),
+                    );
+                    apply_size |= r.changed();
+                    // 松手（或者键盘改 / 点箭头）才落盘：拖动过程中每帧写一次
+                    // `prefs.json` 纯属噪声。
+                    persist_size |= r.drag_stopped() || (r.changed() && !r.dragged());
+                },
+            );
+            if let Some(d) = stepped {
+                if d > 0 { size = (size + 0.5).min(term_profile::prefs::FONT_SIZE_MAX); }
+                else { size = (size - 0.5).max(term_profile::prefs::FONT_SIZE_MIN); }
+                apply_size = true;
+                persist_size = true;
+            }
         });
     });
     // 视觉基线 `14-text-font.png`：`Prefer theme fonts` 复选框在框**外**、框底之下
     // （与 `16-text-wrap.png` 的 `Show wrap symbols` 同一个位置关系）。
     ui.add_space(2.0);
     let mut prefer_theme = win.prefer_theme_fonts;
-    if ui
-        .checkbox(&mut prefer_theme, "Prefer theme fonts")
+    if choice_row_resp(ui, ChoiceKind::Checkbox, "Prefer theme fonts", "", &mut prefer_theme, true, UnderlineStyle::None)
         .on_hover_text(
             "Use the font declared by the active theme (family / weight) instead of \
              the four slots above. Themes without a font declaration keep the current fonts.",

@@ -35,10 +35,11 @@
 //! 设置页改完写回 prefs 并同步那份副本。`paint_rows` 每行都要问一次「要不要
 //! 叠底色」，`pane.rs` 每帧都要问一次「要不要藏光标」——这两处绝不能读盘。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, field_label, group_box, label_col, set_row_rhythm, spin_field};
+use super::settings_pages_view::{draw_row, field_label, group_box, label_col, set_row_rhythm, spin_field_delta};
 use crate::ui::*;
 use term_app::shell::ShellAction;
 
@@ -122,18 +123,12 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let col = label_col(ui, &["Line spacing:", "Character spacing:", "Zoom level:"]);
     group_box(ui, Some("Features"), |ui| {
         set_row_rhythm(ui);
-        changed |= ui
-            .checkbox(&mut alt_row, "Alternate line background color")
-            .changed();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Alternate line background color", "", &mut alt_row, true, UnderlineStyle::None).clicked();
         // 与 Terminal 页的「When I select text, copy it to clipboard」同一个值。
         // 两处各有入口、写的是同一个字段——不是两份真相（`win` 上的那份副本
         // 也在下面同一帧写回）。
-        changed |= ui
-            .checkbox(&mut copy_on_select, "Automatically copy selection")
-            .changed();
-        changed |= ui
-            .checkbox(&mut hide_cursor, "Hide cursor when typing")
-            .changed();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Automatically copy selection", "", &mut copy_on_select, true, UnderlineStyle::None).clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Hide cursor when typing", "", &mut hide_cursor, true, UnderlineStyle::None).clicked();
     });
 
     ui.add_space(BLOCK_GAP);
@@ -164,16 +159,24 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             let mut level = win.fonts.size() - crate::fonts::TERMINAL_FONT_SIZE;
             // 字段框占满整行（视觉基线 `11-text.png` 的 Zoom 框从标签列一路到框右边）。
             let mut changed = false;
-            spin_field(ui, |ui| {
-                changed = ui
-                    .add(
-                        egui::DragValue::new(&mut level)
-                            .range(-7.0..=35.0)
-                            .speed(1.0)
-                            .suffix(" levels"),
-                    )
-                    .changed();
-            });
+            let (_, stepped) = spin_field_delta(
+                ui,
+                |ui| {
+                    changed = ui
+                        .add(
+                            egui::DragValue::new(&mut level)
+                                .range(-7.0..=35.0)
+                                .speed(1.0)
+                                .suffix(" levels"),
+                        )
+                        .changed();
+                },
+            );
+            if let Some(d) = stepped {
+                if d > 0 { level = (level + 1.0).min(35.0); }
+                else { level = (level - 1.0).max(-7.0); }
+                changed = true;
+            }
             if changed {
                 let size = crate::fonts::TERMINAL_FONT_SIZE + level;
                 win.fonts.set_size(size);
@@ -215,18 +218,13 @@ pub(in crate::ui) fn behaviour(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         // 真勾选：判据在 `confirm::should_confirm_close`，三处关闭共用。
         // 写回是**同一帧**的 `win.confirm.multi_tabs`——门控读的就是那份缓存，
         // 所以勾完立刻生效，不是「下次启动」。
-        let multi_toggled = ui
-            .checkbox(&mut multi, "Confirm before closing multiple tabs")
-            .changed();
-        let focus_toggled = ui
-            .checkbox(&mut focus_new, "Focus the new tab after opening")
-            .changed();
-        reconnect_toggled = ui
-            .checkbox(
-                &mut reconnect,
-                "Reconnect automatically when the connection drops",
-            )
-            .changed();
+        let multi_toggled = choice_row_resp(ui, ChoiceKind::Checkbox, "Confirm before closing multiple tabs", "", &mut multi, true, UnderlineStyle::None).clicked();
+        let focus_toggled = choice_row_resp(ui, ChoiceKind::Checkbox, "Focus the new tab after opening", "", &mut focus_new, true, UnderlineStyle::None).clicked();
+        reconnect_toggled = choice_row_resp(
+            ui, ChoiceKind::Checkbox, "Reconnect automatically when the connection drops", "",
+            &mut reconnect, true, UnderlineStyle::None,
+        )
+        .clicked();
         if multi_toggled {
             win.confirm.multi_tabs = multi;
             save_prefs(|prefs| prefs.confirm_close_multi_tabs = multi);
@@ -267,11 +265,10 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     group_box(ui, Some("Toolbar"), |ui| {
         set_row_rhythm(ui);
-        toggled = ui.checkbox(&mut show, "Show toolbar").changed();
+        toggled = choice_row_resp(ui, ChoiceKind::Checkbox, "Show toolbar", "", &mut show, true, UnderlineStyle::None).clicked();
         // 与 `Show toolbar` 同在一组，但**落盘**：读者是 `tool_bar::draw`
         // 里那段面板绘制，重启后仍然按用户选的来。
-        address_toggled = ui
-            .checkbox(&mut show_address, "Show address bar")
+        address_toggled = choice_row_resp(ui, ChoiceKind::Checkbox, "Show address bar", "", &mut show_address, true, UnderlineStyle::None)
             .on_hover_text(
                 "Hides the breadcrumb panel (the (i) | > group > session strip) on the \
                  toolbar. The buttons on both ends stay.",
@@ -283,8 +280,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     group_box(ui, Some("Menu"), |ui| {
         set_row_rhythm(ui);
         // 展开状态是投影态（靠近顶端 / Alt / 菜单弹层），只有这个开关落盘。
-        auto_hide_toggled = ui
-            .checkbox(&mut auto_hide, "Auto-hide the menu bar")
+        auto_hide_toggled = choice_row_resp(ui, ChoiceKind::Checkbox, "Auto-hide the menu bar", "", &mut auto_hide, true, UnderlineStyle::None)
             .on_hover_text(
                 "Collapses the menu bar to a thin strip; hover the top edge or hold \
                  Alt to reveal it. A menu that is already open keeps it visible.",

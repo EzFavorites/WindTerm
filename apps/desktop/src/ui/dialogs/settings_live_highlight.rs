@@ -30,6 +30,7 @@
 //! `selection::pair_start/pair_end` 取两端，current fold 用 OSC 133 命令块的
 //! 起始行。三者都只在字形下铺淡色，不进选区、不影响复制。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{group_box, set_row_rhythm};
 use crate::ui::terminal::MarksParams;
@@ -52,10 +53,9 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     group_box(ui, Some("Highlight"), |ui| {
         set_row_rhythm(ui);
         // 第一行真勾选：读活动标签当前值，勾完当场铺底色 + 落 prefs。
-        if ui
-            .checkbox(&mut on, "Highlight the caret line")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the caret line", "", &mut on, true, UnderlineStyle::None)
             .on_hover_text("Tints the line under the cursor in the active tab; also the default for new tabs.")
-            .changed()
+            .clicked()
         {
             win.set_marks(|m| MarksParams { caret_line: on, ..m });
             save_prefs(|prefs| prefs.text_highlight_caret_line = on);
@@ -66,18 +66,15 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let mut word = marks.caret_word;
         let mut fold = marks.current_fold;
         let mut pair = marks.current_pair;
-        let word_changed = ui
-            .checkbox(&mut word, "Highlight the caret word")
+        let word_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the caret word", "", &mut word, true, UnderlineStyle::None)
             .on_hover_text("Tints every cell of the word under the cursor in the active tab.")
-            .changed();
-        let fold_changed = ui
-            .checkbox(&mut fold, "Highlight the current fold")
+            .clicked();
+        let fold_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the current fold", "", &mut fold, true, UnderlineStyle::None)
             .on_hover_text("Tints the command-block header containing the cursor (OSC 133 blocks).")
-            .changed();
-        let pair_changed = ui
-            .checkbox(&mut pair, "Highlight the current pair")
+            .clicked();
+        let pair_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the current pair", "", &mut pair, true, UnderlineStyle::None)
             .on_hover_text("Tints both ends of the bracket pair next to the cursor.")
-            .changed();
+            .clicked();
         if word_changed || fold_changed || pair_changed {
             // 三项一次写齐：逐个 set_marks 会用旧副本覆盖前一项。
             win.set_marks(|m| MarksParams {
@@ -94,10 +91,9 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         }
         // 第四行真勾选 ：窗口级副本当帧生效，同时落 prefs。
         // 顺序照视觉基线，不因为「能点的要放前面」而重排——那是改设计稿。
-        if ui
-            .checkbox(&mut search, "Highlight the incremental search")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the incremental search", "", &mut search, true, UnderlineStyle::None)
             .on_hover_text(SEARCH_HOVER)
-            .changed()
+            .clicked()
         {
             win.highlight_search = search;
             save_prefs(|prefs| prefs.text_highlight_search = search);

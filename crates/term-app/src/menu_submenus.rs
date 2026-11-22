@@ -27,11 +27,14 @@
 //! `Fixed` 必须没接线、`Live` 必须已接线。
 //!
 //! 2026-11-11：hex 那三张子菜单（Base / Columns / Group Chars）的 13 条命令
-//! 接通之后，勾选行**改成了 `act`**——它们的勾原本是编译期常量，接成真命令
-//! 之后就不再满足上面那条底线。顺带修掉一处保真错误：视觉基线 `view/03` 打勾的
-//! 是 **16 Columns**，本文件原先把它写在 `8 Columns` 上；勾拆掉后这条错
-//! 自然消失，但记在这里，免得下次有人按旧稿把它抄回去。当前生效的是哪一档，
-//! 现在由 hex 视图表头（`bin.rs`，每帧现算）写出来。
+//! 接通之后，原本写死的勾先被拆掉（`act`）——编译期常量不跟着当前值变，
+//! 屏幕会撒谎。顺带修掉一处保真错误：视觉基线 `view/03` 打勾的
+//! 是 **16 Columns**，本文件原先把它写在 `8 Columns` 上。
+//! 2026-11-22：这 13 行改回**勾选行**，但勾读运行期状态（`Live`）：它们现在是
+//! 真的互斥单选组，只有当前生效的那一档打勾，点另一档勾就跟着挪过去。
+//! 出厂态与视觉基线一致（Base 16 / Columns 16 / Group 1 Char 打勾），
+//! 但那不是抄进数据表里的常量，而是投影层每帧从活动标签的 `Tab.hex` 现读
+//! （`ui/shell/menu_items.rs::live_check`）。表头（`bin.rs`）仍每帧现算同一份值。
 //!
 //! # 逐张证据
 //!
@@ -57,11 +60,11 @@ fn act(label: &'static str, id: &'static str) -> Item {
 
 /// 一条**勾读运行期状态**的勾选行（[`CheckState::Live`]）。
 ///
-/// 这里只能造 Live，造不出 `Fixed`：子菜单里的勾选行全部是已接线的可视化开关
-/// （`View ▸ Symbols` 四项 + `View ▸ White Spaces ▸ Hide All`），勾必须跟着
-/// 当前会话的 `Tab.marks` 走。写死的勾只允许出现在顶层 Mode 菜单那四条
-/// 「没有运行期状态可读」的模式行上（见 `menu/tree.rs`）——
-/// 两条护栏在 `menu_check_tests.rs::a_wired_command_must_read_live_state`。
+/// 这里只能造 Live，造不出 `Fixed`：子菜单里的勾选行全部是已接线的开关 / 单选档位
+/// （`View ▸ Hex Base/Columns/Group Chars` 的 13 档 + `View ▸ Symbols` 四项 +
+/// `View ▸ White Spaces ▸ Hide All`），勾必须跟着当前会话的 `Tab.hex` / `Tab.marks`
+/// 走。写死的勾只允许出现在顶层 Mode 菜单那四条「没有运行期状态可读」的模式行上
+/// （见 `menu/tree.rs`）——两条护栏在 `menu_check_tests.rs::a_wired_command_must_read_live_state`。
 fn live(label: &'static str, id: &'static str) -> Item {
     Item::Check {
         label,
@@ -201,36 +204,37 @@ fn goto_document() -> Vec<Item> {
 /// 不替原程序猜它应该是 8 进制还是别的什么——它就是一个真能用的进制：
 /// 一个字节写成 3 位（7³ = 343 > 255），渲染层照做。
 ///
-/// **这四档全是 `act` 而不是 `check`**：它们已经是真命令（点哪档改哪档），
-/// 而 `Item::Check` 的勾是编译期常量——一个不跟着当前值变的勾正是问题所在。
-/// 当前生效的是哪一档由 `bin.rs` 的表头写出来（那是**每帧现算**的）。
+/// **五档是互斥单选**：勾读运行期状态（[`CheckState::Live`]），只有当前生效的
+/// 那一档打勾，出厂是 16（与视觉基线一致）。点另一档，勾就跟着挪过去——
+/// reader 是投影层的 `Tab.hex`（`ui/shell/menu_items.rs::live_check`），
+/// 不是抄进数据表里的常量。表头（`bin.rs`）每帧现算同一份值。
 fn hex_base() -> Vec<Item> {
     vec![
-        act("2", "View.HexBase2"),
-        act("7", "View.HexBase7"),
-        act("8", "View.HexBase8"),
-        act("10", "View.HexBase10"),
-        act("16", "View.HexBase16"),
+        live("2", "View.HexBase2"),
+        live("7", "View.HexBase7"),
+        live("8", "View.HexBase8"),
+        live("10", "View.HexBase10"),
+        live("16", "View.HexBase16"),
     ]
 }
 
-/// `view/03-view-hex-columns-submenu.png`。
+/// `view/03-view-hex-columns-submenu.png`。出厂打勾的是 **16 Columns**。
 fn hex_columns() -> Vec<Item> {
     vec![
-        act("8 Columns", "View.HexColumns8"),
-        act("16 Columns", "View.HexColumns16"),
-        act("24 Columns", "View.HexColumns24"),
-        act("32 Columns", "View.HexColumns32"),
+        live("8 Columns", "View.HexColumns8"),
+        live("16 Columns", "View.HexColumns16"),
+        live("24 Columns", "View.HexColumns24"),
+        live("32 Columns", "View.HexColumns32"),
     ]
 }
 
-/// `view/05-view-hex-group-chars-submenu.png`。
+/// `view/05-view-hex-group-chars-submenu.png`。出厂打勾的是 **1 Char**。
 fn hex_group_chars() -> Vec<Item> {
     vec![
-        act("1 Char", "View.HexGroupChars1"),
-        act("2 Chars", "View.HexGroupChars2"),
-        act("4 Chars", "View.HexGroupChars4"),
-        act("8 Chars", "View.HexGroupChars8"),
+        live("1 Char", "View.HexGroupChars1"),
+        live("2 Chars", "View.HexGroupChars2"),
+        live("4 Chars", "View.HexGroupChars4"),
+        live("8 Chars", "View.HexGroupChars8"),
     ]
 }
 
@@ -441,14 +445,22 @@ mod tests {
             "Document",
             &["Start Of Document", "End Of Document"],
         ),
-        ("Hex Base", &["2", "7", "8", "10", "16"]),
+        (
+            "Hex Base",
+            &["◻ 2", "◻ 7", "◻ 8", "◻ 10", "◻ 16"],
+        ),
         (
             "Hex Columns",
-            &["8 Columns", "16 Columns", "24 Columns", "32 Columns"],
+            &[
+                "◻ 8 Columns",
+                "◻ 16 Columns",
+                "◻ 24 Columns",
+                "◻ 32 Columns",
+            ],
         ),
         (
             "Hex Group Chars",
-            &["1 Char", "2 Chars", "4 Chars", "8 Chars"],
+            &["◻ 1 Char", "◻ 2 Chars", "◻ 4 Chars", "◻ 8 Chars"],
         ),
         (
             "Symbols",

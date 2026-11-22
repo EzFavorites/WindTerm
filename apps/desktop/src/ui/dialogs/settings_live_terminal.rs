@@ -26,6 +26,7 @@
 //! 三组落盘的改完**当场生效**：`win.paste_confirm_*` / `win.right_click` /
 //! `win.copy_on_select` 是同帧写回的内存副本，下一次手势读的就是它。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{field_row, group_box, set_row_rhythm, Slot};
@@ -80,10 +81,9 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         // 不在这一页里直接翻 `Tab.local_mode`，否则「设置页改的」与「菜单改的」
         // 会变成两条写路径，迟早一处漏了取消脚本、一处漏了提示。
         let mut local = win.local_mode_on();
-        if ui
-            .checkbox(&mut local, "Enable local mode")
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Enable local mode", "", &mut local, true, UnderlineStyle::None)
             .on_hover_text(LOCAL_MODE_NOTE)
-            .changed()
+            .clicked()
         {
             win.dispatch_action(Action::Shell(ShellAction::ToggleLocalMode));
         }
@@ -112,13 +112,12 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                     }
                 });
         });
-        mouse_changed |= ui
-            .checkbox(
-                &mut copy_on_select,
-                "When I select text, copy it to clipboard",
-            )
-            .on_hover_text(COPY_ON_SELECT_NOTE)
-            .changed();
+        mouse_changed |= choice_row_resp(
+            ui, ChoiceKind::Checkbox, "When I select text, copy it to clipboard", "",
+            &mut copy_on_select, true, UnderlineStyle::None,
+        )
+        .on_hover_text(COPY_ON_SELECT_NOTE)
+        .clicked();
     });
 
     if mouse_changed {
@@ -136,14 +135,12 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     group_box(ui, Some("Paste Dialog"), |ui| {
         set_row_rhythm(ui);
         ui.label("When pasting multiple lines:");
-        changed |= ui
-            .checkbox(&mut main, "Show paste dialog on the main screen")
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Show paste dialog on the main screen", "", &mut main, true, UnderlineStyle::None)
             .on_hover_text(TERMINAL_NOTE)
-            .changed();
-        changed |= ui
-            .checkbox(&mut alt, "Show paste dialog on the alternative screen")
+            .clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Show paste dialog on the alternative screen", "", &mut alt, true, UnderlineStyle::None)
             .on_hover_text(TERMINAL_NOTE)
-            .changed();
+            .clicked();
     });
 
     if changed {

@@ -10,6 +10,7 @@
 //! 才写 `quickbar.config`——每帧写盘会让输入框每敲一个字都触发一次 IO。
 //! 三个显示开关则写 `prefs.json`（兼容终端 `user.config` 的位置）。
 
+use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use eframe::egui;
 use term_runtime::prefs;
 use term_runtime::quickbar::{self, QuickBarConfig, QuickCommandConfig, QuickGroupConfig};
@@ -294,11 +295,11 @@ impl TerminalWindow {
                 // 不随命令表落 quickbar.config；勾选只改本地 `disp`，Ok 才写 prefs。
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.checkbox(&mut disp.show_multiple_groups, "Show multiple groups");
-                    ui.checkbox(&mut disp.show_group_title, "Show group title");
-                    ui.checkbox(
-                        &mut disp.alphabetical,
-                        "Show commands in alphabetical order",
+                    choice_row_styled(ui, ChoiceKind::Checkbox, "Show multiple groups", "", &mut disp.show_multiple_groups, true, UnderlineStyle::None);
+                    choice_row_styled(ui, ChoiceKind::Checkbox, "Show group title", "", &mut disp.show_group_title, true, UnderlineStyle::None);
+                    choice_row_styled(
+                        ui, ChoiceKind::Checkbox, "Show commands in alphabetical order", "",
+                        &mut disp.alphabetical, true, UnderlineStyle::None,
                     );
                 });
 

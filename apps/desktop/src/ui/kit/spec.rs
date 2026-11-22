@@ -190,6 +190,8 @@ pub(in crate::ui) enum FooterButton {
     /// 裸 `ui.button` 的等价规格：默认按钮底/描边/文字，宽度由文字算。
     /// SSH 连接流程那些内联动作按钮走它，少一份手写 `Button` 配色。
     Plain,
+    /// 单按钮弹窗（About）的右下角 OK：与 Preferences 的 Close 同尺寸同蓝框。
+    DialogOk,
 }
 
 /// 对话框的保存/取消契约。**行为**层，不是绘制层：页脚按钮与键盘处理
@@ -427,6 +429,19 @@ impl FooterButton {
                 hover_fill: 0x2A2A2A,
                 border: 0x444444,
                 border_width: 1.0,
+                stroke_inset: 0.0,
+                text: 0xBBBBBB,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
+            },
+            Self::DialogOk => FooterButtonSpec {
+                size: egui::vec2(80.0, 24.0),
+                rounding: 2.0,
+                fill: 0x242424,
+                hover_fill: 0x2A2A2A,
+                border: 0x4A8FE8,
+                border_width: 1.5,
                 stroke_inset: 0.0,
                 text: 0xBBBBBB,
                 glyph: widget,

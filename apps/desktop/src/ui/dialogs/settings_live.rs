@@ -26,8 +26,9 @@
 //! 顺便把「哪几页是真的」这件事集中到一个文件里，一眼看得完。
 
 use crate::ui::kit::spec::BLOCK_GAP;
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use super::settings_pages_view::{
-    field_height, field_label, group_box, label_col, set_row_rhythm, spin_field,
+    field_height, field_label, group_box, label_col, set_row_rhythm, spin_field_delta,
 };
 use crate::ui::tr::t;
 use crate::ui::*;
@@ -208,7 +209,7 @@ pub(in crate::ui) fn appearance(
             let min = term_runtime::prefs::WINDOW_OPACITY_MIN;
             let max = term_runtime::prefs::WINDOW_OPACITY_MAX;
             let mut value = current.opacity.clamp(min, max);
-            spin_field(ui, |ui| {
+            let (_, stepped) = spin_field_delta(ui, |ui| {
                 let drag = egui::DragValue::new(&mut value)
                     .range(min..=max)
                     .speed(0.01)
@@ -218,12 +219,16 @@ pub(in crate::ui) fn appearance(
                     opacity_edit = Some(current);
                 }
             });
+            if let Some(d) = stepped {
+                value = (value + d as f32 * 0.01).clamp(min, max);
+                current.opacity = value;
+                opacity_edit = Some(current);
+            }
         });
         let mut transparent = current.transparent;
-        if ui
-            .checkbox(&mut transparent, t(lang, "Transparent window"))
+        if choice_row_resp(ui, ChoiceKind::Checkbox, t(lang, "Transparent window"), "", &mut transparent, true, UnderlineStyle::None)
             .on_hover_text("Let the OS window background show through")
-            .changed()
+            .clicked()
         {
             current.transparent = transparent;
             opacity_edit = Some(current);
@@ -251,7 +256,7 @@ pub(in crate::ui) fn filer(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 视觉基线 `18-widgets-filer.png`：内容区第一个字就是组标题 `Features`，
     // 没有页级灰标题（老实现多画一行 `Filer`，整页因此整体下移 26 点）。
     group_box(ui, Some("Features"), |ui| {
-        if ui.checkbox(&mut on, "Show hidden items").changed() {
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show hidden items", "", &mut on, true, UnderlineStyle::None).clicked() {
             win.filer.show_hidden = on;
             // 先重列再落盘：列表与勾选态同一帧对上，写盘慢一点也看不出来。
             win.reload_local_dir();
@@ -329,28 +334,30 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
             // 下限是 1 而不是 0：`0` 在 prefs 里是「没设置」哨兵，不是「永久保留」
             // （要永久就拖到 36500 天，事实上的永久）。
             // 字段框占满标签之后整段：视觉基线的数字靠左、▲▼ 贴右缘，不是一个小框。
-            let mut r = None;
-            spin_field(ui, |ui| {
-                r = Some(ui.add(egui::DragValue::new(&mut days).range(1..=36_500).speed(1.0)));
+            let (_, stepped) = spin_field_delta(ui, |ui| {
+                ui.add(egui::DragValue::new(&mut days).range(1..=36_500).speed(1.0));
             });
-            if let Some(r) = r {
-                apply |= r.changed();
-                persist |= r.drag_stopped() || (r.changed() && !r.dragged());
+            if let Some(d) = stepped {
+                days = (days as i64 + d as i64).clamp(1, 36_500) as u64;
+                apply = true;
+                persist = true;
             }
         });
         ui.horizontal(|ui| {
             field_label(ui, "History size:", col);
-            let mut r = None;
-            spin_field(ui, |ui| {
-                r = Some(ui.add(
+            let (drag, stepped) = spin_field_delta(ui, |ui| {
+                ui.add(
                     egui::DragValue::new(&mut size)
                         .range(1..=1_000_000)
                         .speed(10.0),
-                ));
+                );
             });
-            if let Some(r) = r {
-                apply |= r.changed();
-                persist |= r.drag_stopped() || (r.changed() && !r.dragged());
+            apply |= drag.changed();
+            persist |= drag.drag_stopped() || (drag.changed() && !drag.dragged());
+            if let Some(d) = stepped {
+                size = (size as i64 + d as i64 * 10).clamp(1, 1_000_000) as usize;
+                apply = true;
+                persist = true;
             }
         });
     });
@@ -358,9 +365,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     let mut cleared = None;
     ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Storage"), |ui| {
-        persist |= ui
-            .checkbox(&mut save, "Save command history to disk")
-            .changed();
+        persist |= choice_row_resp(ui, ChoiceKind::Checkbox, "Save command history to disk", "", &mut save, true, UnderlineStyle::None).clicked();
         ui.horizontal(|ui| {
             field_label(ui, "Saved command history:", col);
             // Clear 与上面三个字段同宽同高：视觉基线里它是一个通栏按钮（文字居中）。
@@ -516,9 +521,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
     let mut suppress = false;
     group_box(ui, Some("Close And Exit"), |ui| {
         let mut show_tab = !win.confirm.suppress_session;
-        if ui
-            .checkbox(&mut show_tab, "Show close tab confirmation dialog")
-            .changed()
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show close tab confirmation dialog", "", &mut show_tab, true, UnderlineStyle::None).clicked()
         {
             win.confirm.suppress_session = !show_tab;
             suppress = true;
@@ -526,9 +529,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         // 两行确认框同样按视觉基线补一行间距（兼容终端中心距约 64 物理像素）。
         ui.add_space(12.0);
         let mut show_window = !win.confirm.suppress_window;
-        if ui
-            .checkbox(&mut show_window, "Show close window confirmation dialog")
-            .changed()
+        if choice_row_resp(ui, ChoiceKind::Checkbox, "Show close window confirmation dialog", "", &mut show_window, true, UnderlineStyle::None).clicked()
         {
             win.confirm.suppress_window = !show_window;
             suppress = true;

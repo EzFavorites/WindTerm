@@ -79,12 +79,13 @@ pub(in crate::ui) enum ChoiceKind {
     Radio,
 }
 
-fn paint_readonly_choice(
+fn paint_choice(
     ui: &mut egui::Ui,
     kind: ChoiceKind,
     label: &str,
     acc_word: &str,
-    selected: bool,
+    value: &mut bool,
+    interactive: bool,
     underline: UnderlineStyle,
 ) -> egui::Response {
     let job = underlined_job(ui, label, acc_word, underline);
@@ -92,33 +93,66 @@ fn paint_readonly_choice(
     let h = ui
         .fonts(|f| f.row_height(&egui::TextStyle::Button.resolve(ui.style())))
         .max(14.0);
+    // 所有勾选/单选共用同一套几何：方框 12×12、文字左缘固定 18pt。
+    // 此前「选中」走 egui 原生 Checkbox、「未选中」走这份手绘，两者
+    // 大小与描边都不同，一眼就能看出不是一组控件。
     let box_side = 12.0;
     let width = box_side + 6.0 + galley.size().x;
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, h), egui::Sense::hover());
+    let sense = if interactive {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, mut resp) = ui.allocate_exact_size(egui::vec2(width, h), sense);
+    if interactive && resp.clicked() {
+        *value = !*value;
+        resp.mark_changed();
+    }
     let p = ui.painter_at(rect);
+    // 鼠标落在整行上都算命中，但只在方框/圆圈上给视觉反馈。
     let ink = ui.visuals().text_color();
-    let stroke = egui::Stroke::new(1.0, ink);
+    let hovered = interactive && resp.hovered();
     let mark = egui::Rect::from_min_size(
         egui::pos2(rect.left(), rect.center().y - box_side / 2.0),
         egui::vec2(box_side, box_side),
     );
+    let stroke = egui::Stroke::new(1.0, ink);
     match kind {
         ChoiceKind::Checkbox => {
+            p.rect_filled(
+                mark,
+                egui::Rounding::ZERO,
+                if hovered {
+                    egui::Color32::from_white_alpha(18)
+                } else {
+                    egui::Color32::TRANSPARENT
+                },
+            );
             p.rect_stroke(mark, egui::Rounding::ZERO, stroke);
-            if selected {
+            if *value {
+                // 勾的两段都落在 12×12 方框内部（旧坐标右端跑到框外）。
                 p.line_segment(
-                    [mark.left_bottom() + egui::vec2(2.0, -5.0), mark.center() + egui::vec2(1.0, 2.0)],
+                    [
+                        mark.left_top() + egui::vec2(2.5, 6.5),
+                        mark.left_top() + egui::vec2(5.5, 9.0),
+                    ],
                     stroke,
                 );
                 p.line_segment(
-                    [mark.center() + egui::vec2(1.0, 2.0), mark.right_top() + egui::vec2(2.0, -1.0)],
+                    [
+                        mark.left_top() + egui::vec2(5.5, 9.0),
+                        mark.left_top() + egui::vec2(9.5, 3.0),
+                    ],
                     stroke,
                 );
             }
         }
         ChoiceKind::Radio => {
+            if hovered {
+                p.circle_filled(mark.center(), box_side / 2.0, egui::Color32::from_white_alpha(18));
+            }
             p.circle_stroke(mark.center(), box_side / 2.0, stroke);
-            if selected {
+            if *value {
                 p.circle_filled(mark.center(), box_side / 4.0, ink);
             }
         }
@@ -170,14 +204,46 @@ pub(in crate::ui) fn choice_row_resp(
     interactive: bool,
     underline: UnderlineStyle,
 ) -> egui::Response {
-    if !interactive {
-        return paint_readonly_choice(ui, kind, label, acc_word, *value, underline);
-    }
-    let job = underlined_job(ui, label, acc_word, underline);
-    match kind {
-        ChoiceKind::Checkbox => ui.checkbox(value, job),
-        ChoiceKind::Radio => ui.radio(*value, job),
-    }
+    paint_choice(ui, kind, label, acc_word, value, interactive, underline)
+}
+
+/// 一行「标题 + 等宽横向单选」（会话弹窗的 Keyboard / Mode / Security /
+/// Logging 都用这一套）。金标准里同组选项是对齐的三列，而不是竖着排成一串；
+/// 标题单独占一行、不塞进窄标签列，长标题因此不会被截成 `Backspace se…`。
+///
+/// 返回被点的下标。`slot_w` 保留兼容旧调用点；选项按文字自然宽度排布，
+/// 固定槽宽会把长文案顶出内容区被裁掉。
+pub(in crate::ui) fn radio_choices(
+    ui: &mut egui::Ui,
+    label: &str,
+    options: &[&str],
+    selected: usize,
+    interactive: bool,
+    slot_w: f32,
+) -> Option<usize> {
+    ui.label(label);
+    let mut clicked = None;
+    let _ = slot_w; // 兼容旧调用点；选项按文字自然宽度排，避免长文案被裁。
+    ui.horizontal(|ui| {
+        for (i, name) in options.iter().enumerate() {
+            if i > 0 {
+                ui.add_space(12.0);
+            }
+            let mut on = selected == i;
+            if choice_row_styled(
+                ui,
+                ChoiceKind::Radio,
+                name,
+                "",
+                &mut on,
+                interactive,
+                UnderlineStyle::None,
+            ) {
+                clicked = Some(i);
+            }
+        }
+    });
+    clicked
 }
 
 /// 通栏输入框，右端**内嵌**浏览槽（`| ...`）——目录选择框的公共画法。

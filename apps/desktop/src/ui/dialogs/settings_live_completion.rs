@@ -12,6 +12,7 @@
 //! 落盘仍是 `settings_live::save_prefs` 那一个入口，运行期副本挂在窗口上，
 //! 键盘漏斗每帧读它——不读盘、不造第二份真相。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{
@@ -54,18 +55,18 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
     set_row_rhythm(ui);
 
     group_box(ui, Some("Completion"), |ui| {
-        ui.checkbox(&mut s.enabled, "Enable auto completion")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "Enable auto completion", "", &mut s.enabled, true, UnderlineStyle::None)
             .on_hover_text("Turn the whole completion popup on or off.");
         ui.label("Automatically complete commands with:");
-        ui.checkbox(&mut s.commands, "Command Name")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "Command Name", "", &mut s.commands, true, UnderlineStyle::None)
             .on_hover_text("Common command names and their subcommands.");
-        ui.checkbox(&mut s.options, "Command Option")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "Command Option", "", &mut s.options, true, UnderlineStyle::None)
             .on_hover_text("Options such as --all or -l for the command being typed.");
-        ui.checkbox(&mut s.parameters, "Command Parameter")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "Command Parameter", "", &mut s.parameters, true, UnderlineStyle::None)
             .on_hover_text("Frequent parameter values of the command being typed.");
-        ui.checkbox(&mut s.history, "History Commands")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "History Commands", "", &mut s.history, true, UnderlineStyle::None)
             .on_hover_text("Whole lines from command history, ranked by frequency and recency.");
-        ui.checkbox(&mut s.quick, "Quick Commands")
+        choice_row_resp(ui, ChoiceKind::Checkbox, "Quick Commands", "", &mut s.quick, true, UnderlineStyle::None)
             .on_hover_text("Commands from the Quick Bar configuration.");
         field_row(
             ui,
