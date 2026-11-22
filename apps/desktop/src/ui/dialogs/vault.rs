@@ -84,10 +84,63 @@ impl TerminalWindow {
             Ok(bytes) if persist::save_vault(&bytes) => {
                 self.vault = Some(vault);
                 self.vault_form = VaultForm::default();
+                // 解锁 / 创建成功后把历史一并纳入主密码模型：保险库里有条目
+                // 就以它为准（它可能比明文文件新），否则把明文历史吸收进来。
+                self.load_history_from_vault();
             }
             Ok(_) => self.vault_form.error = Some("写不进保险库文件".to_string()),
             Err(e) => self.vault_form.error = Some(e.to_string()),
         }
+    }
+
+    /// 解锁后从保险库读历史。库里的条目是权威源；读到了就替换内存副本并删掉
+    /// 旧的明文文件——这是一次性迁移，之后再也没有明文 `command_history.json`。
+    pub(in crate::ui) fn load_history_from_vault(&mut self) {
+        let raw = self
+            .vault
+            .as_ref()
+            .and_then(|v| v.find(term_core::command_history::HISTORY_VAULT_ID))
+            .and_then(|e| e.secret())
+            .map(str::to_string);
+        if let Some(raw) = raw {
+            if let Some(mut history) = term_core::command_history::CommandHistory::from_json(&raw) {
+                let prefs = term_profile::prefs::load().unwrap_or_default();
+                history.reconfigure(
+                    prefs.history_capacity(),
+                    prefs.history_ttl_days(),
+                    crate::now_secs(),
+                );
+                self.command_history = history;
+            }
+            persist::delete_command_history();
+        }
+    }
+
+    /// 把命令行历史作为保险库条目加密保存，成功则删掉明文文件。
+    /// 返回 `false` 表示保险库不可用（未建 / 锁着），调用方按旧路回落明文。
+    pub(crate) fn save_history_to_vault(&mut self) -> bool {
+        let Some(vault) = self.vault.as_mut() else {
+            return false;
+        };
+        let json = self.command_history.to_json();
+        if vault
+            .upsert(Entry::password(
+                term_core::command_history::HISTORY_VAULT_ID,
+                "Command history",
+                &json,
+            ))
+            .is_err()
+        {
+            return false;
+        }
+        let Ok(bytes) = vault.seal() else {
+            return false;
+        };
+        if !persist::save_vault(&bytes) {
+            return false;
+        }
+        persist::delete_command_history();
+        true
     }
 
     /// 把密码存进保险库，并把引用挂到会话上。

@@ -280,6 +280,18 @@ fn load_command_history_from(path: &Path) -> Option<term_core::command_history::
     term_core::command_history::CommandHistory::from_json(&raw)
 }
 
+/// 历史迁进保险库后删掉明文文件（迁移是一次性的；文件不存在也算成功）。
+pub fn delete_command_history() -> bool {
+    command_history_path().map(|p| delete_history_file_at(&p)).unwrap_or(false)
+}
+
+fn delete_history_file_at(path: &Path) -> bool {
+    if !path.is_file() {
+        return true;
+    }
+    std::fs::remove_file(path).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -419,6 +431,18 @@ mod tests {
     /// 这是「固定 .tmp 名 → 唯一名」这条口径唯一真正被测试覆盖的地方：
     /// 固定名时 A 的 rename 会改名掉 B 刚写的临时文件，于是最终文件可能是
     /// 半截的、或干脆是另一份内容；唯一名让两次 rename 互不相干。
+    #[test]
+    fn deleting_the_plaintext_history_is_idempotent() {
+        let dir = tmp_file();
+        let path = dir.parent().unwrap().join(COMMAND_HISTORY_FILE);
+        // 文件不存在也算成功（迁移可能重复触发）。
+        assert!(delete_history_file_at(&path));
+        std::fs::write(&path, b"[]").unwrap();
+        assert!(path.is_file());
+        assert!(delete_history_file_at(&path));
+        assert!(!path.is_file());
+    }
+
     #[test]
     fn two_writers_to_one_history_file_leave_one_complete_file() {
         let dir = tmp_file();

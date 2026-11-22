@@ -393,7 +393,11 @@ impl eframe::App for WindTermApp {
             None => term_runtime::prefs::Prefs::default().command_history_save,
         };
         if save {
-            term_runtime::persist::save_command_history(self.ui.command_history());
+            // 保险库已解锁时历史作为加密条目落盘（明文文件随之删除）；
+            // 没有主密码模型可用时才回落明文文件——那是没有保险库的用户。
+            if !self.ui.save_history_to_vault() {
+                term_runtime::persist::save_command_history(self.ui.command_history());
+            }
         }
     }
 }

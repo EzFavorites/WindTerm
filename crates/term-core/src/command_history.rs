@@ -19,6 +19,10 @@
 
 use serde::{Deserialize, Serialize};
 
+/// 命令行历史在保险库里的保留条目 id。主密码模型生效时（保险库已解锁），
+/// 历史作为这个条目的 secret 加密落盘，而不是明文 `command_history.json`。
+pub const HISTORY_VAULT_ID: &str = "history:commands";
+
 /// 一条历史记录。`ts` 为调用方注入的纪元秒（非本层读钟）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Entry {

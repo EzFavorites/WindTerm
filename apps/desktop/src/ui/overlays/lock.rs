@@ -100,6 +100,8 @@ impl TerminalWindow {
         match result {
             Ok((vault, bytes)) if persist::save_vault(&bytes) => {
                 self.vault = Some(vault);
+                // 与主 Authentication 页解锁路径一致：历史纳入主密码模型。
+                self.load_history_from_vault();
                 true
             }
             _ => false,
