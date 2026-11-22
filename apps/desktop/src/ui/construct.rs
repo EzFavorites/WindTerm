@@ -479,6 +479,7 @@ impl TerminalWindow {
             // 探测要读文件（IO），所以不在这里做——由 `init ` 的
             // `open_onboarding ` 一次性完成，且只在真的要显示时才做。
             onboarding: term_app::onboarding::OnboardingState::new(),
+            profile_choice: overlays::ProfileChoiceState::default(),
             // D6：预览窗出厂「关着、没有内容」。不在构造时读任何文件——真读文件
             // 是 `open_preview_local` 的事，而那是用户点了才发生的。
             preview: crate::ui::overlays::PreviewState::default(),
@@ -527,10 +528,17 @@ impl TerminalWindow {
         // 夹具（`--screenshot` / `--comp`）一律不出引导：42 张基线都是在
         // 「不是第一次用」的机器上冻结的，让一次性的引导出现在截图里，
         // 等于给每一张图都加一层不该有的窗口。
-        if self.view.show_onboarding && harness::fixture_mode() {
+        if std::env::var_os("WINDTERM_SHOW_PROFILE_CHOICE").is_some() {
+            // 出图 / 人工调试用的显式开关：生产路径无人设置，零影响。
             self.view.show_onboarding = false;
-        }
-        if self.view.show_onboarding {
+            self.view.show_profile_choice = true;
+        } else if harness::fixture_mode() {
+            self.view.show_onboarding = false;
+            self.view.show_profile_choice = false;
+        } else if !term_paths::has_profile_dir_choice() {
+            // 第一次启动先选 profile 目录；确认后再开 Welcome 引导。
+            self.view.show_profile_choice = true;
+        } else if self.view.show_onboarding {
             self.open_onboarding();
         }
     }

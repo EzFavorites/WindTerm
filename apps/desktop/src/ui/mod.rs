@@ -677,6 +677,9 @@ pub struct TerminalWindow {
     /// 分界一致）。**可见性**那一个 bool 仍在 `ViewState::show_onboarding`——
     /// 两个字段恒定同步，改写点只有 `open_onboarding` / `finish_onboarding` 两处。
     onboarding: term_app::onboarding::OnboardingState,
+    /// 首次启动的目录选择：选中档位 + 指定目录缓冲。可见性在
+    /// `ViewState::show_profile_choice`，两者只在打开 / 确认两处一起改。
+    profile_choice: overlays::ProfileChoiceState,
     /// D6：预览窗（Filer 双击 / 右键「预览」打开的文件）。
     ///
     /// 不进 `ViewState`：它带着一张 `TextureHandle`（显存句柄）与一段已解码的
@@ -1138,11 +1141,12 @@ impl TerminalWindow {
             ctx.data_mut(|d| d.insert_temp(egui::Id::new("tunnel_session_names"), names));
             let _ = crate::ui::dialogs::tunnel_settings::draw(self, ctx);
         }
+        // 首次启动的 profile 目录选择：先定存储位置，再走引导。
+        // 夹具模式两处都不开，视觉基线不受影响。
+        if self.view.show_profile_choice { overlays::draw_profile_choice(ctx, self); }
         // D6：首次启动引导（Welcome → 探测到的 SSH 主机）。默认关闭时一行都不画，
         // 所以五张视觉基线不受影响；打开与否的判定在 `construct.rs::init`。
-        if self.view.show_onboarding {
-            self.draw_onboarding(ctx);
-        }
+        if self.view.show_onboarding { self.draw_onboarding(ctx); }
         // D6：预览窗（Filer 双击 / 右键「预览」）。默认关闭时一行都不画，
         // 所以七张视觉基线与组件图不受影响。放在对话框这一段，是因为它与
         // 其余窗口同级：浮在终端之上，但被模态（关闭确认 / 粘贴确认）压住。

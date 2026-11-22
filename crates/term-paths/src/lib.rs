@@ -20,7 +20,7 @@
 //! 不回答「目录里有什么」——后者每加一个文件就要改这个 crate，
 //! 而文件名是各模块自己的知识。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 应用在平台配置目录下的子目录名。
 ///
@@ -29,6 +29,12 @@ use std::path::PathBuf;
 /// `~/Library/Application Support/` 根——和别的应用抢同一个目录，还留下一堆
 /// 原子写的临时文件。用户裁定收进子目录，旧数据由 [`startup_tidy`] 复制过来。
 const APP_DIR: &str = "WindTerm";
+
+/// 首次启动「Choose Profiles Directory」写下的选择：一行绝对路径。
+///
+/// 它必须放在**选择之前就确定的位置**（平台配置目录/WindTerm），不能放进
+/// 用户选中的 profile 目录里——否则下次启动还没读到它就算不出 profile 目录。
+const CHOICE_FILE: &str = "profile-dir.txt";
 
 /// profile 目录：会话库、保险库、偏好、布局、日志都在它下面。
 ///
@@ -40,7 +46,54 @@ pub fn profile_dir() -> Option<PathBuf> {
     if let Ok(override_dir) = std::env::var("WINDTERM_PROFILE_DIR") {
         return Some(PathBuf::from(override_dir));
     }
+    if let Some(chosen) = read_profile_dir_choice() {
+        return Some(chosen);
+    }
     Some(platform_dir()?.join(APP_DIR))
+}
+
+/// 首次启动的目录选择是否已经做过。
+///
+/// 环境变量覆盖也算「做过」：测试与便携模式用它重定向 profile 目录，不该再弹
+/// 一次首次启动对话框。
+pub fn has_profile_dir_choice() -> bool {
+    std::env::var_os("WINDTERM_PROFILE_DIR").is_some()
+        || choice_file()
+            .is_some_and(|p| std::fs::read_to_string(p).is_ok_and(|s| !s.trim().is_empty()))
+}
+
+/// 读出用户选中的 profile 目录（不含首尾空白的空行视为没选）。
+pub fn read_profile_dir_choice() -> Option<PathBuf> {
+    let text = std::fs::read_to_string(choice_file()?).ok()?;
+    let line = text.lines().next()?.trim();
+    (!line.is_empty()).then(|| PathBuf::from(line))
+}
+
+/// 落下用户选中的 profile 目录。先写临时名再改名，中途失败不留下半截选择。
+pub fn write_profile_dir_choice(dir: &Path) -> bool {
+    let Some(file) = choice_file() else {
+        return false;
+    };
+    write_choice_to(&file, dir)
+}
+
+fn choice_file() -> Option<PathBuf> {
+    Some(platform_dir()?.join(APP_DIR).join(CHOICE_FILE))
+}
+
+fn write_choice_to(file: &Path, dir: &Path) -> bool {
+    let Some(parent) = file.parent() else {
+        return false;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return false;
+    }
+    let tmp = file.with_extension("tmp");
+    let line = format!("{}\n", dir.to_string_lossy());
+    if std::fs::write(&tmp, line).is_err() {
+        return false;
+    }
+    std::fs::rename(&tmp, file).is_ok()
 }
 
 /// 平台配置目录（`profile_dir` 的**上一级**）。只有迁移需要它。
@@ -240,6 +293,25 @@ mod tests {
             let got = profile_dir();
             assert_eq!(got.as_deref(), Some(std::path::Path::new("/tmp/term-paths-probe")));
         });
+    }
+
+    #[test]
+    fn a_written_profile_dir_choice_round_trips() {
+        let root = std::env::temp_dir().join(format!(
+            "term-paths-choice-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let file = root.join(APP_DIR).join(CHOICE_FILE);
+        let chosen = Path::new("/tmp/my-wind-profile/.wind");
+        assert!(write_choice_to(&file, chosen));
+        let read = std::fs::read_to_string(&file).unwrap();
+        assert!(read.starts_with("/tmp/my-wind-profile/.wind"));
+        assert!(read.trim().ends_with(".wind"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]

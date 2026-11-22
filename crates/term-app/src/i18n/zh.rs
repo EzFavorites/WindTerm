@@ -372,6 +372,22 @@ pub(super) fn zh(en: &'static str) -> &'static str {
             "经 portable-pty 支持本地 Shell、SSH、Telnet、TCP 与串口。"
         }
         "Open project home" => "打开项目主页",
+        // ── 首次启动：选择 profile 目录 ──
+        "Choose Profiles Directory" => "选择配置文件目录",
+        "Please choose your personal profiles directory; it will be used to store user preferences." => {
+            "请选择您的个人资料目录，该目录将用于存储用户的偏好。"
+        }
+        "Application directory (A)" => "应用程序目录(A)",
+        "User directory (H)" => "用户目录(H)",
+        "Specified directory: (S)" => "指定目录：(S)",
+        "Browse for the profiles directory" => "选择配置文件目录",
+        "Directory path" => "目录路径",
+        "A \".wind\" directory will be created in the selected directory." => {
+            "在选定目录中新建 \".wind\" 目录。"
+        }
+        "Choose a valid directory." => "请选择一个有效目录。",
+        "The selected directory is not writable." => "选定目录不可写。",
+        "Failed to save the profile directory choice." => "保存配置文件目录选择失败。",
         // ── 不在菜单树里的 chrome：右键菜单 / 查找栏 / 浮层 / 面板 / 锁屏 ──
         "Activate" => "激活",
         "Close Others" => "关闭其他",

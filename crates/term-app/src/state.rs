@@ -159,6 +159,11 @@ pub struct ViewState {
     /// `open_onboarding` / `finish_onboarding` 里一起改——没有第二个写入者。
     pub show_onboarding: bool,
 
+    /// 首次启动的「Choose Profiles Directory」对话框。出厂 `false`；打开判据在
+    /// `construct.rs::init`：没有选择标记、且不在夹具模式时置位。确认后写
+    /// profile 目录标记并关窗，再继续 `show_onboarding`。
+    pub show_profile_choice: bool,
+
     /// 预览窗（Filer 双击 / 右键「预览」打开的文件）。
     ///
     /// 读者是 `ui/mod.rs` 末尾那段窗口分发（`if view.show_preview`）与
@@ -255,6 +260,7 @@ impl Default for ViewState {
             // 出厂不画引导。打开它是 `construct.rs::init` 的活（依据
             // `Prefs::onboarded`），`Default` 只回答「这一帧画不画」。
             show_onboarding: false,
+            show_profile_choice: false,
             // 预览窗同样出厂不画——它是浮层，启动时不该盖住终端。
             show_preview: false,
             find: FindState::default(),
@@ -299,7 +305,7 @@ mod tests {
         assert!(!s.lock.locked && !s.show_shortcuts && !s.show_tmux);
         // 两个一次性 / 临时窗口出厂都不占屏（引导由 init 按 prefs 打开，
         // 预览窗只能由用户对某一行动手打开）。
-        assert!(!s.show_onboarding && !s.show_preview);
+        assert!(!s.show_onboarding && !s.show_preview && !s.show_profile_choice);
         // 同步输入默认关：它会让一次按键作用到所有会话，不能默认打开。
         assert!(!s.sync_input && !s.show_tunnels);
         // 新版截图默认铺满：左 Explorer/Filer、右会话树/Outline、底 Sender/Shell。

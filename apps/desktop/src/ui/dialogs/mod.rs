@@ -66,7 +66,7 @@ mod settings_live_onekeys_pages;
 mod settings_live_onekeys_ssh;
 // ：Triggers / OneKeys 的**独立对话框宿主**。内容仍由上面两个
 // `settings_live_*` 提供（组件夹具也走旧入口），这里只管窗口壳。
-mod dialog_chrome;
+pub(in crate::ui) mod dialog_chrome;
 mod onekeys_dialog;
 mod triggers_dialog;
 // ：11 种触发器类型的完整复刻（主窗 + 页面 + 浮层 + 弹窗 + 取色器）。
