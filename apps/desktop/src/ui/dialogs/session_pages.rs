@@ -346,9 +346,13 @@ fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 .hint_text(hint)
                 .desired_width(300.0),
         );
-        // 文件选择器还没接：目录可直接填，按钮保留灰显并说明。
-        ui.add_enabled(false, egui::Button::new("..."))
-            .on_hover_text("Type the directory in the box; no folder picker yet.");
+        if ui
+            .add(egui::Button::new("..."))
+            .on_hover_text("Browse for the upload directory")
+            .clicked()
+        {
+            win.open_path_picker(crate::ui::path_picker::PathTarget::ModemUploadDir, &up_dir);
+        }
     });
     ui.label("Download directory:");
     ui.horizontal(|ui| {
@@ -357,8 +361,13 @@ fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 .hint_text(hint)
                 .desired_width(300.0),
         );
-        ui.add_enabled(false, egui::Button::new("..."))
-            .on_hover_text("Type the directory in the box; no folder picker yet.");
+        if ui
+            .add(egui::Button::new("..."))
+            .on_hover_text("Browse for the download directory")
+            .clicked()
+        {
+            win.open_path_picker(crate::ui::path_picker::PathTarget::ModemDownloadDir, &down_dir);
+        }
     });
 
     ui.checkbox(

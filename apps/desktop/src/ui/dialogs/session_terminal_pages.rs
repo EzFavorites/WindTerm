@@ -258,14 +258,18 @@ fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     }
     ui.horizontal(|ui| {
         ui.add_space(24.0);
-        // 文件路径可直接填；`...` 的文件选择器还没接，保留灰显并在悬停说明。
         ui.add(
             egui::TextEdit::singleline(&mut sound)
                 .hint_text("(no sound file)")
                 .desired_width(300.0),
         );
-        ui.add_enabled(false, egui::Button::new("..."))
-            .on_disabled_hover_text("Type the sound file path in the box; no file picker yet.");
+        if ui
+            .add(egui::Button::new("..."))
+            .on_hover_text("Browse for a sound file")
+            .clicked()
+        {
+            win.open_path_picker(crate::ui::path_picker::PathTarget::BellSound, &sound);
+        }
     });
     ui.add_space(8.0);
     ui.label("Ignore bells received more than once within:");

@@ -30,6 +30,7 @@ mod modem_drop;
 mod reconnect;
 mod overlays;
 mod panels;
+mod path_picker;
 mod shell;
 mod tab;
 mod tab_hover;
@@ -94,11 +95,10 @@ use terminal::make_tab;
 pub(crate) use comp::comp_names; pub(crate) use comp::comp_list;
 
 use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
-pub(in crate::ui) use tr::t;
-use crate::ui::shell::draw_find_bar; use eframe::egui; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
+pub(in crate::ui) use tr::t; use crate::ui::shell::draw_find_bar; use eframe::egui; use term_app::state::ViewState; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index}; use term_app::log::LogAction;
-use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS}; use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::state::ViewState; use term_app::viewport::Viewport;
+use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS}; use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::viewport::Viewport;
 use term_core::grid::{Rgb, GridSnapshot, ScreenImage}; use term_core::session::{AuthMethod, Protocol, SessionConfig}; use term_core::session_runtime::SessionId;
 use term_core::theme::Palette; use term_core::vt::{arrow_bytes_for, paste_bytes_for, Arrow};
 
@@ -282,7 +282,7 @@ pub struct TerminalWindow {
     global_proxy_type: usize, global_proxy_host: String, global_proxy_port: u16,
     tab_thumbnail_pct: usize,
     /// 上一帧文件面板的矩形：拖放时判断落在 Modem 还是 SFTP 上传。
-    filer_rect: Option<egui::Rect>,
+    filer_rect: Option<egui::Rect>, path_picker: Option<path_picker::PathPicker>,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
@@ -894,7 +894,7 @@ impl TerminalWindow {
                 changed = true;
             }
         }
-        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self);
+        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。
