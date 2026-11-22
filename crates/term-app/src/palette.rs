@@ -90,6 +90,17 @@ pub fn entries(mode: PaletteMode) -> Vec<Entry> {
             implemented: capability::is_implemented(entry.id),
         });
     }
+    // Tmux 控制命令：官方文档称主交互是命令面板里的 `Mux: XXX`，而菜单树里
+    // 根本没有这些项。这里把无目标的几条补进面板（分组名 Tmux），带目标的
+    // 仍在 tmux 面板内按解析出的窗格集合校验后下发。
+    for (label, id, _) in crate::vocab::tmux_palette::TMUX_PALETTE {
+        out.push(Entry {
+            label,
+            id,
+            menu: "Tmux",
+            implemented: capability::is_implemented(id),
+        });
+    }
     if mode == PaletteMode::Command {
         // `CONTEXT_ONLY` 里的命令 ID 路径是构造上的空转（缺 target 就没有意义），
         // 列出来只会让用户点了没反应。它们仍在 `Anything` 模式里可见。
@@ -214,10 +225,14 @@ mod tests {
             .iter()
             .filter(|id| capability::is_implemented(id))
             .count();
-        assert_eq!(all.len(), capability::inventory().len());
-        assert_eq!(wired.len() + context_only_wired, capability::counts().0);
+        // 面板还额外收了 Tmux 的无目标控制命令：它们不在菜单树里，所以
+        // 条目数 = 菜单清单 + 那几条（能力台账仍只统计菜单树，口径不变）。
+        let extra = crate::vocab::tmux_palette::TMUX_PALETTE.len();
+        assert_eq!(all.len(), capability::inventory().len() + extra);
+        assert_eq!(wired.len() + context_only_wired, capability::counts().0 + extra);
         assert!(all.iter().any(|e| !e.implemented));
         assert!(wired.iter().all(|e| e.implemented));
+        assert!(wired.iter().any(|e| e.menu == "Tmux"), "Mux 命令要能被搜到");
         // 顶级菜单名随条目一起带来，面板才有分组可显示。
         assert!(wired.iter().any(|e| e.menu == "Session"));
     }

@@ -18,6 +18,8 @@
 //! 于是 `term_app::shell::ShellAction`、`term_app::dock::PanelId` 这些
 //! 既有写法一处都不用改（`apps/desktop` 有 59 个文件在用）。
 
+pub mod tmux_palette;
+
 /// 一个能力就是一个可独立演进的纵切面。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FeatureId {

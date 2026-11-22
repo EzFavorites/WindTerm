@@ -502,6 +502,11 @@ impl Action {
         if let Some(a) = dock_parse(id) {
             return Some(Action::Layout(a));
         }
+        // Tmux 控制命令（命令面板的 `Tmux:*` 条目）。无目标命令才进全局面板；
+        // 带窗格号的由面板按解析出的集合校验后再发，避免误注入。
+        if let Some(line) = tmux_palette::line_for(id) {
+            return Some(Action::TmuxCommand(line.to_string()));
+        }
         None
     }
 

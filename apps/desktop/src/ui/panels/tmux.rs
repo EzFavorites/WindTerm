@@ -84,7 +84,38 @@ impl TerminalWindow {
                         term_app::tmux::Command::Detach.line(),
                     ));
                 }
+                if ui.button("New Window").clicked() {
+                    actions.push(Action::TmuxCommand(
+                        term_app::tmux::Command::NewWindow.line(),
+                    ));
+                }
+                if ui.button("Refresh").clicked() {
+                    actions.push(Action::TmuxCommand(
+                        term_app::tmux::Command::Refresh.line(),
+                    ));
+                }
             });
+            // 带目标的反向命令只从**解析出来的窗格集合**里选，绝不手填窗格号：
+            // 08-tmux-integration.md 要求用窗格号集合做目标校验，否则容易误注入。
+            if tmux_panes.is_empty() {
+                ui.label("No panes parsed yet — feed a %output / %layout line first.");
+            } else {
+                ui.label("Panes (from control output):");
+                for pane in &tmux_panes {
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("Select %{pane}")).clicked() {
+                            actions.push(Action::TmuxCommand(
+                                term_app::tmux::Command::SelectPane(*pane).line(),
+                            ));
+                        }
+                        if ui.button(format!("Kill %{pane}")).clicked() {
+                            actions.push(Action::TmuxCommand(
+                                term_app::tmux::Command::KillPane(*pane).line(),
+                            ));
+                        }
+                    });
+                }
+            }
             ui.separator();
             ui.collapsing("Command blocks (OSC 133)", |ui| {
                 ui.label("Shell integration marks are indexed in `term_app::blocks`.");
