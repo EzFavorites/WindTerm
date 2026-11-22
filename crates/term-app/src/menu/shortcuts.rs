@@ -111,6 +111,14 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
     },
     // 视图切换：菜单只写 Meta+PgUp/PgDown，文档另写 Alt+[ / Alt+]。四条都装进
     // 绑定表——菜单列与绑定表的已知分歧在 menu_check_tests 里逐条销账。
+    // 重新打开最近关闭的标签：文档写 Cmd+Shift+T（macOS = Meta+Shift+T），
+    // 而菜单上的 Ctrl+Shift+T 是「水平分屏」且文案冻结，不能改。两者不同弦，
+    // 各按各的——给 Reopen 一条真绑定，而不是让它永远按不响。
+    Shortcut {
+        chord: "Meta+Shift+T",
+        id: "Terminal.TabReopenClosed",
+        label: "Reopen Closed Tab",
+    },
     Shortcut {
         chord: "Meta+PgUp",
         id: "Window.ActivatePreviousView",
