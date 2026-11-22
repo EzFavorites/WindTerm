@@ -1,15 +1,24 @@
 //! 触发器命中模板展开。放在独立文件是为了让 `trigger.rs` 守住行数门禁。
 
-use super::trigger::{Hit, Rule, TriggerAction};
+use super::trigger::{Hit, Rule, SendMode, TriggerAction};
 
 /// 把 `${match}` 换成这次命中的文本；其余动作原样返回。
 pub(crate) fn expand_actions(rule: &Rule, matched: &str) -> Vec<TriggerAction> {
     let expand = |text: &str| text.replace("${match}", matched);
+    let script = rule.config.send.mode == SendMode::Script;
+    let text = |s: &str| {
+        let expanded = expand(s);
+        if script {
+            super::trigger_script::eval(&expanded)
+        } else {
+            expanded
+        }
+    };
     rule.actions
         .iter()
         .map(|action| match action {
-            TriggerAction::SendText(s) => TriggerAction::SendText(expand(s)),
-            TriggerAction::SendLine(s) => TriggerAction::SendLine(expand(s)),
+            TriggerAction::SendText(s) => TriggerAction::SendText(text(s)),
+            TriggerAction::SendLine(s) => TriggerAction::SendLine(text(s)),
             TriggerAction::RunCommand(s) => TriggerAction::RunCommand(expand(s)),
             other => other.clone(),
         })
@@ -29,6 +38,23 @@ pub(crate) fn hit_with(rule: &Rule, matched: String) -> Hit {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn script_mode_returns_a_literal_value_after_expansion() {
+        let mut rule: Rule = serde_json::from_str(
+            r#"{"id":"r","name":"n","description":"","on":"Output","pattern":"x",
+                "literal":true,"case_sensitive":true,"cooldown_secs":0,"idle_secs":0,
+                "actions":[],"enabled":true}"#,
+        )
+        .unwrap();
+        rule.config.send.mode = SendMode::Script;
+        rule.actions = vec![TriggerAction::SendText(r#"return "got ${match}""#.into())];
+        let hit = hit_with(&rule, "42".into());
+        assert_eq!(
+            hit.actions,
+            vec![TriggerAction::SendText("got 42".into())]
+        );
+    }
 
     #[test]
     fn a_hit_expands_the_match_placeholder_in_every_text_action() {

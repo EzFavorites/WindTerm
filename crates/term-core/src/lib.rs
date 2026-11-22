@@ -64,5 +64,6 @@ pub mod trigger;
 mod trigger_expand;
 pub mod trigger_target;
 pub mod trigger_schedule;
+pub mod trigger_script;
 pub mod vt;
 pub mod width;
