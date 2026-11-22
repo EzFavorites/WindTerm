@@ -671,7 +671,7 @@ mod tests {
         );
         let idx = palette_feature::entries(palette_feature::PaletteMode::Anything)
             .iter()
-            .position(|e| e.id == "Window.GotoSymbol")
+            .position(|e| e.id == "Window.SetRemoteMode")
             .unwrap();
         s.command_palette.selected = idx;
         let effects = reduce(&mut s, Action::Palette(PaletteAction::Confirm), None);

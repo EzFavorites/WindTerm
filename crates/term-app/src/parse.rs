@@ -175,6 +175,7 @@ pub(crate) fn goto_parse(id: &str) -> Option<GotoAction> {
     let action = match id {
         "Window.GotoLine" => GotoAction::Open(GotoMode::Line),
         "Window.GotoSession" => GotoAction::Open(GotoMode::Sessions),
+        "Window.GotoSymbol" => GotoAction::Open(GotoMode::Symbol),
         _ => return None,
     };
     Some(action)

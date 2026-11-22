@@ -366,10 +366,10 @@ fn or_none(items: &[String]) -> String {
 /// 这几条不是漏改：视觉基线（2.6.1）上它们就标着键，菜单按视觉基线保真，
 /// 删字是偏离视觉基线。行本来就是置灰点不动的（`capability::describe` 说 `Planned`），
 /// 「灰项 + 视觉基线上的键」是诚实的状态。命令接线那天，从这张表里删掉即可。
-const KNOWN_UNWIRED_SHORTCUTS: [&str; 3] = [
+const KNOWN_UNWIRED_SHORTCUTS: [&str; 2] = [
     // `Application.NewWindow` 已删：2026-11-15 接线，并补进 `DEFAULT_SHORTCUTS`。
+    // `Window.GotoSymbol` 已接线（符号表 = OSC 133 命令块），2026-11-23 销账。
     "Text.ToggleWordWrap",
-    "Window.GotoSymbol",
     "Window.SetRemoteMode",
 ];
 

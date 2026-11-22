@@ -34,6 +34,7 @@ pub(in crate::ui) use script_panel::ScriptPanelState;
 mod tmux;
 mod tools;
 mod outline;
+pub(in crate::ui) use outline::outline_items;
 pub(in crate::ui) mod tools_sender;
 mod tools_sender_menu;
 mod tools_sender_row;

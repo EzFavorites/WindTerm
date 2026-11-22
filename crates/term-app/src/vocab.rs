@@ -543,6 +543,8 @@ pub enum GotoMode {
     Line,
     /// 在已打开的标签里选一个。
     Sessions,
+    /// 在 OSC 133 命令块组成的「符号表」里选一条命令跳转。
+    Symbol,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -554,6 +556,8 @@ pub enum GotoAction {
     /// `total` 是投影层此刻可见的条目数（只读派生值），用来做选中回绕。
     Move(i32, usize),
     Select(usize),
+    /// 符号模式下选中某一绝对历史行，Confirm 时跳过去。
+    SelectSymbol(i64),
     Confirm,
     Close,
 }

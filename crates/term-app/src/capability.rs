@@ -268,9 +268,11 @@ mod tests {
         // 已接线 215→216、总数 221→222，占位 6 不变（没动任何置灰项）。
         // 2026-11-19 只读查看：`Window.SetLocalMode` 从「置灰占位」变成真开关
         // → 已接线 216→217、占位 6→5、总数 222 不变（菜单项一条没增没删）。
+        // 2026-11-23：`Window.GotoSymbol` 接线（符号表 = OSC 133 命令块）
+        // → 已接线 217→218、占位 5→4、总数 222 不变。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 217, "已接线命令数变化需显式确认");
-        assert_eq!(planned, 5, "占位命令数变化需显式确认");
+        assert_eq!(implemented, 218, "已接线命令数变化需显式确认");
+        assert_eq!(planned, 4, "占位命令数变化需显式确认");
         assert_eq!(inventory().len(), 222);
     }
 
@@ -369,11 +371,13 @@ mod tests {
             "Application.Exit",
             "Window.Close",
             "Window.CloseAllViews",
-            // Goto 两条。读者是 `ui/goto.rs` 与 `ui/effects.rs`——
+            // Goto 三条。读者是 `ui/goto.rs` 与 `ui/effects.rs`——
             // 行号经 `Viewport::jump_to_row` 落到活动标签的视口，会话索引
-            // 落到 `active_tab`；解析与失败提示都在 `term-app/goto.rs`。
+            // 落到 `active_tab`；符号模式把 OSC 133 命令块的头行当符号跳转。
+            // 解析与失败提示都在 `term-app/goto.rs`。
             "Window.GotoLine",
             "Window.GotoSession",
+            "Window.GotoSymbol",
             // 分屏六条。读者是 `ui/layout.rs` 的布局树与递归渲染——
             // SplitView 新建本地 shell、SplitGroup 复制当前会话配置，
             // 方向决定左右 / 上下；CloseActiveGroup 收起当前窗格，
@@ -761,7 +765,9 @@ mod tests {
         // 2026-11-14：原来钉的是 `Text.MarginFold`，它这一刀接通了；改用
         // `Window.GotoSymbol`——仍然解析不了（符号表要先有「符号」这个概念），
         // 且它不在任何已接线的能力族里。
-        assert_eq!(describe("Window.GotoSymbol").state, CapState::Planned);
+        // `Window.GotoSymbol` 2026-11-23 已接线（符号表 = OSC 133 命令块）；
+        // 这里改用仍未接线的 `Window.SetRemoteMode` 钉住置灰这一侧。
+        assert_eq!(describe("Window.SetRemoteMode").state, CapState::Planned);
     }
 
     /// 2026-11-14：折叠族九条**逐条**钉住「可点 + 归属」。

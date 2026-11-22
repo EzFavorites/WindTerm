@@ -21,32 +21,55 @@ impl TerminalWindow {
         }
         let lang = self.lang();
         let disconnected = self.tr(" (disconnected)");
-        // 只读派生值：标签标题与当前可回看的历史上限，都由事实状态现算。
-        let entries: Vec<(usize, String)> = self
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(i, tab)| {
-                let state = if tab.is_live() {
-                    tab.config.name.clone()
-                } else {
-                    format!("{}{disconnected}", tab.config.name)
-                };
-                (i, format!("{} · {}", i + 1, state))
-            })
-            .collect();
         let needle = self.view.goto.input.trim().to_lowercase();
-        // Sessions 模式按输入过滤；targets 把「过滤后第 n 项」映射回真实标签。
-        let filtered: Vec<(usize, String)> = if self.view.goto.mode == GotoMode::Sessions && !needle.is_empty() {
-            entries
-                .into_iter()
-                .filter(|(_, label)| label.to_lowercase().contains(&needle))
-                .collect()
+        let mode = self.view.goto.mode;
+        let (targets, labels): (Vec<i64>, Vec<String>) = if mode == GotoMode::Symbol {
+            // 符号表就是 OSC 133 的命令块：与 Outline 面板同源，过滤词也复用
+            // 同一套判据。targets 存绝对历史行号，Confirm 直接跳过去。
+            let items = self
+                .tabs
+                .get(self.active_slot())
+                .map(|t| {
+                    crate::ui::panels::outline_items(
+                        &t.snapshot.blocks,
+                        &t.view.lines,
+                        t.snapshot.history,
+                        &needle,
+                    )
+                })
+                .unwrap_or_default();
+            (
+                items.iter().map(|(row, _)| *row).collect(),
+                items.into_iter().map(|(_, text)| text).collect(),
+            )
         } else {
-            entries
+            let entries: Vec<(usize, String)> = self
+                .tabs
+                .iter()
+                .enumerate()
+                .map(|(i, tab)| {
+                    let state = if tab.is_live() {
+                        tab.config.name.clone()
+                    } else {
+                        format!("{}{disconnected}", tab.config.name)
+                    };
+                    (i, format!("{} · {}", i + 1, state))
+                })
+                .collect();
+            let filtered: Vec<(usize, String)> =
+                if mode == GotoMode::Sessions && !needle.is_empty() {
+                    entries
+                        .into_iter()
+                        .filter(|(_, label)| label.to_lowercase().contains(&needle))
+                        .collect()
+                } else {
+                    entries
+                };
+            (
+                filtered.iter().map(|(i, _)| *i as i64).collect(),
+                filtered.into_iter().map(|(_, label)| label).collect(),
+            )
         };
-        let targets: Vec<usize> = filtered.iter().map(|(i, _)| *i).collect();
-        let labels: Vec<String> = filtered.into_iter().map(|(_, label)| label).collect();
         let active = self.tabs.get(self.active_slot());
         let history = active.map(|t| t.snapshot.history as i64).unwrap_or(0);
         // `+N` 的基准是当前光标所在的内容行；视图 range 已经是内容行号。
@@ -75,7 +98,7 @@ fn draw_panel(
     state: &GotoState,
     input: &mut String,
     labels: &[String],
-    targets: &[usize],
+    targets: &[i64],
     history: i64,
     lang: Lang,
     dispatch: &mut dyn FnMut(Action),
@@ -107,10 +130,13 @@ fn draw_panel(
         return;
     }
     if enter {
-        // 过滤后的选中下标要映射回真实标签，否则 Confirm 会切到错误的会话。
-        if !is_line {
-            if let Some(target) = selected.and_then(|s| targets.get(s).copied()) {
-                dispatch(Action::Goto(GotoAction::Select(target)));
+        // 过滤后的选中下标要映射回真实目标：会话模式映射成标签下标，
+        // 符号模式映射成绝对历史行——Confirm 只消费这个已经解引用过的值。
+        if let Some(target) = selected.and_then(|s| targets.get(s).copied()) {
+            match state.mode {
+                GotoMode::Sessions => dispatch(Action::Goto(GotoAction::Select(target as usize))),
+                GotoMode::Symbol => dispatch(Action::Goto(GotoAction::SelectSymbol(target))),
+                GotoMode::Line => {}
             }
         }
         dispatch(Action::Goto(GotoAction::Confirm));
@@ -124,7 +150,11 @@ fn draw_panel(
         dispatch(Action::Goto(GotoAction::Move(1, total)));
     }
 
-    let title = if is_line { tr("Goto Line") } else { tr("Goto Session") };
+    let title = match state.mode {
+        GotoMode::Line => tr("Goto Line"),
+        GotoMode::Sessions => tr("Goto Session"),
+        GotoMode::Symbol => tr("Goto Symbol"),
+    };
     // 稳定 id `goto`：两种标题是同一个浮层，标题变了不该换一份窗口状态。
     AnchoredWindow::new("goto", title, 380.0).show(ctx, |ui| {
             if is_line {
@@ -155,7 +185,15 @@ fn draw_panel(
                 for (idx, label) in labels.iter().enumerate() {
                     let row = ui.selectable_label(Some(idx) == selected, label.clone());
                     if row.clicked() {
-                        dispatch(Action::Goto(GotoAction::Select(targets.get(idx).copied().unwrap_or(idx))));
+                        match targets.get(idx).copied() {
+                            Some(row) if state.mode == GotoMode::Symbol => {
+                                dispatch(Action::Goto(GotoAction::SelectSymbol(row)));
+                            }
+                            Some(idx) => {
+                                dispatch(Action::Goto(GotoAction::Select(idx as usize)));
+                            }
+                            None => {}
+                        }
                         dispatch(Action::Goto(GotoAction::Confirm));
                     }
                 }

@@ -26,6 +26,8 @@ pub struct GotoState {
     pub error: bool,
     /// Line 模式 `+N` 的相对基准（当前光标内容行号）。
     pub line_base: i64,
+    /// Symbol 模式当前选中的绝对历史行。
+    pub symbol_row: Option<i64>,
 }
 
 impl Default for GotoState {
@@ -37,6 +39,7 @@ impl Default for GotoState {
             selected: 0,
             error: false,
             line_base: 0,
+            symbol_row: None,
         }
     }
 }
@@ -114,6 +117,10 @@ pub fn reduce(state: &mut GotoState, action: GotoAction) -> Vec<Effect> {
             state.selected = idx;
             Vec::new()
         }
+        GotoAction::SelectSymbol(row) => {
+            state.symbol_row = Some(row);
+            Vec::new()
+        }
         GotoAction::Confirm => match state.mode {
             GotoMode::Line => match parse_line_with_base(&state.input, state.line_base) {
                 Some(row) => {
@@ -131,6 +138,11 @@ pub fn reduce(state: &mut GotoState, action: GotoAction) -> Vec<Effect> {
                 reset(state);
                 vec![Effect::GotoSession(idx)]
             }
+            GotoMode::Symbol => {
+                let row = state.symbol_row.unwrap_or(0);
+                reset(state);
+                vec![Effect::GotoLine(row)]
+            }
         },
         GotoAction::Close => {
             reset(state);
@@ -144,6 +156,7 @@ fn reset(state: &mut GotoState) {
     state.input.clear();
     state.selected = 0;
     state.error = false;
+    state.symbol_row = None;
 }
 
 #[cfg(test)]
@@ -166,7 +179,10 @@ mod tests {
             parse("Window.GotoSession"),
             Some(GotoAction::Open(GotoMode::Sessions))
         );
-        assert_eq!(parse("Window.GotoSymbol"), None);
+        assert_eq!(
+            parse("Window.GotoSymbol"),
+            Some(GotoAction::Open(GotoMode::Symbol))
+        );
     }
 
     #[test]
