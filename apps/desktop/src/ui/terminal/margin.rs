@@ -346,15 +346,15 @@ mod tests {
     fn width_follows_enabled_columns() {
         let cell = 10.0;
         let mut m = MarginState::default();
-        // 留白 0.5 + 行号 3 + 符号前间隙 2 + 符号 1 + 右边距 1 = 7.5 格
-        assert_eq!(MarginMetrics::new(&m, cell, 20).width, 75.0);
-        // 打开时间戳：+10 格文本 +1 格间隙
-        m.timestamp = true;
+        // 默认开时间戳：0.5 留白 + 10 时间戳 + 1 间隙 + 行号 3 + 符号前间隙 2
+        // + 符号 1 + 右边距 1 = 18.5 格。
         assert_eq!(MarginMetrics::new(&m, cell, 20).width, 185.0);
+        // 关掉时间戳省下 11 格：0.5 + 3 + 2 + 1 + 1 = 7.5 格。
+        m.timestamp = false;
+        assert_eq!(MarginMetrics::new(&m, cell, 20).width, 75.0);
         // 三列全关：宽度 0，正文从左边开始（不该留一条死白）
         m.number = false;
         m.symbol = false;
-        m.timestamp = false;
         assert_eq!(MarginMetrics::new(&m, cell, 20).width, 0.0);
     }
 

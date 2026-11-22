@@ -43,7 +43,7 @@ impl Default for MarginState {
             number: true,
             fold: false,
             symbol: true,
-            timestamp: false,
+            timestamp: true,
         }
     }
 }
@@ -101,7 +101,7 @@ mod tests {
     fn defaults_keep_the_margin_narrow() {
         let m = MarginState::default();
         assert!(m.blank && m.number && m.symbol);
-        assert!(!m.timestamp, "10 格的时间戳列默认不占屏");
+        assert!(m.timestamp, "时间戳列默认开启（2026-11-23 改默认）");
         assert!(!m.fold);
         assert!(m.any_column());
     }
@@ -165,9 +165,13 @@ mod tests {
     #[test]
     fn closing_every_column_leaves_no_margin() {
         let mut state = ViewState::default();
-        // 默认开的是「行号 + 符号」；时间戳本来就关着，别再翻它。
-        assert!(!state.margin.timestamp);
-        for id in ["Text.MarginNumber", "Text.MarginSymbol"] {
+        // 默认开的是「行号 + 符号 + 时间戳」，三列都得翻掉才会没有边栏。
+        assert!(state.margin.timestamp);
+        for id in [
+            "Text.MarginNumber",
+            "Text.MarginSymbol",
+            "Text.MarginTimestamp",
+        ] {
             reduce(&mut state, parse(id).unwrap());
         }
         assert!(!state.margin.any_column(), "三列全关时投影不该留边栏宽度");

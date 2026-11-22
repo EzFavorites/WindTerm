@@ -302,7 +302,7 @@ fn search_online_submenu_expands_the_same_tree_as_the_menu_bar() {
 /// 从「未接线」的假灰改成与上下四列同一个 `Work::Margin`。
 #[test]
 fn margin_fold_column_is_wired_like_the_other_columns() {
-    // margin_rows 要的是 `MarginState`；用 Default 构造一个（全关）。
+    // margin_rows 要的是 `MarginState`；用 Default 构造一个（出厂档）。
     let rows = margin_rows(&term_app::margin::MarginState::default(), term_app::i18n::Lang::En);
     let fold = rows.iter().find(|r| r.label == "Margin Fold").unwrap();
     assert!(
