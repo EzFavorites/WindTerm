@@ -32,6 +32,8 @@ pub(in crate::ui) fn security(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Lock screen timeout:");
             egui::ComboBox::from_id_salt("prefs_lock_timeout")
+                .width(ui.available_width())
+                .wrap_mode(egui::TextWrapMode::Truncate)
                 .selected_text(label_for(secs))
                 .show_ui(ui, |ui| {
                     for (value, label) in TIMEOUTS {

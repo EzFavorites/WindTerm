@@ -33,6 +33,8 @@ pub(in crate::ui) fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         set_row_rhythm(ui);
         let col = label_col(ui, &["Host:", "Port:"]);
         egui::ComboBox::from_id_salt("prefs_global_proxy")
+            .width(ui.available_width())
+            .wrap_mode(egui::TextWrapMode::Truncate)
             .selected_text(MODES[kind.min(2)])
             .show_ui(ui, |ui| {
                 for (i, name) in MODES.iter().enumerate() {

@@ -642,6 +642,7 @@ impl TerminalWindow {
         ui.add(
             TextEdit::multiline(&mut self.new_session.forwards)
                 .desired_rows(6)
+                .desired_width(ui.available_width())
                 .hint_text("L 8080:db.internal:5432\nR 9000:localhost:3000\nD 1080"),
         );
         ui.label(

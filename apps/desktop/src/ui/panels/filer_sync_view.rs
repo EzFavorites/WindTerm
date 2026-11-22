@@ -22,6 +22,7 @@
 
 use super::sync;
 use super::sync as filer_sync;
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use eframe::egui;
@@ -191,10 +192,13 @@ impl TerminalWindow {
                         "本地有、远端没有的删掉",
                     ),
                 ] {
-                    if ui
-                        .radio(policy == value, label)
-                        .on_hover_text(hint)
-                        .clicked()
+                    let mut on = policy == value;
+                    if choice_row_resp(
+                        ui, ChoiceKind::Radio, label, "", &mut on, true,
+                        UnderlineStyle::None,
+                    )
+                    .on_hover_text(hint)
+                    .clicked()
                     {
                         action = Action::Policy(value);
                     }

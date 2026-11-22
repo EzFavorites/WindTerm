@@ -23,7 +23,7 @@
 
 use super::session_form_body::{form_row, heading, seconds_text, FIELD_W};
 use crate::ui::kit::field::{choice_row_resp, choice_row_styled, ChoiceKind, UnderlineStyle};
-use crate::ui::kit::form::field_box;
+use crate::ui::kit::form::{field_box, spin_field_delta};
 use crate::ui::*;
 
 /// 一页的内容。`session_form_body::draw_session_form` 把非状态页委托到这里。
@@ -154,7 +154,14 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 );
                 ui.end_row();
                 form_row(ui, "Port:");
-                ui.add(DragValue::new(&mut win.new_session.proxy_port).range(1..=65535));
+                let (drag, stepped) = spin_field_delta(ui, |ui| {
+                    ui.add(DragValue::new(&mut win.new_session.proxy_port).range(1..=65535));
+                });
+                let _ = drag;
+                if let Some(d) = stepped {
+                    let port = win.new_session.proxy_port as i64 + d as i64;
+                    win.new_session.proxy_port = port.clamp(1, 65535) as u16;
+                }
                 ui.end_row();
                 // Working directory 那一行**删掉**了：它和 Shell ▾ Command 页的
                 // `Working directory` 是同一个字段（form.working_dir），在代理页
@@ -227,7 +234,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         form_row(ui, "Baud Rate:");
         egui::ComboBox::from_id_salt("serial_baud")
             .selected_text(baud_str)
-            .width(240.0) // 视觉基线下拉占满右列，不按内容收缩
+            .width(FIELD_W) // 与同页其余四个下拉等宽，铺满字段列
             .show_ui(ui, |ui| {
                 for r in term_core::config::BAUD_RATES {
                     if ui.selectable_label(*baud == r, r.to_string()).clicked() {
@@ -240,6 +247,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let sel = data_bits.to_string();
         egui::ComboBox::from_id_salt("serial_databits")
             .selected_text(sel)
+            .width(FIELD_W)
             .show_ui(ui, |ui| {
                 for b in ["5", "6", "7", "8"] {
                     if ui.selectable_label(data_bits.to_string() == b, b).clicked() {
@@ -252,6 +260,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let sel = parity.to_string();
         egui::ComboBox::from_id_salt("serial_parity")
             .selected_text(sel)
+            .width(FIELD_W)
             .show_ui(ui, |ui| {
                 for p in ["None", "Odd", "Even"] {
                     if ui.selectable_label(parity.as_str() == p, p).clicked() {
@@ -264,6 +273,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let sel = stop_bits.to_string();
         egui::ComboBox::from_id_salt("serial_stopbits")
             .selected_text(sel)
+            .width(FIELD_W)
             .show_ui(ui, |ui| {
                 for s in ["1", "2"] {
                     if ui.selectable_label(stop_bits.to_string() == s, s).clicked() {
@@ -276,6 +286,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let sel = flow.to_string();
         egui::ComboBox::from_id_salt("serial_flow")
             .selected_text(sel)
+            .width(FIELD_W)
             .show_ui(ui, |ui| {
                 for f in ["None", "XON/XOFF", "RTS/CTS"] {
                     if ui.selectable_label(flow.as_str() == f, f).clicked() {
@@ -321,7 +332,7 @@ fn read_only_value(ui: &mut egui::Ui, value: &str) {
 /// 相邻页签条、与选中页签相连的内容面板，不再由本页手写裸 egui 控件。
 fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     use crate::ui::kit::field::{browse_field, choice_row, underlined_job, ChoiceKind, UnderlineStyle};
-    use crate::ui::kit::form::field_box;
+    use crate::ui::kit::form::{field_box};
     use crate::ui::kit::spec::{FIELD_TO_ROW, LABEL_TO_FIELD};
     use crate::ui::kit::tabs::{panel, strip};
 
@@ -552,26 +563,34 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     );
     ui.add_space(6.0);
     heading(ui, "Sends null packet to keep session alive:");
-    if ui
-        .add(
+    let (drag, stepped) = spin_field_delta(ui, |ui| {
+        ui.add(
             egui::DragValue::new(&mut null_pkt)
                 .range(0..=3600)
                 .custom_formatter(|n, _| seconds_text(n as u32)),
-        )
-        .changed()
-    {
+        );
+    });
+    if drag.changed() {
+        win.new_session.keep_alive = null_pkt;
+    }
+    if let Some(d) = stepped {
+        null_pkt = (null_pkt as i64 + d as i64).clamp(0, 3600) as u32;
         win.new_session.keep_alive = null_pkt;
     }
     ui.add_space(6.0);
     heading(ui, "Maximum connection timeout:");
-    if ui
-        .add(
+    let (drag, stepped) = spin_field_delta(ui, |ui| {
+        ui.add(
             egui::DragValue::new(&mut timeout)
                 .range(1..=600)
                 .custom_formatter(|n, _| seconds_text(n as u32)),
-        )
-        .changed()
-    {
+        );
+    });
+    if drag.changed() {
+        win.new_session.connection_timeout = timeout;
+    }
+    if let Some(d) = stepped {
+        timeout = (timeout as i64 + d as i64).clamp(1, 600) as u32;
         win.new_session.connection_timeout = timeout;
     }
     ui.add_space(6.0);

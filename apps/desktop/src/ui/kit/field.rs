@@ -108,7 +108,10 @@ fn paint_choice(
         *value = !*value;
         resp.mark_changed();
     }
-    let p = ui.painter_at(rect);
+    // 不能用 `painter_at(rect)`：它的裁剪区正好是 rect，而 1pt 描边有一半
+    // 落在 rect 左缘之外，画出来就是「radio / checkbox 左边缺一截」。
+    // 这里只画自己刚分配的矩形，用父级 painter 即可。
+    let p = ui.painter();
     // 鼠标落在整行上都算命中，但只在方框/圆圈上给视觉反馈。
     let ink = ui.visuals().text_color();
     let hovered = interactive && resp.hovered();

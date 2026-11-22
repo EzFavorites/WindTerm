@@ -55,7 +55,8 @@ pub(in crate::ui) fn tiny_button(ui: &mut egui::Ui, label: &str) -> egui::Respon
         egui::Sense::hover()
     };
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(19.0, 16.0), sense);
-    let p = ui.painter_at(rect);
+    // 1pt 描边有一半在 rect 外；painter_at(rect) 会把左/上那半圈裁掉。
+    let p = ui.painter_at(rect.expand(2.0));
     let bg = if resp.hovered() && ui.is_enabled() {
         rgb(0x3A3A3A)
     } else {

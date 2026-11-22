@@ -26,7 +26,7 @@
 //! 顺便把「哪几页是真的」这件事集中到一个文件里，一眼看得完。
 
 use crate::ui::kit::spec::BLOCK_GAP;
-use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
+use crate::ui::kit::field::{choice_row_resp, choice_row_styled, ChoiceKind, UnderlineStyle};
 use super::settings_pages_view::{
     field_height, field_label, group_box, label_col, set_row_rhythm, spin_field_delta,
 };
@@ -455,10 +455,12 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         // 36，后续四个下拉跟着整体上移。按逐页比对结果在第一、二档后各补 13 物理
         // 像素（7.5 逻辑点），最后一档不补，框底才不会被多余空白顶开。
         for (i, mode) in StartupMode::ALL.iter().enumerate() {
-            if ui
-                .add(egui::RadioButton::new(startup.mode == *mode, mode.label()))
-                .clicked()
-            {
+            let mut on = startup.mode == *mode;
+            // 与会话弹窗同一套 12pt 单选圆点；保留逐页量出的竖向间距。
+            if choice_row_styled(
+                ui, ChoiceKind::Radio, mode.label(), "", &mut on, true,
+                UnderlineStyle::None,
+            ) {
                 startup.mode = *mode;
             }
             if i + 1 < StartupMode::ALL.len() {

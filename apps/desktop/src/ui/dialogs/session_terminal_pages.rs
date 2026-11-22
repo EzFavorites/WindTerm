@@ -16,8 +16,8 @@ use crate::ui::kit::field::{
     browse_field, choice_row_resp, choice_row_styled, radio_choices, ChoiceKind, UnderlineStyle,
 };
 use super::log_settings_spec::LogType;
-use super::session_form_body::{form_row, LABEL_W};
-use super::session_pages::{grid, placeholder_note};
+use super::session_form_body::LABEL_W;
+use super::session_pages::placeholder_note;
 use crate::ui::kit::form::{
     dead_value, field_box, field_label, field_row, label_col, spin_field_delta, underlined_label, Deco,
     Slot, FIELD_TO_ROW, LABEL_TO_FIELD,
@@ -57,6 +57,8 @@ fn combo(ui: &mut egui::Ui, id: &str, items: &[&str], selected: &mut usize) -> b
     let mut changed = false;
     egui::ComboBox::from_id_salt(id)
         .selected_text(items[*selected])
+        .width(ui.available_width())
+        .wrap_mode(egui::TextWrapMode::Truncate)
         .show_ui(ui, |ui| {
             for (i, name) in items.iter().enumerate() {
                 if ui.selectable_label(*selected == i, *name).clicked() {
@@ -142,30 +144,43 @@ fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 标题独占一行：金标准里这三条都是「标题在上、框在下」，不再塞进
     // 93pt 的两列标签格（长标题会被截成 `Log file nam...`）。
     ui.label("Log file name:");
-    let r = ui.add(
-        egui::TextEdit::singleline(&mut win.log_settings.file_name)
-            .hint_text("%Y-%m-%d.log")
-            .desired_width(320.0),
+    let (_, browse) = browse_field(
+        ui,
+        &mut win.log_settings.file_name,
+        "%Y-%m-%d.log",
+        "...",
+        24.0,
+        40.0,
     );
-    dirty |= r.lost_focus();
+    dirty |= browse.clicked();
     ui.label("Log maximum size:");
-    let r = ui.add(
-        egui::DragValue::new(&mut win.log_settings.max_size_mb)
-            .range(0..=102_400)
-            .custom_formatter(|n, _| {
-                if n == 0.0 {
-                    "∞".to_string()
-                } else {
-                    format!("{} MB", n as u32)
-                }
-            }),
-    );
-    dirty |= r.changed();
+    let (drag, stepped) = spin_field_delta(ui, |ui| {
+        ui.add(
+            egui::DragValue::new(&mut win.log_settings.max_size_mb)
+                .range(0..=102_400)
+                .custom_formatter(|n, _| {
+                    if n == 0.0 {
+                        "∞".to_string()
+                    } else {
+                        format!("{} MB", n as u32)
+                    }
+                }),
+        );
+    });
+    dirty |= drag.changed();
+    if let Some(d) = stepped {
+        let max = win.log_settings.max_size_mb as i64 + d as i64;
+        win.log_settings.max_size_mb = max.clamp(0, 102_400) as u32;
+        dirty = true;
+    }
     ui.label("Log content pattern:");
-    let r = ui.add(
-        egui::TextEdit::singleline(&mut win.log_settings.pattern).desired_width(320.0),
-    );
-    dirty |= r.lost_focus();
+    field_box(ui, |ui| {
+        ui.add(
+            egui::TextEdit::singleline(&mut win.log_settings.pattern)
+                .desired_width(ui.available_width())
+                .frame(false),
+        );
+    });
     if dirty {
         let _ = win.log_settings.save();
     }
@@ -190,24 +205,28 @@ fn selection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     } else {
         win.new_session.word_separators_alt.clone()
     };
-    grid(ui, "new_session_selection_grid", |ui| {
-        form_row(ui, "Word Separators:");
-        if ui
-            .add(TextEdit::singleline(&mut separators).desired_width(320.0))
-            .changed()
-        {
-            win.new_session.word_separators = separators.clone();
-        }
-        ui.end_row();
-        form_row(ui, "Word Separators For Alternate Screen:");
-        if ui
-            .add(TextEdit::singleline(&mut alt_separators).desired_width(320.0))
-            .changed()
-        {
-            win.new_session.word_separators_alt = alt_separators.clone();
-        }
-        ui.end_row();
+    ui.label("Word Separators:");
+    field_box(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut separators)
+                .desired_width(ui.available_width())
+                .frame(false),
+        );
     });
+    if separators != win.new_session.word_separators {
+        win.new_session.word_separators = separators.clone();
+    }
+    ui.label("Word Separators For Alternate Screen:");
+    field_box(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut alt_separators)
+                .desired_width(ui.available_width())
+                .frame(false),
+        );
+    });
+    if alt_separators != win.new_session.word_separators_alt {
+        win.new_session.word_separators_alt = alt_separators.clone();
+    }
     placeholder_note(
         ui,
         "These separators break words for double-click selection and \
@@ -242,6 +261,7 @@ fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.label("Ignore bells received more than once within:");
     egui::ComboBox::from_id_salt("bell_dedup_combo")
         .selected_text(format!("{dedup} seconds"))
+        .width(ui.available_width())
         .show_ui(ui, |ui| {
             for secs in [0u32, 1, 2, 5, 10] {
                 if ui.selectable_label(dedup == secs, format!("{secs} seconds")).clicked() {
