@@ -14,6 +14,25 @@
 
 pub use crate::vocab::CenterPage;
 
+/// Open Session 页的会话过滤：大小写不敏感的子串，命中会话名或分组。
+/// 返回 `(原始下标, 会话)`——选中态用的是原始下标，过滤后不能把下标改成
+/// 「过滤后第 n 项」（清空过滤词就会指到别的会话）。
+pub fn filtered_sessions<'a>(
+    sessions: &'a [term_core::session::SessionConfig],
+    query: &str,
+) -> Vec<(usize, &'a term_core::session::SessionConfig)> {
+    let needle = query.trim().to_lowercase();
+    sessions
+        .iter()
+        .enumerate()
+        .filter(|(_, s)| {
+            needle.is_empty()
+                || s.name.to_lowercase().contains(&needle)
+                || s.group.to_lowercase().contains(&needle)
+        })
+        .collect()
+}
+
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CenterState {
@@ -129,6 +148,22 @@ pub fn reduce(state: &mut CenterState, action: CenterAction) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn open_session_filter_keeps_original_indices_and_matches_group() {
+        let mut a = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
+        a.name = "prod-web".into();
+        a.group = "work".into();
+        let mut b = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
+        b.name = "home-nas".into();
+        b.group = "personal".into();
+        let sessions = vec![a, b];
+        assert_eq!(filtered_sessions(&sessions, "").len(), 2);
+        // 过滤后仍返回原始下标，清空过滤词不会让选中项指到别的会话。
+        assert_eq!(filtered_sessions(&sessions, "PROD")[0].0, 0);
+        assert_eq!(filtered_sessions(&sessions, "personal")[0].0, 1);
+        assert!(filtered_sessions(&sessions, "zzz").is_empty());
+    }
 
     #[test]
     fn every_page_has_a_title_and_a_unique_command() {

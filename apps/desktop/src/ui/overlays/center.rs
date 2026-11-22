@@ -267,7 +267,10 @@ fn draw_page(
     match state.page {
         CenterPage::OpenSession => {
             ui.label(format!("会话库共 {} 条", view.sessions.len()));
-            for (i, session) in view.sessions.iter().enumerate() {
+            if ui.text_edit_singleline(input).changed() {
+                set_input(actions, input);
+            }
+            for (i, session) in term_app::center::filtered_sessions(&view.sessions, input) {
                 if ui
                     .selectable_label(i == state.selected, &session.name)
                     .clicked()
