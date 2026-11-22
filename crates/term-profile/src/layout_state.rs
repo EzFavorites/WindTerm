@@ -68,6 +68,9 @@ pub enum SavedNode {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SavedTab {
     pub name: String,
+    /// 标签颜色索引（0 = 不着色）。老布局缺这个键时回落 `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<usize>,
     /// 会话打开时的工作目录（shell 起始 cwd）。`None` = 走会话默认。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cwd: Option<String>,
@@ -118,7 +121,7 @@ impl SavedLayout {
     /// 与「旧文件只有 name」在序列化层面等价（读入都是 None）。
     pub fn single(name: &str) -> Self {
         Self {
-            tabs: vec![SavedTab {
+            tabs: vec![SavedTab { color: None, 
                 name: name.to_string(),
                 cwd: None,
                 scroll_top: None,
@@ -303,13 +306,36 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_color_survives_a_layout_round_trip_and_old_files_stay_readable() {
+        let mut layout = SavedLayout::single("a".into());
+        layout.tabs[0].color = Some(5);
+        let path = tmp();
+        assert!(save_to(&path, &layout));
+        let back = load_from(&path).expect("布局要能读回");
+        assert_eq!(back.tabs[0].color, Some(5));
+        // 老布局没有 color 键：回落 None，不能整份作废。
+        let raw = std::fs::read_to_string(&path).expect("刚写的文件");
+        let mut value: serde_json::Value = serde_json::from_str(&raw).expect("解析刚写的文件");
+        if let Some(tabs) = value.get_mut("tabs").and_then(|v| v.as_array_mut()) {
+            for tab in tabs {
+                if let Some(obj) = tab.as_object_mut() {
+                    obj.remove("color");
+                }
+            }
+        }
+        std::fs::write(&path, value.to_string()).expect("模拟旧文件");
+        let old = load_from(&path).expect("旧布局仍要可读");
+        assert_eq!(old.tabs[0].color, None);
+    }
+
+    #[test]
     fn a_split_layout_round_trips_without_losing_the_tree() {
         let path = tmp();
         let layout = SavedLayout {
             tabs: vec![
-                SavedTab { name: "a".into(), cwd: None, scroll_top: None, history_len: None },
-                SavedTab { name: "b".into(), cwd: None, scroll_top: None, history_len: None },
-                SavedTab { name: "c".into(), cwd: None, scroll_top: None, history_len: None },
+                SavedTab { color: None,  name: "a".into(), cwd: None, scroll_top: None, history_len: None },
+                SavedTab { color: None,  name: "b".into(), cwd: None, scroll_top: None, history_len: None },
+                SavedTab { color: None,  name: "c".into(), cwd: None, scroll_top: None, history_len: None },
             ],
             active: 2,
             tree: SavedNode::Split {
@@ -368,7 +394,7 @@ mod tests {
     fn saving_stamps_the_current_schema_version_and_old_files_still_load() {
         let path = tmp();
         let layout = SavedLayout {
-            tabs: vec![SavedTab {
+            tabs: vec![SavedTab { color: None, 
                 name: "only".into(),
                 cwd: None,
                 scroll_top: None,
@@ -400,8 +426,8 @@ mod tests {
         let path = tmp();
         let layout = SavedLayout {
             tabs: vec![
-                SavedTab { name: "a".into(), cwd: None, scroll_top: None, history_len: None },
-                SavedTab { name: "b".into(), cwd: None, scroll_top: None, history_len: None },
+                SavedTab { color: None,  name: "a".into(), cwd: None, scroll_top: None, history_len: None },
+                SavedTab { color: None,  name: "b".into(), cwd: None, scroll_top: None, history_len: None },
             ],
             active: 0,
             tree: SavedNode::Split {
@@ -441,7 +467,7 @@ mod tests {
     #[test]
     fn sanitize_clamps_out_of_range_indices_and_active_tab() {
         let mut layout = SavedLayout {
-            tabs: vec![SavedTab {
+            tabs: vec![SavedTab { color: None, 
                 name: "only".into(),
                 cwd: None,
                 scroll_top: None,
@@ -591,13 +617,13 @@ mod tests {
         let path = tmp();
         let layout = SavedLayout {
             tabs: vec![
-                SavedTab {
+                SavedTab { color: None, 
                     name: "remote".into(),
                     cwd: Some("/home/user/project".into()),
                     scroll_top: Some(120),
                     history_len: Some(10000),
                 },
-                SavedTab {
+                SavedTab { color: None, 
                     name: "local".into(),
                     cwd: None,
                     scroll_top: None,

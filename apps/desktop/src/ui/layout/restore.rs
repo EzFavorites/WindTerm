@@ -53,6 +53,7 @@ impl TerminalWindow {
         self.pending_activation.clear();
 
         let mut tabs = Vec::new();
+        let mut colors = Vec::new();
         // 建立 name -> SavedTab 的映射，用于提取运行态字段
         let saved_by_name: std::collections::HashMap<String, &SavedTab> = saved
             .tabs
@@ -79,6 +80,7 @@ impl TerminalWindow {
                 &self.ctx,
             );
             // N：写入恢复运行态
+            colors.push(saved_by_name.get(name).and_then(|st| st.color));
             if let Some(st) = saved_by_name.get(name) {
                 tab.restore_scroll_top = st.scroll_top;
                 tab.restore_history_len = st.history_len;
@@ -102,6 +104,7 @@ impl TerminalWindow {
         }
         let n = tabs.len();
         self.replace_tabs(tabs);
+        self.tab_colors = colors;
         // ADR-0025 阶段 3：持久化存的是下标（`SavedNode::Leaf` 是「第几条」），
         // 这里换成恢复出来的标签身份（与 `tabs` 同序），让内存布局按身份寻址。
         let ids: Vec<SessionId> = self.tabs.iter().map(|t| t.identity).collect();
@@ -177,7 +180,8 @@ impl TerminalWindow {
                 tabs: self
                     .tabs
                     .iter()
-                    .map(|t| SavedTab {
+                    .enumerate()
+                    .map(|(i, t)| SavedTab { color: self.tab_colors.get(i).copied().flatten(),
                         name: t.config.name.clone(),
                         // N：会话运行态 —— cwd 取自配置，scroll_top/history_len 取自视口与快照
                         cwd: (!t.config.working_dir.trim().is_empty())
