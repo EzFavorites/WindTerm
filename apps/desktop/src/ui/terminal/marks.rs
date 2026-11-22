@@ -115,6 +115,10 @@ pub(in crate::ui) struct MarksParams {
     pub whitespace: WhitespaceMode,
     /// 光标行铺一层极淡底。
     pub caret_line: bool,
+    /// 光标下的词 / 当前折叠块 / 当前括号对。
+    pub caret_word: bool,
+    pub current_fold: bool,
+    pub current_pair: bool,
 }
 
 impl Default for MarksParams {
@@ -128,6 +132,9 @@ impl Default for MarksParams {
             wrap_symbols: false,
             whitespace: WhitespaceMode::HideAll,
             caret_line: false,
+            caret_word: false,
+            current_fold: false,
+            current_pair: false,
         }
     }
 }
@@ -145,6 +152,9 @@ impl MarksParams {
         wrap_symbols: bool,
         whitespace: usize,
         caret_line: bool,
+        caret_word: bool,
+        current_fold: bool,
+        current_pair: bool,
     ) -> Self {
         Self {
             line_endings,
@@ -153,6 +163,9 @@ impl MarksParams {
             wrap_symbols,
             whitespace: WhitespaceMode::from_index(whitespace),
             caret_line,
+            caret_word,
+            current_fold,
+            current_pair,
         }
     }
 
@@ -164,6 +177,9 @@ impl MarksParams {
             || self.wrap_symbols
             || self.whitespace != WhitespaceMode::HideAll
             || self.caret_line
+            || self.caret_word
+            || self.current_fold
+            || self.current_pair
     }
 
     /// 需要**逐行**画的那四项（列标记是整屏一条，光标行底色压在字形之下）。

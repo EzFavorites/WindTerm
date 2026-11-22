@@ -122,6 +122,9 @@ pub(super) fn paint(
         alt_row_bg,
         None,
         &[],
+        &[],
+        &[],
+        &[],
         &segments,
     );
 

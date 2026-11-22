@@ -103,6 +103,48 @@ pub(super) fn paint_body(
                 line_count,
             )
         });
+        // 光标所在的内容行 / 列：三项新高亮共用同一份坐标，避免各算一遍漂移。
+        let caret_content = screen_index_of_grid_row(image, caret_grid_row)
+            .and_then(|idx| image.lines.get(idx))
+            .map(|line| line.row);
+        let caret_col = tab.snapshot.cursor.1;
+        let at = caret_content.map(|row| term_app::selection::Pos::new(row, caret_col));
+        let mut word_cells: Vec<(i64, usize)> = Vec::new();
+        if tab.marks.caret_word {
+            if let Some(sel) = at.and_then(|p| term_app::selection::word_at(image, p)) {
+                let (start, end) = sel.normalized();
+                for col in start.col..end.col {
+                    word_cells.push((start.row, col));
+                }
+            }
+        }
+        let mut pair_cells: Vec<(i64, usize)> = Vec::new();
+        if tab.marks.current_pair {
+            if let Some(at) = at {
+                for pos in [
+                    term_app::selection::pair_start(image, at),
+                    term_app::selection::pair_end(image, at),
+                ]
+                .into_iter()
+                .flatten()
+                {
+                    pair_cells.push((pos.row, pos.col));
+                }
+            }
+        }
+        let mut fold_rows: Vec<i64> = Vec::new();
+        if tab.marks.current_fold {
+            if let Some(row) = caret_content {
+                for block in &tab.snapshot.blocks {
+                    let start = block.command_start;
+                    let end = block.end.unwrap_or(start).max(start);
+                    if (start..=end).contains(&row) {
+                        fold_rows.push(start);
+                        break;
+                    }
+                }
+            }
+        }
         // 字形缓存按槽位分两份（`term_view` / `term_view_shell`）：
         // `LineCache` 的键是「行号 + 内容 hash」，两块区域交替写同一下标会
         // **每帧互相失效**——画得没错，但缓存等于白养。取哪一份由调用点
@@ -139,6 +181,9 @@ pub(super) fn paint_body(
             alt_row_bg,
             caret_row,
             &tab.trigger_highlight_rows,
+            &fold_rows,
+            &word_cells,
+            &pair_cells,
             &segments,
         );
     }

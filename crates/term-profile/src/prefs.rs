@@ -332,6 +332,13 @@ pub struct Prefs {
     /// 消费在 `ui/terminal/view.rs` 的逐行循环里——它必须压在字形**之下**。
     #[serde(default)]
     pub text_highlight_caret_line: bool,
+    /// 高亮光标下的词 / 当前折叠块 / 当前括号对。出厂全关（视觉基线不变）。
+    #[serde(default)]
+    pub text_highlight_caret_word: bool,
+    #[serde(default)]
+    pub text_highlight_current_fold: bool,
+    #[serde(default)]
+    pub text_highlight_current_pair: bool,
     /// `Preferences ▸ Highlight ▸ Highlight the incremental search`：查找命中铺底色。
     ///
     /// 出厂 **`true`**，与同页其余四项不同——那四项是**还没做**，这一项是
@@ -675,6 +682,9 @@ impl Default for Prefs {
             view_wrap_symbols: false,
             view_whitespace: 0,
             text_highlight_caret_line: false,
+            text_highlight_caret_word: false,
+            text_highlight_current_fold: false,
+            text_highlight_current_pair: false,
             // 查找命中高亮出厂开：它本来就是无条件在画的效果，这里只是给它
             // 一个能关的开关（见字段注释）。与 serde 的 `default_true` 对齐。
             text_highlight_search: true,

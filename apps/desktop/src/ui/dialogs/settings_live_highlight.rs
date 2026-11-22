@@ -20,28 +20,25 @@
 //! `Prefs.text_highlight_search`（出厂 `true`）→ `TerminalWindow.highlight_search`
 //! → `paint_overlays(...)` 那个 `if`。出厂开 = 接线前的行为，一张基线都不动。
 //!
-//! 两行的**作用域不同**，别顺手统一：caret line 落在 `Tab.marks`（每条标签各一份），
-//! search 落在窗口上（改完对全部标签立刻生效）。兼容终端这两项也确实一层是会话级、
+//! 五行的**作用域不同**，别顺手统一：四行高亮落在 `Tab.marks`（每条标签各一份），
+//! search 落在窗口上（改完对全部标签立刻生效）。兼容终端也确实一层是会话级、
 //! 一层是全局级。
 //!
-//! # 其余三行为什么仍灰
+//! # 后三行的渲染口径
 //!
-//! caret word / current fold / current pair 都没有状态位，也没有渲染读者
-//! （终端只画「常驻词表」与上面的 Find 命中，那是另外两件事）。
-//! 摆成能点的勾就是假开关，所以画空框 + hover 理由。
+//! caret word 用 `selection::word_at` 在事实窗口上取整词，current pair 用
+//! `selection::pair_start/pair_end` 取两端，current fold 用 OSC 133 命令块的
+//! 起始行。三者都只在字形下铺淡色，不进选区、不影响复制。
 
 use super::settings_live::save_prefs;
-use super::settings_pages::Row;
-use super::settings_pages_view::{draw_row, group_box, label_col, set_row_rhythm};
+use super::settings_pages_view::{group_box, set_row_rhythm};
 use crate::ui::terminal::MarksParams;
 use crate::ui::*;
 use term_app::shell::MarksKnob;
 
-/// 三行灰显的共同理由：点名缺的是「编辑器侧的高亮状态」，
-/// 不说「尚未实现」这种对下一个人没有信息量的话。
-const HIGHLIGHT_NOTE: &str = "Not wired: the caret word, current fold and current pair rules have no \
-     state to store and no renderer. Caret line and search matching are live (search matching is \
-     the same pass that paints find hits).";
+/// 页底说明：五项都已接真，各自的数据源不同。
+const HIGHLIGHT_NOTE: &str = "Caret line, word, fold and pair tints are per-tab; search matching is \
+     window-wide. All five apply immediately and are saved for new tabs.";
 
 /// 查找命中那一行的悬停：它没有菜单项，说明里得交代「为什么只有设置页能改」。
 const SEARCH_HOVER: &str = "Tints every search match in every tab; the current match uses the \
@@ -51,9 +48,7 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut on = win.marks_knob_on(MarksKnob::CaretLine);
     let mut search = win.highlight_search;
 
-    // 这一页只有勾选行、没有标签列（`col` 用兜底值）；视觉基线里页首第一个字
-    // 就是分组框标题 `Highlight`，所以不再另画页级标题。
-    let col = label_col(ui, &[]);
+    // 视觉基线里页首第一个字就是分组框标题 `Highlight`，不再另画页级标题。
     group_box(ui, Some("Highlight"), |ui| {
         set_row_rhythm(ui);
         // 第一行真勾选：读活动标签当前值，勾完当场铺底色 + 落 prefs。
@@ -65,13 +60,37 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             win.set_marks(|m| MarksParams { caret_line: on, ..m });
             save_prefs(|prefs| prefs.text_highlight_caret_line = on);
         }
-        // 中间三行仍灰：空框 + 逐行悬停理由（它们各自没有读者）。
-        for label in [
-            "Highlight the caret word",
-            "Highlight the current fold",
-            "Highlight the current pair",
-        ] {
-            draw_row(ui, &Row::DisabledCheck(label), HIGHLIGHT_NOTE, col);
+        // 中间三行接真：三项都是「每条标签一份」的 MarksParams，
+        // 改完当场在活动标签上看见，同时落 prefs 作为新标签默认值。
+        let marks = win.active_marks();
+        let mut word = marks.caret_word;
+        let mut fold = marks.current_fold;
+        let mut pair = marks.current_pair;
+        let word_changed = ui
+            .checkbox(&mut word, "Highlight the caret word")
+            .on_hover_text("Tints every cell of the word under the cursor in the active tab.")
+            .changed();
+        let fold_changed = ui
+            .checkbox(&mut fold, "Highlight the current fold")
+            .on_hover_text("Tints the command-block header containing the cursor (OSC 133 blocks).")
+            .changed();
+        let pair_changed = ui
+            .checkbox(&mut pair, "Highlight the current pair")
+            .on_hover_text("Tints both ends of the bracket pair next to the cursor.")
+            .changed();
+        if word_changed || fold_changed || pair_changed {
+            // 三项一次写齐：逐个 set_marks 会用旧副本覆盖前一项。
+            win.set_marks(|m| MarksParams {
+                caret_word: word,
+                current_fold: fold,
+                current_pair: pair,
+                ..m
+            });
+            save_prefs(|prefs| {
+                prefs.text_highlight_caret_word = word;
+                prefs.text_highlight_current_fold = fold;
+                prefs.text_highlight_current_pair = pair;
+            });
         }
         // 第四行真勾选 ：窗口级副本当帧生效，同时落 prefs。
         // 顺序照视觉基线，不因为「能点的要放前面」而重排——那是改设计稿。
@@ -83,6 +102,8 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             win.highlight_search = search;
             save_prefs(|prefs| prefs.text_highlight_search = search);
         }
+        ui.add_space(4.0);
+        ui.label(HIGHLIGHT_NOTE);
     });
 }
 
@@ -91,17 +112,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn only_the_caret_line_is_live_and_the_note_names_the_rest() {
-        // 第一行有读者（Prefs + MarksKnob + 渲染器）；页底必须逐行点名
-        // 其余三行缺的是什么，不能退化成「尚未实现」。
-        assert!(HIGHLIGHT_NOTE.contains("Caret line"), "要点明第一行是真控件");
-        for dead in ["caret word", "current fold", "current pair"] {
-            assert!(HIGHLIGHT_NOTE.contains(dead), "{dead} 要在说明里点名");
+    fn every_row_is_live_and_the_note_names_all_sources() {
+        assert!(HIGHLIGHT_NOTE.contains("Caret line"));
+        for source in ["word", "fold", "pair"] {
+            assert!(HIGHLIGHT_NOTE.contains(source), "{source} 要在说明里点名");
         }
-        assert!(
-            !HIGHLIGHT_NOTE.contains("parses to no action"),
-            "CaretLine 早已接线，不能再挂过期的灰显理由"
-        );
+        assert!(!HIGHLIGHT_NOTE.contains("Not wired"), "不能再挂过期的灰显理由");
     }
 
     #[test]

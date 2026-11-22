@@ -5,13 +5,11 @@
 //! 五张视觉基线逐字节一致仍是判据。`ui/terminal.rs` 用 `pub(in crate::ui) use` 重新导出，
 //! 所有调用点一处都不用改。
 
-use super::hex_params::HexParams;
+use super::hex_params::HexParams; use super::{MarksParams, WhitespaceMode};
 /// `MarksParams` / `WhitespaceMode` 走 `mod.rs` 的再导出（与 `HexParams` 同一
 /// 条路径）：菜单那一侧（`ui/effects.rs`）也只认这一条，两处引用同一个名字，
 /// 将来挪文件只需改 `mod.rs` 一行。
-use super::{MarksParams, WhitespaceMode};
-use crate::ui::*;
-use term_core::session_runtime::SessionId;
+use crate::ui::*; use term_core::session_runtime::SessionId;
 
 /// ADR-0025：标签恒在身份铸造源。每条 tab 在 `tab_from` 一次性领取，
 /// 与存活态（`session`）解耦——断连 / 重连都不回收、不改值。进程内单调递增，
@@ -97,6 +95,9 @@ pub(in crate::ui) fn marks_defaults(prefs: &term_runtime::prefs::Prefs) -> Marks
         prefs.view_wrap_symbols,
         prefs.view_whitespace,
         prefs.text_highlight_caret_line,
+        prefs.text_highlight_caret_word,
+        prefs.text_highlight_current_fold,
+        prefs.text_highlight_current_pair,
     )
 }
 

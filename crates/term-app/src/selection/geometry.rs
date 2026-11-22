@@ -434,7 +434,7 @@ fn nearest_bracket(stream: &[(Pos, char)], at: Pos) -> Option<usize> {
 ///
 /// 光标停在 `foo(bar|)` 的中间时，`(…)` 这一对由最近的括号（`(`）确定，
 /// 落点是 `(` 本身——这就是「跳到这一对的开头」。
-pub(super) fn pair_start(image: &ScreenImage, at: Pos) -> Option<Pos> {
+pub fn pair_start(image: &ScreenImage, at: Pos) -> Option<Pos> {
     let stream = brackets(image);
     let idx = nearest_bracket(&stream, at)?;
     let other = match_index(&stream, idx)?;
@@ -443,7 +443,7 @@ pub(super) fn pair_start(image: &ScreenImage, at: Pos) -> Option<Pos> {
 }
 
 /// `End Of Pair`：落到同一对的**闭**端。
-pub(super) fn pair_end(image: &ScreenImage, at: Pos) -> Option<Pos> {
+pub fn pair_end(image: &ScreenImage, at: Pos) -> Option<Pos> {
     let stream = brackets(image);
     let idx = nearest_bracket(&stream, at)?;
     let other = match_index(&stream, idx)?;
