@@ -148,6 +148,9 @@ pub struct Tab {
     /// 读者只有一个：`ui/terminal/pane_overlays.rs` 的 `if !bin && tab.debug`，
     /// 它去调 `debug_paint::paint`。`bin` 下整块跳过（hex 视图没有字符格坐标系）。
     pub(in crate::ui) debug: bool,
+    /// Debug Mode 期间我们是否真的起了那份原始字节排障日志。
+    /// 用户已有常规会话日志时不抢那个唯一的日志槽，关掉 Debug 时也不该停它。
+    pub(in crate::ui) debug_log_active: bool,
     /// 本标签是不是**只读查看**态（`Window ▸ Local Mode`，2026-11-19）。
     ///
     /// 只读 = 四条一起成立，缺一条就不叫只读：

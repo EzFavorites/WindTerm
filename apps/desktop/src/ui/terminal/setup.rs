@@ -159,6 +159,7 @@ pub(in crate::ui) fn tab_from(
             // 调试覆盖层与只读查看都出厂关：与 `marks` 一样是「每条会话一份」的
             // 显示状态、不落盘。夹具与生产都从这里起步，视觉基线逐字节不变。
             debug: false,
+            debug_log_active: false,
             local_mode: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
             // 控制模式状态机归本 tab，跨块行缓冲从空开始。

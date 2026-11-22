@@ -21,6 +21,7 @@ use term_core::vt::paste_bytes_for;
 
 // 折叠族九条的决策与落地在子模块里：它自带约 280 行（含注释），留在本文件
 // 会把这里顶过 500 代码行上限。
+mod debug_log;
 mod fold;
 
 impl TerminalWindow {
@@ -547,6 +548,9 @@ impl TerminalWindow {
             return;
         };
         tab.debug = !tab.debug;
+        let on = tab.debug;
+        let busy_log = tab.log_status().is_recording();
+        debug_log::sync_debug_log(&self.pool, tab, on, busy_log);
         self.ctx.request_repaint();
     }
 

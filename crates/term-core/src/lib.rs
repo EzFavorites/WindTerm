@@ -43,6 +43,7 @@ pub mod completion;
 pub mod completion_words;
 pub mod config;
 pub mod coords;
+pub mod debug_log;
 pub mod find;
 pub mod input_line;
 pub mod keys;

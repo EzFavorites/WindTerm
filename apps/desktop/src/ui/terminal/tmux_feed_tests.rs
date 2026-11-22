@@ -48,6 +48,7 @@ fn bare_tab() -> Tab {
         onekey_expects_fired: std::collections::HashSet::new(),
         // 调试覆盖层：这条夹具只验 tmux 控制行，覆盖层取出厂值（关）。
         debug: false,
+        debug_log_active: false,
         // 只读查看：这条夹具只想验 tmux 控制行，取出厂值（可输入）。
         local_mode: false,
         raw: RawLog::new(),
