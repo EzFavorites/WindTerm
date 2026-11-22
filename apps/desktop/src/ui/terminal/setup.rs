@@ -160,6 +160,7 @@ pub(in crate::ui) fn tab_from(
             // 显示状态、不落盘。夹具与生产都从这里起步，视觉基线逐字节不变。
             debug: false,
             debug_log_active: false,
+            vim: term_app::vim::VimState::default(),
             local_mode: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
             // 控制模式状态机归本 tab，跨块行缓冲从空开始。

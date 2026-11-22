@@ -72,6 +72,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         // 调试覆盖层：这条夹具要逐像素数斑马线底色块，覆盖层必须关。
         debug: false,
         debug_log_active: false,
+        vim: term_app::vim::VimState::default(),
         // 只读查看：这条夹具只验斑马线，取出厂值（可输入、无冻结锚点）。
         local_mode: false,
         raw: crate::ui::terminal::bin_spec::RawLog::new(),

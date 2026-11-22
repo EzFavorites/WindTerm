@@ -609,6 +609,7 @@ impl TerminalWindow {
                 return;
             };
             tab.local_mode = !tab.local_mode;
+            tab.vim.reset(); // 进出的那一下不许带着上一次的「g」/数字前缀
             tab.local_mode
         };
         if now_local {

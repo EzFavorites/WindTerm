@@ -151,6 +151,8 @@ pub struct Tab {
     /// Debug Mode 期间我们是否真的起了那份原始字节排障日志。
     /// 用户已有常规会话日志时不抢那个唯一的日志槽，关掉 Debug 时也不该停它。
     pub(in crate::ui) debug_log_active: bool,
+    /// 本地模式下 Vim 导航键的解析状态（数字前缀 / 挂起的 `g`）。
+    pub(in crate::ui) vim: term_app::vim::VimState,
     /// 本标签是不是**只读查看**态（`Window ▸ Local Mode`，2026-11-19）。
     ///
     /// 只读 = 四条一起成立，缺一条就不叫只读：

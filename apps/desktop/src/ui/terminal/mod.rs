@@ -16,6 +16,7 @@ mod margin;
 /// 而这些判据要能被没有窗口的单测钉死。
 mod highlights;
 mod history_scope;
+mod vim_apply;
 mod marks;
 /// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
 mod marks_paint;

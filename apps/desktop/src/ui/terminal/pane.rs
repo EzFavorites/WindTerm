@@ -497,19 +497,20 @@ impl TerminalWindow {
             && !self.view.show_tmux && !self.view.lock.locked
             && self.pending_paste.is_none()
         {
-            let mut key_bytes = Vec::new();
-            let mut want_copy = false;
+            // 本地模式的 Vim 导航键：先攒字符，循环结束后喂给纯解析层。
+            let mut key_bytes = Vec::new(); let mut vim_keys: Vec<char> = Vec::new(); let mut want_copy = false;
             // Shift+方向键是外壳的选择手势，不转发给程序（见 `ui::select`）。
             let mut want_select: Option<Op> = None;
             // 弹层可见时 ↑↓/Tab/Esc 归补全，不再写进 PTY。
-            let mut completion_action: Option<completion_popup::Action> = None;
-            let mut completion_blocked = false;
+            let mut completion_action: Option<completion_popup::Action> = None; let mut completion_blocked = false;
             ui.input(|i| {
                 for event in &i.events {
                     match event {
                         // 用 `Event::Text` 而不是 `Event::Key`：macOS 的
                         // Option+字母只在 Text 里给出最终字符。编码口径在纯层。
                         egui::Event::Text(text) => {
+                            // 只读查看态：键盘不写 PTY，交给 Vim 导航解析层。
+                            if tab.local_mode { vim_keys.extend(text.chars()); continue; }
                             let b = keys::text_bytes_for_modifiers(text, i.modifiers.alt, i.modifiers.command, tab.config.alt_modifier_sends, tab.config.meta_modifier_sends).unwrap_or_else(|| text.as_bytes().to_vec());
                             key_bytes.extend_from_slice(&b);
                         }
@@ -555,6 +556,9 @@ impl TerminalWindow {
                     }
                 }
             });
+
+            // Vim 本地模式：纯解析 → 已有视口 / 选区 API，不产生任何 PTY 字节。
+            super::vim_apply::drain(&mut tab.viewport, &tab.view, &tab.snapshot, &mut tab.selections, &tab.config, &mut tab.vim, vim_keys, ui.ctx());
 
             // Cmd+C：写剪贴板。egui 不提供读接口，粘贴走 Event::Paste（Cmd+V）。
             // 读哪一份取决于**这块区域**：面板里复制的就是面板里选中的那段。

@@ -107,6 +107,7 @@ pub mod tab;
 pub mod tmux;
 pub mod vocab;
 pub mod viewport;
+pub mod vim;
 // P：终端滚动条与悬停预览窗的纯几何层（零 egui、零 IO、可单测）。
 // 只做「数值 → 数值」换算：滑块 ↔ scroll_top 互算、hover ratio → 预览 ViewRange、
 // 预览框钳制。像素与绘制在投影层（`apps/desktop` 的 `pane_scrollbar.rs` /

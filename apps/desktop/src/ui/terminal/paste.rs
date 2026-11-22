@@ -75,6 +75,7 @@ mod tests {
             // 调试覆盖层：粘贴测试不碰它，取出厂值（关 = 屏幕一个像素都不变）。
             debug: false,
             debug_log_active: false,
+            vim: term_app::vim::VimState::default(),
             // 只读查看：粘贴测试验的正是「能粘」，所以必须是可输入态。
             local_mode: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
