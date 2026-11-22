@@ -21,6 +21,8 @@ term-paths = { path = "../../crates/term-paths" }
 # 门面里的 `term_runtime::prefs` 只是 `term_profile::prefs` 的再导出，走门面会让
 # `verify.sh` 4s（`term_runtime::` 引用只许减不许增，基线 148）凭空 +1。
 term-profile = { path = "../../crates/term-profile" }
+# 整窗主题按名字加载（`theme::load_palette_named`）：真实路径，不经门面。
+term-import = { path = "../../crates/term-import" }
 term-app = { path = "../../crates/term-app", features = ["planned"] }
 eframe = "0.29"
 egui = "0.29"

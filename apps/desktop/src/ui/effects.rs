@@ -11,8 +11,7 @@ use super::{TerminalWindow, WindowOpacity};
 use crate::ui::dialogs::SessionDialogKind;
 use eframe::egui;
 use term_app::action::{Action, Effect, XferCmd};
-use term_app::blocks;
-use term_app::find::FindAction;
+use term_app::blocks; use term_app::find::FindAction;
 use term_app::selection::{Pos, Selection};
 use term_app::shell::ShellAction;
 use term_app::tab::TabAction;
@@ -23,6 +22,7 @@ use term_core::vt::paste_bytes_for;
 // 会把这里顶过 500 代码行上限。
 mod debug_log;
 mod fold;
+mod theme;
 
 impl TerminalWindow {
     /// 帧末批量落地：同步输入广播 + 折叠列点击。两项都要借整个窗口，

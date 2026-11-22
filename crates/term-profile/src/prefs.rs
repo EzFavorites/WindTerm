@@ -438,6 +438,10 @@ pub struct Prefs {
     /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
     #[serde(default)]
     pub auto_reconnect: bool,
+    /// 整窗主题名，取值来自 `term_core::theme::BUILTIN_THEME_NAMES`。
+    /// `#[serde(default)]`：老 `prefs.json` 没这一项时回落到 dige-black。
+    #[serde(default)]
+    pub theme_name: String,
     /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 false（主题通常没声明字体）。
     #[serde(default)]
     pub prefer_theme_fonts: bool,
@@ -710,6 +714,7 @@ impl Default for Prefs {
             auto_hide_menu_bar: false,
             lock_timeout_secs: 1800,
             auto_reconnect: false,
+            theme_name: term_core::theme::DEFAULT_THEME_NAME.to_string(),
             prefer_theme_fonts: false,
             tab_hover_activate: false,
             tab_hover_delay_ms: 200,

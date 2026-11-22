@@ -488,9 +488,14 @@ impl TerminalWindow {
                     match page {
                         // 有状态的页在 `settings_live.rs`；其余页走数据表。
                         SettingsPage::Appearance => {
-                            let edit = settings_live::appearance(ui, current, window_opacity);
+                            let edit = settings_live::appearance(
+                                ui, current, window_opacity, &self.palette.theme_name.clone(),
+                            );
                             if let Some(l) = edit.lang {
                                 picked_lang = Some(l);
+                            }
+                            if let Some(name) = edit.theme_name {
+                                self.apply_theme(&name);
                             }
                             // 开关 / 滑杆改完当场写运行期副本 + 落盘，
                             // 与菜单三档预设同一个入口。

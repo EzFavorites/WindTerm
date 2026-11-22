@@ -4766,6 +4766,7 @@ dependencies = [
  "term-app",
  "term-bridge",
  "term-core",
+ "term-import",
  "term-io",
  "term-paths",
  "term-profile",

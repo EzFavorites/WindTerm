@@ -35,6 +35,11 @@ pub const DEFAULT_FG: u32 = 0xF8F8F2;
 pub const DEFAULT_BG: u32 = 0x1C1C1C;
 
 /// WindTerm 内置终端配色方案名，与 `Terminal.SchemeList` 弹层 7 项一一对应。
+/// 整窗主题（不是 16 色终端方案）。三套内置：经典 dige-black、浅色 dige-light、
+/// 磷光绿 dige-green。与设置页主题下拉一一对应。
+pub const BUILTIN_THEME_NAMES: &[&str] = &["dige-black", "dige-light", "dige-green"];
+pub const DEFAULT_THEME_NAME: &str = "dige-black";
+
 pub const BUILTIN_SCHEME_NAMES: &[&str] = &[
     "cmd", "dumb", "linux", "macos", "none", "powershell", "routeros",
 ];

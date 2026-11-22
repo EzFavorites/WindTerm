@@ -148,6 +148,7 @@ use crate::ui::kit::spec::col;
 /// `TerminalWindow::set_window_opacity` 一个入口，菜单与设置页共用它。
 pub(in crate::ui) struct AppearanceEdit {
     pub lang: Option<Lang>,
+    pub theme_name: Option<String>,
     pub window_opacity: Option<WindowOpacity>,
 }
 
@@ -162,8 +163,10 @@ pub(in crate::ui) fn appearance(
     ui: &mut egui::Ui,
     lang: Lang,
     window: WindowOpacity,
+    theme_name: &str,
 ) -> AppearanceEdit {
     let mut picked = None;
+    let mut theme_picked = None;
     let mut opacity_edit = None;
     let mut current = window;
     recovery_notice(ui);
@@ -188,14 +191,17 @@ pub(in crate::ui) fn appearance(
                 });
         });
         label_row(ui, t(lang, "Theme"), "Theme", false, |ui| {
+            let current = theme_name;
             egui::ComboBox::from_id_salt("prefs_theme")
-                .selected_text("dige-black")
+                .selected_text(current)
                 .width(field_w(ui))
                 .wrap_mode(egui::TextWrapMode::Truncate)
                 .show_ui(ui, |ui| {
-                    // theme_load 只有 dige-black 一项：列表如实只有它；
-                    // 选中即当前主题，不需要任何后续动作。
-                    let _ = ui.selectable_label(true, "dige-black");
+                    for name in term_core::theme::BUILTIN_THEME_NAMES {
+                        if ui.selectable_label(*name == current, *name).clicked() {
+                            theme_picked = Some((*name).to_string());
+                        }
+                    }
                 });
         });
         //  Window opacity：真控件。视觉基线 `02-appearance.png` 这一行是
@@ -236,6 +242,7 @@ pub(in crate::ui) fn appearance(
     });
     AppearanceEdit {
         lang: picked,
+        theme_name: theme_picked,
         window_opacity: opacity_edit,
     }
 }

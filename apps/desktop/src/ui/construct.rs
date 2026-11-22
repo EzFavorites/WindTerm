@@ -42,8 +42,6 @@ impl TerminalWindow {
                 q.push(on);
             }
         })));
-        // 调色板与字体都要读它：先取一份，避免同一个主题文件读两遍。
-        let palette = term_runtime::theme_load::load_palette();
         // 会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
         // 就退回出厂默认值，让一台新机器打开就有个能用的本地 shell。
         let (groups, sessions) = term_runtime::persist::load().unwrap_or_else(|| {
@@ -63,6 +61,8 @@ impl TerminalWindow {
         // 第二写入者：之后的每一次切换都走 `ShellAction::SetLanguage` → reduce。
         // 同一份 prefs 还带着两个「不再提示」抑制位（关闭确认弹窗用）。
         let prefs = term_runtime::prefs::load().unwrap_or_default();
+        // 整窗主题按偏好加载；老 prefs 没 theme_name 时回落 dige-black。
+        let palette = term_import::theme::load_palette_named(&prefs.theme_name);
         pool.set_global_proxy(global_proxy_from_prefs(&prefs));
         // OneKey 方案表必须在**第一条会话之前**就位：控制面只在自己开会话时
         // 读它（`SessionPool::resolve_onekey`），而系统 `ssh` 那条路径不经过
