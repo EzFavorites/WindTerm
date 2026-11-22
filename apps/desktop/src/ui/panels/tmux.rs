@@ -42,10 +42,19 @@ impl TerminalWindow {
         // 状态机已下移到每个 tab。先把活跃 tab 的三项显示值收成 owned，
         // 再进 `FnMut` 闭包——闭包要独占 `&mut self.tmux_input`，里面不能再借
         // `&self`。没有活跃标签时降级成 idle / 空窗格 / 无布局。
-        let (tmux_active, tmux_panes, tmux_layout) = match self.active_tab_tmux() {
-            Some(mode) => (mode.active, mode.panes.clone(), mode.layout.clone()),
-            None => (false, Vec::new(), String::new()),
+        let (tmux_active, tmux_panes, tmux_windows, tmux_layout) = match self.active_tab_tmux() {
+            Some(mode) => (
+                mode.active,
+                mode.panes.clone(),
+                mode.windows.clone(),
+                mode.layout.clone(),
+            ),
+            None => (false, Vec::new(), Vec::new(), String::new()),
         };
+        let term_size = self
+            .tabs
+            .get(self.active_slot())
+            .map(|t| (t.snapshot.cols, t.snapshot.rows));
         let open = AnchoredWindow::new("tmux", "tmux Control Mode", 440.0)
             .with_close_button()
             .show(ctx, |ui| {
@@ -111,6 +120,37 @@ impl TerminalWindow {
                         if ui.button(format!("Kill %{pane}")).clicked() {
                             actions.push(Action::TmuxCommand(
                                 term_app::tmux::Command::KillPane(*pane).line(),
+                            ));
+                        }
+                        // `resize-pane` 改的是单个窗格，不是整窗：尺寸取本地终端此刻的
+                        // 网格大小，窗格号仍从解析集合里来（带目标的命令必须校验）。
+                        if let Some((cols, rows)) = term_size {
+                            if ui.button(format!("Resize %{pane}")).clicked() {
+                                actions.push(Action::TmuxCommand(
+                                    term_app::resize_pane_command(*pane, cols as u16, rows as u16).line(),
+                                ));
+                            }
+                        }
+                    });
+                }
+            }
+            if tmux_windows.is_empty() {
+                ui.label("No windows parsed yet — %window-add / %layout-change will list them.");
+            } else {
+                ui.label("Windows (from control output):");
+                for window in &tmux_windows {
+                    ui.horizontal(|ui| {
+                        if ui.button(format!("Select @{window}")).clicked() {
+                            actions.push(Action::TmuxCommand(
+                                term_app::tmux::Command::SelectWindow(*window).line(),
+                            ));
+                        }
+                        // 重命名用输入框当前内容，安全转义在 Command::line() 里。
+                        if ui.button(format!("Rename @{window}")).clicked()
+                            && !self.tmux_input.trim().is_empty()
+                        {
+                            actions.push(Action::TmuxCommand(
+                                term_app::tmux::Command::RenameWindow(self.tmux_input.trim().to_string()).line(),
                             ));
                         }
                     });

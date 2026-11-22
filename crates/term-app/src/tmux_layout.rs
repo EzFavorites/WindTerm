@@ -186,6 +186,12 @@ pub fn resize_command(cols: u16, rows: u16) -> Command {
     Command::Resize { cols: clamp_dim(cols), rows: clamp_dim(rows) }
 }
 
+/// 真正改某个窗格尺寸的入口（区别于上面的整窗 `refresh-client`）。
+/// 窗格号由调用方从控制流解析出的集合里选，这里只负责钳制尺寸。
+pub fn resize_pane_command(pane: u32, cols: u16, rows: u16) -> Command {
+    Command::ResizePane { pane, cols: clamp_dim(cols), rows: clamp_dim(rows) }
+}
+
 fn clamp_dim(v: u16) -> u16 {
     v.clamp(1, MAX_DIM)
 }
@@ -431,6 +437,11 @@ mod tests {
         assert_eq!(resize_command(120, 40).line(), "refresh-client -C 120x40");
         assert_eq!(resize_command(0, 0).line(), "refresh-client -C 1x1");
         assert_eq!(resize_command(50_000, 3).line(), "refresh-client -C 1000x3");
+        // 窗格 resize 走 -t %N，尺寸同样钳制。
+        assert_eq!(
+            resize_pane_command(3, 50_000, 0).line(),
+            "resize-pane -t %3 -x 1000 -y 1"
+        );
     }
 
     #[test]

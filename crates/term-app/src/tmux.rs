@@ -160,6 +160,8 @@ pub struct ControlMode {
     pub active: bool,
     pub in_notification: bool,
     pub panes: Vec<u32>,
+    /// 控制流里见过的窗口号（`@N`）。带目标的窗口命令只能从这张集合里选。
+    pub windows: Vec<u32>,
     pub layout: String,
     pub exited: bool,
 }
@@ -181,12 +183,25 @@ impl ControlMode {
                     self.panes.push(*pane);
                 }
             }
-            Event::LayoutChange { layout, .. } => {
+            Event::LayoutChange { window, layout } => {
                 self.active = true;
                 self.layout = layout.clone();
+                if *window != 0 && !self.windows.contains(window) {
+                    self.windows.push(*window);
+                }
             }
-            Event::WindowAdd(_) | Event::WindowClose(_) | Event::WindowRenamed { .. }
-            | Event::SessionChanged { .. } | Event::PaneModeChanged(_) => self.active = true,
+            Event::WindowAdd(window) => {
+                self.active = true;
+                if *window != 0 && !self.windows.contains(window) {
+                    self.windows.push(*window);
+                }
+            }
+            Event::WindowClose(window) => {
+                self.active = true;
+                self.windows.retain(|w| w != window);
+            }
+            Event::WindowRenamed { .. } | Event::SessionChanged { .. }
+            | Event::PaneModeChanged(_) => self.active = true,
             // `%pause` / `%continue` 是流控，`%client-detached` 说的是别的客户端：
             // 三者都不代表「本次控制模式还活着」，所以不动 `active`，
             // 真正的结束只认 `%exit`（降级路径唯一入口）。
@@ -215,8 +230,10 @@ pub enum Command {
     RenameWindow(String),
     Detach,
     Refresh,
-    /// `refresh-client -C <cols>x<rows>`：tmux 的 client resize 入口。
+    /// `refresh-client -C <cols>x<rows>`：tmux 的 client resize 入口（整窗）。
     Resize { cols: u16, rows: u16 },
+    /// `resize-pane -t %N -x N -y M`：真正改某个窗格尺寸，不是整窗。
+    ResizePane { pane: u32, cols: u16, rows: u16 },
     /// `send-keys -l <text>`：按字面发送文本。内容来自用户，**必须**引号转义。
     SendText { pane: u32, text: String },
     /// `send-keys -H <hex…>`：逐字节十六进制，二进制不会被 UTF-8 截断、也无从注入。
@@ -238,6 +255,9 @@ impl Command {
             Command::Detach => "detach-client".to_string(),
             Command::Refresh => "refresh-client".to_string(),
             Command::Resize { cols, rows } => format!("refresh-client -C {cols}x{rows}"),
+            Command::ResizePane { pane, cols, rows } => {
+                format!("resize-pane -t %{pane} -x {cols} -y {rows}")
+            }
             Command::SendText { pane, text } => {
                 // 换行等控制字符本身就是命令分隔符，不能出现在一条控制命令里；
                 // 一旦有就退到十六进制路径，和二进制同一处理。
@@ -476,6 +496,24 @@ mod tests {
         );
         // 转义入口与 line() 一致：不存在「忘了走 quoted_line」的后门。
         assert_eq!(send_text(5, "a b").quoted_line(), send_text(5, "a b").line());
+    }
+
+    #[test]
+    fn control_mode_tracks_windows_and_drops_closed_ones() {
+        let mut mode = ControlMode::default();
+        mode.feed("%window-add @1");
+        mode.feed("%layout-change @2 main-horizontal main-vertical *");
+        mode.feed("%window-close @1");
+        assert_eq!(mode.windows, vec![2]);
+        assert!(mode.active);
+    }
+
+    #[test]
+    fn resize_pane_targets_the_pane_not_the_client() {
+        assert_eq!(
+            Command::ResizePane { pane: 7, cols: 120, rows: 40 }.line(),
+            "resize-pane -t %7 -x 120 -y 40"
+        );
     }
 
     #[test]

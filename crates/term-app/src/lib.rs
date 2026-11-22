@@ -161,7 +161,7 @@ pub mod trigger_queue;
 #[cfg(feature = "planned")]
 mod trigger_regex;
 
-pub use tmux_layout::{layout_to_size, parse_layout, resize_command, Layout, Node};
+pub use tmux_layout::{layout_to_size, parse_layout, resize_command, resize_pane_command, Layout, Node};
 
 // 地址栏的常用项在 crate 根再导出一次，与 `tmux_layout` 同一条规矩——
 // 投影层写 `use term_app::{parse_target, AddressState, …}` 就够，
