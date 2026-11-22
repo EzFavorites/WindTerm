@@ -153,6 +153,7 @@ pub(in crate::ui) fn tab_from(
             // 六项可视化参数同样从 prefs 拷一份**默认值**：设置页写的是
             // `Prefs.view_*`，`View ▸ *` 改的是这份副本、不落盘。
             marks,
+            trigger_highlight_rows: Vec::new(),
             // 调试覆盖层与只读查看都出厂关：与 `marks` 一样是「每条会话一份」的
             // 显示状态、不落盘。夹具与生产都从这里起步，视觉基线逐字节不变。
             debug: false,

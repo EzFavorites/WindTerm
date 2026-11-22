@@ -130,6 +130,8 @@ pub struct Tab {
     /// 参数，进 `ViewState` 就变成整窗一份——分屏时两个窗格只能同开同关。
     /// 出厂六项全关，五张视觉基线靠这一条守住。
     pub(in crate::ui) marks: crate::ui::terminal::MarksParams,
+    /// 触发器 Highlight 命中的绝对行号。投影态，重启即清；不进选区、不进复制。
+    pub(in crate::ui) trigger_highlight_rows: Vec<i64>,
     /// 这条会话的**调试覆盖层**开关（`Mode ▸ Debug Mode`）。
     ///
     /// 与 [`Tab::mode`] / [`Tab::hex`] / [`Tab::marks`] 完全同一套两层模型：归 tab

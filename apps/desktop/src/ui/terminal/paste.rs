@@ -69,6 +69,7 @@ mod tests {
             // 空白/符号可视化六项（`View ▸ *` / `Text ▸ HighlightCaretLine`）：
             // 粘贴测试不碰它们，取出厂值（全关 = 屏幕一个像素都不变）。
             marks: crate::ui::terminal::MarksParams::default(),
+        trigger_highlight_rows: Vec::new(),
             // 调试覆盖层：粘贴测试不碰它，取出厂值（关 = 屏幕一个像素都不变）。
             debug: false,
             // 只读查看：粘贴测试验的正是「能粘」，所以必须是可输入态。

@@ -138,6 +138,7 @@ pub(super) fn paint_body(
             // `Text ▸ Alternate line background color`：窗口上那份副本，每行读一次。
             alt_row_bg,
             caret_row,
+            &tab.trigger_highlight_rows,
             &segments,
         );
     }

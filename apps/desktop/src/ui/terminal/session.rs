@@ -278,10 +278,9 @@ impl Tab {
     ///   （本地桌面响铃需要 OS / ctx，tab 不持有；v0.3 若有更合适的提醒通道再换）。
     /// - `RunCommand`：收集命令 ID，交给窗口层 `dispatch`——它走既有命令通道，
     ///   需要 `Action` 分发器，tab 这一层没有。
-    /// - `Highlight`：**内核已产出命中，但 v0.3 才有行级高亮渲染基底**。这里既不画
-    ///   也不假装画——规则编辑器不把 `Highlight` 作为可选项暴露，避免「勾了却不生效」
-    ///   的假控件。
-    fn apply_trigger(&self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
+    /// - `Highlight`：记下命中所在的内容行，`paint_rows` 在字形下铺一层淡底；
+    ///   不进选区、不影响复制。
+    fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
         for action in &hit.actions {
             match action {
                 TriggerAction::SendText(s) => {
@@ -299,7 +298,20 @@ impl Tab {
                 TriggerAction::RunCommand(id) => {
                     run_commands.push(id.clone());
                 }
-                TriggerAction::Highlight => {}
+                TriggerAction::Highlight => {
+                    // 命中发生在这一帧的事实窗口里：记下光标的绝对内容行，
+                    // 由 paint_rows 铺一层淡底。只保留最近 64 行，避免长会话
+                    // 把高亮表养大；复制 / 选区完全不受影响。
+                    if let Some((row, _)) = self.view.cursor {
+                        let row = self.view.range.start + row;
+                        if !self.trigger_highlight_rows.contains(&row) {
+                            self.trigger_highlight_rows.push(row);
+                            if self.trigger_highlight_rows.len() > 64 {
+                                self.trigger_highlight_rows.remove(0);
+                            }
+                        }
+                    }
+                }
             }
         }
     }

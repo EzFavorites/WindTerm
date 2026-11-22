@@ -313,6 +313,7 @@ pub fn paint_rows(
     selection_bg: Color32,
     alt_row_bg: bool,
     caret_row: Option<usize>,
+    highlight_rows: &[i64],
     segments: &[term_app::wrap::VisualRow],
 ) {
     let active = selections.active_index();
@@ -361,6 +362,17 @@ pub fn paint_rows(
                 Rect::from_min_size(pos2(origin.x, y), Vec2::new(w, cell.y)),
                 0.0,
                 alternate_row_tint(to_color32(palette.default_fg)),
+            );
+        }
+
+        // 触发器 Highlight：绝对行命中时铺一层淡蓝底。同样画在 ANSI 背景之前，
+        // 程序自己的彩色块仍然压得住它；它不是选区，不进复制文本。
+        if highlight_rows.contains(&line.row) {
+            let w = (image.cols as f32) * cell.x;
+            painter.rect_filled(
+                Rect::from_min_size(pos2(origin.x, y), Vec2::new(w, cell.y)),
+                0.0,
+                Color32::from_rgba_unmultiplied(0x2E, 0x7C, 0xD2, 48),
             );
         }
 

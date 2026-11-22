@@ -47,9 +47,42 @@ impl TerminalWindow {
             return;
         }
         let Some(action) = Action::parse(action_id) else {
+            // 触发器的 `Run Command` 不是菜单 ID 时按文档执行真实命令行：
+            // 捕获 stdout 写进当前会话，让「跑一条命令拿结果」有可观察效果。
+            // 先试菜单 ID 保证既有命令语义一字不变。
+            self.run_trigger_command(action_id);
             return;
         };
         self.dispatch_action(action);
+    }
+
+    /// 触发器 `Run Command` 的命令行分支。配置里写了菜单 ID 时走不到这里；
+    /// 其余按 `/bin/sh -c`（Unix）/ `cmd /C`（Windows）执行，stdout 写回活动
+    /// 会话。失败静默但留下一条可见提示——不把失败伪装成「命令已执行」。
+    fn run_trigger_command(&mut self, command: &str) {
+        if command.trim().is_empty() {
+            return;
+        }
+        #[cfg(windows)]
+        let output = std::process::Command::new("cmd").args(["/C", command]).output();
+        #[cfg(not(windows))]
+        let output = std::process::Command::new("/bin/sh").args(["-c", command]).output();
+        match output {
+            Ok(out) if out.status.success() && !out.stdout.is_empty() => {
+                if let Some(tab) = self.tabs.get(self.active_slot()) {
+                    tab.write(&out.stdout);
+                }
+            }
+            Ok(out) => {
+                let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                if why.is_empty() {
+                    eprintln!("触发器命令退出码 {}：{command}", out.status);
+                } else {
+                    eprintln!("触发器命令失败：{why}");
+                }
+            }
+            Err(err) => eprintln!("触发器命令起不来：{err}"),
+        }
     }
 
     /// 已经有 `Action` 的入口（对话框里的按钮）。
