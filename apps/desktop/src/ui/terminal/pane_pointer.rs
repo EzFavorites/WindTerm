@@ -53,6 +53,26 @@ pub(super) struct GridGeom {
 ///
 /// 借用是拆开的：选区 / 视口 / 事实窗口各拿一个 `&mut` / `&`。整体借 `&mut Tab`
 /// 不成立——`image` 本身就是从 `tab.view` 借出来的。
+/// 左边距的点击命中区：只在 margin 可见时注册，矩形右缘是正文起点 `start_x`。
+/// 抽出来是为了让 draw 函数少堆几行几何代码（500 行门禁）。
+pub(super) fn margin_context_resp(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    start_x: f32,
+    slot_index: usize,
+    width: f32,
+) -> Option<egui::Response> {
+    if width <= 0.0 {
+        return None;
+    }
+    let margin_rect = egui::Rect::from_min_max(rect.min, egui::pos2(start_x, rect.max.y));
+    Some(ui.interact(
+        margin_rect,
+        egui::Id::new(("term_margin_ctx", slot_index)),
+        egui::Sense::click(),
+    ))
+}
+
 pub(super) fn pointer_selection(
     selections: &mut Selections,
     viewport: &mut Viewport,
@@ -141,7 +161,11 @@ pub(super) fn pointer_selection(
         }
     } else if resp.double_clicked() {
         if let Some(p) = resp.interact_pointer_pos() {
-            selections.set_active(word_at_with(image, to_pos(p), separators));
+            let pos = to_pos(p);
+            // 双击括号 → 选整对（含两端）；不在括号上才回退双击选词。
+            let sel = term_app::selection::pair_selection_at(image, pos)
+                .or_else(|| word_at_with(image, pos, separators));
+            selections.set_active(sel);
         }
     } else if resp.clicked() {
         match (mods.shift, selections.has_active()) {

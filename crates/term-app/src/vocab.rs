@@ -744,6 +744,9 @@ pub enum FoldCmd {
     Previous,
     /// `Goto ▸ Fold ▸ Next Fold`：视口跳到下一个折叠头，同样不环绕。
     Next,
+    /// 鼠标点折叠列上的某个头：切换**那一个**块（不是光标所在块）。
+    /// 折叠头行号由投影层从点击的那一行算出，领域层只按这个绝对行号找块。
+    ToggleAt(term_core::coords::HistoryRow),
 }
 
 /// 标签右键菜单的一个动作。10 个变体与旧 `Work` 一一对应。

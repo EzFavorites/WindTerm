@@ -51,6 +51,29 @@ fn folded(regions: &[(i64, i64)]) -> Folds {
     folds
 }
 
+#[test]
+fn clicking_a_fold_head_toggles_exactly_that_block() {
+    // 两个块：[0,4] 与 [10,19]。鼠标点第二个头（行 10）只该动第二个块。
+    let ins = inputs(&[0, 5, 10, 20]);
+    let empty = Folds::new();
+    let d = decide_fold(FoldCmd::ToggleAt(row(10)), &ins, None, &empty, view(0, 24), 24);
+    assert_eq!(spans(&d.folds), vec![(10, 19)], "点第二个头只折第二个块");
+    // 再点一次同一个头 → 解开，第一个块不受影响。
+    let d2 = decide_fold(
+        FoldCmd::ToggleAt(row(10)),
+        &ins,
+        None,
+        &d.folds,
+        view(0, 24),
+        24,
+    );
+    assert!(d2.folds.is_empty(), "同一个头一去一回");
+    // 点不是头的位置 → 空操作且给一句话，不误折别的块。
+    let d3 = decide_fold(FoldCmd::ToggleAt(row(21)), &ins, None, &empty, view(0, 24), 24);
+    assert!(d3.folds.is_empty());
+    assert!(d3.note.is_some(), "点在空白处要说清为什么没反应");
+}
+
 // ── 前置：块怎么算出来 ──────────────────────────────────────────────────
 // 这一条是下面所有期望值的来源。它挂了，下面十几条会跟着一起红，那说明是
 // 领域层变了而不是决策层变了。

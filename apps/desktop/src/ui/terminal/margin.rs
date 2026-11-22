@@ -14,7 +14,7 @@
 //! 不会出现「时间戳被行号压住」这种只有某个字号下才有的 bug。
 
 use crate::ui::*;
-use term_app::folds::Folds;
+use term_app::folds::{block_at, Folds};
 use term_app::margin::MarginState;
 use term_core::coords::HistoryRow;
 use term_core::grid::{GridSnapshot, ScreenImage};
@@ -48,6 +48,7 @@ pub(in crate::ui) struct MarginMetrics {
     stamp_x: f32,
     num_right: f32,
     fold_center: f32,
+    fold_on: bool,
     sym_center: f32,
 }
 
@@ -66,6 +67,7 @@ impl MarginMetrics {
                 stamp_x: 0.0,
                 num_right: 0.0,
                 fold_center: 0.0,
+                fold_on: false,
                 sym_center: 0.0,
             };
         }
@@ -96,7 +98,41 @@ impl MarginMetrics {
             stamp_x,
             num_right,
             fold_center,
+            fold_on: m.fold,
             sym_center,
+        }
+    }
+
+    /// 折叠列上的单击产出哪条折叠命令。空白 / 列没开 / 不在本列 → `None`。
+    /// 命中判据与 [`paint`] 画 `▸` 的那一格同源，只认真正的折叠头。
+    #[allow(clippy::too_many_arguments)]
+    pub(in crate::ui) fn fold_click_cmd(
+        &self,
+        cell_w: f32,
+        area_min: egui::Pos2,
+        geom_start: egui::Pos2,
+        geom_cell: egui::Vec2,
+        image: &ScreenImage,
+        folds: &Folds,
+        inputs: &[HistoryRow],
+        resp: &egui::Response,
+    ) -> Option<term_app::vocab::FoldCmd> {
+        if !self.fold_on || !resp.clicked() {
+            return None;
+        }
+        let (cx0, cx1) = (area_min.x + self.fold_center - cell_w * 0.5,
+                         area_min.x + self.fold_center + cell_w * 0.5);
+        let p = resp.interact_pointer_pos()?;
+        if !(cx0..=cx1).contains(&p.x) {
+            return None;
+        }
+        let row = ((p.y - geom_start.y) / geom_cell.y).floor().max(0.0) as usize;
+        let line = image.lines.get(row)?;
+        let abs = HistoryRow::new(image.history as i64 + line.row)?;
+        if folds.regions().iter().any(|r| r.start() == abs) || block_at(inputs, abs).is_some() {
+            Some(term_app::vocab::FoldCmd::ToggleAt(abs))
+        } else {
+            None
         }
     }
 }

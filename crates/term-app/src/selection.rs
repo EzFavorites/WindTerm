@@ -48,7 +48,7 @@ pub use ops::{
     apply_with_blocks_seps, parse, parse_set, Selections,
 };
 pub use words::{line_span_at, separators_or_default, word_at, word_at_with, DEFAULT_SEPARATORS};
-pub use geometry::{pair_end, pair_start};
+pub use geometry::{pair_end, pair_selection_at, pair_start};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pos {

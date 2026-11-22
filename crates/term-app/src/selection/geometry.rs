@@ -14,7 +14,7 @@ use term_core::grid::{Cell, ScreenImage};
 use term_core::osc133::CommandBlock;
 
 use super::words::{glyphs, run_bounds, Class};
-use super::Pos;
+use super::{Pos, Selection};
 
 /// 没有选区时的起点：终端光标 → 否则窗口首行行首。
 pub(super) fn caret(image: &ScreenImage) -> Option<Pos> {
@@ -451,6 +451,22 @@ pub fn pair_end(image: &ScreenImage, at: Pos) -> Option<Pos> {
     Some(stream[close].0)
 }
 
+/// 双击选区：只有当光标**正好**落在一个有配对的括号上时才返回整对区间
+/// （含两端）；其它位置返回 `None`，调用方回退到双击选词。
+///
+/// 与 `pair_start`/`pair_end` 的区别：那两个是「最近括号」语义（方便键盘跳转），
+/// 双击要的是「这一点本身就是括号」，否则在 `foo` 里双击会莫名其妙选到很远的
+/// 一对括号上。
+pub fn pair_selection_at(image: &ScreenImage, at: Pos) -> Option<Selection> {
+    let stream = brackets(image);
+    let idx = stream.iter().position(|(p, _)| *p == at)?;
+    let other = match_index(&stream, idx)?;
+    let (open, close) = if idx < other { (idx, other) } else { (other, idx) };
+    let start = stream[open].0;
+    let end = stream[close].0;
+    Some(Selection::span(start, Pos::new(end.row, end.col + 1)))
+}
+
 /// `Previous Pair`：先退到上一个括号字形，再跳到它的配对端。
 pub(super) fn pair_prev(image: &ScreenImage, at: Pos) -> Option<Pos> {
     let stream = brackets(image);
@@ -749,6 +765,22 @@ mod tests {
         let plain = image(&["no brackets here"], 16);
         assert_eq!(pair_start(&plain, Pos::new(0, 3)), None);
         assert_eq!(pair_end(&plain, Pos::new(0, 3)), None);
+    }
+
+    #[test]
+    fn double_click_on_a_bracket_selects_the_whole_pair_including_both_ends() {
+        let img = image(&["foo(bar)baz"], 12);
+        let sel = pair_selection_at(&img, Pos::new(0, 3)).expect("`(` 上有配对");
+        assert_eq!(sel.anchor(), Pos::new(0, 3));
+        assert_eq!(sel.head(), Pos::new(0, 8), "head 是闭括号 +1，含右端");
+        // 点在闭括号上得到同一段区间（normalized 后两端一致）。
+        let from_close = pair_selection_at(&img, Pos::new(0, 7)).unwrap();
+        assert_eq!(from_close.normalized(), sel.normalized());
+        // 不在括号上 → 没有整对可选，调用方回退双击选词。
+        assert!(pair_selection_at(&img, Pos::new(0, 5)).is_none());
+        // 孤立的括号没有配对。
+        let lone = image(&["a(b"], 4);
+        assert!(pair_selection_at(&lone, Pos::new(0, 1)).is_none());
     }
 
     #[test]

@@ -24,6 +24,21 @@ use term_core::vt::paste_bytes_for;
 mod fold;
 
 impl TerminalWindow {
+    /// 帧末批量落地：同步输入广播 + 折叠列点击。两项都要借整个窗口，
+    /// 而调用点在 `Tab` 的借用之后——攒成一条调用，避免 draw 函数膨胀。
+    pub(super) fn flush_deferred(
+        &mut self,
+        sync_bytes: Option<Vec<u8>>,
+        pending_fold: Option<term_app::vocab::FoldCmd>,
+    ) {
+        if let Some(bytes) = sync_bytes {
+            self.broadcast_input(&bytes);
+        }
+        if let Some(cmd) = pending_fold {
+            self.apply_fold(cmd);
+        }
+    }
+
     /// `Behaviour ▸ Focus the new tab`：新标签建好之后要不要把焦点切过去。
     ///
     /// 出厂行为就是「切过去」（`focus_new_tab = true`）。关掉时**不动

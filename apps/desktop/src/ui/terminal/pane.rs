@@ -99,6 +99,8 @@ impl TerminalWindow {
         // 「此刻在哪一屏」一起攒着：门控要读 `snapshot.alt`，而落地要等 `tab`
         // 的借用结束（`commit_paste` / `pending_paste` 都要借整个窗口）。
         let mut paste: Option<(String, bool)> = None;
+        // 折叠列点击攒到 `tab` 借用结束后再落地（`apply_fold` 要借整个窗口）。
+        let mut pending_fold: Option<term_app::vocab::FoldCmd> = None;
         // 录制器那一格先克隆出来：下面 `tab` 会把 `self` 整块借走。
         // 补全的候选源在借用标签之前取好——历史 / QuickBar 都挂在窗口上，
         // 与 `tab` 借的 `self.tabs` 是不同字段，先克隆出来后面就不必再碰窗口。
@@ -384,6 +386,14 @@ impl TerminalWindow {
                 image,
                 geom,
                 visible_separators(&tab.config, tab.snapshot.alt),
+            );
+        }
+
+        // 折叠列的单击：点「▸」那一格切换该头对应的块（命中判据在 margin.rs）。
+        if !bin && !tab.local_mode {
+            pending_fold = margin_met.fold_click_cmd(
+                cell_w, rect.min, geom.start, geom.cell, image,
+                &tab.folds, &tab.fold_inputs(), &resp,
             );
         }
 
@@ -706,10 +716,8 @@ impl TerminalWindow {
 
         // `tab` 的可变借用到这里结束，右键菜单 / 中键粘贴才不会
         // 与事实窗口的绘制抢同一个 `self`（E0499）。
-        // 同步输入——把这一批按键再写给其它活着的标签（本窗格刚写过）。
-        if let Some(bytes) = sync_bytes {
-            self.broadcast_input(&bytes);
-        }
+        // 同步输入 + 折叠列点击都要借整个窗口，攒到这里一次性落地。
+        self.flush_deferred(sync_bytes, pending_fold);
         // 粘贴的落地在这里而不是上面那个输入循环里：`tab` 的借用已经结束，
         // 才能写 `self.pending_paste` / `self.command_history`。三条入口
         // （Cmd+V / 右键 Paste / 中键）最后都汇到这一个 `Event::Paste`，
@@ -737,14 +745,9 @@ impl TerminalWindow {
         // 左边缘（margin 栏）是**另一份**右键菜单：只在 margin 可见时挂，注册在
         // 内容 resp 之后（重叠区压在上面 → 右键命中它弹 margin 菜单）。
         // 2026-11-15：两块区域的菜单各挂各的，`Id` 按槽位取（壳面板用哨兵下标）。
-        if margin_met.width > 0.0 {
-            let margin_rect =
-                egui::Rect::from_min_max(rect.min, egui::pos2(start_x, rect.max.y));
-            let mresp = ui.interact(
-                margin_rect,
-                egui::Id::new(("term_margin_ctx", slot.index())),
-                egui::Sense::click(),
-            );
+        if let Some(mresp) = super::pane_pointer::margin_context_resp(
+            ui, rect, start_x, slot.index(), margin_met.width,
+        ) {
             self.draw_margin_context(ui, &mresp, slot);
         }
         // 右键三档（菜单 / 粘贴 / 有选区就复制否则粘贴）：分派在

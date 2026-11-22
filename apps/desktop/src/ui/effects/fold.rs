@@ -252,6 +252,19 @@ pub(in crate::ui) fn decide_fold(
             }
             None => note = Some("光标行不在任何折叠块里"),
         },
+        // 鼠标点折叠列：切换那一个头对应的块。头行由点击的屏幕行换算成绝对行号，
+        // 领域层只按这个行号找块——与 `Toggle` 的区别是「不依赖光标在哪」。
+        FoldCmd::ToggleAt(row) => {
+            if next.regions().iter().any(|r| r.start() == row) {
+                next.remove_containing(row);
+            } else if let Some(block) = block_at(inputs, row) {
+                if next.add(block) == Err(StructureError::OverlappingFoldRegions) {
+                    note = Some("这个块已经折起来了");
+                }
+            } else {
+                note = Some("这一行不是折叠头");
+            }
+        }
         // 跳转的基准是**视口首行**，不是光标：终端里没有可移动的光标（它属于 PTY），
         // 于是「跳到下一个折叠」只能是「把视口挪到那个折叠头上」。
         // 用视口首行而不是视口末尾，是为了让「上一个 / 下一个」与用户的直觉一致：
