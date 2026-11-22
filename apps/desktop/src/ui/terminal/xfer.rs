@@ -73,6 +73,10 @@ pub(in crate::ui) struct XferJob {
     pub protocol: XferProtocol,
     /// `Send` 是本地文件路径，`Receive` 是目标目录（都原样存字符串，只用来显示）。
     pub target: String,
+    /// 接收完成后是否打开目标目录（来自接收弹层的勾选）。
+    pub open_dir: bool,
+    /// 已经打开过一次——`done` 会持续多帧，没有这一位会连开好几个窗口。
+    pub opened: bool,
     /// 速率估计（XFER-05）。跟着这一次传输走：换一次传输就该重新建基线，
     /// 所以它放在这里而不是 `TerminalWindow` 上。
     pub meter: term_xfer::RateMeter,
@@ -115,6 +119,15 @@ impl TerminalWindow {
             progress.error.clone()
         };
         let done = !running && !canceled && error.is_none();
+        // X/Y/ZMODEM 文档：接收后可选自动打开下载目录。只在「刚完成」那一帧
+        // 拉起系统默认程序，`done` 持续多帧也不能重复弹窗；打开失败只记一句
+        // 提示，不让一次成功的传输变成 UI 报错。
+        if done && job.open_dir && !job.opened {
+            job.opened = true;
+            if let Err(e) = crate::open_with::open_path(std::path::Path::new(&job.target)) {
+                self.log_note = Some(format!("打开下载目录失败：{}", e.message()));
+            }
+        }
         // 只在跑的时候喂采样：结束后再喂，`done` 那一帧的字节数与上一帧相同，
         // 会算出一个 0 B/s 并覆盖掉最后一个真实读数。
         if running {
@@ -240,6 +253,8 @@ impl TerminalWindow {
                     kind,
                     protocol,
                     target: path.display().to_string(),
+                    open_dir: self.xfer_prompt.as_ref().is_some_and(|p| p.open_after) && kind == XferKind::Receive,
+                    opened: false,
                     meter: term_xfer::RateMeter::new(),
                 });
                 self.xfer_prompt = None;

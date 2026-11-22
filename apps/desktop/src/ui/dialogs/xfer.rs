@@ -53,6 +53,8 @@ pub(in crate::ui) struct XferPrompt {
     pub protocol: XferProtocol,
     /// 路径输入缓冲（跨帧：输入法的预编辑文本要活过一帧）。
     pub path: String,
+    /// 接收完成后是否用系统默认程序打开目标目录（X/Y/ZMODEM 文档都有此条）。
+    pub open_after: bool,
     /// 本地校验 / `start` 失败的原因。留着让用户改，弹层不关。
     pub error: Option<String>,
 }
@@ -106,6 +108,7 @@ impl XferPrompt {
             direction,
             protocol,
             path: String::new(),
+            open_after: false,
             error: None,
         })
     }
@@ -210,6 +213,9 @@ pub(in crate::ui) fn draw_prompt(ctx: &egui::Context, prompt: &mut XferPrompt) -
                 resp.request_focus();
             }
             let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+            if receive {
+                ui.checkbox(&mut prompt.open_after, "Open download folder when done");
+            }
 
             ui.add_space(4.0);
             // 错误行常驻占位：没有错误时也占一行，否则出错误那一刻整窗会跳。
