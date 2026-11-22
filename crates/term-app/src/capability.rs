@@ -160,8 +160,9 @@ mod tests {
         // 同日 **接通 ZMODEM 两条**（Send/Receive Z Modem）→ 已接线 118→120、
         // 占位 19→17、总数 137 不变。这一刀的证据不是「`parse` 返回 `Some`」而是
         // **文件真的过去了**：`apps/desktop/tests/xfer_zmodem.rs` 在真 PTY 里起真的
-        // `sz` / `rz`，走完 `XferHandle::start` 之后逐字节比对落盘内容
-        // （`term-zmodem` 内核本身另有一份与真实 lrzsz 的互通测试）。
+        // `sz` / `rz`，走完 `XferHandle::start` 之后逐字节比对落盘内容。该测试默认
+        // `#[ignore]`，发布门显式 `--ignored` 才跑；缺 lrzsz 直接 FAIL，不再「跳过即绿」。
+        // （`term-zmodem` 内核本身另有一份与真实 lrzsz 的互通测试。）
         // 所以这次是 +7 而不是 +5：X/Y 三条 + Z 两条，剩下的 17 个占位与传输无关。
         // 2026-11-09 **结构对齐**：18 个空子菜单逐行补齐，
         // 新增 68 条命令**全部是占位**（一条都没假装接线，判据在

@@ -214,14 +214,21 @@ fn modified_secs(path: &Path) -> u64 {
         .as_secs()
 }
 
+/// 真 lrzsz 的发布门：找不到程序直接 panic，绝不「跳过即 passed」。
+fn require_prog(prog: &str) -> String {
+    resolve_prog(prog).unwrap_or_else(|| {
+        panic!("[ZMODEM-DESKTOP] FAIL 本机缺少 {prog}；发布门必须显式跑 \
+               `cargo test -p term-zmodem --test interop -- --ignored`，\
+               或安装 lrzsz 后点名本测试 `--ignored`")
+    })
+}
+
 // ── 1. 接收：真实 sz → 我们 ────────────────────────────────────────────────
 
 #[test]
+#[ignore = "需要真 lrzsz：显式 --ignored 才跑，缺程序直接 FAIL"]
 fn receive_from_real_sz_lands_the_file_byte_for_byte() {
-    let Some(sz) = resolve_prog("sz") else {
-        eprintln!("跳过：本机没有 sz（容器里镜像自带 lrzsz，宿主 brew install lrzsz）");
-        return;
-    };
+    let sz = require_prog("sz");
     eprintln!("· 对端 sz = {sz}");
 
     let root = unique_dir("rx");
@@ -289,11 +296,9 @@ fn receive_from_real_sz_lands_the_file_byte_for_byte() {
 // ── 2. 发送：我们 → 真实 rz ────────────────────────────────────────────────
 
 #[test]
+#[ignore = "需要真 lrzsz：显式 --ignored 才跑，缺程序直接 FAIL"]
 fn send_to_real_rz_lands_the_file_byte_for_byte() {
-    let Some(rz) = resolve_prog("rz") else {
-        eprintln!("跳过：本机没有 rz（容器里镜像自带 lrzsz，宿主 brew install lrzsz）");
-        return;
-    };
+    let rz = require_prog("rz");
     eprintln!("· 对端 rz = {rz}");
 
     let root = unique_dir("tx");
@@ -564,11 +569,9 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
 /// ③b 真端到端：本地目录里的两个文件经**同一台 `ZSender`** 发给真 `rz`，
 /// 对端必须落盘成两个文件、内容逐字节相同。
 #[test]
+#[ignore = "需要真 lrzsz：显式 --ignored 才跑，缺程序直接 FAIL"]
 fn send_a_directory_as_a_zmodem_batch_lands_every_file_byte_for_byte() {
-    let Some(rz) = resolve_prog("rz") else {
-        eprintln!("跳过：本机没有 rz（等价的内核闭环见 term-zmodem/tests/w6c4_batch_meta.rs）");
-        return;
-    };
+    let rz = require_prog("rz");
     eprintln!("· 对端 rz = {rz}");
 
     let root = unique_dir("batch-tx");
@@ -638,11 +641,9 @@ fn send_a_directory_as_a_zmodem_batch_lands_every_file_byte_for_byte() {
 /// ③c 真端到端：把源文件的 mtime 设成一个明确的非零值，真 `sz` 把它放进
 /// `ZFILE`；驱动从 `Receiver::file_mtime()` 取出来，在 `Sink::close` 落盘。
 #[test]
+#[ignore = "需要真 lrzsz：显式 --ignored 才跑，缺程序直接 FAIL"]
 fn receive_from_real_sz_preserves_the_source_mtime() {
-    let Some(sz) = resolve_prog("sz") else {
-        eprintln!("跳过：本机没有 sz（等价的内核闭环见 term-zmodem/tests/w6c4_batch_meta.rs）");
-        return;
-    };
+    let sz = require_prog("sz");
     eprintln!("· 对端 sz = {sz}");
 
     let root = unique_dir("rx-mtime");

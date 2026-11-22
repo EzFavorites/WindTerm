@@ -73,17 +73,16 @@ pub(in crate::ui) fn placeholder_note(ui: &mut egui::Ui, text: &str) {
 
 /// 5 `SSH ▾ Proxy`：视觉基线的两段式，`Proxy Type` radio + `Proxy Settings` 网格。
 ///
-/// # 这里只有两项是真的（已接线＝有效果）
+/// # 五项都已接线
 ///
-/// | 控件 | 后端 | 处置 |
-/// |---|---|---|
-/// | `No proxy` / `Jump (ssh -J)` | `SshOptions::proxy_jump` | 可编辑，真的生效 |
-/// | `Http proxy` / `Socks v5 proxy` | **没有**：出网代理还没写 | 灰显 + 说明 |
-/// | `Host` / `Port` / `Proxy command` / `Working directory` | 只在 `NewSessionData` 里，从不写进 `SessionConfig` | 灰显 + 说明 |
+/// | 控件 | 后端 |
+/// |---|---|
+/// | `No proxy` / `Jump (ssh -J)` | `SshOptions::proxy_jump` |
+/// | `Http proxy` / `Socks v5 proxy` | `OutboundProxy`（内置 SSH 与系统 ssh 两条路径） |
+/// | `Host` / `Port` / `Proxy command` / `DNS lookup` | `SessionConfig` → `SpawnPlan` / `OutboundProxy` |
 ///
-/// 后两组以前是「能填、能存、不生效」：填了代理服务器、保存、连上去是直连，
-/// 而且一句提示都没有。按  的做法把它们画成不可编辑并说明原因——假控件比
-/// 少一个控件更坏。
+/// Working directory 那一行已删除：它与 `Shell ▾ Command` 页是同一个字段，
+/// 放在代理页只是重复入口。
 /// 5 `SSH ▾ Proxy`：视觉基线 `ssh/13-ssh-proxy.png` 的 `Proxy Type` 下拉框。
 ///
 /// 视觉基线里 Proxy Type 是**下拉框**（不是单选）；且选 `No proxy` 时不显示任何
@@ -143,7 +142,7 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             });
         }
         _ => {
-            // HTTP / SOCKS5：出网代理未实现，Host / Port 灰显 + 说明。
+            // HTTP / SOCKS5：Host / Port / Proxy command / DNS lookup 都是真控件。
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Proxy Settings:").strong());
             grid(ui, "new_session_proxy_grid", |ui| {
@@ -462,9 +461,9 @@ fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 }
 /// 20 `SSH ▾ SFTP`：视觉基线 `shell/19-ssh-sftp.png`。
 ///
-/// 两条权限现在是**真接线**的（`DEFAULT_FILE_MODE` / `DEFAULT_DIR_MODE`，
-/// 新建文件 / 新建目录时由 `term-sftp` 落到对端）；三个复选框等 `SftpOptions`
-/// 落地后才有字段。
+/// 两条权限是真接线（`DEFAULT_FILE_MODE` / `DEFAULT_DIR_MODE`）；三个复选框
+/// 分别绑 `sftp_fix_invalid_path` / `sftp_preserve_mtime` /
+/// `sftp_preserve_dir_mtime`，经树传输落到对端。
 fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut fix_invalid = win.new_session.sftp_fix_invalid_path;
     let mut keep_dir_mtime = win.new_session.sftp_preserve_dir_mtime;
