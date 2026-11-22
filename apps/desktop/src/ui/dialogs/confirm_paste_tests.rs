@@ -16,6 +16,15 @@ fn the_gate_only_looks_at_the_screen_the_tab_is_on() {
 }
 
 #[test]
+fn the_editable_box_keeps_enter_for_newlines_and_only_esc_cancels() {
+    // 可编辑粘贴框需要 Enter 换行；取消只认 Esc + 那颗 Cancel 按钮。
+    let keys = crate::ui::kit::dialog::DialogKeys::ESC_ONLY;
+    assert!(!keys.enter_cancels, "Enter 要能往文本框里换行");
+    assert!(!keys.enter_confirms, "确认只认 Paste 按钮");
+    assert!(keys.lifecycle.esc_cancels(), "Esc 仍是取消");
+}
+
+#[test]
 fn the_preview_shows_the_first_lines_and_reports_the_rest() {
     let text = (1..=25)
         .map(|i| format!("line {i}"))

@@ -132,24 +132,20 @@ impl TerminalWindow {
     /// 弹窗打开期间的键盘模态。与 `confirm_pre_update` 同一个理由：模态要赶在
     /// 终端吃到键事件**之前**把键拿走，否则弹窗开着还能往远端打字。
     ///
-    /// `Esc` / `Enter` 都归 `Cancel`（默认键，与兼容终端的「No 是默认」同一条
-    /// 取舍）：粘贴是不可逆的字节投递，默认动作不该是「贴进去」。
+    /// `Esc` 归 `Cancel`：粘贴是不可逆的字节投递，默认动作不该是「贴进去」。
+    /// 可编辑文本框需要 Enter 换行，所以 Enter 不再是取消键——确认只认 Paste 按钮。
     pub(in crate::ui) fn paste_pre_update(&mut self, ctx: &egui::Context) {
         if self.pending_paste.is_none() {
             return;
         }
-        let cancel = crate::ui::kit::dialog::DialogKeys::CANCEL_DEFAULT
+        // 文本框要能敲 Enter 换行，所以 Enter 不再当「取消」——Esc 仍然取消。
+        let cancel = crate::ui::kit::dialog::DialogKeys::ESC_ONLY
             .poll(ctx)
             .cancel;
-        // 再按一次 Cmd+V 也不该排第二笔：`Paste` 事件一起吃掉。
-        ctx.input_mut(|i| {
-            i.events.retain(|e| {
-                !matches!(
-                    e,
-                    egui::Event::Key { .. } | egui::Event::Text(_) | egui::Event::Paste(_)
-                )
-            })
-        });
+        // 再按一次 Cmd+V 也不该排第二笔：只吃掉 `Paste` 事件。文字与按键留给
+        // 弹窗里的可编辑文本框——终端那一侧的键盘循环由 `pending_paste` 门控，
+        // 不会抢这批事件。
+        ctx.input_mut(|i| i.events.retain(|e| !matches!(e, egui::Event::Paste(_))));
         if cancel {
             self.pending_paste = None;
         }
@@ -157,15 +153,20 @@ impl TerminalWindow {
 
     /// 弹窗本体。没有 `pending_paste` 时一行都不画。
     pub(in crate::ui) fn draw_paste_dialog(&mut self, ctx: &egui::Context) {
-        let Some(pending) = self.pending_paste.as_ref() else {
+        if self.pending_paste.is_none() {
             return;
-        };
-        // 预览在闭包外算好：闭包里还要借 `self`（判定按钮落点），
-        // 而 `tr()` 借的是 `self.view`（about.rs 的教训）。
-        let preview = preview(&pending.text);
+        }
+        // 文案先取：下面要把 `pending.text` 可变借进 TextEdit，不能再借 `self`。
         let heading = self.tr("Paste into the current session?");
         let cancel_text = self.tr("Cancel");
         let paste_text = self.tr("Paste");
+        let Some(pending) = self.pending_paste.as_mut() else {
+            return;
+        };
+        // 可编辑粘贴框：文档要的是「粘贴对话框」而不是「只读确认」。用户可以在
+        // 落盘前改掉剪贴板内容（去掉末尾换行、补一段前缀……），文本框里改过的
+        // 全文才是 Paste 真正写进 PTY 的内容。`preview` 只用来报一句还剩多少行。
+        let preview = preview(&pending.text);
         let more = if preview.hidden_lines > 0 {
             Some(format!("… {} more lines", preview.hidden_lines))
         } else if preview.char_cut {
@@ -173,7 +174,7 @@ impl TerminalWindow {
         } else {
             None
         };
-        let shown = preview.shown.clone();
+        let text = &mut pending.text;
 
         let mut yes = false;
         let mut no = false;
@@ -238,13 +239,11 @@ impl TerminalWindow {
                         .max_height(inner.height())
                         .show(ui, |ui| {
                             ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(&shown)
-                                        .monospace()
-                                        .size(TEXT_SIZE)
-                                        .color(col(TEXT)),
-                                )
-                                .wrap(),
+                                egui::TextEdit::multiline(text)
+                                    .desired_width(f32::INFINITY)
+                                    .font(egui::TextStyle::Monospace)
+                                    .text_color(col(TEXT))
+                                    .frame(false),
                             );
                             if let Some(more) = &more {
                                 ui.add(

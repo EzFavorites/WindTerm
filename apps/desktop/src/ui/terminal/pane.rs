@@ -494,8 +494,8 @@ impl TerminalWindow {
             && !self.view.goto.visible
             && !self.view.center.visible
             && !self.view.show_shortcuts
-            && !self.view.show_tmux
-            && !self.view.lock.locked
+            && !self.view.show_tmux && !self.view.lock.locked
+            && self.pending_paste.is_none()
         {
             let mut key_bytes = Vec::new();
             let mut want_copy = false;
