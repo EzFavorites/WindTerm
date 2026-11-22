@@ -24,8 +24,8 @@
 //! 状态放在 `TerminalWindow.log_settings`（投影层控件态，不进 `ViewState`）。
 
 use super::log_settings_spec::{
-    logging_row, nav_rows, LogType, BODY_H, BTN_H, BUTTON_BG, CONTENT_MIN, FIELD_FILL,
-    FIELD_W, FOCUS_BLUE, FOOTER_DY, LABEL_W, NAV_W, RADIO_H, ROW_H,
+    logging_row, nav_rows, LogType, BODY_H, BTN_H, CONTENT_MIN, FIELD_FILL,
+    FIELD_W, FOOTER_DY, LABEL_W, NAV_W, RADIO_H, ROW_H,
     TAB_ACTIVE, TAB_BG, TAB_H, TABS, TEXT, TEXT_DISABLED, TEXT_STRONG, TREE_HOVER,
     TREE_SELECTED,
 };
@@ -33,9 +33,7 @@ use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use term_app::i18n::{self, Lang};
 
-fn col(hex: u32) -> egui::Color32 {
-    crate::theme::to_color32(term_core::theme::rgb(hex))
-}
+use crate::ui::kit::spec::col;
 
 impl TerminalWindow {
     /// `Session ▸ Log ▸ Settings...` 打开的窗口。外框（尺寸 / 淡入 / ×）
@@ -65,6 +63,14 @@ impl TerminalWindow {
         let mut want_close = false;
         let mut want_save = false;
         let mut want_defaults = false;
+        // Esc=Cancel；Enter=Save，但输入框聚焦时不抢回车（打字不能误保存）。
+        let keys = DialogId::SessionLogging.keys().poll(ctx);
+        if keys.cancel {
+            want_close = true;
+        }
+        if keys.confirm && ctx.memory(|m| m.focused().is_none()) {
+            want_save = true;
+        }
 
         let open = DialogWindow::new(DialogId::SessionLogging, title)
             .show_with_rect(ctx, |ui, win| {
@@ -164,47 +170,45 @@ impl TerminalWindow {
                 });
 
                 // ── 页脚：绝对定位 ──
-                // 用 `put` 而不是流式布局：窗口被 fixed_rect 钉住后，流式页脚
-                // 会被 body 的 min_height 挤出裁剪区（首版整行消失）。三个按钮
-                // 的 x / y 直接按视觉基线坐标落在窗口矩形里，改内容不影响它们。
-                let defaults = egui::Button::new(i18n::t(lang, "Edit Default Settings"))
-                    .fill(col(BUTTON_BG))
-                    .stroke(egui::Stroke::new(1.5, col(FOCUS_BLUE)))
-                    .rounding(4.0)
-                    // 视觉基线这一行是单行；put 的居中布局会按宽度折行，
-                    // 折成两行就把页脚撑歪了。
-                    .wrap_mode(egui::TextWrapMode::Extend);
-                if ui
-                    .put(
-                        egui::Rect::from_min_size(
-                            egui::pos2(win.min.x + 11.0, win.min.y + FOOTER_DY),
-                            egui::vec2(186.0, BTN_H),
-                        ),
-                        defaults,
+                // `place` 按窗口矩形把每颗按钮钉在金标准坐标上；按钮本身的
+                // 尺寸/配色来自 `kit::spec::FooterButton`，不再用 `ui.put` +
+                // 三份手写 `egui::Button`。与 Preferences / 会话弹窗同一原语。
+                use crate::ui::kit::spec::FooterButton as FB;
+                let fy = win.min.y + FOOTER_DY;
+                let r_defaults = egui::Rect::from_min_size(
+                    egui::pos2(win.min.x + 11.0, fy),
+                    egui::vec2(186.0, BTN_H),
+                );
+                let save_rect = egui::Rect::from_min_size(
+                    egui::pos2(win.max.x - 88.0, fy),
+                    egui::vec2(77.0, BTN_H),
+                );
+                let cancel_rect = egui::Rect::from_min_size(
+                    egui::pos2(win.max.x - 174.0, fy),
+                    egui::vec2(77.0, BTN_H),
+                );
+                if super::dialog_chrome::place(ui, r_defaults, |ui| {
+                    crate::ui::kit::footer::widget_button(
+                        ui, &i18n::t(lang, "Edit Default Settings"), FB::LogDefault.spec(), true,
                     )
-                    .on_hover_text(i18n::t(lang, "Open Preferences"))
-                    .clicked()
+                })
+                .on_hover_text(i18n::t(lang, "Open Preferences"))
+                .clicked()
                 {
                     want_defaults = true;
                 }
-                let save = ui.put(
-                    egui::Rect::from_min_size(
-                        egui::pos2(win.max.x - 88.0, win.min.y + FOOTER_DY),
-                        egui::vec2(77.0, BTN_H),
-                    ),
-                    egui::Button::new(i18n::t(lang, "Save")),
-                );
-                if save.clicked() {
+                if super::dialog_chrome::place(ui, save_rect, |ui| {
+                    crate::ui::kit::footer::widget_button(ui, &i18n::t(lang, "Save"), FB::LogSave.spec(), true)
+                })
+                .clicked()
+                {
                     want_save = true;
                 }
-                let cancel = ui.put(
-                    egui::Rect::from_min_size(
-                        egui::pos2(win.max.x - 174.0, win.min.y + FOOTER_DY),
-                        egui::vec2(77.0, BTN_H),
-                    ),
-                    egui::Button::new(i18n::t(lang, "Cancel")),
-                );
-                if cancel.clicked() {
+                if super::dialog_chrome::place(ui, cancel_rect, |ui| {
+                    crate::ui::kit::footer::widget_button(ui, &i18n::t(lang, "Cancel"), FB::LogCancel.spec(), true)
+                })
+                .clicked()
+                {
                     want_close = true;
                 }
             });
@@ -283,22 +287,21 @@ impl TerminalWindow {
         }
         ui.add_space(10.0);
         ui.label(underlined(ui, i18n::t(lang, "Log file name:"), "Log file name:"));
-        // 视觉基线里这一格是 #333333 实心（其余输入框是弹窗底 + 细边框）。
+        // 与 Modem 目录框同一原语：通栏字段 + 右端内嵌 `| ...` 浏览槽。
+        // 保留这一格独有的 #333333 实心底（视觉基线），其余交付给 kit。
         ui.scope(|ui| {
-            // 视觉基线里这一格是 #333333 实心，下面两格是弹窗底 + 细边框。
             ui.visuals_mut().extreme_bg_color = col(FIELD_FILL);
-            ui.horizontal(|ui| {
-                ui.add_sized(
-                    egui::vec2(LABEL_W + FIELD_W - 28.0, 24.0),
-                    egui::TextEdit::singleline(&mut self.log_settings.file_name),
-                );
-                if ui
-                    .add(egui::Button::new("...").min_size(egui::vec2(28.0, 24.0)))
-                    .clicked()
-                {
-                    self.open_log_folder();
-                }
-            });
+            let (_, browse) = crate::ui::kit::field::browse_field(
+                ui,
+                &mut self.log_settings.file_name,
+                "",
+                "...",
+                24.0,
+                28.0,
+            );
+            if browse.on_hover_text(i18n::t(lang, "Open log folder")).clicked() {
+                self.open_log_folder();
+            }
         });
         ui.add_space(8.0);
         // 两行「标签 + 控件」走 Grid：列宽由最长的 `Log content pattern:`

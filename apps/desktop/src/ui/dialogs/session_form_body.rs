@@ -15,6 +15,7 @@
 
 use crate::ui::*;
 use super::SessionDialogKind;
+use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::switch::{trigger_switch, SwitchProps};
 
 /// 右栏表单字段的统宽。视觉基线 `04-new-session/00-ssh-session.png` 与
@@ -494,14 +495,16 @@ impl TerminalWindow {
     fn connection_page(&mut self, ui: &mut egui::Ui) {
         ui.label("TCP connection options:");
         ui.add_space(5.0);
-        ui.checkbox(
-            &mut self.new_session.tcp_low_delay,
-            "Disable Nagle's algorithm (TCP_NODELAY option)",
+        choice_row_styled(
+            ui, ChoiceKind::Checkbox,
+            "Disable Nagle's algorithm (TCP_NODELAY option)", "Disable",
+            &mut self.new_session.tcp_low_delay, true, UnderlineStyle::None,
         );
         ui.add_space(4.5);
-        ui.checkbox(
-            &mut self.new_session.tcp_keep_alive,
-            "Enable TCP keepalives (SO_KEEPALIVE option)",
+        choice_row_styled(
+            ui, ChoiceKind::Checkbox,
+            "Enable TCP keepalives (SO_KEEPALIVE option)", "Enable",
+            &mut self.new_session.tcp_keep_alive, true, UnderlineStyle::None,
         );
         ui.add_space(6.0);
         heading(ui, "Sends null packet to keep session alive:");
@@ -557,7 +560,10 @@ impl TerminalWindow {
                 ui.add_space(5.5);
             }
             let mut on = selected.contains(&auth);
-            if ui.checkbox(&mut on, attempt_label(auth)).changed() {
+            if choice_row_styled(
+                ui, ChoiceKind::Checkbox, attempt_label(auth), "",
+                &mut on, true, UnderlineStyle::None,
+            ) {
                 if on {
                     if !selected.contains(&auth) {
                         selected.push(auth);

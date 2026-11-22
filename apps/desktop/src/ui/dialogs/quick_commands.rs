@@ -72,6 +72,11 @@ impl TerminalWindow {
         }
         let mut ok = false;
         let mut cancel = false;
+        // Esc = Cancel（回滚打开时的快照）。改名态的 Esc/Enter 由控件自己处理，
+        // 这里让开，避免一次按键既取消改名又关掉整个弹窗。
+        if !renaming && DialogId::QuickCommands.keys().poll(ctx).cancel {
+            cancel = true;
+        }
         // 列表工具条只记意图，出了绘制闭包再改 Vec（遍历中不能改）。
         let mut add_cmd = false;
         let mut del_cmd = false;
@@ -298,12 +303,23 @@ impl TerminalWindow {
                 });
 
                 // ── Cancel / Ok 贴右下 ──
+                // 走 kit::footer 原语：尺寸沿用裸 `ui.button` 的文字口径，
+                // 配色/描边来自 `kit::spec`，与其余弹窗页脚同源。
                 ui.add_space(2.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Ok").clicked() {
+                    use crate::ui::kit::spec::FooterButton as FB;
+                    let ok_spec = FB::QuickOk
+                        .spec()
+                        .with_size(crate::ui::kit::footer::text_button_size(ui, "Ok"));
+                    let cancel_spec = FB::QuickCancel
+                        .spec()
+                        .with_size(crate::ui::kit::footer::text_button_size(ui, "Cancel"));
+                    if crate::ui::kit::footer::widget_button(ui, "Ok", ok_spec, true).clicked() {
                         ok = true;
                     }
-                    if ui.button("Cancel").clicked() {
+                    if crate::ui::kit::footer::widget_button(ui, "Cancel", cancel_spec, true)
+                        .clicked()
+                    {
                         cancel = true;
                     }
                 });

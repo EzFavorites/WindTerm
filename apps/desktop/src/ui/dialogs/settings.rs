@@ -135,12 +135,7 @@ const TREE_HOVER: u32 = 0x2A2A2A;
 const GROUP_STROKE: u32 = 0x4A4A4A;
 /// 必填项红星。
 const STAR_RED: u32 = 0xE0554D;
-/// Close 按钮的蓝描边（与确认弹窗 No 同族）。
-const CLOSE_BLUE: u32 = 0x4A8FE8;
-
-fn col(hex: u32) -> egui::Color32 {
-    crate::theme::to_color32(term_core::theme::rgb(hex))
-}
+use crate::ui::kit::spec::col;
 
 /// 右侧页面。顺序即左栏树的叶序；三个组头（Terminal/Text/Widgets）不是页。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -616,20 +611,10 @@ impl TerminalWindow {
                 egui::pos2(win.right() - pad, win.bottom() - pad),
             );
             super::dialog_chrome::place(ui, footer, |ui| {
-                // `add_sized` 而不是 `Button::min_size`：后者只给了按钮一个**最小**
-                // 尺寸，文字仍从矩形左内边距开始排，于是 80 宽的按钮里文字左 20、
-                // 右 78（实测）。`add_sized` 分配定宽矩形并让按钮居中，
-                // 与视觉基线一致（`01-application.png` 蓝框内文字左右各 45 物理像素）。
-                if ui
-                    .add_sized(
-                        egui::vec2(btn_w, btn_h),
-                        egui::Button::new(close)
-                            .fill(col(0x242424))
-                            .stroke(egui::Stroke::new(1.5, col(CLOSE_BLUE)))
-                            .rounding(2.0),
-                    )
-                    .clicked()
-                {
+                // 尺寸/配色来自 `kit::spec::FooterButton::SettingsClose`：
+                // 这里只负责把按钮放进窗口绝对定位的矩形并收点击。
+                let spec = crate::ui::kit::spec::FooterButton::SettingsClose.spec();
+                if crate::ui::kit::footer::widget_button(ui, close, spec, true).clicked() {
                     want_close = true;
                 }
             });
@@ -671,30 +656,6 @@ impl TerminalWindow {
             self.view.show_settings = false;
         }
     }
-}
-
-/// 视觉基线的字段标签带下划线访问字母（`L̲anguage:` / `T̲heme:` /
-/// `W̲indow opacity:`）。`acc_word` 是英文原文里要划的词——显示文本里
-/// 找到它的首字符加下划线；中文退化为划首字。颜色用 `PLACEHOLDER`，
-/// 置灰时随控件变暗。
-fn underlined_job(ui: &egui::Ui, shown: &str, acc_word: &str) -> egui::text::LayoutJob {
-    let font = egui::TextStyle::Body.resolve(ui.style());
-    let plain = egui::TextFormat::simple(font, egui::Color32::PLACEHOLDER);
-    let mut underlined = plain.clone();
-    // 下划线颜色**必须烤死**：PLACEHOLDER 只在 galley 兜底色里回填，
-    // 下划线在 layout 时就烘焙进网格，透明色画出来就是看不见。
-    underlined.underline = egui::Stroke::new(1.0, ui.visuals().text_color());
-    let mut job = egui::text::LayoutJob::default();
-    let pos = shown
-        .find(acc_word.chars().next().unwrap_or(' '))
-        .unwrap_or(0);
-    let pos = if shown.is_char_boundary(pos) { pos } else { 0 };
-    let rest = &shown[pos..];
-    let acc = rest.chars().next().map(|c| c.len_utf8()).unwrap_or(0);
-    job.append(&shown[..pos], 0.0, plain.clone());
-    job.append(&rest[..acc], 0.0, underlined);
-    job.append(&rest[acc..], 0.0, plain);
-    job
 }
 
 /// 左栏树的一行：整行灰块选中 / 悬停（视觉基线），等宽文本左对齐。

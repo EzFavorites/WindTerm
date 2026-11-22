@@ -244,6 +244,9 @@ mod tests {
         assert_eq!(back.sessions[0].keep_alive, 45);
         assert_eq!(back.sessions[0].charset, "GBK");
         assert!(back.sessions[0].builtin_ssh);
+        // X/Y/Z Modem 三页签的命令与包长是新增的序列化字段，往返不能丢。
+        assert_eq!(back.sessions[0].modem_commands, ["rx", "rb", "rz"]);
+        assert_eq!(back.sessions[0].modem_large_packets, [false, true, false]);
     }
 
     #[test]

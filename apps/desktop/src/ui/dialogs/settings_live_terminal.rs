@@ -26,6 +26,7 @@
 //! 三组落盘的改完**当场生效**：`win.paste_confirm_*` / `win.right_click` /
 //! `win.copy_on_select` 是同帧写回的内存副本，下一次手势读的就是它。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{field_row, group_box, set_row_rhythm, Slot};
 use crate::ui::*;
@@ -88,7 +89,7 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         }
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Mouse Actions"), |ui| {
         set_row_rhythm(ui);
         // 视觉基线 07-terminal.png：`Right click:` 自己一行，组合框在它**下方**
@@ -130,7 +131,7 @@ pub(in crate::ui) fn terminal(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         });
     }
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     let mut changed = false;
     group_box(ui, Some("Paste Dialog"), |ui| {
         set_row_rhythm(ui);

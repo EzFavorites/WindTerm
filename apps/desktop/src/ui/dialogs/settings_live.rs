@@ -25,6 +25,7 @@
 //! 从 `settings.rs` 拆出来是因为 （`ui/` 下非 `mod.rs` 代码行 ≤ 500），
 //! 顺便把「哪几页是真的」这件事集中到一个文件里，一眼看得完。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_pages_view::{
     field_height, field_label, group_box, label_col, set_row_rhythm, spin_field,
 };
@@ -76,7 +77,7 @@ pub(in crate::ui) fn recovery_notice(ui: &mut egui::Ui) {
     let Some(backup) = term_runtime::prefs::last_recovery() else {
         return;
     };
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, None, |ui| {
         ui.label(
             egui::RichText::new("prefs.json could not be read, so the original was kept as:")
@@ -109,7 +110,7 @@ fn label_row(
             egui::vec2(LABEL_W, 20.0),
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
-                ui.label(egui::WidgetText::from(underlined_job(ui, text, acc_word)));
+                ui.label(egui::WidgetText::from(crate::ui::kit::field::underlined_job(ui, text, acc_word, crate::ui::kit::field::UnderlineStyle::Dialog)));
                 if star {
                     ui.label(egui::RichText::new("* ").color(col(STAR_RED)));
                 }
@@ -137,9 +138,7 @@ fn field_w(ui: &egui::Ui) -> f32 {
     ui.available_width()
 }
 
-fn col(hex: u32) -> egui::Color32 {
-    egui::Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
-}
+use crate::ui::kit::spec::col;
 
 /// `Appearance` 页一次绘制里被用户改过的东西（每一项 `None` = 没动）。
 ///
@@ -167,7 +166,7 @@ pub(in crate::ui) fn appearance(
     let mut opacity_edit = None;
     let mut current = window;
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `02-appearance.png`：`Application` 是**组标题**（画在框外上方），
     // 不是页级灰标题——框里直接就是 Language / Theme / Window opacity 三行。
     group_box(ui, Some(t(lang, "Application")), |ui| {
@@ -248,7 +247,7 @@ pub(in crate::ui) fn appearance(
 pub(in crate::ui) fn filer(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut on = win.filer.show_hidden;
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `18-widgets-filer.png`：内容区第一个字就是组标题 `Features`，
     // 没有页级灰标题（老实现多画一行 `Filer`，整页因此整体下移 26 点）。
     group_box(ui, Some("Features"), |ui| {
@@ -315,7 +314,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     let mut persist = false;
 
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `09-terminal-command-history.png`：内容区第一个字是 `Capacity`（组标题），
     // 没有页级灰标题。标签列按本页最长的 `Saved command history:` 量，两个框里的
     // 控件左缘因此对齐（用户口径：同一页输入框宽度一致）。
@@ -357,7 +356,7 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     });
 
     let mut cleared = None;
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Storage"), |ui| {
         persist |= ui
             .checkbox(&mut save, "Save command history to disk")
@@ -445,7 +444,7 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
     let names: Vec<String> = win.sessions.iter().map(|s| s.name.clone()).collect();
 
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Startup"), |ui| {
         // 视觉基线三档单选的行距约 49 物理像素；只靠默认 item_spacing 会挤到
         // 36，后续四个下拉跟着整体上移。按逐页比对结果在第一、二档后各补 13 物理
@@ -539,35 +538,6 @@ pub(in crate::ui) fn application(win: &mut TerminalWindow, ui: &mut egui::Ui) ->
         startup: startup_changed,
         suppress,
     }
-}
-
-/// 视觉基线里标签的下划线只画在**访问键字母**下面（`Language` 的 `u`、
-/// `Theme` 的 `e`、`Window` 的 `W`），其余部分照常画。
-fn underlined_job(ui: &egui::Ui, shown: &str, acc_word: &str) -> egui::text::LayoutJob {
-    let mut job = egui::text::LayoutJob::default();
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let color = ui.visuals().text_color();
-    let plain = egui::TextFormat {
-        font_id: font.clone(),
-        color,
-        ..Default::default()
-    };
-    let marked = egui::TextFormat {
-        font_id: font,
-        color,
-        underline: egui::Stroke::new(1.0, color),
-        ..Default::default()
-    };
-    let key = acc_word.chars().next().unwrap_or('A');
-    match shown.find(key) {
-        Some(i) => {
-            job.append(&shown[..i], 0.0, plain.clone());
-            job.append(&key.to_string(), 0.0, marked);
-            job.append(&shown[i + key.len_utf8()..], 0.0, plain);
-        }
-        None => job.append(shown, 0.0, plain),
-    }
-    job
 }
 
 #[cfg(test)]

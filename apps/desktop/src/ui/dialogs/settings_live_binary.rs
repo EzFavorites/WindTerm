@@ -42,6 +42,7 @@
 //! 这一页自己定列宽（[`LABEL_W`]），长短都写全——四个标签是本页唯一的信息，
 //! 截掉一半等于没写。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_pages_view::{group_box, set_row_rhythm, spin_field};
 use crate::ui::terminal::HexParams;
 use crate::ui::*;
@@ -107,7 +108,7 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
     let mut touched = false;
     let mut persist = false;
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `12-text-binary.png`：内容区第一个字就是组标题 `Binary`（老实现
     // 还多画了一行灰页标题，同一个词出现两次、整页下移 26 点）。
     group_box(ui, Some("Binary"), |ui| {
@@ -130,7 +131,7 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
         touched |= a;
         persist |= b;
     });
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 斑马线：真勾选框（视觉基线这一格是勾上的，出厂 `true`）。
     //
     // 它和上面四个数是**同一类**参数（都是默认值），所以勾完之后不会立刻看见

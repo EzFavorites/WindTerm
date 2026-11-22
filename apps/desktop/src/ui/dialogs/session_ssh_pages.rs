@@ -9,6 +9,7 @@
 //! `Public Keys` 是这五页里唯一带真实可编辑字段的（IdentityFile / -A）。
 
 use super::session_form_body::{form_row, FIELD_W};
+use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::*;
 
 pub(in crate::ui) fn draw_page(win: &mut TerminalWindow, ui: &mut egui::Ui, page: usize) {
@@ -93,7 +94,10 @@ fn public_keys_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             );
             ui.end_row();
             form_row(ui, "Agent forwarding:");
-            ui.checkbox(&mut win.new_session.agent_forward, "Forward ssh-agent (-A)");
+            choice_row_styled(
+                ui, ChoiceKind::Checkbox, "Forward ssh-agent (-A)", "Forward",
+                &mut win.new_session.agent_forward, true, UnderlineStyle::None,
+            );
             ui.end_row();
             form_row(ui, "Host key policy:");
             ui.label("TOFU (first connect asks for confirmation)");
@@ -115,7 +119,10 @@ fn x11_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         .spacing(egui::vec2(10.0, 4.0))
         .show(ui, |ui| {
             form_row(ui, "X11 forwarding:");
-            ui.checkbox(&mut win.new_session.x11_forward, "Forward X11 (-X)");
+            choice_row_styled(
+                ui, ChoiceKind::Checkbox, "Forward X11 (-X)", "Forward",
+                &mut win.new_session.x11_forward, true, UnderlineStyle::None,
+            );
             ui.end_row();
             form_row(ui, "Screen number:");
             ui.add(egui::DragValue::new(&mut win.new_session.x11_screen).range(0..=255));

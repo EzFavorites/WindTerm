@@ -15,6 +15,7 @@
 //! `Double click event` 不是「还没接」：xterm 鼠标协议没有双击报告，本地
 //! 双击只用于选词。这一行保留形状并写清理由，不做假开关。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::group_box;
 use crate::ui::*;
@@ -55,7 +56,7 @@ pub(in crate::ui) fn mouse_tracking(win: &mut TerminalWindow, ui: &mut egui::Ui)
         )
         .on_disabled_hover_text(RIGHT_CLICK_NOTE);
         // 原数据表面板在末尾有一段说明，这里保留同样的信息（不改布局高度）。
-        ui.add_space(6.0);
+        ui.add_space(BLOCK_GAP);
         ui.label(MOUSE_NOTE);
     });
 

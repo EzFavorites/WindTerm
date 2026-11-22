@@ -8,7 +8,7 @@ use crate::ui::view::trigger_spec::color as c;
 
 /// u32 → Color32（本模块私有，避免和 dialog_chrome 的 rgb 争夺 pub 名）。
 pub(in crate::ui::dialogs) fn rgb(hex: u32) -> egui::Color32 {
-    egui::Color32::from_rgb((hex >> 16) as u8, ((hex >> 8) & 0xFF) as u8, (hex & 0xFF) as u8)
+    crate::ui::kit::spec::col(hex)
 }
 
 /// 在指定矩形内绘制，坐标绝对、不跟随流式光标。

@@ -27,7 +27,6 @@
 //! 是 prefs 缓存，勾选即刻 `prefs::save`（读回在 `construct.rs`），与
 //! `layout.json` 分开。
 
-use crate::ui::harness;
 use crate::ui::*;
 
 /// 要关的东西：决定文案、窗口高度与 Yes 的落点。
@@ -154,12 +153,11 @@ const WARN_YELLOW: u32 = 0xF3BE25;
 const CHECK_BORDER: u32 = 0xCFCFCF;
 
 /// 十六进制 → 颜色，与 `harness::canvas_bg` 同一条换算路径。
-fn col(hex: u32) -> egui::Color32 {
-    crate::theme::to_color32(term_core::theme::rgb(hex))
-}
+use crate::ui::kit::spec::col;
 
 /// 弹窗的固定矩形：在视觉基线主窗口（1280×760）里居中。夹具出图与交互路径
 /// 用同一个位置——逐字节可复现，不依赖屏幕实际尺寸（About 的先例）。
+#[cfg(test)]
 fn win_rect(kind: ConfirmClose) -> egui::Rect {
     let h = kind.height();
     egui::Rect::from_min_size(
@@ -174,15 +172,13 @@ impl TerminalWindow {
     pub(in crate::ui) fn confirm_pre_update(&mut self, ctx: &egui::Context) {
         if self.confirm.pending.is_some() {
             // 视觉基线把 N / Y 首字母加了下划线（键盘加速器）；No 同时是
-            // 默认键（蓝描边），所以 Enter 也归 No，Esc 同。
-            let (yes_k, no_k) = ctx.input(|i| {
-                (
-                    i.key_pressed(egui::Key::Y),
-                    i.key_pressed(egui::Key::N)
-                        || i.key_pressed(egui::Key::Enter)
-                        || i.key_pressed(egui::Key::Escape),
-                )
-            });
+            // 默认键（蓝描边），所以 Enter 也归 No，Esc 同。语义收在
+            // `DialogKeys::CANCEL_DEFAULT + Y`，与粘贴确认共用一张契约表。
+            let outcome = crate::ui::kit::dialog::DialogKeys::CANCEL_DEFAULT
+                .with_yes_key(egui::Key::Y)
+                .with_no_key(egui::Key::N)
+                .poll(ctx);
+            let (yes_k, no_k) = (outcome.yes, outcome.cancel);
             // 真模态：剩下的键事件不再喂给终端与输入框（弹窗没有 TextEdit，
             // 清掉 Key/Text/Ime 不影响自己的交互）。
             ctx.input_mut(|i| {
@@ -273,43 +269,19 @@ impl TerminalWindow {
         let h = kind.height();
         let mut yes = false;
         let mut no = false;
-        let id = egui::Id::new("confirm_close");
 
-        if harness::fixture_mode() {
-            // 夹具热身：与 `harness::StableWindow` 同一条结论——首帧是
-            // sizing pass，形状全是 Noop，必须先播种 AreaState（见其注释）。
-            egui::Window::new("confirm_close")
-                .id(id)
-                .collapsible(false)
-                .resizable(false)
-                .fade_in(false)
-                .fixed_rect(win_rect(kind))
-                .title_bar(false)
-                .frame(egui::Frame::none())
-                .show(ctx, |ui| ui.set_min_size(egui::vec2(WIN_W, h)));
-        }
-
-        egui::Window::new("confirm_close")
-            .id(id)
-            .collapsible(false)
-            .resizable(false)
-            .fade_in(false)
-            .fixed_rect(win_rect(kind))
-            .title_bar(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(col(term_core::theme::DESIGN_TOKENS.panel_bg))
-                    .rounding(8.0)
-                    .shadow(egui::Shadow {
-                        offset: egui::vec2(0.0, 6.0),
-                        blur: 18.0,
-                        spread: 0.0,
-                        color: egui::Color32::from_black_alpha(110),
-                    }),
-            )
-            .show(ctx, |ui| {
+        // 与其余弹窗共用 `DialogWindow` 的 Area/锚定/Frame/裁剪：
+        // `LIGHT_BARE` 给出与基线逐值相同的浅色条和红绿灯（无标题文字、无 ×），
+        // `tight + without_border + raw_controls` 保住原有绝对坐标与像素。
+        use crate::ui::kit::window::{Chrome, DialogWindow};
+        let _ = DialogWindow::new_sized("confirm_close", "", egui::vec2(WIN_W, h))
+            .with_chrome(Chrome::LIGHT_BARE)
+            .without_border()
+            .raw_controls()
+            .tight()
+            .show_with_rect(ctx, |ui, win| {
                 ui.set_min_size(egui::vec2(WIN_W, h));
-                let o = ui.min_rect().min;
+                let o = win.min;
                 // 全部绘制裁剪在窗口矩形内（painter.text 不自动裁剪，
                 // 长文案溢出右沿的教训）。Painter 本体廉价克隆。
                 let p = ui.painter_at(egui::Rect::from_min_size(o, egui::vec2(WIN_W, h)));

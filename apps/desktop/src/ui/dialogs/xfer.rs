@@ -20,7 +20,17 @@
 //! 「一次待填写的输入」，不进 `ViewState`——`ViewState` 里没有 `String` 输入框
 //! 的位置，也不该有（那会让 reducer 认识键盘）。
 
-use crate::ui::kit::window::DialogWindow;
+use crate::ui::kit::window::{DialogId, DialogWindow};
+
+/// 文件传输提示里的两个动作按钮：沿用裸 `ui.button` 的尺寸，
+/// 绘制收在 `kit::footer`（与 SSH 流程那几个同源）。
+fn action_button(ui: &mut egui::Ui, label: &str) -> bool {
+    use crate::ui::kit::spec::FooterButton;
+    let spec = FooterButton::Plain
+        .spec()
+        .with_size(crate::ui::kit::footer::text_button_size(ui, label));
+    crate::ui::kit::footer::widget_button(ui, label, spec, true).clicked()
+}
 use crate::ui::*;
 use std::path::PathBuf;
 use term_app::action::{XferCmd, XferProtocol};
@@ -139,6 +149,7 @@ impl XferPrompt {
 // 夹具出图与交互路径共用同一个矩形，逐字节可复现。
 
 /// 弹层宽。够放下 40 个字符的路径提示，又不至于挡住整个终端。
+// 几何已进 `DialogId::XferPrompt`（kit::spec），这里是它的实测出处备注。
 const WIN_W: f32 = 460.0;
 /// 弹层高：说明一行 + 输入框 + 承诺行 + 错误行 + 按钮行。
 const WIN_H: f32 = 168.0;
@@ -173,11 +184,7 @@ pub(in crate::ui) fn draw_prompt(ctx: &egui::Context, prompt: &mut XferPrompt) -
     let receive = prompt.direction == XferDirection::Receive;
     let mut outcome = Outcome::Open;
 
-    let rect = egui::Rect::from_min_size(
-        egui::pos2((1280.0 - WIN_W) / 2.0, (760.0 - WIN_H) / 2.0),
-        egui::vec2(WIN_W, WIN_H),
-    );
-    let closed = DialogWindow::new_sized("xfer_prompt", &title, rect.size()).show(
+    let closed = DialogWindow::new(DialogId::XferPrompt, &title).show(
         ctx,
         |ui| {
             ui.label(line);
@@ -219,14 +226,14 @@ pub(in crate::ui) fn draw_prompt(ctx: &egui::Context, prompt: &mut XferPrompt) -
 
             ui.add_space(2.0);
             ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
+                if action_button(ui, "Cancel") {
                     outcome = Outcome::Cancelled;
                 }
-                if ui.button("Start").clicked() || entered {
+                if action_button(ui, "Start") || entered {
                     outcome = confirm(prompt);
                 }
             });
-            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if DialogId::XferPrompt.keys().poll(ui.ctx()).cancel {
                 outcome = Outcome::Cancelled;
             }
         },

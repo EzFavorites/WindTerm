@@ -82,7 +82,8 @@ impl TerminalWindow {
                     scan.local_root().display(),
                     scan.remote_root()
                 );
-                let mut cancel = false;
+                // Esc = Cancel（扫描可随时丢弃）。
+                let mut cancel = DialogId::FilerSyncScan.keys().poll(ctx).cancel;
                 let open = DialogWindow::new(DialogId::FilerSyncScan, "Sync folders")
                 .show(ctx, |ui| {
                     ui.label(body.clone());
@@ -152,6 +153,10 @@ impl TerminalWindow {
             .map(|i| i.entry.path.clone())
             .collect();
         let mut action = Action::None;
+        // Esc = Cancel；Enter 绝不确认（这一步会删文件）。
+        if DialogId::FilerSyncReview.keys().poll(ctx).cancel {
+            action = Action::Cancel;
+        }
 
         DialogWindow::new(DialogId::FilerSyncReview, "Sync folders")
         .show(ctx, |ui| {

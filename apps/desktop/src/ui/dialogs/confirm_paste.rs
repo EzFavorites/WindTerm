@@ -24,7 +24,6 @@
 //! 丢掉，一个字节都不写。标签在弹窗打开期间被关掉 → `commit_paste` 里
 //! `get_mut` 拿不到，丢弃这次粘贴，不 panic。
 
-use crate::ui::harness;
 use crate::ui::*;
 
 /// 待确认的一次粘贴。`tab` 是**槽位**（主区第几个标签 / 底带 Shell 面板第几条）：
@@ -118,11 +117,10 @@ const TEXT: u32 = 0xF0F0F0;
 const PREVIEW_BG: u32 = 0x1C1D1F;
 const PREVIEW_BORDER: u32 = 0x3A3A3A;
 
-fn col(hex: u32) -> egui::Color32 {
-    crate::theme::to_color32(term_core::theme::rgb(hex))
-}
+use crate::ui::kit::spec::col;
 
 /// 弹窗矩形：在视觉基线主窗口（1280×760）里居中，与确认弹窗同一条算法。
+#[cfg(test)]
 fn win_rect() -> egui::Rect {
     egui::Rect::from_min_size(
         egui::pos2((1280.0 - WIN_W) / 2.0, (760.0 - WIN_H) / 2.0),
@@ -140,9 +138,9 @@ impl TerminalWindow {
         if self.pending_paste.is_none() {
             return;
         }
-        let cancel = ctx.input(|i| {
-            i.key_pressed(egui::Key::Escape) || i.key_pressed(egui::Key::Enter)
-        });
+        let cancel = crate::ui::kit::dialog::DialogKeys::CANCEL_DEFAULT
+            .poll(ctx)
+            .cancel;
         // 再按一次 Cmd+V 也不该排第二笔：`Paste` 事件一起吃掉。
         ctx.input_mut(|i| {
             i.events.retain(|e| {
@@ -179,44 +177,18 @@ impl TerminalWindow {
 
         let mut yes = false;
         let mut no = false;
-        let id = egui::Id::new("confirm_paste");
 
-        if harness::fixture_mode() {
-            // 与 `confirm.rs` 同一条结论：首帧是 sizing pass，形状全是 Noop，
-            // 必须先播种 AreaState。这个弹窗没有截图基线，播种留着是为了
-            // 将来真要出图时（手动 `--demo`）不是一张空白。
-            egui::Window::new("confirm_paste")
-                .id(id)
-                .collapsible(false)
-                .resizable(false)
-                .fade_in(false)
-                .fixed_rect(win_rect())
-                .title_bar(false)
-                .frame(egui::Frame::none())
-                .show(ctx, |ui| ui.set_min_size(egui::vec2(WIN_W, WIN_H)));
-        }
-
-        egui::Window::new("confirm_paste")
-            .id(id)
-            .collapsible(false)
-            .resizable(false)
-            .fade_in(false)
-            .fixed_rect(win_rect())
-            .title_bar(false)
-            .frame(
-                egui::Frame::none()
-                    .fill(col(term_core::theme::DESIGN_TOKENS.panel_bg))
-                    .rounding(8.0)
-                    .shadow(egui::Shadow {
-                        offset: egui::vec2(0.0, 6.0),
-                        blur: 18.0,
-                        spread: 0.0,
-                        color: egui::Color32::from_black_alpha(110),
-                    }),
-            )
-            .show(ctx, |ui| {
+        // 与 `confirm.rs` 同一套窗口壳：LIGHT_BARE 给浅色条+红绿灯，
+        // tight/无描边/原生控件保住绝对坐标与滚动条的像素。
+        use crate::ui::kit::window::{Chrome, DialogWindow};
+        let _ = DialogWindow::new_sized("confirm_paste", "", egui::vec2(WIN_W, WIN_H))
+            .with_chrome(Chrome::LIGHT_BARE)
+            .without_border()
+            .raw_controls()
+            .tight()
+            .show_with_rect(ctx, |ui, win| {
                 ui.set_min_size(egui::vec2(WIN_W, WIN_H));
-                let o = ui.min_rect().min;
+                let o = win.min;
                 let p = ui.painter_at(egui::Rect::from_min_size(
                     o,
                     egui::vec2(WIN_W, WIN_H),

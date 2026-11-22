@@ -8,6 +8,10 @@ use super::settings_pages::{effective_chords, page_note, page_spec, Block, Row};
 use super::settings::SettingsPage;
 use crate::ui::*;
 
+// 组框的节奏常量现在只有一份出处（`kit::spec`，金标准 @2x 实测）。
+// 这里保留名字给同文件内的调用点，值与注释同步，不再各写各的。
+pub(in crate::ui) use crate::ui::kit::spec::{BLOCK_GAP, GROUP_PAD, TITLE_GAP};
+
 // 表单控件本体在 `ui/kit/form.rs`——设置页与两个会话弹窗共用同一份。这里只做
 // **路径转发**，不重新定义任何东西：`settings_pages_view::field_row` 与
 // `crate::ui::kit::form::field_row` 是同一个函数、同一份间距常量。
@@ -48,13 +52,15 @@ pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage, overrides: &[(u
                         draw_row(ui, row, note, col);
                     }
                 });
-                ui.add_space(6.0);
+                // 组框之间：item_spacing(FIELD_TO_ROW) + BLOCK_GAP = 11.5pt，
+                // 与金标准 07-terminal.png 的 23 物理像素一致。
+                ui.add_space(BLOCK_GAP);
             }
             Block::Rows(rows) => {
                 for row in *rows {
                     draw_row(ui, row, note, col);
                 }
-                ui.add_space(6.0);
+                ui.add_space(BLOCK_GAP);
             }
             Block::Shortcuts => shortcuts_table(ui, overrides),
         }
@@ -137,56 +143,13 @@ pub(in crate::ui) fn group_box(
 const GROUP_STROKE: egui::Color32 = egui::Color32::from_rgb(0x2E, 0x2E, 0x2E);
 /// 分组框圆角（视觉基线实测 ≈2）。
 const GROUP_ROUNDING: f32 = 2.0;
-/// 分组框内边距：视觉基线里标签文字左缘距框线 10（`454+2 → 476` 物理）。
-const GROUP_PAD: f32 = 10.0;
-/// 组标题与框上边线的间隙。
-const TITLE_GAP: f32 = 2.0;
 
-/// 对话框顶部的方标签（兼容终端 OneKeys / Triggers 顶上那排）。
+/// 对话框顶部的方标签（OneKeys / Triggers / Modem 共用）。
 ///
-/// 与 `log_settings::protocol_tab` 同形，区别只有「高度由调用方给」：那两个
-/// 对话框的标签条实测高 23 逻辑点（`1408×1314` @2× 的 y 2..48）。
-///
-/// 两档底色按兼容终端：**选中的比未选的更暗**（`#1C1C1C` vs `#333333`），看起来
-/// 像选中的那块与下方内容区连成一片。文字色反过来——选中更亮。
-///
-/// 访问键下划线画在**第一个字符**下：WindTerm 的对话框标签都用首字母作访问键
-/// （`SSH` 的 S、`Account` 的 A、`Highlight Text` 的 H），视觉基线每块下方都有。
-pub(in crate::ui) fn dialog_tab(
-    ui: &mut egui::Ui,
-    width: f32,
-    height: f32,
-    label: &str,
-    active: bool,
-) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
-    let p = ui.painter_at(rect);
-    let (bg, fg) = if active {
-        (0x1C1C1C, 0xE6E6E6)
-    } else {
-        (0x333333, 0xBFBFBF)
-    };
-    p.rect_filled(rect, egui::Rounding::ZERO, egui::Color32::from_rgb(
-        (bg >> 16) as u8,
-        ((bg >> 8) & 0xFF) as u8,
-        (bg & 0xFF) as u8,
-    ));
-    let color = egui::Color32::from_rgb(
-        (fg >> 16) as u8,
-        ((fg >> 8) & 0xFF) as u8,
-        (fg & 0xFF) as u8,
-    );
-    let font = egui::TextStyle::Button.resolve(ui.style());
-    let galley = p.layout_no_wrap(label.to_owned(), font.clone(), color);
-    let w = galley.size().x;
-    p.galley(rect.center() - galley.size() / 2.0, galley, color);
-    // 首字符下划线：等宽字体下 cw = 总宽 / 字符数。
-    let cw = w / label.chars().count().max(1) as f32;
-    let x0 = rect.center().x - w / 2.0;
-    let y = rect.center().y + ui.style().text_styles[&egui::TextStyle::Button].size * 0.62;
-    p.line_segment([egui::pos2(x0, y), egui::pos2(x0 + cw, y)], egui::Stroke::new(1.0, color));
-    resp
-}
+/// 画法已收进 [`crate::ui::kit::tabs::tab`]：两档底色（选中 #1C1C1C，
+/// 与下方内容区连成一片 / 未选 #333333）、首字符访问键下划线都只有一处实现。
+/// 这里保留旧名字给现有调用点，不再是一份独立绘制代码。
+pub(in crate::ui) use crate::ui::kit::tabs::tab as dialog_tab;
 
 
 /// 画一行。`settings_live_text` 也用它画「没有消费者」的那几行——同一页里

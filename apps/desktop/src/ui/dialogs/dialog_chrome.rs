@@ -10,7 +10,7 @@ use crate::ui::*;
 
 /// 十六进制字面量 → 颜色（项目里 `col` 是各文件私有小工具，公共处只留这一份）。
 pub(in crate::ui) fn rgb(hex: u32) -> egui::Color32 {
-    egui::Color32::from_rgb((hex >> 16) as u8, ((hex >> 8) & 0xFF) as u8, (hex & 0xFF) as u8)
+    crate::ui::kit::spec::col(hex)
 }
 
 /// 铺输入框底色，且**不受父级 `add_enabled_ui(false)` 的褪色影响**。

@@ -22,6 +22,7 @@
 //! 从 `settings_live.rs` 拆出来是因为那个文件已经贴着  的代码行上限
 //! （500），而本页要加下拉、过滤、读写 prefs、说明，塞回去就超了。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::{recovery_notice, save_prefs};
 use super::settings_pages_view::{field_label, field_row, group_box, label_col, spin_field, Slot};
 use crate::ui::*;
@@ -148,7 +149,7 @@ fn draw(ui: &mut egui::Ui, win: &TerminalWindow, _lang: Lang) -> FontEdit {
     let mut persist_size = false;
 
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 内容区第一个字就是组标题 `Default Font`（视觉基线 `14-text-font.png`）。
     // 标签列按本页最长的 `Font family N:` 量（`FAMILY_SLOTS` 那一档），三行对齐。
     let col = label_col(ui, &["Font size:", "Font family 1:", "Font weight:"]);

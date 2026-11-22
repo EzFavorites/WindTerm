@@ -35,6 +35,7 @@
 //! 设置页改完写回 prefs 并同步那份副本。`paint_rows` 每行都要问一次「要不要
 //! 叠底色」，`pane.rs` 每帧都要问一次「要不要藏光标」——这两处绝不能读盘。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
 use super::settings_pages_view::{draw_row, field_label, group_box, label_col, set_row_rhythm, spin_field};
@@ -135,7 +136,7 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             .changed();
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Spacing"), |ui| {
         set_row_rhythm(ui);
         disabled(
@@ -152,7 +153,7 @@ pub(in crate::ui) fn text(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         );
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Zoom"), |ui| {
         set_row_rhythm(ui);
         // ：Zoom level 接真。底下就是 `Prefs.font_size`（与 Font 页
@@ -278,7 +279,7 @@ pub(in crate::ui) fn toolbar_menu(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             .changed();
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Menu"), |ui| {
         set_row_rhythm(ui);
         // 展开状态是投影态（靠近顶端 / Alt / 菜单弹层），只有这个开关落盘。

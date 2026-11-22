@@ -43,7 +43,11 @@ pub(in crate::ui) fn draw(
         };
         p.rect_filled(rect, spec.rounding, crate::theme::chrome(fill));
     }
-    let border = if enabled { spec.border } else { DISABLED_BORDER };
+    let border = if enabled || spec.keep_border_when_disabled {
+        spec.border
+    } else {
+        DISABLED_BORDER
+    };
     p.rect_stroke(
         rect.shrink(spec.stroke_inset),
         spec.rounding,
@@ -93,6 +97,38 @@ pub(in crate::ui) fn draw(
         }
     }
     // 交互 id 留在调用方：原语不知道按钮属于哪个弹窗，也不该替它造 id。
+}
+
+/// 一颗「自己占矩形」的页脚按钮：分配 `spec.size`，走 [`draw`] 绘制，
+/// 返回点击归属给调用方。给原先内联 `Button` 的调用点收敛用——
+/// 尺寸/配色仍只由 `kit::spec` 决定，这里不夹带任何业务语义。
+pub(in crate::ui) fn widget_button(
+    ui: &mut egui::Ui,
+    label: &str,
+    spec: FooterButtonSpec,
+    enabled: bool,
+) -> egui::Response {
+    let sense = if enabled {
+        egui::Sense::click()
+    } else {
+        egui::Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(spec.size, sense);
+    draw(ui, rect, rect, label, spec, resp.hovered(), enabled);
+    resp
+}
+
+/// 裸 `ui.button` 的尺寸口径：文字加左右 `button_padding`，高度取行高加
+/// 上下 padding。给 Quick Commands 那类原先没钉尺寸的页脚用。
+pub(in crate::ui) fn text_button_size(ui: &egui::Ui, label: &str) -> egui::Vec2 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let w = ui
+        .fonts(|f| f.layout_no_wrap(label.to_owned(), font.clone(), egui::Color32::WHITE))
+        .size()
+        .x
+        + ui.spacing().button_padding.x * 2.0;
+    let h = ui.fonts(|f| f.row_height(&font)) + ui.spacing().button_padding.y * 2.0;
+    egui::vec2(w, h)
 }
 
 /// 首字符与其余部分。**不能 `split_at(1)`**：中文按钮字（「否」/「是」）

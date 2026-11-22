@@ -111,6 +111,9 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) modem_upload_dir: String,
     pub(in crate::ui) modem_download_dir: String,
     pub(in crate::ui) modem_use_default: bool,
+    /// X/Y/Z 三页签的上传命令与包长档位（见 `SessionConfig` 同名字段）。
+    pub(in crate::ui) modem_commands: [String; 3],
+    pub(in crate::ui) modem_large_packets: [bool; 3],
     pub(in crate::ui) dns_over_proxy: bool,
     /// `Terminal ▾ Mode` 的两项初始值（DECAWM / DECCKM）。
     pub(in crate::ui) initial_auto_wrap: bool,
@@ -187,6 +190,8 @@ impl NewSessionData {
             modem_upload_dir: config.modem_upload_dir.clone(),
             modem_download_dir: config.modem_download_dir.clone(),
             modem_use_default: config.modem_use_default,
+            modem_commands: config.modem_commands.clone(),
+            modem_large_packets: config.modem_large_packets,
             dns_over_proxy: config.dns_over_proxy,
             initial_auto_wrap: config.initial_auto_wrap,
             initial_cursor_keys_application: config.initial_cursor_keys_application,
@@ -286,6 +291,8 @@ impl NewSessionData {
         c.modem_upload_dir = self.modem_upload_dir.clone();
         c.modem_download_dir = self.modem_download_dir.clone();
         c.modem_use_default = self.modem_use_default;
+        c.modem_commands = self.modem_commands.clone();
+        c.modem_large_packets = self.modem_large_packets;
         c.dns_over_proxy = self.dns_over_proxy;
         c.initial_auto_wrap = self.initial_auto_wrap;
         c.initial_cursor_keys_application = self.initial_cursor_keys_application;

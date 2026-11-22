@@ -21,9 +21,31 @@
 
 use eframe::egui;
 
+/// 十六进制色号 → `Color32` 的**唯一**入口。各弹窗原来自带 `fn col`，
+/// 其中一份直接用 `from_rgb` 绕过了主题换算；现在统一从这里取。
+pub(in crate::ui) fn col(hex: u32) -> egui::Color32 {
+    crate::theme::to_color32(term_core::theme::rgb(hex))
+}
+
+// ── 表单节奏（数据面）──────────────────────────────────────────
+//
+// 2026-11-22：这四个数曾经散在 `kit::form` / `settings_pages_view` /
+// `settings_live_*` 三处，而且把「框底 → 下一标签」与「组框 → 下一组标题」
+// 混成同一个 `item_spacing`，于是设置页的垂直间距是视觉基线的两倍。
+// 金标准实测（卷一 `03-settings/07-terminal.png` @2x）：
+//   LABEL_TO_FIELD 14px / 2 = 7pt    FIELD_TO_ROW 18px / 2 = 9pt
+//   TITLE_GAP      7px  / 2 = 3.5pt  BLOCK_GAP 合计 23px / 2 = 11.5pt
+pub(in crate::ui) const LABEL_TO_FIELD: f32 = 7.0;
+pub(in crate::ui) const FIELD_TO_ROW: f32 = 9.0;
+/// 组框之间的**额外**间距（与 `FIELD_TO_ROW` 相加后得到 11.5pt）。
+pub(in crate::ui) const BLOCK_GAP: f32 = 2.5;
+pub(in crate::ui) const TITLE_GAP: f32 = 3.5;
+pub(in crate::ui) const GROUP_PAD: f32 = 10.0;
+
 /// 固定尺寸弹窗的身份。
 ///
-/// 新增弹窗：加一个变体 + 在 [`DialogId::key`] 与 [`DialogId::size`] 各加一行。
+/// 新增弹窗：加一个变体 + 在 [`DialogId::key`] 与 [`DialogId::size`] 各加一行，
+/// 并在 [`DialogId::keys`](super::dialog) 的键盘契约表里选一档。
 #[derive(Clone, Copy)]
 pub(in crate::ui) enum DialogId {
     About,
@@ -43,6 +65,8 @@ pub(in crate::ui) enum DialogId {
     Preview,
     ScriptEditor,
     ScriptRun,
+    /// XFER 路径提示（原先只有裸字符串 id，现纳入规格表统一管键盘）。
+    XferPrompt,
     FilerPrompt,
     FilerSyncScan,
     FilerSyncRun,
@@ -50,6 +74,18 @@ pub(in crate::ui) enum DialogId {
 }
 
 impl DialogId {
+    /// 全部固定尺寸弹窗，供穷举门禁（唯一 key / 正尺寸 / 键盘表）共用。
+    pub(in crate::ui) const ALL: &'static [DialogId] = &[
+        DialogId::About, DialogId::NewSession, DialogId::Settings,
+        DialogId::QuickCommands, DialogId::Shortcuts, DialogId::SessionLogging,
+        DialogId::SshConnecting, DialogId::SshHostkey, DialogId::SshPassword,
+        DialogId::SshFailed, DialogId::SshReplaceKey, DialogId::OneKeys,
+        DialogId::Triggers, DialogId::Onboarding, DialogId::Preview,
+        DialogId::ScriptEditor, DialogId::ScriptRun, DialogId::XferPrompt,
+        DialogId::FilerPrompt, DialogId::FilerSyncScan, DialogId::FilerSyncRun,
+        DialogId::FilerSyncReview,
+    ];
+
     /// egui 的稳定 id。
     ///
     /// **不能用标题代替**：New Session 与 Session Properties 是两个标题、
@@ -73,6 +109,7 @@ impl DialogId {
             Self::Preview => "preview",
             Self::ScriptEditor => "script_editor",
             Self::ScriptRun => "script_run",
+            Self::XferPrompt => "xfer_prompt",
             Self::FilerPrompt => "filer_prompt",
             Self::FilerSyncScan => "filer_sync_scan",
             Self::FilerSyncRun => "filer_sync_run",
@@ -106,6 +143,7 @@ impl DialogId {
             // 原来的 122 只装得下「一行路径 + 三个按钮 + 状态」——那时候窗口只
             // 会按路径跑，用户得自己记住脚本库目录在哪。清单占 108。
             Self::ScriptRun => egui::vec2(480.0, 240.0),
+            Self::XferPrompt => egui::vec2(460.0, 168.0),
             Self::FilerPrompt => egui::vec2(320.0, 96.0),
             // 三个阶段共用一套尺寸：窗口在同一位置接力，用户看不出换窗。
             Self::FilerSyncScan => egui::vec2(440.0, 340.0),
@@ -130,12 +168,55 @@ impl DialogId {
 pub(in crate::ui) enum FooterButton {
     SettingsCancel,
     SettingsOk,
+    /// Preferences 右下角唯一的 `Close`：80×24、蓝框、2pt 圆角。
+    SettingsClose,
     ConfirmNo,
     ConfirmYes,
     PasteCancel,
     PastePaste,
     TunnelsCancel,
     TunnelsOk,
+    /// 会话弹窗的主按钮（`Connect` / `Save`）。宽度由文字算，调用方用
+    /// [`FooterButtonSpec::with_size`] 覆盖 `size`。
+    SessionPrimary,
+    /// 会话弹窗的次按钮（`Cancel`）。
+    SessionSecondary,
+    /// Log Settings 左下角 `Edit Default Settings...`。
+    LogDefault,
+    LogSave,
+    LogCancel,
+    QuickOk,
+    QuickCancel,
+    /// 裸 `ui.button` 的等价规格：默认按钮底/描边/文字，宽度由文字算。
+    /// SSH 连接流程那些内联动作按钮走它，少一份手写 `Button` 配色。
+    Plain,
+}
+
+/// 对话框的保存/取消契约。**行为**层，不是绘制层：页脚按钮与键盘处理
+/// 都从这一处取语义，避免同一个 `X` 在 A 弹窗是「完成」、在 B 弹窗是「放弃草稿」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum DialogLifecycle {
+    /// 改动即时生效，只有关闭按钮（Preferences / Shortcuts / About）。
+    Immediate,
+    /// 草稿：Ok/Save 落盘，Cancel 丢弃（Session / Log / Tunnels / OneKeys）。
+    Draft,
+    /// 打开时记快照：Ok 提交，Cancel 回滚（Quick Commands）。
+    Snapshot,
+}
+
+impl DialogLifecycle {
+    /// 这个生命周期的次按钮文字。没有次按钮时是 `None`。
+    pub(in crate::ui) fn cancel_label(self) -> Option<&'static str> {
+        match self {
+            Self::Immediate => None,
+            Self::Draft | Self::Snapshot => Some("Cancel"),
+        }
+    }
+
+    /// Esc 等价于次按钮吗？即时生效的弹窗没有可取消的东西。
+    pub(in crate::ui) fn esc_cancels(self) -> bool {
+        !matches!(self, Self::Immediate)
+    }
 }
 
 /// 按钮文字的两套口径。含 `f32`，只派生 `PartialEq`（`f32` 无 `Eq`）。
@@ -164,6 +245,17 @@ pub(in crate::ui) struct FooterButtonSpec {
     pub glyph: ButtonGlyph,
     /// 有值时覆盖 `fill`，自上而下线性插值（Tunnels 独有的立体感）。
     pub gradient: Option<(u32, u32)>,
+    /// 禁用态是否保留主色描边。会话弹窗的 `Connect` 即使不可点也仍是蓝框，
+    /// 这是金标准的外观；其它弹窗的禁用态统一走中性灰。
+    pub keep_border_when_disabled: bool,
+}
+
+impl FooterButtonSpec {
+    /// 覆盖按钮尺寸。会话弹窗的按钮宽度随文字变，但配色/描边仍只有一处定义。
+    pub(in crate::ui) fn with_size(mut self, size: egui::Vec2) -> Self {
+        self.size = size;
+        self
+    }
 }
 
 impl FooterButton {
@@ -183,6 +275,7 @@ impl FooterButton {
                 text: 0xE0E0E0,
                 glyph: widget,
                 gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::SettingsOk => FooterButtonSpec {
                 size: egui::vec2(70.0, 22.0),
@@ -195,6 +288,20 @@ impl FooterButton {
                 text: 0xE0E0E0,
                 glyph: widget,
                 gradient: None,
+                keep_border_when_disabled: false,
+            },
+            Self::SettingsClose => FooterButtonSpec {
+                size: egui::vec2(80.0, 24.0),
+                rounding: 2.0,
+                fill: 0x242424,
+                hover_fill: 0x2A2A2A,
+                border: 0x4A8FE8,
+                border_width: 1.5,
+                stroke_inset: 0.0,
+                text: 0xBBBBBB,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::ConfirmNo => FooterButtonSpec {
                 size: egui::vec2(80.0, 22.0),
@@ -207,6 +314,7 @@ impl FooterButton {
                 text: 0xF0F0F0,
                 glyph: mono(true),
                 gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::ConfirmYes => FooterButtonSpec {
                 size: egui::vec2(80.0, 22.0),
@@ -219,6 +327,7 @@ impl FooterButton {
                 text: 0xF0F0F0,
                 glyph: mono(true),
                 gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::PasteCancel => FooterButtonSpec {
                 size: egui::vec2(76.0, 22.0),
@@ -231,6 +340,7 @@ impl FooterButton {
                 text: 0xF0F0F0,
                 glyph: mono(false),
                 gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::PastePaste => FooterButtonSpec {
                 size: egui::vec2(84.0, 22.0),
@@ -243,6 +353,7 @@ impl FooterButton {
                 text: 0xF0F0F0,
                 glyph: mono(false),
                 gradient: None,
+                keep_border_when_disabled: false,
             },
             Self::TunnelsCancel => FooterButtonSpec {
                 size: egui::vec2(80.5, 24.0),
@@ -255,6 +366,7 @@ impl FooterButton {
                 text: 0xBBBBBB,
                 glyph: widget,
                 gradient: Some((0x4C5259, 0x2C3137)),
+                keep_border_when_disabled: false,
             },
             Self::TunnelsOk => FooterButtonSpec {
                 size: egui::vec2(80.5, 24.0),
@@ -267,6 +379,73 @@ impl FooterButton {
                 text: 0xBBBBBB,
                 glyph: widget,
                 gradient: Some((0x292929, 0x232323)),
+                keep_border_when_disabled: false,
+            },
+            Self::SessionPrimary => FooterButtonSpec {
+                size: egui::vec2(74.0, 23.0),
+                rounding: 2.0,
+                fill: 0x333A42,
+                hover_fill: 0x3E4650,
+                border: 0x3EA0EC,
+                border_width: 1.0,
+                stroke_inset: 0.0,
+                text: 0xE0E0E0,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: true,
+            },
+            Self::SessionSecondary => FooterButtonSpec {
+                size: egui::vec2(74.0, 23.0),
+                rounding: 2.0,
+                fill: 0x262626,
+                hover_fill: 0x2A2A2A,
+                border: 0x3C3C3C,
+                border_width: 1.0,
+                stroke_inset: 0.0,
+                text: 0xE0E0E0,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
+            },
+            Self::LogDefault => FooterButtonSpec {
+                size: egui::vec2(186.0, 24.0),
+                rounding: 4.0,
+                fill: 0x262626,
+                hover_fill: 0x2A2A2A,
+                border: 0x3EA0EC,
+                border_width: 1.5,
+                stroke_inset: 0.0,
+                text: 0xBBBBBB,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
+            },
+            Self::LogSave | Self::LogCancel => FooterButtonSpec {
+                size: egui::vec2(77.0, 24.0),
+                rounding: 0.0,
+                fill: 0x262626,
+                hover_fill: 0x2A2A2A,
+                border: 0x444444,
+                border_width: 1.0,
+                stroke_inset: 0.0,
+                text: 0xBBBBBB,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
+            },
+            Self::QuickOk | Self::QuickCancel | Self::Plain => FooterButtonSpec {
+                // 裸 `ui.button` 的宽度随文字算；调用方用 `with_size` 覆盖。
+                size: egui::vec2(46.0, 18.0),
+                rounding: 0.0,
+                fill: 0x262626,
+                hover_fill: 0x2A2A2A,
+                border: 0x444444,
+                border_width: 1.0,
+                stroke_inset: 0.0,
+                text: 0xBBBBBB,
+                glyph: widget,
+                gradient: None,
+                keep_border_when_disabled: false,
             },
         }
     }
@@ -348,30 +527,9 @@ impl MenuRowKind {
 mod tests {
     use super::*;
 
-    /// 所有变体，供下面的穷举断言用。
-    const ALL: &[DialogId] = &[
-        DialogId::About,
-        DialogId::NewSession,
-        DialogId::Settings,
-        DialogId::QuickCommands,
-        DialogId::Shortcuts,
-        DialogId::SessionLogging,
-        DialogId::SshConnecting,
-        DialogId::SshHostkey,
-        DialogId::SshPassword,
-        DialogId::SshFailed,
-        DialogId::SshReplaceKey,
-        DialogId::OneKeys,
-        DialogId::Triggers,
-        DialogId::Onboarding,
-        DialogId::Preview,
-        DialogId::ScriptEditor,
-        DialogId::ScriptRun,
-        DialogId::FilerPrompt,
-        DialogId::FilerSyncScan,
-        DialogId::FilerSyncRun,
-        DialogId::FilerSyncReview,
-    ];
+    /// 穷举表复用生产侧的清单，新增变体时两边不会漂。
+    use super::DialogId as Id;
+    const ALL: &[Id] = Id::ALL;
 
     #[test]
     fn every_key_is_unique() {
@@ -417,6 +575,42 @@ mod tests {
         assert!(tunnels.gradient.is_some());
         assert_eq!(TunnelsOk.spec().border, 0x424242);
         assert_ne!(ConfirmNo.spec().glyph, TunnelsCancel.spec().glyph);
+    }
+
+    #[test]
+    fn rhythm_constants_match_the_golden_settings_page() {
+        // 卷一 `03-settings/07-terminal.png` @2x 实测：标签→框 14px、
+        // 框→下一行 18px、标题→框 7px、组框之间 23px。
+        assert_eq!((LABEL_TO_FIELD, FIELD_TO_ROW), (7.0, 9.0));
+        assert_eq!((TITLE_GAP, GROUP_PAD), (3.5, 10.0));
+        assert_eq!(FIELD_TO_ROW + BLOCK_GAP, 11.5);
+        assert!(FIELD_TO_ROW > LABEL_TO_FIELD);
+    }
+
+    #[test]
+    fn the_new_footer_families_keep_their_measured_geometry() {
+        use FooterButton::*;
+        assert_eq!(SettingsClose.spec().size, egui::vec2(80.0, 24.0));
+        assert_eq!(SettingsClose.spec().border, 0x4A8FE8);
+        assert_eq!(SessionPrimary.spec().size.y, 23.0);
+        assert!(SessionPrimary.spec().keep_border_when_disabled);
+        assert!(!SessionSecondary.spec().keep_border_when_disabled);
+        assert_eq!(LogDefault.spec().size, egui::vec2(186.0, 24.0));
+        assert_eq!(LogSave.spec().size, egui::vec2(77.0, 24.0));
+        // 尺寸可覆盖（文字宽度随语言变），配色不变。
+        let wide = SessionPrimary.spec().with_size(egui::vec2(120.0, 23.0));
+        assert_eq!(wide.size, egui::vec2(120.0, 23.0));
+        assert_eq!(wide.border, 0x3EA0EC);
+        // 八套原本的规格不能被新变体顺手改掉。
+        assert_eq!(FooterButton::ConfirmYes.spec().size, egui::vec2(80.0, 22.0));
+    }
+
+    #[test]
+    fn lifecycle_encodes_the_cancel_contract() {
+        assert_eq!(DialogLifecycle::Immediate.cancel_label(), None);
+        assert!(!DialogLifecycle::Immediate.esc_cancels());
+        assert_eq!(DialogLifecycle::Draft.cancel_label(), Some("Cancel"));
+        assert!(DialogLifecycle::Snapshot.esc_cancels());
     }
 
     /// 蓝色 = 指向色（用户反复强调）：只有可点的行才允许 hover 变蓝，

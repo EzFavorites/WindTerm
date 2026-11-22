@@ -28,6 +28,7 @@
 //! 并在页底写清缺的是哪一段。视觉基线那个 `Modify` 按钮的功能被上面这条可编辑
 //! URL 行取代，直接删掉——留一个点了没反应的按钮比少一个按钮更糟。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_pages_view::{field_row, group_box, label_col, Slot};
 use crate::ui::*;
 use term_runtime::prefs;
@@ -48,7 +49,7 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
     let matched = search::engine_index_for(&url);
     let shown = matched.map(|i| SEARCH_ENGINES[i].name).unwrap_or(CUSTOM_ENGINE);
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
 
     let mut picked: Option<usize> = None;
     let mut edited = false;

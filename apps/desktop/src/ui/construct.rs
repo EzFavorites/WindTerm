@@ -189,6 +189,8 @@ impl TerminalWindow {
                 modem_upload_dir: String::new(),
                 modem_download_dir: String::new(),
                 modem_use_default: false,
+                modem_commands: ["rx".into(), "rb".into(), "rz".into()],
+                modem_large_packets: [false, true, false],
                 dns_over_proxy: true,
                 initial_auto_wrap: true,
                 initial_cursor_keys_application: false,

@@ -49,19 +49,29 @@ pub(in crate::ui) struct Chrome {
     pub title_bar: u32,
     /// 三色圆点（左起）。
     pub traffic: [u32; 3],
-    /// 标题文字色。
-    pub title_text: u32,
-    /// 关闭图标色。
-    pub close: u32,
+    /// 标题文字色。`None` = 不画标题（确认弹窗族）。
+    pub title_text: Option<u32>,
+    /// 关闭图标色。`None` = 不画右上角 ×（确认弹窗族）。
+    pub close: Option<u32>,
 }
 
 impl Chrome {
-    /// macOS 三色圆点（红 / 灰 / 灰），与 `confirm` 族一致。
+    /// macOS 三色圆点（红 / 灰 / 灰），带标题文字与关闭 ×。
     pub(in crate::ui) const TRAFFIC: Self = Self {
         title_bar: 0xECECEC,
         traffic: [0xFF5F57, 0xC5C5C5, 0xC5C5C5],
-        title_text: 0x2A2A2A,
-        close: 0x6E6E6E,
+        title_text: Some(0x2A2A2A),
+        close: Some(0x6E6E6E),
+    };
+
+    /// 关闭确认 / 粘贴确认：同样的浅色条与红绿灯，但**没有**标题文字与 ×。
+    /// 这是金标准的样子；它让这两个弹窗也能走 `DialogWindow`，不再单独用
+    /// 原生 `egui::Window` 画一套壳。
+    pub(in crate::ui) const LIGHT_BARE: Self = Self {
+        title_bar: 0xECECEC,
+        traffic: [0xFF5F57, 0xC5C5C5, 0xC5C5C5],
+        title_text: None,
+        close: None,
     };
 }
 
@@ -81,21 +91,35 @@ impl Chrome {
 /// 描边不参与布局：egui 的 `Frame::total_margin` 只算内外边距，`stroke` 以边线
 /// 为中心向两侧各画一半，所以加这一条不会让任何弹窗的尺寸或内容位置移动。
 pub(in crate::ui) fn dialog_frame() -> egui::Frame {
-    egui::Frame::none()
+    frame_with_border(true)
+}
+
+/// 与 [`dialog_frame`] 逐像素相同、但没有那圈描边。
+/// 给确认弹窗族用：它们的视觉基线无描边，加一圈会立刻改基线。
+pub(in crate::ui) fn dialog_frame_plain() -> egui::Frame {
+    frame_with_border(false)
+}
+
+fn frame_with_border(border: bool) -> egui::Frame {
+    let frame = egui::Frame::none()
         .fill(dialog_fill())
         .rounding(ROUNDING)
-        .stroke(egui::Stroke::new(
-            1.0,
-            to_color32(term_core::theme::rgb(
-                term_core::theme::DESIGN_TOKENS.border,
-            )),
-        ))
         .shadow(egui::Shadow {
             offset: egui::vec2(0.0, 6.0),
             blur: 18.0,
             spread: 0.0,
             color: egui::Color32::from_black_alpha(110),
-        })
+        });
+    if border {
+        frame.stroke(egui::Stroke::new(
+            1.0,
+            to_color32(term_core::theme::rgb(
+                term_core::theme::DESIGN_TOKENS.border,
+            )),
+        ))
+    } else {
+        frame
+    }
 }
 
 /// 弹窗**底面**（只有底色，没有圆角 / 描边 / 投影）。
@@ -200,6 +224,10 @@ pub(in crate::ui) struct DialogWindow<'a> {
     /// 内容区顶部额外留白（无标题栏弹窗用来校准视觉基线的垂直基准）。
     /// 默认 0；只给 Settings 这类逐像素对齐视觉基线的弹窗设非 0。
     top_pad: f32,
+    /// 要不要画描边。确认弹窗族基线无描边，用 `without_border()` 关掉。
+    border: bool,
+    /// 要不要统一控件表面。确认弹窗的滚动条等控件走原生样式。
+    raw_controls: bool,
 }
 
 impl<'a> DialogWindow<'a> {
@@ -222,7 +250,27 @@ impl<'a> DialogWindow<'a> {
             title_bar: true,
             tight: false,
             top_pad: 0.0,
+            border: true,
+            raw_controls: false,
         }
+    }
+
+    /// 换一套 chrome 皮肤。见 [`Chrome::LIGHT_BARE`]。
+    pub(in crate::ui) fn with_chrome(mut self, chrome: Chrome) -> Self {
+        self.chrome = chrome;
+        self
+    }
+
+    /// 去掉描边（确认弹窗族的基线是无描边的）。
+    pub(in crate::ui) fn without_border(mut self) -> Self {
+        self.border = false;
+        self
+    }
+
+    /// 保留弹窗内控件的原生表面，不跑 `unify_control_surface`。
+    pub(in crate::ui) fn raw_controls(mut self) -> Self {
+        self.raw_controls = true;
+        self
     }
 
     /// 设置内容区顶部留白（逻辑像素）。用于无标题栏、需对齐视觉基线垂直基准的弹窗。
@@ -278,8 +326,12 @@ impl<'a> DialogWindow<'a> {
                 // Area 内容起点即窗口左上角；尺寸由规格给定，高度不足时
                 // 内容自己撑高，锚定中心会自动把它重新摆正。
                 let win = egui::Rect::from_min_size(ui.min_rect().min, size);
-                dialog_frame()
-                    .show(ui, |ui| {
+                let frame = if self.border {
+                    dialog_frame()
+                } else {
+                    dialog_frame_plain()
+                };
+                frame.show(ui, |ui| {
                         ui.set_width(size.x);
                         // 设计高度只当**下限**：内容更多时允许变高，锚定中心
                         // 会把增加的高度平摊到上下两侧，视觉仍居中。
@@ -323,7 +375,9 @@ impl<'a> DialogWindow<'a> {
                                     egui::pos2(win.min.x + pad, win.min.y + top),
                                     egui::pos2(win.max.x - pad, bottom),
                                 ));
-                                unify_control_surface(ui);
+                                if !self.raw_controls {
+                                    unify_control_surface(ui);
+                                }
                                 add(ui, win);
                             });
                     });
@@ -353,15 +407,18 @@ impl<'a> DialogWindow<'a> {
                 to_color32(term_core::theme::rgb(self.chrome.traffic[i])),
             );
         }
-        painter.text(
-            rect.center_top() + egui::vec2(0.0, TITLE_H / 2.0),
-            egui::Align2::CENTER_CENTER,
-            self.title,
-            crate::ui::type_scale::heading(),
-            to_color32(term_core::theme::rgb(self.chrome.title_text)),
-        );
+        if let Some(title_text) = self.chrome.title_text {
+            painter.text(
+                rect.center_top() + egui::vec2(0.0, TITLE_H / 2.0),
+                egui::Align2::CENTER_CENTER,
+                self.title,
+                crate::ui::type_scale::heading(),
+                to_color32(term_core::theme::rgb(title_text)),
+            );
+        }
 
         // 右上角关闭：命中区 28×TITLE_H，图标用两条线画。
+        // `Chrome::LIGHT_BARE` 两处都是 None：确认弹窗没有标题文字与 ×。
         let close_rect = egui::Rect::from_min_size(
             egui::pos2(rect.right() - 28.0, rect.top()),
             egui::vec2(28.0, TITLE_H),
@@ -370,34 +427,40 @@ impl<'a> DialogWindow<'a> {
         // 让标题条实际吃掉 26+行距 的高度，内容再 `add_space(TITLE_H)` 就多出
         // 一整条空白带（会话弹窗实测：标题条下 29pt 空带，整窗比规格高 29）。
         // 关闭按钮只是标题条上的一个命中区，不参与内容流。
-        let resp = ui.interact(
-            close_rect,
-            ui.id().with("dialog_close"),
-            egui::Sense::click(),
-        );
-        if resp.hovered() {
-            painter.rect_filled(
+        if let Some(close_color) = self.chrome.close {
+            let resp = ui.interact(
                 close_rect,
-                egui::Rounding {
-                    nw: 0.0,
-                    ne: ROUNDING,
-                    sw: 0.0,
-                    se: 0.0,
-                },
-                egui::Color32::from_black_alpha(20),
+                ui.id().with("dialog_close"),
+                egui::Sense::click(),
             );
-        }
-        let c = close_rect.center();
-        let s = 4.5;
-        let stroke = egui::Stroke::new(1.2, to_color32(term_core::theme::rgb(self.chrome.close)));
-        painter.line_segment([c + egui::vec2(-s, -s), c + egui::vec2(s, s)], stroke);
-        painter.line_segment([c + egui::vec2(s, -s), c + egui::vec2(-s, s)], stroke);
-        if resp.clicked() {
-            *open = false;
+            if resp.hovered() {
+                painter.rect_filled(
+                    close_rect,
+                    egui::Rounding {
+                        nw: 0.0,
+                        ne: ROUNDING,
+                        sw: 0.0,
+                        se: 0.0,
+                    },
+                    egui::Color32::from_black_alpha(20),
+                );
+            }
+            let c = close_rect.center();
+            let s = 4.5;
+            let stroke = egui::Stroke::new(1.2, to_color32(term_core::theme::rgb(close_color)));
+            painter.line_segment([c + egui::vec2(-s, -s), c + egui::vec2(s, s)], stroke);
+            painter.line_segment([c + egui::vec2(s, -s), c + egui::vec2(-s, s)], stroke);
+            if resp.clicked() {
+                *open = false;
+            }
         }
 
         // 内容让出标题条；左右与底部内边距由 `show` 的 Frame 负责。
-        ui.add_space(TITLE_H);
+        // `LIGHT_BARE` 的正文是**绝对定位**的（确认弹窗），若这里再推进
+        // 26pt 光标，Area 会比规格高 26、锚定中心后整窗上移 13pt。
+        if self.chrome.title_text.is_some() || self.chrome.close.is_some() {
+            ui.add_space(TITLE_H);
+        }
     }
 }
 
@@ -411,6 +474,30 @@ mod tests {
         // 任何把坐标写回规格的改动都应该在这里被看见。
         let w = DialogWindow::new_sized("x", "T", egui::vec2(350.0, 220.0));
         assert_eq!(w.size, egui::vec2(350.0, 220.0));
+    }
+
+    #[test]
+    fn light_bare_chrome_has_dots_but_no_text_or_close() {
+        // 确认弹窗族复用 DialogWindow 的窗口壳，但基线里没有标题文字与 ×。
+        assert_eq!(Chrome::LIGHT_BARE.title_bar, Chrome::TRAFFIC.title_bar);
+        assert_eq!(Chrome::LIGHT_BARE.traffic, Chrome::TRAFFIC.traffic);
+        assert!(Chrome::LIGHT_BARE.title_text.is_none());
+        assert!(Chrome::LIGHT_BARE.close.is_none());
+        assert!(Chrome::TRAFFIC.title_text.is_some());
+        assert!(Chrome::TRAFFIC.close.is_some());
+    }
+
+    #[test]
+    fn confirm_shell_keeps_its_plain_frame() {
+        let w = DialogWindow::new_sized("confirm_close", "", egui::vec2(400.0, 176.0))
+            .with_chrome(Chrome::LIGHT_BARE)
+            .without_border()
+            .raw_controls()
+            .tight();
+        assert!(!w.border);
+        assert!(w.raw_controls);
+        assert!(w.tight);
+        assert!(w.chrome.title_text.is_none());
     }
 
     #[test]

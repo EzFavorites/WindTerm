@@ -14,6 +14,7 @@
 //! 分屏 / 会话。已经开着的会话不动——所以这里写的是窗口上的运行期副本
 //! （下一帧起新建时读它）与 `prefs.json`（下次启动的初值），不碰任何活动标签。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::{recovery_notice, save_prefs};
 use super::settings_pages_view::{
     field_label, field_row, group_box, label_col, spin_field, Slot,
@@ -94,7 +95,7 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
     // 越界（手改 prefs）按 Block 显示，与 `Prefs::caret_style_index` 同一条兜底。
     let shown = current.min(CARET_STYLES.len() - 1);
     recovery_notice(ui);
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `13-text-caret.png`：内容区第一个字就是组标题 `Caret`。
     // 老实现画了灰页标题 `Caret` + 框内标题 `Caret`，同一个词出现两次。
     // 标签列按本页最长的 `Width:` 量。

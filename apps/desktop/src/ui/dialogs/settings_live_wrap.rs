@@ -14,6 +14,7 @@
 //! 窗口上的两份是渲染期副本；改完同时落盘 + 同步活动标签的 `marks`
 //! （与 View 菜单同一个 `set_marks` 入口），所以勾完当场能看见，不必重开标签。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages::Row;
 use super::settings_pages_view::{
@@ -58,14 +59,14 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         );
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     if ui
         .checkbox(&mut symbols, "Show wrap symbols")
         .on_hover_text("Marks continued lines at the wrap edge in the active tab.")
         .changed()
     {}
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     group_box(ui, Some("Column Marker"), |ui| {
         set_row_rhythm(ui);
         field_row(ui, "Columns:", Slot::Inline, col, "", |ui| {
@@ -90,7 +91,7 @@ pub(in crate::ui) fn wrap(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         );
     });
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     let mut markers_on = column > 0;
     if ui
         .checkbox(&mut markers_on, "Show column markers")

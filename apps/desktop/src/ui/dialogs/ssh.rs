@@ -16,6 +16,16 @@ use crate::ui::layout::mint_pane_identity;
 use term_runtime::persist;
 use term_ssh::AuthMethod as SshAuth;
 
+/// 连接流程里的内联动作按钮：沿用裸 `ui.button` 的尺寸口径，
+/// 绘制走 `kit::footer` 原语（配色/描边不再散在四个弹窗里）。
+fn action_button(ui: &mut egui::Ui, label: &str) -> bool {
+    use crate::ui::kit::spec::FooterButton;
+    let spec = FooterButton::Plain
+        .spec()
+        .with_size(crate::ui::kit::footer::text_button_size(ui, label));
+    crate::ui::kit::footer::widget_button(ui, label, spec, true).clicked()
+}
+
 impl TerminalWindow {
     /// 开始用内置客户端连一个 SSH 会话。
     ///
@@ -325,6 +335,18 @@ impl TerminalWindow {
         };
         let title = format!("{} — {}", connector.config.name, connector.config.host);
         let mut action = SshAction::None;
+        // Esc 一律走「取消连接」；主机密钥 / 替换密钥两步**不接 Enter**，
+        // 避免误点安全确认。密码框的 Enter 仍走它自己的 `lost_focus()` 路径。
+        let step_id = match &connector.step {
+            Step::Connecting => DialogId::SshConnecting,
+            Step::NeedHostKey { .. } => DialogId::SshHostkey,
+            Step::NeedPassword { .. } => DialogId::SshPassword,
+            Step::Failed { .. } => DialogId::SshFailed,
+            Step::ReplaceKey { .. } => DialogId::SshReplaceKey,
+        };
+        if step_id.keys().poll(ctx).cancel {
+            action = SshAction::Cancel;
+        }
 
         match &connector.step {
             Step::Connecting => {
@@ -336,7 +358,7 @@ impl TerminalWindow {
                             ui.label("Connecting…");
                         });
                         ui.add_space(6.0);
-                        if ui.button("Cancel").clicked() {
+                        if action_button(ui, "Cancel") {
                             action = SshAction::Cancel;
                         }
                     });
@@ -359,7 +381,7 @@ impl TerminalWindow {
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Cancel").clicked() {
+                            if action_button(ui, "Cancel") {
                                 action = SshAction::Cancel;
                             }
                             if ui.button("Trust and connect").clicked() {
@@ -397,10 +419,10 @@ impl TerminalWindow {
                         }
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Cancel").clicked() {
+                            if action_button(ui, "Cancel") {
                                 action = SshAction::Cancel;
                             }
-                            if ui.button("Connect").clicked()
+                            if action_button(ui, "Connect")
                                 || (entered && !password.is_empty())
                             {
                                 action = SshAction::SubmitPassword;
@@ -441,10 +463,10 @@ impl TerminalWindow {
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button("Cancel").clicked() {
+                            if action_button(ui, "Cancel") {
                                 action = SshAction::Cancel;
                             }
-                            if ui.button("Replace stored key").clicked() {
+                            if action_button(ui, "Replace stored key") {
                                 action = SshAction::ReplaceKey;
                             }
                         });

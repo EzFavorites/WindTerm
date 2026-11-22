@@ -175,6 +175,16 @@ fn default_caret_width() -> f32 {
     crate::config::DEFAULT_CARET_WIDTH
 }
 
+/// X/Y/Z 三页签各自的上传命令（视觉基线 `serial/03..05-*-modem-tab.png`）。
+fn default_modem_commands() -> [String; 3] {
+    ["rx".into(), "rb".into(), "rz".into()]
+}
+
+/// 三页签各自的包长档位：X=128、Y=1024、Z 没有包长行（该位不使用）。
+fn default_modem_large_packets() -> [bool; 3] {
+    [false, true, false]
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub name: String,
@@ -246,6 +256,13 @@ pub struct SessionConfig {
     /// 拖放时不再询问（当前仍会弹确认框以选择具体文件，目录取这里的值）。
     #[serde(default)]
     pub modem_use_default: bool,
+    /// `Serial ▸ X/Y/Z Modem` 三页签的上传命令。下标与 `modem_protocol`
+    /// 同口径（0 X / 1 Y / 2 Z）；老会话库缺键时回落到出厂 rx/rb/rz。
+    #[serde(default = "default_modem_commands")]
+    pub modem_commands: [String; 3],
+    /// 三页签的包长档位（false=128 / true=1024）；Z 页不显示这一行。
+    #[serde(default = "default_modem_large_packets")]
+    pub modem_large_packets: [bool; 3],
     /// `Session ▾ Proxy ▸ Perform DNS lookup with proxy`。出厂 true：目标名
     /// 交给代理解析；关掉时先本地解析再连代理。
     #[serde(default = "default_true")]
@@ -485,6 +502,8 @@ impl SessionConfig {
             modem_upload_dir: String::new(),
             modem_download_dir: String::new(),
             modem_use_default: false,
+            modem_commands: default_modem_commands(),
+            modem_large_packets: default_modem_large_packets(),
             dns_over_proxy: true,
             initial_auto_wrap: true,
             initial_cursor_keys_application: false,

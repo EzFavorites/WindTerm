@@ -6,12 +6,13 @@
 //! `SSH / SFTP / Serial / Shell` 当页名平铺到左侧，于是与顶部协议条重复、
 //! 也没有层级；那个数组早已删除，导航文字由 `session_nav` 唯一提供。
 //!
-//! # 两列网格
+//! # 两列网格（与唯一的例外）
 //!
-//! 视觉基线 `视觉基线` 里所有表单都是
-//! 「标签右对齐 / 控件等宽左对齐」的两列结构。旧版是 `label` 在上、
-//! `TextEdit` 在下堆叠，控件宽度随内容变——这是「字体对不齐、界面对不齐」
-//! 的直接来源。这里每页统一走 `form_row` + `Grid`。
+//! 视觉基线里绝大多数表单是「标签右对齐 / 控件等宽左对齐」的两列结构，
+//! 每页走 `form_row` + `Grid`。唯一例外是 `modem_page`：金标准
+//! `02-session-dialog/serial/02-serial-xymodem.png` 明确是标签在上、通栏框
+//! 在下，且带一条 X/Y/Z 页签条——它改用 `kit::field` / `kit::tabs` 的堆叠原语，
+//! 不要按两列网格去「顺手统一」它。
 //!
 //! #
 //!
@@ -21,6 +22,8 @@
 //! 在 `session_form_body.rs`；`Ciphers` 等 SSH 算法页在 `session_ssh_pages.rs`。
 
 use super::session_form_body::{form_row, heading, seconds_text, FIELD_W};
+use crate::ui::kit::field::{choice_row_resp, choice_row_styled, ChoiceKind, UnderlineStyle};
+use crate::ui::kit::form::field_box;
 use crate::ui::*;
 
 /// 一页的内容。`session_form_body::draw_session_form` 把非状态页委托到这里。
@@ -165,9 +168,9 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 );
                 ui.end_row();
                 form_row(ui, "DNS lookup:");
-                ui.checkbox(
-                    &mut win.new_session.dns_over_proxy,
-                    "Perform DNS lookup with proxy",
+                choice_row_styled(
+                    ui, ChoiceKind::Checkbox, "Perform DNS lookup with proxy", "Perform",
+                    &mut win.new_session.dns_over_proxy, true, UnderlineStyle::None,
                 );
                 ui.end_row();
             });
@@ -293,11 +296,11 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
 /// 视觉基线里「看起来是下拉、实际改不了」的那一行：灰底只读框，不是可点控件。
 fn read_only_value(ui: &mut egui::Ui, value: &str) {
-    let mut text = value.to_string();
-    ui.add_enabled(
-        false,
-        egui::TextEdit::singleline(&mut text).desired_width(FIELD_W),
-    );
+    // 统一字段面 + 正常亮度的只读文字：不再用 `add_enabled(false, TextEdit)`
+    // （它把文字冲到几乎不可见）。
+    field_box(ui, |ui| {
+        crate::ui::kit::form::dead_value(ui, value, crate::ui::kit::form::Deco::None);
+    });
 }
 
 /// 16 `X/Y/Z Modem`：视觉基线 `02-session-dialog/serial/02-serial-xymodem.png`。
@@ -311,10 +314,18 @@ fn read_only_value(ui: &mut egui::Ui, value: &str) {
 /// 三个页签各有 补采的视觉基线真值（`03/04/05-serial-*modem-tab.png`）：
 /// X=`rx`+128(XModem) 选中；Y=`rb`+1024(YModem-1K) 选中；Z=`rz` 且**没有**包长行。
 ///
-/// ** / **：`NewSessionData` / `SessionConfig` 没有 modem 字段，控件按
-/// sftp_page 同一口径灰显（保留视觉基线文字与几何但不可编辑），页底说明原因。
+/// 2026-11-22 起命令与包长是**真字段**（`SessionConfig::modem_commands` /
+/// `modem_large_packets`），三页签各自可编辑；页面不再有「灰显说明」那段噪声。
 /// 页签切换存 egui memory，不进领域状态；点得动且真换内容。
+///
+/// 所有几何都来自 `kit::field` / `kit::tabs` / `kit::form` 原语：通栏浏览框、
+/// 相邻页签条、与选中页签相连的内容面板，不再由本页手写裸 egui 控件。
 fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
+    use crate::ui::kit::field::{browse_field, choice_row, underlined_job, ChoiceKind, UnderlineStyle};
+    use crate::ui::kit::form::field_box;
+    use crate::ui::kit::spec::{FIELD_TO_ROW, LABEL_TO_FIELD};
+    use crate::ui::kit::tabs::{panel, strip};
+
     const TABS: [&str; 3] = ["X Modem", "Y Modem", "Z Modem"];
     const TAB_ID: &str = "new_session_modem_tab";
     let tab: usize = ui.memory(|m| m.data.get_temp::<usize>(egui::Id::new(TAB_ID)).unwrap_or(0));
@@ -323,116 +334,132 @@ fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut use_default = win.new_session.modem_use_default;
     let mut up_dir = win.new_session.modem_upload_dir.clone();
     let mut down_dir = win.new_session.modem_download_dir.clone();
+    let mut commands = win.new_session.modem_commands.clone();
+    let mut large = win.new_session.modem_large_packets;
 
-    // 视觉基线这行是单行小字；本项目内容区约 344pt，正文会折行，用 small 收进一行。
-    ui.small("Specify the protocol when dragging and dropping files:");
-    // 视觉基线下拉框占满整个内容区宽度（不是按内容收缩）。
-    egui::ComboBox::from_id_salt("modem_protocol")
-        .selected_text(TABS[protocol.min(2)])
-        .width(336.0)
-        .show_ui(ui, |ui| {
-            for (i, name) in TABS.iter().enumerate() {
-                if ui.selectable_label(protocol == i, *name).clicked() {
-                    protocol = i;
+    // 本页是「标签在上、框在下」的堆叠布局（与同文件其它页的两列网格不同），
+    // 节奏必须按金标准逐段给：标签→框 7pt、框→下一标签 9pt。用 scope 把
+    // item_spacing 的修改关在本页内，不污染同一弹窗的其它页。
+    ui.scope(|ui| {
+        ui.spacing_mut().item_spacing.y = FIELD_TO_ROW;
+
+        // 说明行 + 通栏协议下拉（视觉基线下拉框占满内容区宽度）。
+        ui.small("Specify the protocol when dragging and dropping files:");
+        egui::ComboBox::from_id_salt("modem_protocol")
+            .selected_text(TABS[protocol.min(2)])
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for (i, name) in TABS.iter().enumerate() {
+                    if ui.selectable_label(protocol == i, *name).clicked() {
+                        protocol = i;
+                    }
                 }
-            }
-        });
+            });
 
-    // 目录框：标签在上，输入框（含右侧 `| ...`）在下一行占满宽。
-    ui.label("Upload directory:");
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut up_dir)
-                .hint_text(hint)
-                .desired_width(300.0),
-        );
-        if ui
-            .add(egui::Button::new("..."))
+        // 段间留白：9(item_spacing) + 5 = 14px/2 = 7pt，与金标准
+        // 「下拉框底 → Upload directory 标签顶」一致。
+        ui.add_space(5.0);
+
+        // 目录框：标签独占一行，框通栏、右端内嵌 `| ...` 浏览槽。
+        ui.label(egui::WidgetText::from(underlined_job(
+            ui, "Upload directory:", "Upload", UnderlineStyle::Dialog,
+        )));
+        ui.add_space(LABEL_TO_FIELD - FIELD_TO_ROW);
+        let (_, browse) = browse_field(ui, &mut up_dir, hint, "...", 24.0, 40.0);
+        if browse
             .on_hover_text("Browse for the upload directory")
             .clicked()
         {
             win.open_path_picker(crate::ui::path_picker::PathTarget::ModemUploadDir, &up_dir);
         }
-    });
-    ui.label("Download directory:");
-    ui.horizontal(|ui| {
-        ui.add(
-            egui::TextEdit::singleline(&mut down_dir)
-                .hint_text(hint)
-                .desired_width(300.0),
-        );
-        if ui
-            .add(egui::Button::new("..."))
+
+        ui.label(egui::WidgetText::from(underlined_job(
+            ui, "Download directory:", "Download", UnderlineStyle::Dialog,
+        )));
+        ui.add_space(LABEL_TO_FIELD - FIELD_TO_ROW);
+        let (_, browse) = browse_field(ui, &mut down_dir, hint, "...", 24.0, 40.0);
+        if browse
             .on_hover_text("Browse for the download directory")
             .clicked()
         {
             win.open_path_picker(crate::ui::path_picker::PathTarget::ModemDownloadDir, &down_dir);
         }
-    });
 
-    ui.checkbox(
-        &mut use_default,
-        "Use this as the default and do not ask again",
-    );
-    ui.add_space(5.0);
+        choice_row(
+            ui,
+            ChoiceKind::Checkbox,
+            "Use this as the default and do not ask again",
+            "Use",
+            &mut use_default,
+            true,
+        );
 
-    // 三个页签：X 是默认选中（与协议下拉的 Z Modem 是两件事）。
-    ui.horizontal(|ui| {
-        for (i, name) in TABS.iter().enumerate() {
-            if ui.selectable_label(i == tab, *name).clicked() {
-                ui.memory_mut(|m| m.data.insert_temp(egui::Id::new(TAB_ID), i));
-            }
+        // 勾选行 → 页签条：行距 9pt 已由 item_spacing 给出，不再另加空白。
+        let outcome = strip(ui, &TABS, tab, 25.0, 8.0);
+        if let Some(next) = outcome.clicked {
+            ui.memory_mut(|m| m.data.insert_temp(egui::Id::new(TAB_ID), next));
         }
-    });
-    ui.separator();
+        // 页签与面板必须**紧贴**：horizontal 之后 egui 还会按 item_spacing.y
+        // 推一次光标，这里把它抵消，选中页签才真的与面板顶框连成一条。
+        ui.add_space(-FIELD_TO_ROW);
 
-    // 每页的 Upload command / Packet size 真值（视觉基线逐字抄录）：
-    // X=rx+128(XModem)；Y=rb+1024(YModem-1K)；Z=rz 且没有包长行。
-    // 输入框与单选按  灰显（无后端字段），但文字几何照视觉基线。
-    match tab {
-        0 | 1 => {
-            let (cmd, small, large, large_selected) = if tab == 0 {
-                ("rx", "128 (XModem)", "1024 (XModem-1K)", false)
-            } else {
-                ("rb", "128 (YModem)", "1024 (YModem-1K)", true)
-            };
-            let mut upload_cmd = cmd.to_string();
-            ui.label("Upload command:");
-            ui.add_enabled(
-                false,
-                egui::TextEdit::singleline(&mut upload_cmd).desired_width(336.0),
-            );
-            ui.horizontal(|ui| {
-                ui.label("Packet size:");
-                ui.add_enabled(false, egui::RadioButton::new(!large_selected, small));
-                ui.add_enabled(false, egui::RadioButton::new(large_selected, large));
+        // 页签下方的内容面板：选中页签与面板顶框相连。
+        // 金标准 `02-serial-xymodem.png` @2x：面板 504..1038 → 267 逻辑点。
+        panel(ui, outcome.selected_rect, 267.0, |ui| {
+            ui.spacing_mut().item_spacing.y = FIELD_TO_ROW;
+            let i = outcome.clicked.unwrap_or(tab).min(2);
+
+            ui.label(egui::WidgetText::from(underlined_job(
+                ui, "Upload command:", "Upload", UnderlineStyle::Dialog,
+            )));
+            ui.add_space(LABEL_TO_FIELD - FIELD_TO_ROW);
+            field_box(ui, |ui| {
+                ui.add_sized(
+                    egui::vec2(ui.available_width(), 24.0),
+                    egui::TextEdit::singleline(&mut commands[i]).frame(false),
+                );
             });
-        }
-        2 => {
-            let mut upload_cmd = "rz".to_string();
-            ui.label("Upload command:");
-            ui.add_enabled(
-                false,
-                egui::TextEdit::singleline(&mut upload_cmd).desired_width(336.0),
-            );
+
             // 视觉基线 Z 页签没有 Packet size 行，不臆造。
-        }
-        _ => unreachable!("页签只有 0..=2"),
-    }
-    // 一行短说明：长句会折成两行，把底部按钮行顶出窗口（实测 Cancel 被裁）。
-    placeholder_note(
-        ui,
-        "Dropping files onto the terminal opens the XMODEM transfer prompt with \
-         the dropped paths filled in. Directory boxes are session defaults; the \
-         per-protocol command and packet rows are display-only.",
-    );
+            if i < 2 {
+                ui.horizontal(|ui| {
+                    ui.label("Packet size:");
+                    let proto = if i == 0 { "XModem" } else { "YModem" };
+                    let mut small = !large[i];
+                    let mut big = large[i];
+                    if choice_row(
+                        ui,
+                        ChoiceKind::Radio,
+                        &format!("128 ({proto})"),
+                        proto,
+                        &mut small,
+                        true,
+                    ) {
+                        large[i] = false;
+                    }
+                    if choice_row(
+                        ui,
+                        ChoiceKind::Radio,
+                        &format!("1024 ({proto}-1K)"),
+                        proto,
+                        &mut big,
+                        true,
+                    ) {
+                        large[i] = true;
+                    }
+                });
+            }
+        });
+    });
+
     let cfg = &mut win.new_session;
     cfg.modem_protocol = protocol;
     cfg.modem_use_default = use_default;
     cfg.modem_upload_dir = up_dir;
     cfg.modem_download_dir = down_dir;
+    cfg.modem_commands = commands;
+    cfg.modem_large_packets = large;
 }
-
 /// 20 `SSH ▾ SFTP`：视觉基线 `shell/19-ssh-sftp.png`。
 ///
 /// 两条权限现在是**真接线**的（`DEFAULT_FILE_MODE` / `DEFAULT_DIR_MODE`，
@@ -442,36 +469,29 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut fix_invalid = win.new_session.sftp_fix_invalid_path;
     let mut keep_dir_mtime = win.new_session.sftp_preserve_dir_mtime;
     let mut keep_mtime = win.new_session.sftp_preserve_mtime;
-    if ui
-        .checkbox(
-            &mut fix_invalid,
-            "Automatically fix invalid path characters",
-        )
-        .on_hover_text(
-            "Replace unsafe characters in each destination path segment with '_'. \
-             Two different names that collapse to the same target keep the filesystem's \
-             overwrite behaviour.",
-        )
-        .changed()
+    if choice_row_resp(
+        ui, ChoiceKind::Checkbox, "Automatically fix invalid path characters", "Automatically",
+        &mut fix_invalid, true, UnderlineStyle::None,
+    )
+    .on_hover_text(
+        "Replace unsafe characters in each destination path segment with '_'. \
+         Two different names that collapse to the same target keep the filesystem's \
+         overwrite behaviour.",
+    )
+    .changed()
     {
         win.new_session.sftp_fix_invalid_path = fix_invalid;
     }
-    if ui
-        .checkbox(
-            &mut keep_mtime,
-            "Preserve original file modification time",
-        )
-        .changed()
-    {
+    if choice_row_styled(
+        ui, ChoiceKind::Checkbox, "Preserve original file modification time", "Preserve",
+        &mut keep_mtime, true, UnderlineStyle::None,
+    ) {
         win.new_session.sftp_preserve_mtime = keep_mtime;
     }
-    if ui
-        .checkbox(
-            &mut keep_dir_mtime,
-            "Preserve original folder modification time",
-        )
-        .changed()
-    {
+    if choice_row_styled(
+        ui, ChoiceKind::Checkbox, "Preserve original folder modification time", "Preserve",
+        &mut keep_dir_mtime, true, UnderlineStyle::None,
+    ) {
         win.new_session.sftp_preserve_dir_mtime = keep_dir_mtime;
     }
     ui.add_space(6.0);
@@ -516,21 +536,18 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 「说明在上、控件占满整行」的语法（标题左缘 = 整行控件左缘 x=228）。
     ui.label("TCP connection options:");
     ui.add_space(5.0);
-    if ui
-        .checkbox(&mut nodelay, "Disable Nagle's algorithm (TCP_NODELAY option)")
-        .changed()
-    {
+    if choice_row_styled(
+        ui, ChoiceKind::Checkbox, "Disable Nagle's algorithm (TCP_NODELAY option)", "Disable",
+        &mut nodelay, true, UnderlineStyle::None,
+    ) {
         win.new_session.tcp_low_delay = nodelay;
     }
     ui.add_space(4.5);
-    ui.add_enabled(
-        false,
-        egui::Checkbox::new(
-            &mut keepalive,
-            "Enable TCP keepalives (SO_KEEPALIVE option)",
-        ),
+    choice_row_resp(
+        ui, ChoiceKind::Checkbox, "Enable TCP keepalives (SO_KEEPALIVE option)", "Enable",
+        &mut keepalive, false, UnderlineStyle::None,
     )
-    .on_disabled_hover_text(
+    .on_hover_text(
         "The field is stored per session, but the Telnet socket layer does not \
          set SO_KEEPALIVE yet; the SSH path maps it to TCPKeepAlive.",
     );
@@ -579,6 +596,17 @@ mod tests {
             "644",
             "对话框里显示的三位数"
         );
+    }
+
+    #[test]
+    fn modem_three_tab_defaults_match_the_reference_capture() {
+        // 金标准 `serial/03..05-*-modem-tab.png` 的逐字真值：
+        // X=rx+128、Y=rb+1024、Z=rz 且无包长行。出厂值必须在领域模型里，
+        // 不能靠页面内临时字面量——否则保存/重开后会漂移。
+        let cfg =
+            term_core::session::SessionConfig::new(term_core::session::Protocol::Serial);
+        assert_eq!(cfg.modem_commands, ["rx", "rb", "rz"]);
+        assert_eq!(cfg.modem_large_packets, [false, true, false]);
     }
 
     #[test]

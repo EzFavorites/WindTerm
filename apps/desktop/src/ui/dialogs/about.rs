@@ -17,6 +17,9 @@ impl TerminalWindow {
         let line1 = self.tr("A Rust & egui terminal emulator.");
         let line2 = self.tr("Supports Local Shell, SSH, Telnet, TCP and Serial via portable-pty.");
         let mut ok = false;
+        // Esc / Enter 与 OK、右上角 × 同路：About 没有可丢失的草稿。
+        let keys = DialogId::About.keys().poll(ctx);
+        ok |= keys.cancel || keys.confirm;
         let open = DialogWindow::new(DialogId::About, title).show(ctx, |ui| {
             ui.heading(version);
             ui.label(line1);

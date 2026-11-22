@@ -31,26 +31,16 @@ pub(in crate::ui) fn footer_button(ui: &mut egui::Ui, label: &str, primary: bool
         .size()
         .x;
     let w = (text_w + 30.0).max(74.0);
-    let fill = if primary {
-        egui::Color32::from_rgb(0x33, 0x3A, 0x42)
+    use crate::ui::kit::spec::FooterButton;
+    let spec = if primary {
+        FooterButton::SessionPrimary.spec()
     } else {
-        egui::Color32::from_rgb(0x26, 0x26, 0x26)
-    };
-    let stroke = if primary {
-        egui::Color32::from_rgb(0x3E, 0xA0, 0xEC)
-    } else {
-        egui::Color32::from_rgb(0x3C, 0x3C, 0x3C)
-    };
-    ui.add_enabled_ui(enabled, |ui| {
-        ui.add_sized(
-            egui::vec2(w, BTN_H),
-            egui::Button::new(label)
-                .fill(fill)
-                .stroke(egui::Stroke::new(1.0, stroke))
-                .rounding(2.0),
-        )
-    })
-    .inner
+        FooterButton::SessionSecondary.spec()
+    }
+    .with_size(egui::vec2(w, BTN_H));
+    // 配色/圆角/描边全部在 `kit::spec`；这里只按文字算宽度，
+    // 与 Preferences / Log Settings 的页脚共用同一个绘制原语。
+    crate::ui::kit::footer::widget_button(ui, label, spec, enabled)
 }
 
 impl TerminalWindow {

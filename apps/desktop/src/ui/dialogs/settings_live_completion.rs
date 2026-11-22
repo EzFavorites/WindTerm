@@ -12,6 +12,7 @@
 //! 落盘仍是 `settings_live::save_prefs` 那一个入口，运行期副本挂在窗口上，
 //! 键盘漏斗每帧读它——不读盘、不造第二份真相。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{
     field_height, field_row, group_box, label_col, set_row_rhythm, Slot,
@@ -88,7 +89,7 @@ pub(in crate::ui) fn auto_completion(win: &mut TerminalWindow, ui: &mut egui::Ui
             },
         );
     });
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
 
     group_box(ui, Some("Appearance"), |ui| {
         // 行内标签 + 通栏字段框（框里 `7 rows` 靠左、▲▼ 贴框右内缘），

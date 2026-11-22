@@ -36,16 +36,11 @@ pub(in crate::ui) enum Slot {
     Inline,
 }
 
-/// 标签底 → 字段框顶。兼容终端实测约 10 逻辑点，标签自身的行高已含一半，这里补小的那段。
-pub(in crate::ui) const LABEL_TO_FIELD: f32 = 6.0;
-
-/// 字段框底 → 下一行顶。**整页唯一的行距**：`draw` 把它装进 `item_spacing.y`，
-/// 手写的 live 页用 [`set_row_rhythm`] 取同一个值。
-///
-/// **必须大于 [`LABEL_TO_FIELD`]**：两者相等时「标签属于下面这个框」与
-/// 「框属于下面这个标签」在视觉上无法区分，整页会糊成一片等距的横条。
-/// 兼容终端是 19px : 16px（框底到下一标签 > 标签到框），这里的比例照抄。
-pub(in crate::ui) const FIELD_TO_ROW: f32 = 13.0;
+/// 行距与标签间隙的**唯一出处**是 [`super::spec`]：
+/// `LABEL_TO_FIELD = 7`（标签底 → 框顶）、`FIELD_TO_ROW = 9`（框底 → 下一行）。
+/// 金标准实测比例是 14px : 18px（@2x），两者必须保持「行距 > 标签间隙」，
+/// 否则「标签属于哪一行」在视觉上无法区分，整页糊成等距横条。
+pub(in crate::ui) use super::spec::{FIELD_TO_ROW, LABEL_TO_FIELD};
 
 /// 一页的行距从这一处取——`draw` 与所有 live 页共用，改一次全页跟着变。
 pub(in crate::ui) fn set_row_rhythm(ui: &mut egui::Ui) {

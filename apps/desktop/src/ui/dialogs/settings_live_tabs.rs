@@ -30,6 +30,7 @@
 //! 灰行永远是空框 / 空下拉（`settings_pages_view::draw_row`）：勾与选中态传达
 //! 「这项已生效」，而它们零读者。
 
+use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::{field_row, group_box, label_col, set_row_rhythm, Slot};
 use crate::ui::shell::ELIDE_MODES;
@@ -135,7 +136,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut right = win.tab_right_click;
     let mut changed = false;
 
-    ui.add_space(6.0);
+    ui.add_space(BLOCK_GAP);
     // 视觉基线 `06-tabs.png`：内容区第一个字是组标题 `Tab Features`，没有页级灰标题。
     group_box(ui, Some("Tab Features"), |ui| {
         // 行距只有一处出处；原先这里把它压成 0 再手补 4，是「两套节奏」的来源。
