@@ -21,7 +21,7 @@ use crate::ui::*;
 use eframe::egui;
 
 /// 摘要截断按字符数走，不切坏 UTF-8；超长补一个省略号。
-fn snippet(s: &str, max: usize) -> String {
+pub(in crate::ui::panels) fn snippet(s: &str, max: usize) -> String {
     let mut chars = s.chars();
     let mut out: String = chars.by_ref().take(max).collect();
     if chars.next().is_some() {
@@ -96,7 +96,8 @@ pub(in crate::ui) fn draw_explorer(win: &mut TerminalWindow, ui: &mut egui::Ui) 
     }
 }
 
-/// Outline：只列「看起来像标题」的行（`# ` 开头）。
+/// Outline：命令大纲。有 OSC 133 集成时列用户敲过的命令（命令块的头行）；
+/// 没有集成的会话退回 `# ` 标题行。纯提取在 `panels/outline.rs`，这里只画。
 ///
 /// 旧实现把终端里每一条非空行都塞进这块面板，右带下半于是变成一片终端文本
 /// ——视觉基线里它是**空的**（只有 Filter 与 ⋮）。大纲不是终端正文的副本；没有
@@ -107,23 +108,12 @@ pub(in crate::ui) fn draw_outline(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let Some(tab) = win.tabs.get(win.active_slot()) else {
         return;
     };
-    let items: Vec<(i64, String)> = tab
-        .view
-        .lines
-        .iter()
-        .filter_map(|line| {
-            let trimmed = line.text().trim().to_string();
-            if !trimmed.starts_with("# ") {
-                return None;
-            }
-            if !filter.is_empty()
-                && !trimmed.to_lowercase().contains(&filter.to_lowercase())
-            {
-                return None;
-            }
-            Some((line.row, snippet(&trimmed, 48)))
-        })
-        .collect();
+    let items = super::outline::outline_items(
+        &tab.snapshot.blocks,
+        &tab.view.lines,
+        tab.snapshot.history,
+        &filter,
+    );
     if items.is_empty() {
         if !filter.is_empty() {
             ui.label(

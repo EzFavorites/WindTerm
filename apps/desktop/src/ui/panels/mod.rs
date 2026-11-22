@@ -33,6 +33,7 @@ mod script_panel_row;
 pub(in crate::ui) use script_panel::ScriptPanelState;
 mod tmux;
 mod tools;
+mod outline;
 pub(in crate::ui) mod tools_sender;
 mod tools_sender_menu;
 mod tools_sender_row;
