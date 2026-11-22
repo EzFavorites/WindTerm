@@ -228,6 +228,33 @@ fn require_prog(prog: &str) -> String {
 // ── 1. 接收：真实 sz → 我们 ────────────────────────────────────────────────
 
 #[test]
+fn sink_appends_at_the_resume_offset() {
+    let root = unique_dir("sink-resume");
+    std::fs::write(root.join("part.bin"), b"abc").unwrap();
+    let pool = SessionPool::new();
+    {
+        let mut sink = xfer_run::Sink {
+            pool: &pool,
+            session: 0,
+            dir: Some(root.clone()),
+            file: None,
+            mtime: None,
+            mode: None,
+            policy: xfer_conflict::ConflictPolicy::Overwrite,
+            skipping: false,
+            resume_offset: 5,
+        };
+        sink.open("part.bin", xfer_run::FileMeta { mtime: None, mode: None }).unwrap();
+        sink.write(b"XY").unwrap();
+        sink.close().unwrap();
+    }
+    let bytes = std::fs::read(root.join("part.bin")).unwrap();
+    assert_eq!(bytes.len(), 7, "先补齐到 offset=5，再追加两字节");
+    assert_eq!(&bytes[5..], b"XY");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 #[ignore = "需要真 lrzsz：显式 --ignored 才跑，缺程序直接 FAIL"]
 fn receive_from_real_sz_lands_the_file_byte_for_byte() {
     let sz = require_prog("sz");
@@ -526,6 +553,7 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             mode: None,
             policy: xfer_conflict::ConflictPolicy::Overwrite,
             skipping: false,
+            resume_offset: 0,
         };
         sink.open(
             "with.bin",
@@ -556,6 +584,7 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             mode: None,
             policy: xfer_conflict::ConflictPolicy::Overwrite,
             skipping: false,
+            resume_offset: 0,
         };
         sink.open(name, xfer_run::FileMeta { mtime, mode: None })
             .expect("开文件");

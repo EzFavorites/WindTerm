@@ -60,7 +60,7 @@
 //! X/YMODEM 的路径不受影响：单文件仍只调一次 `add_file`，线上字节不变。
 
 use std::fs::{File, FileTimes, OpenOptions};
-use std::io::Write;
+use std::io::{Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -212,6 +212,38 @@ impl XferHandle {
         target: PathBuf,
         policy: crate::xfer_conflict::ConflictPolicy,
     ) -> Result<Self, String> {
+        Self::start_impl(pool, session, kind, protocol, target, policy, 0)
+    }
+
+    /// 断点续传：本地已有目标文件的前 `offset` 字节，协议层回 ZRPOS(offset)，
+    /// 落盘侧从该偏移继续写。`offset=0` 等价于普通接收。
+    pub fn start_resume(
+        pool: Arc<SessionPool>,
+        session: SessionId,
+        protocol: XferProtocol,
+        target: PathBuf,
+        offset: u64,
+    ) -> Result<Self, String> {
+        Self::start_impl(
+            pool,
+            session,
+            XferKind::Receive,
+            protocol,
+            target,
+            Default::default(),
+            offset,
+        )
+    }
+
+    fn start_impl(
+        pool: Arc<SessionPool>,
+        session: SessionId,
+        kind: XferKind,
+        protocol: XferProtocol,
+        target: PathBuf,
+        policy: crate::xfer_conflict::ConflictPolicy,
+        resume_offset: u64,
+    ) -> Result<Self, String> {
         if pool.state(session).is_none() {
             return Err(format!("控制面里查不到这个会话（id={session}）"));
         }
@@ -228,12 +260,23 @@ impl XferHandle {
                     return Err(format!("接收目标不是目录：{}", target.display()));
                 }
                 match wire {
-                    Wire::Xfer(protocol) => Box::new(RxEngine {
-                        inner: Receiver::new(Config::for_protocol(protocol)),
-                    }),
-                    Wire::Zmodem => Box::new(ZRxEngine {
-                        inner: ZReceiver::new(zmodem_config()),
-                    }),
+                    Wire::Xfer(protocol) => {
+                        if resume_offset > 0 {
+                            return Err("X/YMODEM 不支持断点续传，只有 ZMODEM 有 ZRPOS 协商".into());
+                        }
+                        Box::new(RxEngine {
+                            inner: Receiver::new(Config::for_protocol(protocol)),
+                        })
+                    }
+                    Wire::Zmodem => {
+                        let mut engine = ZRxEngine {
+                            inner: ZReceiver::new(zmodem_config()),
+                        };
+                        if resume_offset > 0 {
+                            engine.resume_from(resume_offset)?;
+                        }
+                        Box::new(engine)
+                    }
                 }
             }
             XferKind::Send => {
@@ -303,7 +346,7 @@ impl XferHandle {
                         pool: pool.clone(),
                         session,
                     };
-                    run(pool, session, engine, progress, cancel, sink_rx, dir, kind, policy);
+                    run(pool, session, engine, progress, cancel, sink_rx, dir, kind, policy, resume_offset);
                 })
         };
         let join = match spawned {
@@ -512,6 +555,12 @@ struct ZRxEngine {
     inner: ZReceiver,
 }
 
+impl ZRxEngine {
+    fn resume_from(&mut self, offset: u64) -> Result<(), String> {
+        self.inner.resume_from(offset).map_err(|e| e.to_string())
+    }
+}
+
 impl Engine for ZRxEngine {
     fn begin(&mut self) -> Vec<Action> {
         // 接收方开口：发 `ZRINIT`（宣告 `CANFC32` 与缓冲大小）。
@@ -653,6 +702,8 @@ pub(crate) struct Sink<'a> {
     pub(crate) policy: crate::xfer_conflict::ConflictPolicy,
     /// `Skip` 命中：字节照收但丢弃，不建文件。
     pub(crate) skipping: bool,
+    /// 断点续传偏移：>0 时文件从该长度继续写。
+    pub(crate) resume_offset: u64,
 }
 
 impl Sink<'_> {
@@ -696,12 +747,24 @@ impl Sink<'_> {
                 return Ok(());
             }
         };
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .create(true)
             .write(true)
-            .truncate(true)
+            .truncate(self.resume_offset == 0)
             .open(&path)
             .map_err(|e| format!("建不了文件 {}：{e}", path.display()))?;
+        if self.resume_offset > 0 {
+            let len = file
+                .metadata()
+                .map_err(|e| format!("读不了文件长度 {}：{e}", path.display()))?
+                .len();
+            if len != self.resume_offset {
+                file.set_len(self.resume_offset)
+                    .map_err(|e| format!("对齐续传长度失败 {}：{e}", path.display()))?;
+            }
+            file.seek(SeekFrom::End(0))
+                .map_err(|e| format!("定位续传偏移失败 {}：{e}", path.display()))?;
+        }
         self.file = Some((path, file));
         self.mtime = meta.mtime;
         self.mode = meta.mode;
@@ -735,6 +798,7 @@ impl Sink<'_> {
             self.skipping = false;
             self.mtime = None;
             self.mode = None;
+            self.resume_offset = 0;
             return Ok(());
         }
         let Some((path, mut file)) = self.file.take() else {
@@ -755,6 +819,7 @@ impl Sink<'_> {
         }
         // 权限位有意不落盘（取舍见上）。`take()` 显式消费，避免「字段写了没人读」。
         let _ignored_mode = self.mode.take();
+        self.resume_offset = 0;
         Ok(())
     }
 }
@@ -771,6 +836,7 @@ fn run(
     dir: Option<PathBuf>,
     kind: XferKind,
     policy: crate::xfer_conflict::ConflictPolicy,
+    resume_offset: u64,
 ) {
     let mut sink = Sink {
         pool: &pool,
@@ -781,6 +847,7 @@ fn run(
         mode: None,
         policy,
         skipping: false,
+        resume_offset,
     };
     let mut step = pump(begin(&engine), &mut sink, &progress);
     refresh(&engine, &progress, kind);
