@@ -249,6 +249,7 @@ pub(in crate::ui) fn window_with(
         tunnels_enabled: true,
         onekeys_edit: None,
         onekeys_password_draft: None,
+        onekeys_ki_draft: None,
         // 测试窗口从「没话说、没崩过」开始。
         notice: None,
         lifecycle_events: Arc::new(Mutex::new(Vec::new())),

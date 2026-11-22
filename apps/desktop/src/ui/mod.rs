@@ -19,8 +19,7 @@
 mod clipboard_policy; mod comp;
 mod construct;
 mod dialogs; mod dispatch; mod lifecycle_events;
-mod effects;
-mod harness;
+mod effects; mod harness;
 pub(crate) mod kit;
 pub(crate) use kit::type_scale;
 mod layout;
@@ -323,6 +322,8 @@ pub struct TerminalWindow {
     /// ：键从**下标**改成**方案名**。下标在删/复制方案之后会整体错位，
     /// 于是"密码存到隔壁方案上"——静默且很难发现。
     onekeys_password_draft: Option<(String, String)>,
+    /// OneKey 键盘交互应答草稿（方案名 → 按提示顺序的答案）。
+    onekeys_ki_draft: Option<(String, Vec<String>)>,
     /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,

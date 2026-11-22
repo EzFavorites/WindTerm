@@ -242,6 +242,16 @@ pub(in crate::ui) fn ssh_editor(
             readonly_cell(ui, rr, &key.keyboard_interactive[r].response);
         }
     });
+    if ki_editing {
+        // 应答是凭据：草稿只在内存里，保存时由 `save_onekeys` 写进保险库。
+        win.onekeys_ki_draft = Some((
+            key.name.clone(),
+            key.keyboard_interactive
+                .iter()
+                .map(|c| c.response.clone())
+                .collect(),
+        ));
+    }
     if modify_link(
         ui,
         egui::Rect::from_min_size(

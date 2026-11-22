@@ -55,7 +55,10 @@ impl TerminalWindow {
         // 保险库里，控制面不认识保险库）。
         let scheme = self.pool.onekey_for(&config.onekey);
         let config = self.pool.resolve_onekey(&config);
-        let answers = scheme.as_ref().map(onekey_answers).unwrap_or_default();
+        let answers = scheme
+            .as_ref()
+            .map(|s| onekey_answers(s, self.vault.as_ref()))
+            .unwrap_or_default();
         let password = password
             .or_else(|| self.stored_password(&config.name))
             // 方案的密码在保险库里（条目 `onekey:<方案名>`）：会话自己没存密码
@@ -524,10 +527,21 @@ impl TerminalWindow {
 /// **在第一个空应答处停**：`term-ssh` 是按下标取答案的，空串会被原样发出去
 /// （服务端只会拒绝一次），截断比乱填诚实。
 ///
-/// ⚠️ 这里的 `response` 目前是 `prefs.json` 里的**明文**——OneKeys 编辑页直接
-/// 写在那一格，而 `term_core::onekey` 的模块文档说的是「应答经 vault 保存」。
-/// 那条迁移还没做；做了之后只需要改这一个函数。
-fn onekey_answers(scheme: &OneKey) -> Vec<String> {
+/// 只读保险库：应答存在 `onekey:<name>:ki`（JSON 数组），锁着或没有条目时
+/// 回落方案里的旧明文答复，兼容还没迁移的会话。
+fn onekey_answers(scheme: &OneKey, vault: Option<&term_vault::Vault>) -> Vec<String> {
+    if let Some(vault) = vault {
+        let id = term_core::onekey::ki_vault_id(&scheme.name);
+        if let Some(answers) = vault
+            .find(&id)
+            .and_then(|e| e.secret())
+            .map(term_core::onekey::decode_ki_answers)
+        {
+            if !answers.is_empty() {
+                return answers;
+            }
+        }
+    }
     scheme
         .keyboard_interactive
         .iter()

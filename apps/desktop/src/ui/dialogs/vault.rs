@@ -145,6 +145,26 @@ impl TerminalWindow {
                 }
             }
         }
+        // 键盘交互应答同样只进 vault：JSON 数组存在 `onekey:<name>:ki`。
+        if let Some((name, answers)) = self.onekeys_ki_draft.take() {
+            if self.vault_unlocked() && names.contains(&name) {
+                let id = onekey::ki_vault_id(&name);
+                if let Some(vault) = self.vault.as_mut() {
+                    if vault
+                        .upsert(Entry::password(
+                            &id,
+                            &name,
+                            &onekey::encode_ki_answers(&answers),
+                        ))
+                        .is_ok()
+                    {
+                        if let Ok(bytes) = vault.seal() {
+                            persist::save_vault(&bytes);
+                        }
+                    }
+                }
+            }
+        }
         // 方案名改过之后，vault 里的条目 id 也要跟着改（旧 id 变成孤儿）。
         // 简单而诚实：只写 prefs；旧 id 残留由 `onekey_password` 的
         //「找不到就 None（空密码）」自然兜住，不悄悄删 vault 条目。
