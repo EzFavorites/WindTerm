@@ -1,139 +1,261 @@
 # WindTerm
 
-A cross-platform terminal emulator for the desktop, written in Rust and built on
-[egui](https://github.com/emilk/egui). The terminal core is UI-agnostic: VT
-semantics live in a pure crate with no I/O, no windowing, and no OS handles.
+> A local-first desktop terminal workbench, written in Rust + egui.
 
-> **Status:** `v1.0.0`. Core, connection, and transfer paths are implemented and
-> covered by an automated test suite (`cargo test --workspace` for the current
-> count). A small number of heavyweight UI features are still being wired.
+WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，中间是多标签终端，
+下边是快捷栏、传输队列与 Sender。它用 Rust + egui 原生绘制界面，不依赖浏览器
+或 WebView；终端语义放在纯 crate 里，没有 UI、I/O 与操作系统句柄。
 
-## Highlights
+支持本地 Shell、SSH、Telnet、TCP、串口和独立 SFTP 会话。SSH 会话上可以直接开
+文件面板传文件，不必再连一次；SSH / Telnet / TCP 可以走 HTTP 或 SOCKS5 代理，
+也可以配跳板链和三类端口转发。当前版本 **1.0.0**。
 
-- **Terminal core** (`crates/term-core`): pure VT semantics — no UI, no I/O, no
-  OS handles. Fully unit-testable and deterministic under test.
-- **Native SSH** (`crates/term-ssh`) with host-key verification (TOFU /
-  `known_hosts`), public-key, password and agent authentication, plus SSH
-  tunnelling (`-L` / `-R` / `-D`) in `crates/term-tunnel`.
-- **Session vault** (`crates/term-vault`): Argon2-based encrypted credential
-  storage, kept as a leaf crate with no dependency on the terminal core.
-- **Session library** persisted in SQLite (`crates/term-store`), with a
-  migration path for MobaXterm session exports (`crates/term-import`).
-- **SFTP** browsing and transfer (`crates/term-sftp`), file-transfer
-  orchestration (`crates/term-xfer`), and **X / Y / ZMODEM** support
-  (`crates/term-zmodem`).
-- **Desktop UI** (`apps/desktop`): an egui front end with split panes, tabs,
-  a file panel, a tunnel panel, a settings centre, key binding remapping, and
-  a command palette.
-- **Automation**: a Rhai scripting engine (`crates/term-script`), a JSON-RPC
-  bridge (`crates/term-bridge`), and a headless CLI surface
-  (`term-desk doctor` / `capability` / `serve` / `script run`).
-- **Connection surface**: local shell (PTY), SSH, Telnet, Serial, plus
-  jump hosts and per-session tunnels.
+> 本文只写已经实现的行为。命令面规模请用 `term-desk capability` 现算
+> （写作时实测 222 条命令 / 217 已接线 / 5 置灰）；测试数量以 `cargo test`
+> 的实际输出为准。架构、构建和实现细节见 [`docs/`](docs/README.md)。
 
-## Architecture
+## 界面一览
 
-```
-crates/
-  term-core       pure VT and terminal semantics (no I/O, no UI)
-  term-app        application/domain logic, menus, capability registration
-  term-runtime    compatibility facade: re-exports of the old import paths
-  term-session    session control plane
-  term-script     Rhai scripting engine
-  term-bridge     JSON-RPC bridge
-  term-ssh        native SSH client (russh)
-  term-tunnel     SSH tunnelling (-L / -R / -D)
-  term-sftp       SFTP client
-  term-xfer       file-transfer orchestration
-  term-zmodem     X / Y / ZMODEM
-  term-vault      encrypted credential vault
-  term-store      SQLite session library
-  term-import     session import (MobaXterm exports)
-  term-io         session I/O and threads: PTY / serial / Telnet channels,
-                  per-session supervisor, snapshot mailbox, session logging
-  term-paths      path rules and data directories
-  term-profile    user profile: preferences, layout, quick bar
-apps/
-  desktop         desktop binary (`term-desk`, egui UI)
-```
+| 区域 | 用途 |
+| --- | --- |
+| **菜单栏与快捷栏** | 菜单、命令面板入口、常用动作；快捷栏成员与顺序可配置 |
+| **会话树（Explorer）** | 保存的会话，按文件夹整理；双击连接，支持搜索与拖拽排序 |
+| **终端区** | 多标签、左右/上下分屏与四宫格；标签悬停可看缩略图 |
+| **Filer** | 当前标签所在机器的文件：本地直接读，远端走同一条 SFTP 连接 |
+| **Sender / Transfer / Tmux / Script / Outline 面板** | 批量发送、传输队列、tmux 面板、Rhai 脚本库、输出大纲 |
+| **Session 面板 / Shell 面板** | 已打开的会话列表、本地 Shell 入口 |
+| **地址栏** | `Alt+D` 呼出；输入主机或会话名，能解析就直接连接，不留痕迹到会话库 |
+| **状态栏** | 连接状态、行列、编码、主题、锁屏等 |
 
-Dependency direction is strictly one-way: `apps/desktop → term-app → term-core`,
-with side effects concentrated in a few leaf crates (`term-io`, `term-ssh`,
-`term-tunnel`, `term-sftp`). `tokio` is confined to those three network crates;
-the desktop UI performs zero `.await`. `term-runtime` is a compatibility facade
-over the old import paths only — new code depends on the implementation crates
-directly, and the dependency direction is enforced by the build gates.
+面板之间可以拖动分隔线调整大小；布局（分屏结构、标签顺序、面板位置）会保存，
+恢复的是结构，不会恢复进程内状态——重开后的标签是断开的，激活时才重连。
 
-## Installing
+## 安装
 
-Prebuilt packages are attached to each tagged release:
+安装包在 GitHub Releases 页面，每个版本附带 `.sha256` 校验文件：
 
-| Platform | File | Notes |
-|---|---|---|
-| macOS (Apple silicon) | `WindTerm-<ver>-macos-aarch64.tar.gz` | `.app` bundle |
-| macOS (Intel) | `WindTerm-<ver>-macos-x86_64.tar.gz` | `.app` bundle |
-| Linux (x86_64) | `WindTerm-<ver>-linux-x86_64.tar.gz` | `windterm` + `.desktop` + icon |
-| Windows (x86_64) | `WindTerm-<ver>-windows-x86_64.zip` | `WindTerm.exe` |
-
-Every archive ships with a `.sha256` alongside it:
+| 平台 | 文件 | 说明 |
+| --- | --- | --- |
+| macOS（Apple 芯片） | `WindTerm-<ver>-macos-aarch64.tar.gz` | `.app` bundle |
+| macOS（Intel） | `WindTerm-<ver>-macos-x86_64.tar.gz` | `.app` bundle |
+| Linux（x86_64） | `WindTerm-<ver>-linux-x86_64.tar.gz` | `windterm` + `.desktop` + 图标 |
+| Linux（aarch64） | `WindTerm-<ver>-linux-aarch64.tar.gz` | 同上 |
+| Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.zip` | `WindTerm.exe` |
 
 ```sh
 shasum -a 256 -c WindTerm-1.0.0-macos-aarch64.tar.gz.sha256
+tar xzf WindTerm-1.0.0-macos-aarch64.tar.gz
 ```
 
-The macOS builds are ad-hoc signed, not notarized. Gatekeeper will refuse the
-first launch: right-click → *Open*, or
+macOS 构建是 ad-hoc 签名，没有公证，首次启动会被 Gatekeeper 拦下：
+右键 → *打开*，或执行
 
 ```sh
 xattr -dr com.apple.quarantine WindTerm.app
 ```
 
-## Building
+### 从源码构建
 
-Requires Rust **1.94** or newer (see `rust-toolchain.toml`; CI pins exactly
-1.94.0).
-
-```sh
-cargo check --workspace          # type-check everything
-cargo test --workspace           # run the test suite
-cargo build -p term-desk         # build the desktop app
-```
-
-To produce the same package the release workflow publishes:
+需要 Rust **1.94** 或更新版本（`rust-toolchain.toml` 用 `stable`，CI 与发布产物
+精确钉在 `1.94.0`）：
 
 ```sh
-cargo build -p term-desk --release --target aarch64-apple-darwin
-bash scripts/package-release.sh aarch64-apple-darwin 1.0.0 \
-    target/aarch64-apple-darwin/release/term-desk dist
+cargo check --workspace          # 类型检查
+cargo test --workspace           # 全部测试
+cargo build -p term-desk         # 桌面程序
 ```
 
-## Documentation
+提交前的项目验收脚本包含分层边界、能力注册、冻结基线、单测、金样本与可选视觉回归：
 
-- [`docs/architecture.md`](docs/architecture.md) — layering, crate boundaries,
-  and the invariants the build enforces.
-- [`docs/building.md`](docs/building.md) — toolchain, local build, packaging,
-  CI and release.
-- [`docs/user-guide.md`](docs/user-guide.md) — sessions, SSH, SFTP, tunnels,
-  scripting.
-- [`docs/security.md`](docs/security.md) — credential vault, host-key
-  verification, and the network surface.
-- [`docs/scripting.md`](docs/scripting.md) — the Rhai API and the JSON-RPC
-  bridge.
-- [`docs/design/README.md`](docs/design/README.md) — per-module design
-  documents: sessions and connection, terminal core, selection/find/scrollback,
-  tabs and layout, files and transfer, credentials, scripting and automation,
-  tmux, import and onboarding, crash hardening, theme and visual baseline,
-  capability surface and menus, UI shell, scope and requirements, persistence,
-  session I/O and threads.
-- [`docs/adr/README.md`](docs/adr/README.md) — architecture decision records,
-  one decision per number, with superseded links.
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — how to run the gates before sending a
-  patch.
+```sh
+bash scripts/verify.sh
+VERIFY_CLIPPY=1 bash scripts/verify.sh    # 额外跑 clippy -D warnings
+```
 
-## License
+## 无窗口命令
 
-Licensed under the **Apache License 2.0**. See [`LICENSE`](LICENSE).
+```sh
+term-desk doctor                 # 环境体检：$SHELL / profile / 主题 / 能力面
+term-desk capability             # 能力面统计；--all 列全部，--json 给机器读
+term-desk serve --port 0         # 把能力面暴露到 127.0.0.1（需 token 握手）
+term-desk script run file.rhai   # 在独立会话里跑 Rhai 脚本
+term-desk --version
+term-desk --help
+```
 
-Third-party product names mentioned in documentation or compatibility code
-(MobaXterm, SecureCRT, etc.) are trademarks of their respective owners. This
-project is not affiliated with or endorsed by them.
+`serve` 只监听回环地址，第一条请求必须完成 token 握手。脚本与桥接共用同一张
+动词表，用会话**名字**寻址（不是进程内自增 ID），所以脚本存下来明天还能跑。
+
+## 功能
+
+### 终端
+
+- 本地 Shell、SSH、Telnet、TCP、串口；真彩色、Unicode 双宽、emoji、鼠标上报，
+  支持 vim / htop / less 这类全屏程序。
+- 多标签与分屏；标签可拖动排序，悬停出缩略图，缩放比例可调。
+- 缓冲区内查找、行号/时间戳侧栏、命令块折叠与大纲；编码切换覆盖 UTF-8、
+  GBK、GB2312、Big5、Shift_JIS、EUC-JP、EUC-KR、KOI8-R、ISO-8859-1/15。
+  编码只影响切换之后的输出，已显示内容不重排。
+- 选中即复制、右键动作可配、多行粘贴确认、bracketed paste；远端 OSC 52
+  剪贴板请求可按询问 / 允许 / 禁止处理。
+- 会话日志：`Session › Log` 起停、暂停/恢复、打开日志文件或目录。默认只记
+  可打印文本，也可记录全部原始字节；同名日志自动加序号，不覆盖。
+- tmux 控制模式：`Window › Panes › Tmux Control Mode`。对已经 `tmux -CC` 的
+  会话，把 tmux 窗口/面板映射成本地标签/分屏；解析不了的指令原样透传。
+
+### 会话与连接
+
+- 会话树支持分组、重命名、拖拽排序、过滤；可从 MobaXterm 导出文件批量导入
+  （按 `name + host + port` 去重）。**只导配置，不导密码**。
+- 首次启动会探测 `~/.ssh/config`，勾选后导入到 `Imported` 分组。
+- 内置 SSH 与系统 `ssh` 两种客户端，按会话选：内置用于 SFTP、隧道、跳板链
+  和保险库口令自动注入；系统 `ssh` 直接复用用户已有配置与 agent。
+- 认证支持密码、私钥、ssh-agent，以及可复用的 **OneKey** 方案（首选 + 回退链）。
+  密码可以"不记住 / 本次记住 / 永久记住（写入保险库）"。
+- 主机密钥用 TOFU：首次记录指纹，后续指纹变化会阻断连接并同时列出新旧值，
+  需在设置里显式"忘记"该主机才能重连。
+- 跳板机写成逗号分隔的 ProxyJump 链（`[user@]host[:port]`），每跳各自握手、各自
+  记 `known_hosts`；agent 转发只作用于最终目标。
+- 断线自动重连按退避策略执行，可在设置里配置；连接状态在状态栏可见。
+
+### 文件与传输
+
+- Filer 顶部切换"对着哪台机器"，每台各自记住浏览位置。可浏览、下载、上传
+  （拖拽即上传）、新建、重命名、删除、改权限与时间。
+- 远端文件用"下载到临时副本 → 系统默认程序打开 → 写回"的链路，写回保留
+  原权限位；**没有内建通用文本编辑器**。
+- 双击文件（或右键"预览"）开只读预览窗：按字节内容判类型，不靠扩展名；
+  大文件只读开头，不会整个读进内存。
+- 传输队列有进度、速率与剩余时间，取消分"用户取消 / 网络中断 / 目标已存在"
+  三种语义；目录同步有决策、执行记账与 Review 界面。
+- X / Y / ZMODEM 在 `Tool` 菜单里；也可以把文件拖进终端打开 XMODEM 发送弹层。
+  传输走原始字节旁路，期间终端画面冻结是正常的，进度看传输面板。
+- SFTP 传输基准可用 `scripts/transfer-bench.sh` 在容器里跑，报告落在
+  [`docs/bench/transfer-report.md`](docs/bench/transfer-report.md)。
+
+### 网络
+
+- 隧道：`-L` 本地转发、`-R` 远程转发、`-D` 动态 SOCKS5（可带用户名密码）。
+  每条隧道有名字和归属会话，状态与失败原因直接显示在面板里；监听端口必须
+  显式指定，填 0 会被表单拒绝。
+- 隧道用独立的 SSH 连接搬运字节，不复用终端那条；凭据已在内存里，不会二次询问。
+  总开关之外每条还能单独设"自动启动"。
+- 出网代理支持 HTTP CONNECT 与 SOCKS5，可设全局默认，也可按会话覆盖；
+  开会话前会做回落判断，不会带着无效代理配置去连。
+
+### 自动化与外观
+
+- Rhai 脚本引擎：内置会话 API、文件与剪贴板辅助；`term-desk script run`
+  无窗口执行，界面里有脚本库和带行号、错误跳行的脚本编辑器。
+- 触发器：事件 → 匹配 → 动作，规则落盘到偏好；命中可执行发文本、发命令、
+  响铃等。关键字高亮因当前没有行级渲染基底，暂不在界面暴露。
+- Sender 把同一段文本发给多个会话，输出按一致性分组，危险命令强制确认。
+- 命令面板（搜索框）把动作与菜单项拉平：`Command` 只列已接线命令，
+  `Anything` 列出全部并标出置灰项。
+- 深色/浅色主题、终端配色方案（可导入 iTerm2 `.itermcolors` 与 Windows
+  Terminal `schemes` JSON）、字体与字号、窗口透明度（30%–100%）、
+  锁屏与空闲自动上锁、可重绑定的快捷键。
+
+## 常用快捷键
+
+`Cmd` 在 Windows / Linux 上归一为 `Ctrl`。
+
+| 快捷键 | 功能 |
+| --- | --- |
+| `Cmd+Shift+P` | 命令面板（Command） |
+| `Cmd+Shift+O` | 命令面板（Anything） |
+| `Cmd+N` | 新建会话 |
+| `Cmd+Shift+N` | 新建窗口 |
+| `Cmd+Shift+F` / `Cmd+G` | 查找 / 查找下一个 |
+| `Cmd+K` | 跳到指定行 |
+| `Alt+D` | 地址栏 |
+| `Cmd+Shift+L` | 锁屏 |
+| `Cmd+W` | 关闭当前标签 |
+| `Cmd+Shift+T` | 向右分屏 |
+| `Cmd+Shift+I` | 窗口列表 |
+| `Alt+W, Alt+H` / `Alt+W, Alt+V` | 横向 / 纵向分屏 |
+| `Alt+W, Alt+G` | 关闭当前分屏组 |
+| `Alt+M, Alt+H` | 切换十六进制显示 |
+| `Meta+T, Meta+K` / `Meta+T, Meta+T` | OneKeys / Triggers |
+
+用逗号隔开的是两段式按键（先按第一个，再按第二个）。`Meta` 与 `Cmd` 等价：
+macOS 上是 Command，Windows / Linux 上归一为 Ctrl；设置里可以改绑定。菜单右侧展示的
+文案来自视觉基线，个别项与出厂绑定不同，实际生效的是上表这一套。
+
+## 设置与数据文件
+
+- 设置中心：`Session › Preferences › Settings`。左栏覆盖应用、外观、代理、
+  在线搜索、安全、标签、终端、文本、文件面板、快捷栏、触发器、OneKeys 等页。
+  大多数页改的是**新会话默认值**，不追溯已打开的标签。
+- 偏好、会话库、布局、保险库、日志、脚本都放在同一个 profile 目录里，便于整体
+  备份或搬走：
+
+  | 平台 | 目录 |
+  | --- | --- |
+  | macOS | `~/Library/Application Support/WindTerm/` |
+  | Linux | `~/.config/WindTerm/` |
+  | Windows | `%APPDATA%\WindTerm\` |
+
+- 用 `WINDTERM_PROFILE_DIR` 可以整体重定向（便携配置与测试隔离都靠它）：
+
+  ```sh
+  WINDTERM_PROFILE_DIR=/tmp/wt-profile ./windterm
+  ```
+
+- 主要文件：`sessions.db`（会话库）、`prefs.json`（偏好）、`layout.json`
+  （窗口与标签结构）、`vault.ztv`（加密保险库）、`scripts/`（Rhai 脚本）。
+  保险库条目不以明文落盘。
+
+## 已知限制
+
+- 5 条命令仍然置灰：`Window.GotoSymbol`、`Window.SetRemoteMode`、
+  `Text.ToggleWordWrap`、`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`。
+  其中 `ToggleVirtualSpace` / `ToggleMultipleCaret` 属于内置编辑器生态，
+  `SetRemoteMode` 属于 vim 键位模式，都不在本项目的范围内；`ToggleWordWrap`
+  需要内核支持按可调列宽重排，并且联动选区、查找与回滚坐标系，目前开关没有
+  可见效果，所以宁可置灰。
+- 菜单里个别项的快捷键文案与出厂绑定不同（为保真视觉基线保留），按上表按键。
+- 窗口透明目前是纯 alpha；macOS vibrancy / Windows acrylic 的平台模糊还没做。
+- 不做云同步、账号体系、团队协作、远程桌面与通用文本编辑器，范围见
+  [`docs/design/14-scope-and-requirements.md`](docs/design/14-scope-and-requirements.md)。
+
+## 与上游 WindTerm 的关系
+
+原版 WindTerm 项目：[github.com/kingToolbox/WindTerm](https://github.com/kingToolbox/WindTerm)。
+
+本项目是独立实现的 clean-room 重建：只参考可观测行为与公开文档，不复制上游的
+二进制、专有 `.term` 配置、图标、主题、截图或翻译资产，也不与其作者或发布方
+存在关联。文档里提到的第三方产品名归各自所有者所有。
+
+上游 README 把产品定位为 "A Quicker and better SSH/Telnet/Serial/Shell/Sftp
+client for DevOps"，并给出下列公开自述指标。**这些数字来自 2020 年的
+WindTerm 1.x / 1.72（Windows 10，2.3 GHz i5，8 GB），原文也注明仅供参考，
+不是本项目的实测或承诺**：
+
+| 上游自述项 | 数值 |
+| --- | --- |
+| SFTP 5 GB 随机文件下载 / 上传 | 216.3 MB/s / 247.0 MB/s |
+| Telnet / SSH 终端吞吐 | 52.1 MB/s / 41.8 MB/s |
+| `seq 1 1000万` | 10.674 s / 133.3 MB（对比客户端多数 OOM） |
+| 动态内存压缩 | 工作内存降低 20%–90% |
+| 终端兼容 | vt100/220/340/420/520、xterm-256color；vttest 除 Tektronix 4014 全通过 |
+
+上游还提到本地/远程模式配合 vim 键位（用 Shift+Enter 切换），这里没有实现 vim
+键位层，因此 `Window.SetRemoteMode` 仍保持置灰。本项目的性能口径以
+[`docs/bench/transfer-report.md`](docs/bench/transfer-report.md) 的可复跑基准为准。
+
+## 文档
+
+- [`docs/architecture.md`](docs/architecture.md) — 分层、crate 边界与编译期不变量
+- [`docs/building.md`](docs/building.md) — 工具链、构建、打包、CI 与发布
+- [`docs/user-guide.md`](docs/user-guide.md) — 会话、SSH、SFTP、隧道、脚本
+- [`docs/security.md`](docs/security.md) — 保险库、主机密钥与网络面
+- [`docs/scripting.md`](docs/scripting.md) — Rhai API 与 JSON-RPC 桥
+- [`docs/design/README.md`](docs/design/README.md) — 逐模块设计文档
+- [`docs/adr/README.md`](docs/adr/README.md) — 架构决策记录
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — 提交前的门禁
+- [原版 WindTerm 上游仓库](https://github.com/kingToolbox/WindTerm) — 本项目参考的原版项目
+
+## 许可证
+
+[Apache License 2.0](LICENSE)。
