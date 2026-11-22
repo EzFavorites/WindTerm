@@ -37,8 +37,13 @@ fn underline_for(text: &str, label: &str) -> Option<usize> {
 
 /// 一条 `CheckState::Live` 的勾**此刻**该不该画 —— 走完整的强类型链路，不认字符串。
 ///
-/// 判据链：`Action::parse(id)` → `Action::Shell(ShellAction::Marks(knob))` →
-/// [`TerminalWindow::marks_knob_on`] → 活动标签的 `Tab.marks`。
+/// 判据链（两类，共用 `Action::parse(id)` 入口）：
+/// - 可视化开关：`Action::Shell(ShellAction::Marks(knob))` →
+///   [`TerminalWindow::marks_knob_on`] → 活动标签的 `Tab.marks`；
+/// - hex 互斥档位：`ShellAction::HexBase|HexColumns|HexGroupChars(value)` →
+///   [`TerminalWindow::active_hex`] → 活动标签的 `Tab.hex`。选中哪一档就在
+///   哪一档打勾，点另一档勾跟着挪过去。
+///
 /// 所以「菜单里那个勾」与「渲染器读的那份参数」是**同一个字段**，
 /// 中间没有第二份镜像状态可以漂移。
 ///
@@ -51,15 +56,19 @@ fn underline_for(text: &str, label: &str) -> Option<usize> {
 /// 万一将来有人插了一条没接线的 `Live` 行，屏幕上会是一个可点的空框，
 /// 而不是整窗崩掉。
 fn live_check(win: &TerminalWindow, id: &str) -> bool {
-    match term_app::action::Action::parse(id) {
-        Some(term_app::action::Action::Shell(term_app::shell::ShellAction::Marks(
-            knob,
-        ))) => win.marks_knob_on(knob),
-        // 其余（`None` = 未接线 / 别的能力 / `Marks` 之外的动作）画空框。
-        // 这里刻意不穷举 `Action`：它二十几个变体在 `parse::feature()` 里已经
-        // 被穷举过一次（那里加变体会直接编译失败），在这一处再抄一遍只会得到
-        // 一张同长的噪音表，而事实只有一句「不是那十条」。真正的护栏是
-        // `menu_check_tests.rs::a_wired_command_must_read_live_state`：
+    use term_app::action::Action;
+    use term_app::shell::ShellAction;
+    match Action::parse(id) {
+        Some(Action::Shell(ShellAction::Marks(knob))) => win.marks_knob_on(knob),
+        Some(Action::Shell(ShellAction::HexBase(base))) => win.active_hex().base == base,
+        Some(Action::Shell(ShellAction::HexColumns(columns))) => {
+            win.active_hex().columns == columns
+        }
+        Some(Action::Shell(ShellAction::HexGroupChars(group))) => win.active_hex().group == group,
+        // 其余（`None` = 未接线 / 别的能力）画空框。这里刻意不穷举 `Action`：
+        // 它二十几个变体在 `parse::feature()` 里已经被穷举过一次（那里加变体
+        // 会直接编译失败），在这一处再抄一遍只会得到一张同长的噪音表。
+        // 真正的护栏是 `menu_check_tests.rs::a_wired_command_must_read_live_state`：
         // `Live` 必须已接线，所以这条兜底在生产里取不到。
         _ => false,
     }
@@ -475,5 +484,107 @@ mod tests {
             !production.contains("menu_custom_button("),
             "顶级菜单 API 不许回到菜单树里"
         );
+    }
+
+    /// 视觉基线 `view/02`、`view/03`、`view/05`：hex 三张子菜单是互斥单选组。
+    /// 这条同时守住用户报的两个症状——「默认没有勾选」与「点了没有勾选行为」：
+    /// 出厂档位必须正好一个勾；点另一档后勾必须跟着挪过去，且只改活动标签。
+    #[test]
+    fn hex_option_rows_are_checked_on_the_current_value_and_follow_clicks() {
+        use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
+        use crate::ui::terminal::HexParams;
+
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let first = fake_tab(&pool, &ctx, 0, &closes);
+        let second = fake_tab(&pool, &ctx, 1, &closes);
+        let mut win = window_with(pool, &ctx, vec![first, second]);
+        // 不依赖用户目录里的 prefs：直接把活动标签摆到出厂档位。
+        win.tabs[0].hex = HexParams::default();
+        let other_before = win.tabs[1].hex;
+
+        // (出厂该打勾的 ID, 这一组全部 ID)。三组同构，循环里逐档点一遍。
+        let groups: [(&str, &[&str]); 3] = [
+            (
+                "View.HexBase16",
+                &[
+                    "View.HexBase2",
+                    "View.HexBase7",
+                    "View.HexBase8",
+                    "View.HexBase10",
+                    "View.HexBase16",
+                ],
+            ),
+            (
+                "View.HexColumns16",
+                &[
+                    "View.HexColumns8",
+                    "View.HexColumns16",
+                    "View.HexColumns24",
+                    "View.HexColumns32",
+                ],
+            ),
+            (
+                "View.HexGroupChars1",
+                &[
+                    "View.HexGroupChars1",
+                    "View.HexGroupChars2",
+                    "View.HexGroupChars4",
+                    "View.HexGroupChars8",
+                ],
+            ),
+        ];
+
+        for (default_id, rows) in groups {
+            let checked: Vec<&str> = rows
+                .iter()
+                .copied()
+                .filter(|id| live_check(&win, id))
+                .collect();
+            assert_eq!(
+                checked,
+                vec![default_id],
+                "{default_id}：出厂态应只有这一档打勾"
+            );
+
+            for id in rows {
+                win.dispatch(id);
+                let checked: Vec<&str> = rows
+                    .iter()
+                    .copied()
+                    .filter(|probe| live_check(&win, probe))
+                    .collect();
+                assert_eq!(
+                    checked,
+                    vec![*id],
+                    "点 {id} 之后应只有它自己打勾（勾读活动标签的 Tab.hex）"
+                );
+            }
+
+            // 收尾回到出厂档，下一组从干净状态开始。
+            win.dispatch(default_id);
+        }
+
+        assert_eq!(
+            win.tabs[1].hex, other_before,
+            "View ▸ Hex * 只改活动标签，另一个标签的排版一个字都不许动"
+        );
+    }
+
+    /// 没有标签时菜单仍点得开：勾画在出厂档上，不 panic（与 `active_marks` 同口径）。
+    #[test]
+    fn hex_option_rows_without_a_tab_show_the_factory_default() {
+        use crate::ui::lifecycle_test_support::window_with;
+
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let win = window_with(pool, &ctx, Vec::new());
+        for id in ["View.HexBase16", "View.HexColumns16", "View.HexGroupChars1"] {
+            assert!(live_check(&win, id), "{id}：没有标签时勾应落在出厂档");
+        }
+        for id in ["View.HexBase2", "View.HexColumns8", "View.HexGroupChars8"] {
+            assert!(!live_check(&win, id), "{id}：没有标签时不该打勾");
+        }
     }
 }

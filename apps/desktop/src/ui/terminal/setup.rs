@@ -406,6 +406,20 @@ impl TerminalWindow {
             .unwrap_or_default()
     }
 
+    /// 当前活动标签的 hex 排版参数。菜单用它画三组互斥档位的勾
+    /// （`View ▸ Hex Base / Columns / Group Chars`）。
+    ///
+    /// 与 [`Self::active_marks`] 同构：勾的状态必须来自**当前标签**，
+    /// 不是 `Prefs` 里那份默认值——否则用户改了这一档，菜单里的勾还停在出厂态。
+    /// 没有活动标签时给出厂值（Base 16 / Columns 16 / Group 1），
+    /// 那时菜单仍点得开，勾就画在视觉基线的出厂档上，不会 panic。
+    pub(in crate::ui) fn active_hex(&self) -> HexParams {
+        self.tabs
+            .get(self.active_slot())
+            .map(|tab| tab.hex)
+            .unwrap_or_default()
+    }
+
     /// 五档空白模式的唯一入口（`View ▸ White Spaces` 五个菜单项）。
     ///
     /// 模式是**互斥**的，所以这里收一个枚举而不是五个 bool：不存在「两档同时开」

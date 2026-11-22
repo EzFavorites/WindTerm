@@ -136,6 +136,9 @@ fn the_view_menu_has_exactly_one_check_row() {
 ///
 /// 2026-11-13：十行栅格可视化接线，`Live` 第一次有了真读者
 /// （`ui/shell/menu_items.rs::live_check`）。`Fixed` 只剩 Mode 的四条「模式」行。
+/// 2026-11-22：hex 三组互斥档位（13 行）从 `act` 改成 `Live`——它们本就被视觉基线
+/// 画成勾选行，出厂档位（16 / 16 Columns / 1 Char）现在由活动标签的 `Tab.hex` 现读，
+/// 点另一档勾就挪过去。依然是「`Live` ⇔ 已接线」，没有松动判据。
 #[test]
 fn a_wired_command_must_read_live_state() {
     let mut fixed_rows = Vec::new();
@@ -182,6 +185,22 @@ fn a_wired_command_must_read_live_state() {
     assert_eq!(
         live_rows,
         vec![
+            // View › Hex Base 五档互斥单选（出厂 16 打勾）
+            "2",
+            "7",
+            "8",
+            "10",
+            "16",
+            // View › Hex Columns 四档（出厂 16 Columns 打勾）
+            "8 Columns",
+            "16 Columns",
+            "24 Columns",
+            "32 Columns",
+            // View › Hex Group Chars 四档（出厂 1 Char 打勾）
+            "1 Char",
+            "2 Chars",
+            "4 Chars",
+            "8 Chars",
             // View 顶层唯一的勾选行（`Text.HighlightCaretLine`）
             "Highlight Caret Line",
             // View › Symbols 四项
