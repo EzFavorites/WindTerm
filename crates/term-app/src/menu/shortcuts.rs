@@ -109,6 +109,28 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         id: "Window.SplitViewHorizontally",
         label: "Split Right",
     },
+    // 视图切换：菜单只写 Meta+PgUp/PgDown，文档另写 Alt+[ / Alt+]。四条都装进
+    // 绑定表——菜单列与绑定表的已知分歧在 menu_check_tests 里逐条销账。
+    Shortcut {
+        chord: "Meta+PgUp",
+        id: "Window.ActivatePreviousView",
+        label: "Previous View",
+    },
+    Shortcut {
+        chord: "Meta+PgDown",
+        id: "Window.ActivateNextView",
+        label: "Next View",
+    },
+    Shortcut {
+        chord: "Alt+[",
+        id: "Window.ActivatePreviousView",
+        label: "Previous View (Alt)",
+    },
+    Shortcut {
+        chord: "Alt+]",
+        id: "Window.ActivateNextView",
+        label: "Next View (Alt)",
+    },
     Shortcut {
         chord: "Cmd+Shift+I",
         id: "Window.WindowList",

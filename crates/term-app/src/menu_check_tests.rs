@@ -278,7 +278,7 @@ fn canonical_seq(what: &str, text: &str) -> Vec<String> {
 /// 现状是「视觉基线优先」的直接后果：菜单列照 2.6.1 视觉基线逐项抄，绑定表是
 /// v0.1 出厂值，两边各自都对，合起来就是不对。要修就两边一起改，改完把这一条
 /// 从表里删掉——断言是**精确集合**相等，所以「修好了却忘了删表项」也会红。
-const KNOWN_CHORD_DISAGREEMENTS: [(&str, &str, &str); 5] = [
+const KNOWN_CHORD_DISAGREEMENTS: [(&str, &str, &str); 7] = [
     ("Window.Close", "Cmd+W", "Meta+Shift+Q"),
     (
         "Window.SplitViewHorizontally",
@@ -288,6 +288,10 @@ const KNOWN_CHORD_DISAGREEMENTS: [(&str, &str, &str); 5] = [
     ("Window.LockScreen", "Cmd+Shift+L", "Meta+Alt+L"),
     ("Window.ShowPaletteCommand", "Cmd+Shift+P", "Alt+;"),
     ("Window.ShowPaletteAnything", "Cmd+Shift+O", "Alt+S"),
+    // 视图切换：菜单列是 Meta+PgUp/PgDown，另有 Meta 原绑定与 Alt+[/] 两条
+    // 文档键。四条都真能按响，但「显示的那一条」与另三条仍是已知分歧。
+    ("Window.ActivatePreviousView", "Alt+OpenBracket", "Meta+PgUp"),
+    ("Window.ActivateNextView", "Alt+CloseBracket", "Meta+PgDown"),
 ];
 
 /// 同一 ID 在两张表里给的键，实测集合必须**恰好**等于冻结清单。

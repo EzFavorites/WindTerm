@@ -29,6 +29,8 @@ fn key_name(key: egui::Key) -> Option<&'static str> {
         // margin 五列右键键位 `Alt+T, Alt+B/N/F/S/T` 的后继：缺了就在
         // `if let Some(name)` 处静默丢掉，菜单写着键却永远按不响。
         K::B => "B", K::S => "S",
+        // `Alt+[` / `Alt+]` 视图切换：缺这两行时文档写的键在派发处被静默丢掉。
+        K::OpenBracket => "OpenBracket", K::CloseBracket => "CloseBracket",
         // 2026-11-11：补 `M`。`Alt+M, Alt+H`（Hex 视图）与 `Alt+M, Alt+W`
         // （Word Wrap）的第一段就是 `M`，缺这一行时那一击会在调用方
         // `if let Some(name)` 处**静默丢掉**：不开火、不进 pressed、
