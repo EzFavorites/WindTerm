@@ -39,7 +39,8 @@ use term_app::shell::MarksKnob;
 
 /// 页底说明：五项都已接真，各自的数据源不同。
 const HIGHLIGHT_NOTE: &str = "Caret line, word, fold and pair tints are per-tab; search matching is \
-     window-wide. All five apply immediately and are saved for new tabs.";
+     window-wide. All five apply immediately and are saved for new tabs. \
+     To highlight arbitrary text patterns, use Tools ▸ Triggers (Highlight Text rules).";
 
 /// 查找命中那一行的悬停：它没有菜单项，说明里得交代「为什么只有设置页能改」。
 const SEARCH_HOVER: &str = "Tints every search match in every tab; the current match uses the \
@@ -114,6 +115,7 @@ mod tests {
             assert!(HIGHLIGHT_NOTE.contains(source), "{source} 要在说明里点名");
         }
         assert!(!HIGHLIGHT_NOTE.contains("Not wired"), "不能再挂过期的灰显理由");
+        assert!(HIGHLIGHT_NOTE.contains("Triggers"), "任意文本高亮规则在触发器里，给读者指条路");
     }
 
     #[test]
