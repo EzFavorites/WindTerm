@@ -103,6 +103,57 @@ pub fn name_from_vault_id(id: &str) -> Option<&str> {
     id.strip_prefix("onekey:")
 }
 
+/// 键盘交互应答单独存一个保险库条目，避免把多条答案塞进密码字段。
+pub fn ki_vault_id(name: &str) -> String {
+    format!("onekey:{name}:ki")
+}
+
+/// 保险库条目里应答的序列化格式：一个 JSON 字符串数组。
+/// 解析失败按空表处理——凭据读不出来时宁可不答，也不能静默发空串冒充。
+pub fn encode_ki_answers(answers: &[String]) -> String {
+    serde_json::to_string(answers).unwrap_or_else(|_| "[]".to_string())
+}
+
+pub fn decode_ki_answers(raw: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(raw).unwrap_or_default()
+}
+
+/// Account OneKey 的 `expect → send` 判据（纯函数）。
+///
+/// 三个开关语义：大小写敏感 / 正则 / 整词。正则用 `regex`  crate，
+/// 禁用大小写时统一加 `(?i)` 前缀，不改变用户写的模式本体。
+pub fn expect_matches(expect: &ExpectSend, chunk: &str) -> bool {
+    if expect.expect.is_empty() {
+        return false;
+    }
+    if expect.flags.regex {
+        let pattern = if expect.flags.case_sensitive {
+            expect.expect.clone()
+        } else {
+            format!("(?i){}", expect.expect)
+        };
+        return regex::Regex::new(&pattern)
+            .map(|re| re.is_match(chunk))
+            .unwrap_or(false);
+    }
+    let hit = if expect.flags.case_sensitive {
+        chunk.find(&expect.expect)
+    } else {
+        chunk.to_lowercase().find(&expect.expect.to_lowercase())
+    };
+    let Some(start) = hit else {
+        return false;
+    };
+    if !expect.flags.whole_word {
+        return true;
+    }
+    let bytes = chunk.as_bytes();
+    let before = start == 0 || !bytes[start - 1].is_ascii_alphanumeric() && bytes[start - 1] != b'_';
+    let end = start + expect.expect.len();
+    let after = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_';
+    before && after
+}
+
 impl OneKey {
     /// 会话 `onekey` 字段选中的**可用**方案（`None` = 没选 / 不存在 / 已停用）。
     ///
@@ -152,6 +203,42 @@ pub fn system_index(system: &str) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_answers_round_trip_through_a_vault_string() {
+        let answers = vec!["token".to_string(), "yes".to_string()];
+        let raw = encode_ki_answers(&answers);
+        assert_eq!(decode_ki_answers(&raw), answers);
+        assert_eq!(decode_ki_answers("not json"), Vec::<String>::new());
+        assert_eq!(ki_vault_id("prod"), "onekey:prod:ki");
+    }
+
+    #[test]
+    fn expect_send_honors_case_regex_and_whole_word() {
+        let make = |expect: &str, flags: ExpectFlags| ExpectSend {
+            expect: expect.into(),
+            send: "ok".into(),
+            flags,
+        };
+        assert!(expect_matches(&make("Password", Default::default()), "Password: "));
+        assert!(!expect_matches(&make("Password", Default::default()), "password: "));
+        assert!(expect_matches(
+            &make("password", ExpectFlags { case_sensitive: false, ..Default::default() }),
+            "PASSWORD: "
+        ));
+        assert!(expect_matches(
+            &make("^pass.*:$", ExpectFlags { regex: true, ..Default::default() }),
+            "pass123:"
+        ));
+        assert!(expect_matches(
+            &make("go", ExpectFlags { whole_word: true, ..Default::default() }),
+            "please go now"
+        ));
+        assert!(!expect_matches(
+            &make("go", ExpectFlags { whole_word: true, ..Default::default() }),
+            "going now"
+        ));
+    }
 
     #[test]
     fn vault_id_round_trips_with_its_inverse() {

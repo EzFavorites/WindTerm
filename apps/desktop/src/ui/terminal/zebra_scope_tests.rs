@@ -68,6 +68,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         // 空白/符号可视化六项：这条夹具只验斑马线，六项取出厂值（全关）。
         marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
+        onekey_expects_fired: std::collections::HashSet::new(),
         // 调试覆盖层：这条夹具要逐像素数斑马线底色块，覆盖层必须关。
         debug: false,
         // 只读查看：这条夹具只验斑马线，取出厂值（可输入、无冻结锚点）。

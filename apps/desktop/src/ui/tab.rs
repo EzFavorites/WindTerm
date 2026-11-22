@@ -132,6 +132,8 @@ pub struct Tab {
     pub(in crate::ui) marks: crate::ui::terminal::MarksParams,
     /// 触发器 Highlight 命中的绝对行号。投影态，重启即清；不进选区、不进复制。
     pub(in crate::ui) trigger_highlight_rows: Vec<i64>,
+    /// Account OneKey 的 `expect → send` 已触发过的条目，避免同一提示连环发送。
+    pub(in crate::ui) onekey_expects_fired: std::collections::HashSet<String>,
     /// 这条会话的**调试覆盖层**开关（`Mode ▸ Debug Mode`）。
     ///
     /// 与 [`Tab::mode`] / [`Tab::hex`] / [`Tab::marks`] 完全同一套两层模型：归 tab

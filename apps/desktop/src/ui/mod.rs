@@ -882,7 +882,7 @@ impl TerminalWindow {
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll(rules, &mut run_commands, self.auto_reconnect) {
+            if self.tabs[i].poll(rules, &mut run_commands, self.auto_reconnect, &self.onekeys) {
                 changed = true;
             }
         }
@@ -890,7 +890,7 @@ impl TerminalWindow {
         // 一条都不能漏。少了哪一条，它的字节环就没人搬（tap 是无界 channel），
         // 而面板这边还照旧画着上一帧——长输出等于一条静默的内存泄漏。
         for tab in &mut self.shell_tabs {
-            if tab.poll(rules, &mut run_commands, false) {
+            if tab.poll(rules, &mut run_commands, false, &[]) {
                 changed = true;
             }
         }

@@ -68,6 +68,7 @@ impl Tab {
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         auto_reconnect: bool,
+        onekeys: &[term_core::onekey::OneKey],
     ) -> bool {
         let now = now_secs();
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
@@ -144,6 +145,20 @@ impl Tab {
                 for hit in hits {
                     self.apply_trigger(hit, run_commands);
                 }
+                // Account OneKey 的 expect → send：同一个提示只回一次，
+                // 方案名写错 / 已停用时 `active()` 返回 None，静默跳过。
+                if let Some(scheme) = term_core::onekey::OneKey::active(onekeys, &self.config.onekey) {
+                    let expects = scheme.expects.clone();
+                    for expect in &expects {
+                        if self.onekey_expects_fired.contains(&expect.expect) {
+                            continue;
+                        }
+                        if term_core::onekey::expect_matches(expect, &text) {
+                            self.onekey_expects_fired.insert(expect.expect.clone());
+                            self.write(expect.send.as_bytes());
+                        }
+                    }
+                }
                 self.tmux_consume_bytes(&bytes);
             }
         }
@@ -166,6 +181,7 @@ impl Tab {
             self.auto_reconnect_attempts = 0;
             self.triggers.reset();
             self.shadow.reset();
+            self.onekey_expects_fired.clear();
             let hits = self.triggers.event(rules, TriggerOn::Connect, now);
             let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
             let sig = crate::automation::sources::connected_signal("", crate::automation::now_ms());
