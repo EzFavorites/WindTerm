@@ -104,9 +104,25 @@ pub fn detect(chunk: &str) -> Vec<Found> {
     out
 }
 
+/// 一段输出末尾是否像一个命令提示符。启发式，只用于 Send Condition 的
+/// `AfterMatchAndPrompt` 放行；宁可晚一点，也不能把普通输出误当提示符。
+pub fn looks_like_prompt(chunk: &str) -> bool {
+    // 只去掉行尾换行，不去掉提示符末尾那个空格。
+    let tail = chunk.trim_end_matches(['\n', '\r']);
+    tail.ends_with("$ ") || tail.ends_with("# ") || tail.ends_with("❯ ") || tail.ends_with("> ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prompt_is_only_the_end_of_a_chunk() {
+        assert!(looks_like_prompt("user@host:~$ "));
+        assert!(looks_like_prompt("root# "));
+        assert!(!looks_like_prompt("hello world\n"));
+        assert!(!looks_like_prompt("$ echo hi"));
+    }
 
     #[test]
     fn detects_urls_without_trailing_sentence_punctuation() {

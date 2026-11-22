@@ -18,8 +18,7 @@
 
 mod clipboard_policy; mod comp;
 mod construct;
-mod dialogs;
-mod dispatch;
+mod dialogs; mod dispatch; mod lifecycle_events;
 mod effects;
 mod harness;
 pub(crate) mod kit;
@@ -33,8 +32,7 @@ mod panels;
 mod path_picker;
 mod shell;
 mod tab;
-mod tab_hover;
-mod tab_thumbnail;
+mod tab_hover; mod tab_thumbnail;
 mod terminal;
 mod tr;
 // ADR-0021 R2：纯计算 / 几何规格层（零 egui）。Trigger 对话框是第一个真实迁入的面板。
@@ -328,6 +326,8 @@ pub struct TerminalWindow {
     /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,
+    /// 控制面 Before* 事件队列；每帧由触发器求值层取走。
+    lifecycle_events: Arc<std::sync::Mutex<Vec<term_core::trigger::TriggerOn>>>,
     /// L1：连续「帧内 panic」次数。成功画完一帧就清零（见 `note_frame_ok`）。
     frame_panics: u32,
     /// 逐行 span 缓存，未变化的行零构建成本。
@@ -894,6 +894,7 @@ impl TerminalWindow {
                 changed = true;
             }
         }
+        lifecycle_events::poll(self, crate::now_secs(), &mut run_commands);
         self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话

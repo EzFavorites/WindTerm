@@ -26,6 +26,7 @@ use crate::ui::layout::mint_pane_identity;
 use std::collections::HashMap;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 /// 把「监管者真的调用了假通道的 `close()`」记下来的计数器。
@@ -250,6 +251,7 @@ pub(in crate::ui) fn window_with(
         onekeys_password_draft: None,
         // 测试窗口从「没话说、没崩过」开始。
         notice: None,
+        lifecycle_events: Arc::new(Mutex::new(Vec::new())),
         frame_panics: 0,
         tab_focus: Vec::new(),
         settings_page: Default::default(),

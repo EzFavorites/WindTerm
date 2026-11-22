@@ -120,7 +120,20 @@ impl Tab {
                 // 落地——`SendText` / `SendLine` / `Beep` 走 `write`（PTY 唯一漏斗），
                 // `RunCommand` 收集到 `run_commands` 交给窗口层派发。
                 let text = String::from_utf8_lossy(&bytes);
-                let hits = self.triggers.feed(rules, &text, now);
+                let target = term_core::trigger_target::Target {
+                    system: &self.config.system,
+                    session: &self.config.name,
+                };
+                let hits = self.triggers.feed_for(rules, &text, now, Some(target));
+                // Send Condition / Send Later 命中先排队；立即放行的原样返回。
+                let mut hits = self.triggers.schedule(hits, rules, now);
+                if text.contains('\n') {
+                    hits.extend(self.triggers.on_line_break(now));
+                }
+                if term_app::trigger_builtins::looks_like_prompt(&text) {
+                    hits.extend(self.triggers.on_prompt(now));
+                }
+                hits.extend(self.triggers.due(now));
                 // 影子轨用同一批文本求值。先记旧轨命中的规则 id（hit 随后被
                 // apply_trigger 消费），再把信号喂给新内核；不执行新轨的动作。
                 let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
@@ -280,7 +293,7 @@ impl Tab {
     ///   需要 `Action` 分发器，tab 这一层没有。
     /// - `Highlight`：记下命中所在的内容行，`paint_rows` 在字形下铺一层淡底；
     ///   不进选区、不影响复制。
-    fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
+    pub(in crate::ui) fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
         for action in &hit.actions {
             match action {
                 TriggerAction::SendText(s) => {

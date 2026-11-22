@@ -34,6 +34,14 @@ impl TerminalWindow {
         // 控制面先建：下面每一条 tab 都要经它开会话（ADR-0019 档 1.1）。
         // 一个窗口一个池——`desk serve` 是另一个进程、另一个池（ADR-0022 §决策 7）。
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        // Before* 事件先入队，设置页规则在下一帧的 draw 里求值——构造期还没有规则表。
+        let lifecycle_events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink_events = Arc::clone(&lifecycle_events);
+        pool.set_event_sink(Some(Arc::new(move |on| {
+            if let Ok(mut q) = sink_events.lock() {
+                q.push(on);
+            }
+        })));
         // 调色板与字体都要读它：先取一份，避免同一个主题文件读两遍。
         let palette = term_runtime::theme_load::load_palette();
         // 会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
@@ -440,6 +448,7 @@ impl TerminalWindow {
             // L1/L3：出厂没有话说、也没有崩过。两条都只由 `announce_recovery`
             // 与 `main.rs` 的 `catch_unwind` 写入。
             notice: None,
+            lifecycle_events,
             frame_panics: 0,
             dock_rects: Vec::new(),
             toolbar_pos: None,
