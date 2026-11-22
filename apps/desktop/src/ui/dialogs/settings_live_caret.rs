@@ -17,7 +17,7 @@
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::{recovery_notice, save_prefs};
 use super::settings_pages_view::{
-    field_label, field_row, group_box, label_col, spin_field, Slot,
+    field_label, field_row, group_box, label_col, spin_field_delta, Slot,
 };
 use crate::ui::*;
 
@@ -134,18 +134,27 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
             let mut out = None;
             ui.horizontal(|ui| {
                 field_label(ui, label, col);
-                spin_field(ui, |ui| {
-                    let mut v = value;
-                    let r = ui.add(
-                        egui::DragValue::new(&mut v)
-                            .range(range)
-                            .speed(speed)
-                            .suffix(suffix),
-                    );
-                    if r.changed() {
-                        out = Some(v);
-                    }
-                });
+                let lo = *range.start();
+                let hi = *range.end();
+                let (_, stepped) = spin_field_delta(
+                    ui,
+                    |ui| {
+                        let mut v = value;
+                        let r = ui.add(
+                            egui::DragValue::new(&mut v)
+                                .range(range.clone())
+                                .speed(speed)
+                                .suffix(suffix),
+                        );
+                        if r.changed() {
+                            out = Some(v);
+                        }
+                    },
+                );
+                if let Some(d) = stepped {
+                    if d > 0 { out = Some((value + speed).min(hi)); }
+                    else { out = Some((value - speed).max(lo)); }
+                }
             });
             out
         };

@@ -15,6 +15,7 @@
 //! `Double click event` 不是「还没接」：xterm 鼠标协议没有双击报告，本地
 //! 双击只用于选词。这一行保留形状并写清理由，不做假开关。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
 use super::settings_pages_view::group_box;
@@ -41,10 +42,10 @@ pub(in crate::ui) fn mouse_tracking(win: &mut TerminalWindow, ui: &mut egui::Ui)
 
     group_box(ui, Some("Tracking Events"), |ui| {
         ui.spacing_mut().item_spacing.y = 6.0;
-        changed |= ui.checkbox(&mut mask.move_event, "Move event").changed();
-        changed |= ui.checkbox(&mut mask.wheel_event, "Wheel event").changed();
-        changed |= ui.checkbox(&mut mask.click_event, "Click event").changed();
-        changed |= ui.checkbox(&mut mask.middle_event, "Middle click event").changed();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Move event", "", &mut mask.move_event, true, UnderlineStyle::None).clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Wheel event", "", &mut mask.wheel_event, true, UnderlineStyle::None).clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Click event", "", &mut mask.click_event, true, UnderlineStyle::None).clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Middle click event", "", &mut mask.middle_event, true, UnderlineStyle::None).clicked();
         // 空框 + 灰字：勾代表「已生效」，而这一项没有可生效的东西。
         let mut never = false;
         ui.add_enabled(false, egui::Checkbox::new(&mut never, "Double click event"))

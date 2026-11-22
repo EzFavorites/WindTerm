@@ -42,8 +42,9 @@
 //! 这一页自己定列宽（[`LABEL_W`]），长短都写全——四个标签是本页唯一的信息，
 //! 截掉一半等于没写。
 
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
-use super::settings_pages_view::{group_box, set_row_rhythm, spin_field};
+use super::settings_pages_view::{group_box, set_row_rhythm, spin_field_delta};
 use crate::ui::terminal::HexParams;
 use crate::ui::*;
 
@@ -138,8 +139,8 @@ pub(in crate::ui) fn binary(ui: &mut egui::Ui, cur: HexParams) -> BinaryEdit {
     // 变化——已开标签各带自己的 `Tab.hex.zebra`，新开的标签才用新值。页底那行
     // 说明管的就是这件事，别把这一格排除在外：同一个设置页里五个同类参数有
     // 两套语义（四个等下次、一个当场变）正是这一版修掉的东西。
-    let r = ui.checkbox(&mut zebra, "Alternate column background color");
-    if r.changed() {
+    let r = choice_row_resp(ui, ChoiceKind::Checkbox, "Alternate column background color", "", &mut zebra, true, UnderlineStyle::None);
+    if r.clicked() {
         touched = true;
         persist = true;
     }
@@ -183,12 +184,23 @@ fn number_row(
         let _ = label_cell(ui, label);
         // 占满标签列之后的整段：视觉基线 `12-text-binary.png` 的数字框一路到框右
         // 边（数字靠左、▲▼ 贴右缘），不是标签旁边一个小方框。
-        spin_field(ui, |ui| {
-            let r = ui.add(egui::DragValue::new(value).range(range).speed(0.2));
-            changed |= r.changed();
-            // 与 Font 页同一判据：拖动过程中不写盘，松手或键盘改完才写。
-            persist |= r.drag_stopped() || (r.changed() && !r.dragged());
-        });
+        let lo = *range.start();
+        let hi = *range.end();
+        let (_, stepped) = spin_field_delta(
+            ui,
+            |ui| {
+                let r = ui.add(egui::DragValue::new(value).range(range).speed(0.2));
+                changed |= r.changed();
+                // 与 Font 页同一判据：拖动过程中不写盘，松手或键盘改完才写。
+                persist |= r.drag_stopped() || (r.changed() && !r.dragged());
+            },
+        );
+        if let Some(d) = stepped {
+            if d > 0 { *value = (*value + 1).min(hi); }
+            else { *value = (*value - 1).max(lo); }
+            changed = true;
+            persist = true;
+        }
     });
     (changed, persist)
 }

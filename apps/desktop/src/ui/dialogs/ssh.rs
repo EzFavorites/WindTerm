@@ -4,6 +4,7 @@
 //! 「谁画谁」仍然各归各的文件）。这里全部是 `TerminalWindow` 的方法：
 //! 开始连接 / 每帧收结果 / 四个窗口（Connecting / Unknown host / Password / Failed）。
 
+use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::dialogs::ssh_connect::{
     ask, next, options_for, Ask, Connector, Next, PendingOpen, SshAction, Step, FIRST_POLICY,
 };
@@ -409,7 +410,7 @@ impl TerminalWindow {
                         let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
                         ui.add_space(4.0);
                         ui.add_enabled_ui(can_save, |ui| {
-                            ui.checkbox(save, "Save in vault");
+                            choice_row_styled(ui, ChoiceKind::Checkbox, "Save in vault", "", save, true, UnderlineStyle::None);
                         });
                         if !can_save {
                             ui.weak(

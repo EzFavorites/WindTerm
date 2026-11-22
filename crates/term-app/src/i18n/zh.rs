@@ -371,6 +371,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Supports Local Shell, SSH, Telnet, TCP and Serial via portable-pty." => {
             "经 portable-pty 支持本地 Shell、SSH、Telnet、TCP 与串口。"
         }
+        "Open project home" => "打开项目主页",
         // ── 不在菜单树里的 chrome：右键菜单 / 查找栏 / 浮层 / 面板 / 锁屏 ──
         "Activate" => "激活",
         "Close Others" => "关闭其他",

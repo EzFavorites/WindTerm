@@ -7,6 +7,7 @@
 use super::settings_pages::{effective_chords, page_note, page_spec, Block, Row};
 use super::settings::SettingsPage;
 use crate::ui::*;
+use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 
 // 组框的节奏常量现在只有一份出处（`kit::spec`，金标准 @2x 实测）。
 // 这里保留名字给同文件内的调用点，值与注释同步，不再各写各的。
@@ -17,7 +18,7 @@ pub(in crate::ui) use crate::ui::kit::spec::{BLOCK_GAP, GROUP_PAD, TITLE_GAP};
 // `crate::ui::kit::form::field_row` 是同一个函数、同一份间距常量。
 pub(in crate::ui) use crate::ui::kit::form::{
     dead_value, field_height, field_label, field_row, label_col, read_only, set_row_rhythm,
-    spin_field, Deco, Slot, FIELD_TO_ROW,
+    spin_field_delta, Deco, Slot, FIELD_TO_ROW,
 };
 
 pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage, overrides: &[(usize, String)]) {
@@ -161,22 +162,23 @@ pub(in crate::ui) fn draw_row(ui: &mut egui::Ui, row: &Row, note: &str, col: f32
         }
         Row::Check(text, on) => {
             let mut checked = *on;
-            ui.add_enabled(false, egui::Checkbox::new(&mut checked, *text))
-                .on_disabled_hover_text(note);
+            choice_row_resp(ui, ChoiceKind::Checkbox, text, "", &mut checked, false, UnderlineStyle::None)
+                .on_hover_text(note);
         }
         Row::DisabledCheck(text) => {
             // 形状照旧（灰复选框），但绝不打勾——勾代表「已生效」，
             // 而这一项既没落盘字段也没有读者。悬停给出与页底同一句理由。
             let mut checked = false;
-            ui.add_enabled(false, egui::Checkbox::new(&mut checked, *text))
-                .on_disabled_hover_text(note);
+            choice_row_resp(ui, ChoiceKind::Checkbox, text, "", &mut checked, false, UnderlineStyle::None)
+                .on_hover_text(note);
         }
         Row::Radios { label, items, selected } => {
             if !label.is_empty() {
                 ui.label(*label);
             }
             for (i, name) in items.iter().enumerate() {
-                ui.add_enabled(false, egui::RadioButton::new(i == *selected, *name));
+                let mut on = i == *selected;
+                choice_row_resp(ui, ChoiceKind::Radio, name, "", &mut on, false, UnderlineStyle::None);
             }
         }
         Row::Combo { label, value } => {

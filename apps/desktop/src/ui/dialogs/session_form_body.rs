@@ -560,9 +560,16 @@ impl TerminalWindow {
                 ui.add_space(5.5);
             }
             let mut on = selected.contains(&auth);
+            let acc = match auth {
+                AuthMethod::Agent => "ssh-agent",
+                AuthMethod::Password => "password",
+                AuthMethod::PublicKey => "public-key",
+                AuthMethod::KeyboardInteractive => "keyboard-interactive",
+                AuthMethod::GssapiWithMic => "gssapi-with-mic",
+            };
             if choice_row_styled(
-                ui, ChoiceKind::Checkbox, attempt_label(auth), "",
-                &mut on, true, UnderlineStyle::None,
+                ui, ChoiceKind::Checkbox, attempt_label(auth), acc,
+                &mut on, true, UnderlineStyle::Dialog,
             ) {
                 if on {
                     if !selected.contains(&auth) {
@@ -618,15 +625,6 @@ impl TerminalWindow {
                 TextEdit::singleline(&mut self.new_session.password)
                     .password(true)
                     .desired_width(FORM_W),
-            );
-            ui.add_space(4.0);
-            ui.add(
-                egui::Label::new(
-                    "If you tick “Save in vault” in the password prompt, the password \
-                     goes into the credentials vault and this session only keeps an \
-                     entry id.",
-                )
-                .wrap(),
             );
         }
         // 凭据保险库的解锁 / 创建。放在这里而不是弹窗，

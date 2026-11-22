@@ -12,12 +12,14 @@
 //!
 //! 页下标仍由 `session_nav::PAGES` 唯一决定，这里只认下标。
 
-use crate::ui::kit::field::{choice_row_resp, choice_row_styled, ChoiceKind, UnderlineStyle};
+use crate::ui::kit::field::{
+    browse_field, choice_row_resp, choice_row_styled, radio_choices, ChoiceKind, UnderlineStyle,
+};
 use super::log_settings_spec::LogType;
 use super::session_form_body::{form_row, LABEL_W};
 use super::session_pages::{grid, placeholder_note};
 use crate::ui::kit::form::{
-    dead_value, field_box, field_label, field_row, label_col, spin_field, underlined_label, Deco,
+    dead_value, field_box, field_label, field_row, label_col, spin_field_delta, underlined_label, Deco,
     Slot, FIELD_TO_ROW, LABEL_TO_FIELD,
 };
 use crate::ui::*;
@@ -72,55 +74,31 @@ fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut alt_sends = win.new_session.alt_modifier_sends;
     let mut meta_sends = win.new_session.meta_modifier_sends;
     let modified = 0usize; // XTerm format（只读展示，不回写）
-    let mut changed = false;
-    grid(ui, "new_session_keyboard_grid", |ui| {
-        form_row(ui, "Backspace sends:");
-        ui.vertical(|ui| {
-            for (i, name) in ["Automatic", "Backspace", "Delete"].iter().enumerate() {
-                let mut on = backspace == i;
-                if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-                    backspace = i;
-                    win.new_session.backspace_sends = backspace;
-                }
-            }
-        });
-        ui.end_row();
-        form_row(ui, "Delete sends:");
-        ui.vertical(|ui| {
-            for (i, name) in ["Automatic", "Backspace", "Delete"].iter().enumerate() {
-                let mut on = delete == i;
-                if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-                    delete = i;
-                    win.new_session.delete_sends = delete;
-                }
-            }
-        });
-        ui.end_row();
-        form_row(ui, "Modified other keys sends:");
-        ui.add_enabled_ui(false, |ui| {
-            ui.vertical(|ui| {
-                let mut a = modified == 0;
-                let mut b = modified == 1;
-                choice_row_styled(ui, ChoiceKind::Radio, "XTerm format", "", &mut a, false, UnderlineStyle::None);
-                choice_row_styled(ui, ChoiceKind::Radio, "Fixterm format", "", &mut b, false, UnderlineStyle::None);
-            });
-        });
-        ui.end_row();
-        form_row(ui, "Alt modifier key sends:");
-        changed |= combo(ui, "kbd_alt", &MODIFIER_FORMATS, &mut alt_sends);
-        ui.end_row();
-        form_row(ui, "Meta modifier key sends:");
-        changed |= combo(ui, "kbd_meta", &MODIFIER_FORMATS, &mut meta_sends);
-        ui.end_row();
-    });
-    placeholder_note(
+    let opts = ["Automatic", "Backspace", "Delete"];
+
+    if let Some(i) = radio_choices(ui, "Backspace sends:", &opts, backspace, true, 96.0) {
+        backspace = i;
+        win.new_session.backspace_sends = backspace;
+    }
+    if let Some(i) = radio_choices(ui, "Delete sends:", &opts, delete, true, 96.0) {
+        delete = i;
+        win.new_session.delete_sends = delete;
+    }
+    // Fixterm 没有第二套线格式：整行只读，但保持正常亮度（不画成坏掉的控件）。
+    radio_choices(
         ui,
-        "Backspace, Delete, Alt and Meta are written into the key encoder at connect \
-         time; the program may still override them with escape sequences. Modified keys have no \
-         second wire format (Fixterm) in this build — see the disabled control.",
+        "Modified other keys sends:",
+        &["XTerm format", "Fixterm format"],
+        modified,
+        false,
+        120.0,
     );
-    if changed {
+    ui.label("Alt modifier key sends:");
+    if combo(ui, "kbd_alt", &MODIFIER_FORMATS, &mut alt_sends) {
         win.new_session.alt_modifier_sends = alt_sends;
+    }
+    ui.label("Meta modifier key sends:");
+    if combo(ui, "kbd_meta", &MODIFIER_FORMATS, &mut meta_sends) {
         win.new_session.meta_modifier_sends = meta_sends;
     }
 }
@@ -136,67 +114,59 @@ fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 配置还是全局默认值，所以末尾有一行说明；等 per-session 字段落地再收掉。
 fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut dirty = false;
-    ui.label("Log types:");
-    for (kind, name) in [
-        (LogType::Nothing, "Log nothing"),
-        (LogType::Printable, "Log printable output"),
-        (LogType::All, "Log all session output"),
-    ] {
-        let mut on = win.log_settings.log_type == kind;
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-            win.log_settings.log_type = kind;
-            dirty = true;
-        }
-    }
-    ui.add_space(6.0);
-    ui.label("Log options:");
-    // 视觉基线出厂态：`Log nothing` ⇒ 这两行是灰的（`options_enabled`）。
-    let enabled = win.log_settings.log_type.enabled();
-    for (value, name) in [(true, "Overwrite log file"), (false, "Append log file")] {
-        let mut on = win.log_settings.overwrite == Some(value);
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, enabled, UnderlineStyle::None) {
-            win.log_settings.overwrite = Some(value);
-            dirty = true;
-        }
-    }
-    ui.add_space(6.0);
-    grid(ui, "new_session_logging_grid", |ui| {
-        form_row(ui, "Log file name:");
-        // 文本输入按「失焦」落盘：每敲一个字符写一次 prefs.json 太浪费。
-        let r = ui.add(
-            TextEdit::singleline(&mut win.log_settings.file_name).desired_width(232.0),
-        );
-        dirty |= r.lost_focus();
-        ui.end_row();
-        form_row(ui, "Log maximum size:");
-        let r = ui.add(
-            DragValue::new(&mut win.log_settings.max_size_mb)
-                .range(0..=102_400)
-                .custom_formatter(|n, _| {
-                    if n == 0.0 {
-                        "∞".to_string()
-                    } else {
-                        format!("{} MB", n as u32)
-                    }
-                }),
-        );
-        dirty |= r.changed();
-        ui.end_row();
-        form_row(ui, "Log content pattern:");
-        let r =
-            ui.add(TextEdit::singleline(&mut win.log_settings.pattern).desired_width(232.0));
-        dirty |= r.lost_focus();
-        ui.end_row();
-    });
-    ui.add_space(8.0);
-    placeholder_note(
+    if let Some(i) = radio_choices(
         ui,
-        "These are the default log settings (Session ▸ Log ▸ Settings edits the \
-         same record). Per-session overrides are not stored yet.",
+        "Log types:",
+        &["Log nothing", "Printable output", "All output"],
+        usize::from(win.log_settings.log_type.as_u8()),
+        true,
+        124.0,
+    ) {
+        win.log_settings.log_type = LogType::from_u8(i as u8);
+        dirty = true;
+    }
+    let enabled = win.log_settings.log_type.enabled();
+    let overwrite = usize::from(win.log_settings.overwrite == Some(true));
+    if let Some(i) = radio_choices(
+        ui,
+        "Log options:",
+        &["Overwrite log file", "Append log file"],
+        overwrite,
+        enabled,
+        124.0,
+    ) {
+        win.log_settings.overwrite = Some(i == 0);
+        dirty = true;
+    }
+    ui.add_space(4.0);
+    // 标题独占一行：金标准里这三条都是「标题在上、框在下」，不再塞进
+    // 93pt 的两列标签格（长标题会被截成 `Log file nam...`）。
+    ui.label("Log file name:");
+    let r = ui.add(
+        egui::TextEdit::singleline(&mut win.log_settings.file_name)
+            .hint_text("%Y-%m-%d.log")
+            .desired_width(320.0),
     );
+    dirty |= r.lost_focus();
+    ui.label("Log maximum size:");
+    let r = ui.add(
+        egui::DragValue::new(&mut win.log_settings.max_size_mb)
+            .range(0..=102_400)
+            .custom_formatter(|n, _| {
+                if n == 0.0 {
+                    "∞".to_string()
+                } else {
+                    format!("{} MB", n as u32)
+                }
+            }),
+    );
+    dirty |= r.changed();
+    ui.label("Log content pattern:");
+    let r = ui.add(
+        egui::TextEdit::singleline(&mut win.log_settings.pattern).desired_width(320.0),
+    );
+    dirty |= r.lost_focus();
     if dirty {
-        // 保存失败不该静默：写不进去时至少让调用点知道（返回值就地丢掉，
-        // 但下一帧用户会看到字段没被带回去）。
         let _ = win.log_settings.save();
     }
 }
@@ -254,51 +224,31 @@ fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut style = win.new_session.bell_style;
     let mut sound = win.new_session.bell_sound.clone();
     let mut dedup = win.new_session.bell_dedup_secs;
-    ui.label("Bell styles:");
-    for (i, name) in ["Mute", "Beep using the PC speaker", "Play the custom sound"]
-        .iter()
-        .enumerate()
-    {
-        let mut on = style == i;
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-            style = i;
-            win.new_session.bell_style = style;
-        }
+    if let Some(i) = radio_choices(
+        ui,
+        "Bell styles:",
+        &["Mute", "PC speaker", "Custom sound"],
+        style,
+        true,
+        126.0,
+    ) {
+        style = i;
     }
-    ui.horizontal(|ui| {
-        ui.add_space(24.0);
-        ui.add(
-            egui::TextEdit::singleline(&mut sound)
-                .hint_text("(no sound file)")
-                .desired_width(300.0),
-        );
-        if ui
-            .add(egui::Button::new("..."))
-            .on_hover_text("Browse for a sound file")
-            .clicked()
-        {
-            win.open_path_picker(crate::ui::path_picker::PathTarget::BellSound, &sound);
-        }
-    });
-    ui.add_space(8.0);
+    let (_, browse) = browse_field(ui, &mut sound, "(no sound file)", "...", 24.0, 40.0);
+    if browse.on_hover_text("Browse for a sound file").clicked() {
+        win.open_path_picker(crate::ui::path_picker::PathTarget::BellSound, &sound);
+    }
+    ui.add_space(6.0);
     ui.label("Ignore bells received more than once within:");
     egui::ComboBox::from_id_salt("bell_dedup_combo")
         .selected_text(format!("{dedup} seconds"))
         .show_ui(ui, |ui| {
             for secs in [0u32, 1, 2, 5, 10] {
-                if ui
-                    .selectable_label(dedup == secs, format!("{secs} seconds"))
-                    .clicked()
-                {
+                if ui.selectable_label(dedup == secs, format!("{secs} seconds")).clicked() {
                     dedup = secs;
                 }
             }
         });
-    placeholder_note(
-        ui,
-        "BEL reaches the session's bell policy: mute, a system beep, or a custom \
-         sound file (played without a shell). 0 seconds disables de-duplication.",
-    );
     let bell = &mut win.new_session;
     bell.bell_style = style;
     bell.bell_sound = sound;
@@ -317,35 +267,28 @@ fn mode_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     }
     choice_row_resp(ui, ChoiceKind::Checkbox, "New Line Mode (LNM)", "New",
         &mut lnm, false, UnderlineStyle::None)
-        .on_hover_text(
-            "The VT has no LNM state yet: it always treats LF as a line feed only. \
-             Storing a choice would not change any byte written to the screen.",
-        );
+        .on_hover_text("The VT has no LNM state yet: it always treats LF as a line feed only.");
     choice_row_resp(ui, ChoiceKind::Checkbox, "Reverse Screen Mode (DECSCNM)", "Reverse",
         &mut rsm, false, UnderlineStyle::None)
-        .on_hover_text(
-            "The renderer has no reverse-screen pass, so there is no state for this \
-             switch to set.",
-        );
-    ui.add_space(6.0);
-    ui.label("Cursor Keys mode (DECCKM):");
-    for (i, name) in ["Normal", "Application"].iter().enumerate() {
-        let mut on = cursor_keys == i;
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-            cursor_keys = i;
-            win.new_session.initial_cursor_keys_application = cursor_keys == 1;
-        }
-    }
-    ui.label("Numeric keypad mode (DECNKM):");
-    for name in ["Normal", "Application"] {
-        let mut on = name == "Normal";
-        choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, false, UnderlineStyle::None);
-    }
-    placeholder_note(
+        .on_hover_text("The renderer has no reverse-screen pass yet.");
+    if let Some(i) = radio_choices(
         ui,
-        "Auto wrap and the cursor-key mode are written into the VT at startup; the remote may \
-         still change them with DECSET/DECRST. LNM, reverse screen and numeric keypad have no \
-         engine state yet — see each row's tooltip.",
+        "Cursor Keys mode (DECCKM):",
+        &["Normal", "Application"],
+        cursor_keys,
+        true,
+        110.0,
+    ) {
+        cursor_keys = i;
+        win.new_session.initial_cursor_keys_application = cursor_keys == 1;
+    }
+    radio_choices(
+        ui,
+        "Numeric keypad mode (DECNKM):",
+        &["Normal", "Application"],
+        0,
+        false,
+        110.0,
     );
 }
 
@@ -353,26 +296,26 @@ fn mode_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 fn security_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut read = win.new_session.clipboard_read_policy;
     let mut write = win.new_session.clipboard_write_policy;
-    ui.label("When the remote wants to read the clipboard:");
-    for (i, name) in ["Ask", "Allow", "Forbid"].iter().enumerate() {
-        let mut on = read == i;
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-            read = i;
-        }
-    }
-    ui.add_space(6.0);
-    ui.label("When the remote wants to overwrite the clipboard:");
-    for (i, name) in ["Ask", "Allow", "Forbid"].iter().enumerate() {
-        let mut on = write == i;
-        if choice_row_styled(ui, ChoiceKind::Radio, name, "", &mut on, true, UnderlineStyle::None) {
-            write = i;
-        }
-    }
-    placeholder_note(
+    if let Some(i) = radio_choices(
         ui,
-        "Ask pops a confirmation for each OSC 52 request; Allow applies it immediately \
-         and Forbid ignores it. The clipboard itself stays with the UI thread.",
-    );
+        "When the remote wants to read the clipboard:",
+        &["Ask", "Allow", "Forbid"],
+        read,
+        true,
+        100.0,
+    ) {
+        read = i;
+    }
+    if let Some(i) = radio_choices(
+        ui,
+        "When the remote wants to overwrite the clipboard:",
+        &["Ask", "Allow", "Forbid"],
+        write,
+        true,
+        100.0,
+    ) {
+        write = i;
+    }
     win.new_session.clipboard_read_policy = read;
     win.new_session.clipboard_write_policy = write;
 }
@@ -450,9 +393,12 @@ fn window_group_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let number = |ui: &mut egui::Ui, label: &str, value: &mut usize, hi: usize| {
         ui.horizontal(|ui| {
             field_label(ui, label, col);
-            spin_field(ui, |ui| {
+            let (_, stepped) = spin_field_delta(ui, |ui| {
                 ui.add(egui::DragValue::new(value).range(1..=hi));
             });
+            if let Some(d) = stepped {
+                *value = (*value as i64 + d as i64).clamp(1, hi as i64) as usize;
+            }
         });
     };
     number(ui, "Columns:", &mut ns.cols, 1000);
@@ -495,9 +441,12 @@ fn window_group_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 从标签列左缘一直铺到右缘，比上面那几行宽）。
     underlined_label(ui, "Roll the mouse wheel to scroll:");
     ui.add_space(LABEL_TO_FIELD - FIELD_TO_ROW);
-    spin_field(ui, |ui| {
+    let (_, stepped) = spin_field_delta(ui, |ui| {
         ui.add(egui::DragValue::new(&mut ns.wheel_lines).range(1..=100));
     });
+    if let Some(d) = stepped {
+        ns.wheel_lines = (ns.wheel_lines as i64 + d as i64).clamp(1, 100) as u32;
+    }
 
     // 两段「抬头 + 缩进勾选」。两者都没有后端字段 → 灰显。
     let mut adjust_rows = true;
