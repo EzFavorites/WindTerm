@@ -116,6 +116,37 @@ mod architecture_tests {
     }
 
     #[test]
+    fn radio_dots_have_one_flow_layout_implementation() {
+        // 像素锁定的绝对坐标体系是真实变体，白名单列出；其余 flow 布局
+        // 一律用 kit::field 的 12pt 单选圆点，不再混 egui 原生 RadioButton。
+        let allow = ["tools_sender_row.rs", "list_popup.rs", "log_settings.rs"];
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/ui");
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            for entry in std::fs::read_dir(&dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().is_none_or(|e| e != "rs") {
+                    continue;
+                }
+                let name = path.file_name().unwrap().to_string_lossy();
+                // 门禁自己所在的 kit/ 源码里会出现这些模式字符串，不能扫自己。
+                if allow.contains(&name.as_ref()) || path.to_string_lossy().contains("/kit/") {
+                    continue;
+                }
+                let src = std::fs::read_to_string(&path).unwrap();
+                assert!(
+                    !src.contains("egui::RadioButton::new") && !src.contains("ui.radio("),
+                    "{name} 仍有原生 radio；请用 kit::field::choice_row* / radio_choices"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn kit_modules_are_all_registered() {
         let mod_rs = std::fs::read_to_string(
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/ui/kit/mod.rs"),

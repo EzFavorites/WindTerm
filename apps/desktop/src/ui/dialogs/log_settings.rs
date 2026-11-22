@@ -323,7 +323,11 @@ impl TerminalWindow {
                     .custom_formatter(|n, _| {
                         if n == 0.0 { "∞".to_string() } else { format!("{n:.0} MB") }
                     });
-                ui.add_sized(egui::vec2(FIELD_W, 24.0), dv);
+                let (drag, stepped) = crate::ui::kit::form::spin_field_delta(ui, |ui| { ui.add(dv); });
+                let _ = drag;
+                if let Some(d) = stepped {
+                    mb = (mb + d as f64).clamp(0.0, 1024.0);
+                }
                 ui.end_row();
                 ui.label(underlined(
                     ui,

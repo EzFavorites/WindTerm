@@ -405,6 +405,7 @@ impl TerminalWindow {
                         let resp = ui.add(
                             TextEdit::singleline(password)
                                 .password(true)
+                                .desired_width(ui.available_width())
                                 .hint_text("not saved to disk"),
                         );
                         let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));

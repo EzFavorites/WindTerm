@@ -30,7 +30,9 @@ pub(in crate::ui) fn draw(
     hovered: bool,
     enabled: bool,
 ) {
-    let p = ui.painter_at(clip);
+    // 描边有一半落在 rect 外侧；若 clip 正好等于按钮 rect，左/上那半圈
+    // 会被裁掉（与 radio/checkbox 的裁剪问题同源）。外扩 2pt 容纳描边。
+    let p = ui.painter_at(clip.expand(2.0));
     if let Some((top, bottom)) = spec.gradient {
         gradient(&p, rect, top, bottom);
     } else {
