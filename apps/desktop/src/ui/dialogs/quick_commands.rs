@@ -85,7 +85,12 @@ impl TerminalWindow {
         let mut down = false;
         let mut duplicate = false;
 
-        let open = DialogWindow::new(DialogId::QuickCommands, "Quick Commands").show(
+        // 原版 `07-dialogs/quick_commands.png` 是一块无标题条的圆角浮层：
+        // 顶行直接是 Group 管理，没有标题文字/红绿灯/×。关闭走 Esc 与
+        // 底部 Cancel / Ok（与 `DialogId::QuickCommands.keys()` 一致）。
+        let open = DialogWindow::new(DialogId::QuickCommands, "")
+            .without_title_bar()
+            .show(
             ctx,
             |ui| {
                 ui.spacing_mut().item_spacing.y = 6.0;
