@@ -289,8 +289,20 @@ const TABLE_TOP: f32 = 36.0;
 
 /// 视觉基线里的会话图标：内置 shell 是菱形，分组是齿轮状，其余是小方块。
 /// 全部几何/字形画，颜色 `#BBBBBB`，与表格文字同族。
-fn session_glyph(p: &egui::Painter, center: egui::Pos2, name: &str) {
-    let c = rgb(0xBBBBBB);
+fn session_glyph(p: &egui::Painter, center: egui::Pos2, name: &str, row: usize) {
+    // 原版 Sessions 表按会话/外壳类型着色：shell 子项用粉/橙/蓝，普通会话
+    // 用八色轮转盘。没有领域色字段时按行号取色，纯视觉、不假装能改颜色。
+    const ROW_COLORS: [u32; 8] = [
+        0xFF7A2F, 0xE02020, 0xA020E0, 0x20A020, 0xE02020, 0xA020E0, 0x2E8BEF, 0xE08080,
+    ];
+    let shell = name.rsplit('/').next().unwrap_or(name);
+    let c = match shell {
+        "csh" | "tcsh" | "zsh" => rgb(0xFF008E),
+        "dash" | "ksh" => rgb(0xFF6A00),
+        "sh" => rgb(0x2E8BEF),
+        "bash" => rgb(0xFFB000),
+        _ => rgb(ROW_COLORS[row % ROW_COLORS.len()]),
+    };
     if name.contains('/') {
         p.text(
             center,
@@ -328,22 +340,36 @@ pub(in crate::ui) fn sessions_editor(
     ui: &mut egui::Ui,
     key: &OneKey,
     filter: &mut String,
+    focus_filter: bool,
 ) {
     let o = ui.cursor().min;
     // Painter 廉价克隆：下面 TextEdit 要借 &mut ui，p 不能一直占着不可变借。
     let p = ui.painter().clone();
 
-    // Filter：整宽灰底输入框，视觉基线 y 27..44（相对主体原点 0..18）。
+    // Filter：整宽输入框，视觉基线 y 27..44（相对主体原点 0..18）。
+    // 底色 #1C1C1C；聚焦时 #007CD2 描边（原版 Sessions 图就是聚焦态）。
     let fr = egui::Rect::from_min_size(o, egui::vec2(PANEL_W + 264.0, FILTER_H));
-    p.rect_filled(fr, egui::Rounding::ZERO, rgb(0x282828));
+    p.rect_filled(fr, egui::Rounding::ZERO, rgb(0x1C1C1C));
+    let focused = focus_filter;
     place(ui, fr.shrink2(egui::vec2(6.0, 1.0)), |ui| {
-        ui.add(
+        let resp = ui.add(
             egui::TextEdit::singleline(filter)
                 .hint_text("Filter")
                 .desired_width(f32::INFINITY)
                 .frame(false),
         );
+        if focused && !resp.has_focus() {
+            resp.request_focus();
+        }
     });
+    p.rect_stroke(
+        fr,
+        egui::Rounding::ZERO,
+        egui::Stroke::new(
+            1.0,
+            if focused { rgb(0x007CD2) } else { rgb(0x444444) },
+        ),
+    );
 
     let table = egui::Rect::from_min_size(
         o + egui::vec2(0.0, TABLE_TOP),
@@ -408,7 +434,7 @@ pub(in crate::ui) fn sessions_editor(
             p.rect_filled(row, egui::Rounding::ZERO, rgb(0x2E2E2E));
         }
         let cy = row.center().y;
-        session_glyph(&p, egui::pos2(row.left() + 20.0, cy), name);
+        session_glyph(&p, egui::pos2(row.left() + 20.0, cy), name, i);
         p.text(
             egui::pos2(row.left() + 36.0, cy),
             egui::Align2::LEFT_CENTER,

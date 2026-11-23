@@ -103,6 +103,8 @@ pub(in crate::ui) struct OneKeysEdit {
     pub(in crate::ui) show_password_send: bool,
     /// Sessions 页 Filter 框的跨帧缓冲。
     pub(in crate::ui) session_filter: String,
+    /// 组件夹具专用：进 Sessions 页时给 Filter 一个焦点，重现原图的蓝描边。
+    pub(in crate::ui) session_filter_focus: bool,
     /// SSH 页两张表是否处于 `Modify` 编辑态（视觉基线默认是只读，只有链接）。
     pub(in crate::ui) key_editing: bool,
     pub(in crate::ui) ki_editing: bool,
@@ -242,7 +244,7 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 .and_then(|i| edit.draft.as_ref()?.get(i))
                 .cloned()
                 .unwrap_or_default();
-            sessions_editor(win, ui, &key, &mut edit.session_filter);
+            sessions_editor(win, ui, &key, &mut edit.session_filter, edit.session_filter_focus);
         });
     } else {
         write_body(ui, body, win, &mut edit);
@@ -467,7 +469,7 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
         match edit.tab {
             Tab::Ssh => ssh_editor(win, ui, &mut key, edit),
             Tab::Account => account_editor(win, ui, &mut key, &mut edit.show_password_send),
-            Tab::Sessions => sessions_editor(win, ui, &key, &mut edit.session_filter),
+            Tab::Sessions => sessions_editor(win, ui, &key, &mut edit.session_filter, edit.session_filter_focus),
         }
         // 「Click the lock to make changes」是硬约束：锁着时页面可以照常看，
         // 但不能把改动落到草稿里。没有方案时例外——那时要能填出第一条。

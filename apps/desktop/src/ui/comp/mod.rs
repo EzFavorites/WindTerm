@@ -664,17 +664,15 @@ mod tests {
         assert!(CompId::ALL.iter().any(|c| c.has_baseline()));
         assert!(CompId::About.has_baseline());
         assert!(CompId::NewSessionPage(0).has_baseline());
-        // Preferences 的每一页都出图；除 OneKeys 外都参与逐字节比对。
+        // Preferences 的每一页都出图并参与逐字节比对（OneKeys 已按原版
+        // Sessions 图重冻，`dialog_settings_onekeys.png` 进了 git）。
         assert!(CompId::SettingsPage(0).has_baseline());
         assert!(CompId::SettingsPage(21).has_baseline());
-        // OneKeys：名单里有、git 里从来没有 PNG（整批基线有意未重冻）。若它被
-        // 标回 gated，`--components` 就会稳定报「基线不存在」——这条钉住那个
-        // 假红不会回来。等整批重冻、PNG 进了 git，连同这条一起改。
         let onekeys = dialogs::SettingsPage::ALL
             .iter()
             .position(|p| *p == dialogs::SettingsPage::OneKeys)
             .expect("OneKeys 必须在 Preferences 页表里");
-        assert!(!CompId::SettingsPage(onekeys as u8).has_baseline());
+        assert!(CompId::SettingsPage(onekeys as u8).has_baseline());
         // 两条底部横栏各自受一张逐字节基线保护。
         assert!(CompId::QuickCommandBar.has_baseline());
         assert!(CompId::StatusBar.has_baseline());

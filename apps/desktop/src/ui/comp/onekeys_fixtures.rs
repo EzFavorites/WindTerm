@@ -9,7 +9,9 @@ use crate::ui::TerminalWindow;
 
 /// 把环境变量指定的状态摆到 `win` 上。返回是否命中任一夹具。
 pub(in crate::ui) fn apply(win: &mut TerminalWindow) {
-    let tab = std::env::var("WINDTERM_ONEKEYS_TAB").unwrap_or_default();
+    // 组件基线取金标准 `onekeys-sessions-page.png`：没显式指定时落 Sessions 页。
+    let tab = std::env::var("WINDTERM_ONEKEYS_TAB")
+        .unwrap_or_else(|_| "sessions".to_string());
     let want = match tab.as_str() {
         "account" => Some(Tab::Account),
         "sessions" => Some(Tab::Sessions),
@@ -17,7 +19,18 @@ pub(in crate::ui) fn apply(win: &mut TerminalWindow) {
         _ => None,
     };
     if let Some(want) = want {
-        win.onekeys_edit.get_or_insert_with(Default::default).tab = want;
+        let edit = win.onekeys_edit.get_or_insert_with(Default::default);
+        edit.tab = want;
+        // 原版 Sessions 图里 Filter 是聚焦态（蓝描边）、保险库已解锁
+        // （页脚钥匙文案 + Ok 可点）。只在夹具里摆这两件事。
+        if want == Tab::Sessions {
+            edit.session_filter_focus = true;
+            if win.vault.is_none() {
+                if let Ok(vault) = term_vault::Vault::create("fixture-password-123") {
+                    win.vault = Some(vault);
+                }
+            }
+        }
     }
 
     // 新建方案模态框（原版 onekeys-new-dialog.png）。

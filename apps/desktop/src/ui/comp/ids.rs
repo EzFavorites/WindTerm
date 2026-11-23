@@ -226,18 +226,6 @@ impl CompId {
             // Telnet·Tcp 的 Connection）。首轮只登记不出图（否则脚本因缺 PNG
             // 直接红）；**同日已首次出图并逐张核对**，现在一起并进逐字节比对。
             CompId::NewSessionPage(_) => true,
-            // OneKeys：组件名单里**从来没有** `dialog_settings_onekeys.png`
-            // （git 无记录；整批基线在 窗口容器改造后有意清空，
-            // 等 /K1/K2/K3 落定再重冻，见 docs/facts.txt 的 `baselines=0`）。
-            // 标成 gated 会让 `--components` 每次都报「基线不存在」——那是假红：
-            // 不是图坏了，是这个组件从未冻结过。名单保留（夹具出图照样能看），
-            // 但不进逐字节比对；重冻时 PNG 落进 git 再并回 gated。
-            CompId::SettingsPage(n)
-                if dialogs::SettingsPage::ALL.get(n as usize)
-                    == Some(&dialogs::SettingsPage::OneKeys) =>
-            {
-                false
-            }
             // Preferences 的 24 页：首轮出图即冻结，之后「哪一页被改坏」是
             // 逐字节问题，不再需要在一整张默认页截图里靠肉眼找。
             CompId::SettingsPage(_) => true,
