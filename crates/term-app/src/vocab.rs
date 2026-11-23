@@ -335,6 +335,12 @@ pub enum ShellAction {
     /// 投影层，`Tab::local_mode` 的文档是唯一事实来源；本枚举只负责「用户点了」。
     /// **不落盘**：只读是临时查看态，重启后一律可输入。
     ToggleLocalMode,
+    /// `Mode ▸ Remote Mode`：把活动标签从只读查看态切回可输入的远端态。
+    ///
+    /// 与 `ToggleLocalMode` 是同一份 `Tab.local_mode` 的两个方向——这个变体
+    /// 只把那一位清成 false（已经是远端态时是空操作），不落盘。它是菜单里
+    /// `CheckState::Live` 的勾：勾上表示「当前是远端态」，由投影层现读。
+    SetRemoteMode,
     /// `View ▸ Hex Base`：一个字节用几进制写（2 / 7 / 8 / 10 / 16）。
     ///
     /// 与 `ToggleHexEdit` 同一类：reducer 只说「用户点了哪一档」，**不碰**

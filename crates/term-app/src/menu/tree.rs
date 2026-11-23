@@ -728,7 +728,7 @@ pub fn menus() -> Vec<Menu> {
                 Item::Check {
                     label: "Remote Mode",
                     id: "Window.SetRemoteMode",
-                    checked: CheckState::Fixed(true),
+                    checked: CheckState::Live,
                 },
                 Item::Action {
                     label: "Local Mode",

@@ -154,6 +154,7 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
         ShellAction::ToggleDebugMode => vec![Effect::ToggleDebug],
         // 只读查看：同上——「哪条会话冻着」是每条会话的属性，reducer 只说意图。
         ShellAction::ToggleLocalMode => vec![Effect::ToggleLocalMode],
+        ShellAction::SetRemoteMode => vec![Effect::SetRemoteMode],
         // 两条都是「投影层才知道落地细节」的同族。
         // 开关值活在投影层（`TerminalWindow::tunnels_enabled`）并落盘，
         // 设置草稿更是纯投影态——reducer 一个字段都不碰，只转述意图。

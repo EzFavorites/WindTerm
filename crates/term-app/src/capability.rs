@@ -270,9 +270,11 @@ mod tests {
         // → 已接线 216→217、占位 6→5、总数 222 不变（菜单项一条没增没删）。
         // 2026-11-23：`Window.GotoSymbol` 接线（符号表 = OSC 133 命令块）
         // → 已接线 217→218、占位 5→4、总数 222 不变。
+        // 同日：`Window.SetRemoteMode` 接线（退出只读，勾改 Live）
+        // → 已接线 218→219、占位 4→3、总数 222 不变。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 218, "已接线命令数变化需显式确认");
-        assert_eq!(planned, 4, "占位命令数变化需显式确认");
+        assert_eq!(implemented, 219, "已接线命令数变化需显式确认");
+        assert_eq!(planned, 3, "占位命令数变化需显式确认");
         assert_eq!(inventory().len(), 222);
     }
 
@@ -598,6 +600,7 @@ mod tests {
             // `ui/terminal/view.rs::paint_cursor`（不画光标）。归
             // `FeatureId::Shell`（`Window.*` 前缀 + `Action::Shell(_)` 兜底）。
             "Window.SetLocalMode",
+            "Window.SetRemoteMode",
             // 2026-11-15：`Application.NewWindow`。读者是
             // `apps/desktop/src/new_window.rs` 的 `SpawnPlan::launch`——它拉起一个
             // 完整的**新进程**（窗口态独立、不恢复布局），「效果」落在窗口
@@ -766,8 +769,9 @@ mod tests {
         // `Window.GotoSymbol`——仍然解析不了（符号表要先有「符号」这个概念），
         // 且它不在任何已接线的能力族里。
         // `Window.GotoSymbol` 2026-11-23 已接线（符号表 = OSC 133 命令块）；
-        // 这里改用仍未接线的 `Window.SetRemoteMode` 钉住置灰这一侧。
-        assert_eq!(describe("Window.SetRemoteMode").state, CapState::Planned);
+        // `Window.SetRemoteMode` 同日接线。这里改用仍未接线的
+        // `Text.ToggleWordWrap`（软换行需内核 reflow）钉住置灰这一侧。
+        assert_eq!(describe("Text.ToggleWordWrap").state, CapState::Planned);
     }
 
     /// 2026-11-14：折叠族九条**逐条**钉住「可点 + 归属」。

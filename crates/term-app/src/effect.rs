@@ -154,6 +154,8 @@ pub enum Effect {
     /// `Tab::poll`（钉住视口 + 跳过触发器）、`ui/terminal/pane.rs`（不发鼠标上报、
     /// 不弹补全、不落粘贴）、`ui/terminal/view.rs::paint_cursor`（不画光标）。
     ToggleLocalMode,
+    /// `Mode ▸ Remote Mode`：把活动标签的 `Tab.local_mode` 清成 false。
+    SetRemoteMode,
     /// 2026-11-17：隧道总线开关切一下（菜单栏 `Tunnels` 下拉）。
     ///
     /// 落地是 `TerminalWindow::set_tunnels_enabled`：关 → 停掉全部在跑的隧道，

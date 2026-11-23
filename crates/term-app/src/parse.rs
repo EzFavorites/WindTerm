@@ -49,6 +49,7 @@ pub(crate) fn shell_parse(id: &str) -> Option<ShellAction> {
         // `Item::Action` 且解析成 `None` → 一直画成灰的。接线后菜单行改成
         // `Item::Check { Live }`，勾读活动标签的 `Tab.local_mode`。
         "Window.SetLocalMode" => ShellAction::ToggleLocalMode,
+        "Window.SetRemoteMode" => ShellAction::SetRemoteMode,
         "Window.ActivateNextView" => ShellAction::ActivateNextView,
         "Window.ActivatePreviousView" => ShellAction::ActivatePreviousView,
         "Terminal.CopySessionName" => ShellAction::CopySessionName,

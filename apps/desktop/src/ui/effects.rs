@@ -22,6 +22,7 @@ use term_core::vt::paste_bytes_for;
 // 会把这里顶过 500 代码行上限。
 mod debug_log;
 mod fold;
+mod mode;
 mod theme;
 
 impl TerminalWindow {
@@ -452,6 +453,7 @@ impl TerminalWindow {
             // 四条消费者（write / poll / pane / paint_cursor）读的都是这一位，
             // 所以本函数只负责翻它，别再在这里顺手改别的东西。
             Effect::ToggleLocalMode => self.toggle_local_mode(),
+            Effect::SetRemoteMode => self.set_remote_mode(),
             // 2026-11-17 Tunnels：总线开关会真的停/起连接，所以必须先落内存
             // 再写盘——反过来的话，写盘失败会让屏幕与实际转发不一致。
             Effect::ToggleTunnels => {
@@ -589,48 +591,6 @@ impl TerminalWindow {
         self.tabs
             .get(self.active_slot())
             .is_some_and(|tab| tab.local_mode)
-    }
-
-    /// `Window ▸ Local Mode`：把**活动标签**切成只读查看 / 恢复可输入。
-    ///
-    /// 只翻 `Tab.local_mode` 一位——不写盘、不动别的标签、不改 `SessionConfig`。
-    /// 四条判据（不写 PTY / 不自动滚动 / 触发器不执行 / 脚本不执行）全是读这一位
-    /// 的**消费者**，所以这里多写一行就多一个第二写者：
-    ///
-    /// - 视口冻结不需要在进入时算锚点：`Tab::poll` 每帧用「上一帧 history +
-    ///   当前 scroll」推顶部绝对行，进入只读的下一帧自然就钉住了；
-    /// - 光标消失是 `paint_cursor` 的判据，不是这里去改 `hide_cursor_typing`。
-    ///
-    /// 唯一的手脚在**脚本**上：已经在跑的那个不会读 `local_mode`（它拿的是
-    /// `SessionPool`，不是 `Tab`），所以进入只读时当场取消——否则「脚本不执行」
-    /// 这句话对一条正在跑的脚本就是假的。取消只覆盖本窗口起的两个来源
-    /// （运行对话框 + 登录脚本），会话上被别人起的脚本只能靠 `write` 拦。
-    fn toggle_local_mode(&mut self) {
-        let active = self.active_slot();
-        let now_local = {
-            let Some(tab) = self.tabs.get_mut(active) else {
-                return;
-            };
-            tab.local_mode = !tab.local_mode;
-            tab.vim.reset(); // 进出的那一下不许带着上一次的「g」/数字前缀
-            tab.local_mode
-        };
-        if now_local {
-            if let Some(run) = self.script.as_ref().and_then(|dlg| dlg.run.as_ref()) {
-                run.cancel();
-            }
-            for run in &self.logon_runs {
-                run.cancel();
-            }
-            self.log_note = Some(
-                "Local mode: this session is read-only — no input, no auto-scroll, triggers and \
-                 scripts paused."
-                    .to_string(),
-            );
-        } else {
-            self.log_note = Some("Local mode off — input restored.".to_string());
-        }
-        self.ctx.request_repaint();
     }
 
     /// `View ▸ Hex Base / Hex Columns / Hex Group Chars` 的**唯一落地点**：

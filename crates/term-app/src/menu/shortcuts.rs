@@ -279,12 +279,11 @@ pub fn shortcut_for(chord_text: &str) -> Option<&'static str> {
 /// 1. **与 `DEFAULT_SHORTCUTS` 有五条分歧**（本列照视觉基线，绑定表是出厂值）。
 ///    清单在 `DEFAULT_SHORTCUTS` 的文档段里，断言是
 ///    `menu_check_tests.rs::KNOWN_CHORD_DISAGREEMENTS`。
-/// 2. **有两条命令还没接线，视觉基线上却标着键**：
-///    `Window.SetRemoteMode`（`Alt+Return`）、
+/// 2. **还有一条命令没接线，视觉基线上却标着键**：
 ///    `Text.ToggleWordWrap`（`Alt+M, Alt+W`）。清单与断言见
 ///    `menu_check_tests.rs::KNOWN_UNWIRED_SHORTCUTS`。
 ///    已销账：`Application.NewWindow`（2026-11-15）、`Window.GotoSymbol`（2026-11-23，
-///    符号表就是 OSC 133 命令块）。
+///    符号表就是 OSC 133 命令块）、`Window.SetRemoteMode`（2026-11-23，退出只读）。
 ///
 /// 第 2 类是本轮特别定过口径的：**照 2.6.1 保真优先**。视觉基线上写着
 /// `Meta+Shift+N`，菜单就该写着——把它删掉是拿保真度换整洁，方向错了。

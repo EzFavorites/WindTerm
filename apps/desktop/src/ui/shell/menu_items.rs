@@ -60,6 +60,9 @@ fn live_check(win: &TerminalWindow, id: &str) -> bool {
     use term_app::shell::ShellAction;
     match Action::parse(id) {
         Some(Action::Shell(ShellAction::Marks(knob))) => win.marks_knob_on(knob),
+        // Remote Mode 勾的是「当前可输入」= 不在本地只读态。与 Local Mode
+        // 共用同一份 `Tab.local_mode`，中间没有第二份镜像状态。
+        Some(Action::Shell(ShellAction::SetRemoteMode)) => !win.local_mode_on(),
         Some(Action::Shell(ShellAction::HexBase(base))) => win.active_hex().base == base,
         Some(Action::Shell(ShellAction::HexColumns(columns))) => {
             win.active_hex().columns == columns
