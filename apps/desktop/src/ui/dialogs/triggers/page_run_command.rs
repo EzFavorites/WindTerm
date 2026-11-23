@@ -23,10 +23,12 @@ pub(in crate::ui) fn page(
     let base = origin(o);
     super::edit::match_box(ui, base, rule, ps::run_command::MATCH_H, true);
 
-    super::fields::label(
+    super::fields::label_ul(
         ui,
-        base + egui::vec2(0.0, ps::run_command::ACTION_LABEL_Y),
+        base.x,
+        base.y + ps::run_command::ACTION_LABEL_Y,
         "Action:",
+        'A',
     );
 
     let layout = super::page_action::OsLayout {

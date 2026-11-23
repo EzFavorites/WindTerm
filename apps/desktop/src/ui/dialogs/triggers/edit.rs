@@ -3,7 +3,7 @@
 //! 从 `panels.rs` 拆出（单文件 500 行上限）。两者共用「Match 框 + flag bar」
 //! 那段（[`match_box`]），差别在下半页。
 
-use super::fields::{combo, field, flag_bar, label, mono, multiline, rgb, text_w};
+use super::fields::{combo, field, flag_bar, label, label_ul, mono, multiline, rgb, text_w};
 use super::{sync_actions, Open, View};
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
@@ -22,12 +22,12 @@ pub(super) fn custom(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &m
     let base = origin(o);
     match_box(ui, base, rule, spec::custom::MATCH_H, false);
     let combo_top = spec::custom::MATCH_H + spec::custom::FLAG_H + 8.5;
-    label(ui, base + egui::vec2(0.0, combo_top + 4.0), "Action:");
+    label_ul(ui, base.x, base.y + combo_top + 4.0, "Action:", 'A');
     let cr = egui::Rect::from_min_size(
         base + egui::vec2(0.0, combo_top + 19.0),
         egui::vec2(spec::BODY.2, spec::custom::COMBO_H),
     );
-    if combo(ui, cr, rule.config.action.kind.label(), view.open == Some(Open::Action)).clicked() {
+    if combo(ui, cr, rule.config.action.kind.label(), true).clicked() {
         view.toggle_at(Open::Action, cr);
     }
 

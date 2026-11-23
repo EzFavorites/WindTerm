@@ -164,6 +164,16 @@ pub(super) fn footer(ui: &mut egui::Ui, o: egui::Pos2, view: &View, act: &mut Ac
         | TriggerKind::ShowTooltip => "Next",
         _ => "Ok",
     };
+    // 2026-11-23 实机补截的 04/10/13/15/16-page 是「向导」上下文（模态框 +
+    // 主按钮 Next），与 Preferences 独立页（Ok）是同一界面的两种宿主。
+    // 夹具用 WINDTERM_TRIG_NEXT=1 复现向导态，不改生产路径、不改冻结基线。
+    let primary = if cfg!(debug_assertions)
+        && std::env::var("WINDTERM_TRIG_NEXT").as_deref() == Ok("1")
+    {
+        "Next"
+    } else {
+        primary
+    };
     for (label, (x, w), is_primary) in [
         ("Cancel", spec::BTN_CANCEL, false),
         (primary, spec::BTN_OK, true),
