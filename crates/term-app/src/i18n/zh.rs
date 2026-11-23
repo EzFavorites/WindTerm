@@ -275,9 +275,11 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // ── 帮助 / 命令面板 ──
         "About" => "关于",
         "Command Palette" => "命令面板",
+        "Command Palette..." => "命令面板...",
         "Show Palette Command" => "面板：命令",
         "Show Palette Anything" => "面板：任意",
         "Anything Palette" => "任意面板",
+        "Anything Palette..." => "任意面板...",
         "Palette: Anything" => "面板：任意",
         "Copy Session Name" => "复制会话名",
         "Copy Session Url" => "复制会话地址",

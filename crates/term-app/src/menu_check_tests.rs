@@ -113,14 +113,16 @@ fn the_view_menu_has_exactly_one_check_row() {
         .position(|it| matches!(it, Item::Check { .. }))
         .expect("View 菜单里要有勾选行");
     let before = &view[at - 2];
-    let after = &view[at + 1];
     assert!(
         matches!(before, Item::Submenu { label, .. } if *label == "Syntax Schemes"),
         "勾选行前面应是 Syntax Schemes 子菜单 + 一条分隔线"
     );
+    // 2026-11-23 原版 `01-view-menu.png`：勾选行与 Margins 之间也有一条分隔线。
+    assert!(matches!(view[at + 1], Item::Separator));
+    let after = &view[at + 2];
     assert!(
         matches!(after, Item::Submenu { label, .. } if *label == "Margins"),
-        "勾选行后面紧跟 Margins 子菜单"
+        "勾选行后经一条分隔线到 Margins 子菜单"
     );
 }
 

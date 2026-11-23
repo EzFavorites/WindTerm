@@ -452,11 +452,11 @@ pub fn menus() -> Vec<Menu> {
             label: "View",
             items: vec![
                 Item::Action {
-                    label: "Anything Palette",
+                    label: "Anything Palette...",
                     id: "Window.ShowPaletteAnything",
                 },
                 Item::Action {
-                    label: "Command Palette",
+                    label: "Command Palette...",
                     id: "Window.ShowPaletteCommand",
                 },
                 Item::Separator,
@@ -585,7 +585,9 @@ pub fn menus() -> Vec<Menu> {
                         },
                     ],
                 },
-                // 视觉基线：Bars / Panes / Syntax Schemes 三组连排，中间不插线。
+                Item::Separator,
+                // 2026-11-23 原版 `01-view-menu.png`：Panes 与 Syntax Schemes
+                // 之间有一条分隔线（旧图判成连排，已纠正）。
                 Item::Submenu {
                     label: "Syntax Schemes",
                     items: vec![Item::Action {
@@ -608,6 +610,7 @@ pub fn menus() -> Vec<Menu> {
                     id: "Text.HighlightCaretLine",
                     checked: CheckState::Live,
                 },
+                Item::Separator,
                 // 2026-11-07：margin 边栏。之前把「边距」当成编辑器语义删掉过，
                 // 现在它有真实实现（行号 / 符号 / 时间戳三列都从内核快照算），
                 // 所以按那个判据重新加回来：**菜单项跟着能力走**。
@@ -656,10 +659,12 @@ pub fn menus() -> Vec<Menu> {
                     label: "White Spaces",
                     items: vec![Item::Separator],
                 },
+                Item::Separator,
                 Item::Submenu {
                     label: "Folds",
                     items: vec![Item::Separator],
                 },
+                Item::Separator,
                 Item::Submenu {
                     label: "Zoom",
                     items: vec![
