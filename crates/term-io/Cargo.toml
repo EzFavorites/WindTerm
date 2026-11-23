@@ -26,6 +26,11 @@ portable-pty = "0.8"
 # unix 侧行为与手写版等价（`O_NOCTTY | O_NONBLOCK | O_CLOEXEC` + `cfmakeraw` +
 # 设置回读校验），于是整体换过来。
 serialport = { version = "4", default-features = false }
+# TCP socket 选项：`std::net::TcpStream::set_keepalive` 至今未稳定（rustc 1.94
+# 实测仍 E0599），而会话配置里的 `tcp_keep_alive` 需要真正落到 SO_KEEPALIVE。
+# socket2 提供跨平台稳定封装（unix setsockopt / windows WSASetSocketOption），
+# 已在依赖树中（tokio 间接引入），这里直接声明。
+socket2 = "0.6"
 
 [dev-dependencies]
 # `nix` 现在**只**被 `serial_channel` 的测试用到：造一对 pty 当假串口

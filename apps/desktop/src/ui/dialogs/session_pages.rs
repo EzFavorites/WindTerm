@@ -364,8 +364,8 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 ///   `TcpStream::set_nodelay`（`term-io/telnet_channel.rs`）。
 /// - `Maximum connection timeout` → `SessionConfig.connection_timeout`，
 ///   同一个建连循环里逐个地址 `connect_timeout`。
-/// - `Enable TCP keepalives` → `SessionConfig.tcp_keep_alive` 有值，但 Telnet
-///   的套接字层还没有 `SO_KEEPALIVE` 的落地（SSH 路径已映射成
+/// - `Enable TCP keepalives` → `SessionConfig.tcp_keep_alive`，建连时经
+///   `socket2::SockRef::set_keepalive` 设 `SO_KEEPALIVE`（SSH 路径映射成
 ///   `TCPKeepAlive=yes/no`）。
 /// - `Sends null packet` → `SessionConfig.keep_alive`。SSH 路径用它做
 ///   `ServerAliveInterval`；Telnet 路径在读线程里按同一秒数写一个 NUL（NOOP），
@@ -386,13 +386,16 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         win.new_session.tcp_low_delay = nodelay;
     }
     ui.add_space(4.5);
-    choice_row_resp(
+    let keep_resp = choice_row_resp(
         ui, ChoiceKind::Checkbox, "Enable TCP keepalives (SO_KEEPALIVE option)", "Enable",
         &mut keepalive, false, UnderlineStyle::Dialog,
-    )
-    .on_hover_text(
-        "The field is stored per session, but the Telnet socket layer does not \
-         set SO_KEEPALIVE yet; the SSH path maps it to TCPKeepAlive.",
+    );
+    if keep_resp.clicked() {
+        win.new_session.tcp_keep_alive = keepalive;
+    }
+    keep_resp.on_hover_text(
+        "Sets SO_KEEPALIVE on the Telnet socket at connect time; the SSH path maps \
+         the same field to TCPKeepAlive.",
     );
     ui.add_space(6.0);
     heading(ui, "Sends null packet to keep session alive:");
@@ -429,8 +432,8 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(6.0);
     placeholder_note(
         ui,
-        "Nagle's algorithm, the connection timeout and the null-packet heartbeat \
-         apply immediately. SO_KEEPALIVE still needs a Telnet socket layer.",
+        "Nagle's algorithm, SO_KEEPALIVE, the connection timeout and the null-packet \
+         heartbeat apply immediately.",
     );
 }
 

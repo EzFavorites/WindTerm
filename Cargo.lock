@@ -4799,6 +4799,7 @@ dependencies = [
  "nix 0.25.1",
  "portable-pty",
  "serialport",
+ "socket2",
  "term-core",
  "term-paths",
 ]

@@ -125,6 +125,19 @@ enum ReaderEvent {
     End(String),
 }
 
+/// 把两条 TCP socket 开关从会话配置应用到刚连好的流上。
+///
+/// `TCP_NODELAY` 用 std 的稳定 API；`SO_KEEPALIVE` 用 `socket2`——
+/// `std::net::TcpStream::set_keepalive` 至今未稳定（rustc 1.94 实测 E0599）。
+/// 抽成独立函数是为了让回归测试能直接读回选项值，不必构造一整条
+/// `TelnetChannel` 再反查它私有的写半边。设置失败只忽略：选项只是优化，
+/// 设不上时这条连接照常可用（与原来的 `set_nodelay` `let _ =` 同款容错）。
+pub(crate) fn apply_tcp_options(stream: &TcpStream, config: &SessionConfig) {
+    let _ = stream.set_nodelay(config.tcp_low_delay);
+    let sock = socket2::SockRef::from(stream);
+    let _ = sock.set_keepalive(config.tcp_keep_alive);
+}
+
 /// 一条原生 Telnet TCP 连接，实现 [`TermChannel`]。
 ///
 /// 所有 socket 等待都在读线程里；`drain()` / `write()` / `resize()` 由
@@ -220,8 +233,8 @@ impl TelnetChannel {
             .map_err(|err| TelnetError::Setup {
                 detail: err.to_string(),
             })?;
-        // 交互式终端默认开 TCP_NODELAY；这个开关本来就在会话配置里。
-        let _ = stream.set_nodelay(config.tcp_low_delay);
+        // 交互式终端的两个 socket 开关都在会话配置里，建连时一次性应用。
+        apply_tcp_options(&stream, config);
         let writer = stream.try_clone().map_err(|err| TelnetError::Setup {
             detail: err.to_string(),
         })?;
@@ -584,5 +597,34 @@ mod tests {
         assert!(text.contains("127.0.0.1:23"), "{text}");
         assert!(text.contains("Connection refused"), "{text}");
         assert!(TelnetError::MissingHost.to_string().contains("主机名"));
+    }
+
+    /// `apply_tcp_options` 必须把配置里的两个 socket 开关真正设到底层 fd 上。
+    /// 这是「控件写回配置 → 配置影响运行时」这条链的最后半截：勾了框却没设，
+    /// 端点上读回来的值就是 false。
+    #[test]
+    fn applied_tcp_options_are_readable_back_from_the_socket() {
+        // 一对回环连接：不对外服务，纯本地 socket。
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = TcpStream::connect(addr).unwrap();
+        let (server, _) = listener.accept().unwrap();
+
+        let sock = socket2::SockRef::from(&client);
+        let mut config = SessionConfig::new(Protocol::Telnet);
+        config.tcp_keep_alive = true;
+        config.tcp_low_delay = true;
+        apply_tcp_options(&client, &config);
+        assert_eq!(sock.keepalive().unwrap(), true, "SO_KEEPALIVE 没设上");
+        assert_eq!(sock.tcp_nodelay().unwrap(), true, "TCP_NODELAY 没设上");
+
+        // 关掉同样要生效：从 true 翻回 false，证明不是「只能开不能关」。
+        config.tcp_keep_alive = false;
+        config.tcp_low_delay = false;
+        apply_tcp_options(&client, &config);
+        assert_eq!(sock.keepalive().unwrap(), false);
+        assert_eq!(sock.tcp_nodelay().unwrap(), false);
+
+        drop(server);
     }
 }
