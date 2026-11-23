@@ -177,6 +177,10 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
         ("Copy Session Url", "Url"),
         // Search（`01-search-menu.png`）：四条 Find 行划「Next / Previous」，
         // 不是每行重复的 F。
+        ("Goto Address Bar", "Address"),
+        ("Goto Session", "Session"),
+        ("Goto Position", "Position"),
+        ("Goto Symbol", "Symbol"),
         ("Find Next", "Next"),
         ("Find Previous", "Previous"),
         ("Find Next Selection", "Next"),

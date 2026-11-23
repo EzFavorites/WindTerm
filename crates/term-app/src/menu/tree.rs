@@ -369,15 +369,15 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Goto Session",
+                    label: "Goto Session...",
                     id: "Window.GotoSession",
                 },
                 Item::Action {
-                    label: "Goto Line",
+                    label: "Goto Position...",
                     id: "Window.GotoLine",
                 },
                 Item::Action {
-                    label: "Goto Symbol",
+                    label: "Goto Symbol...",
                     id: "Window.GotoSymbol",
                 },
                 Item::Separator,
@@ -431,17 +431,14 @@ pub fn menus() -> Vec<Menu> {
                     label: "Indentation",
                     items: vec![Item::Separator],
                 },
-                Item::Separator,
                 Item::Submenu {
                     label: "Pair",
                     items: vec![Item::Separator],
                 },
-                Item::Separator,
                 Item::Submenu {
                     label: "Line",
                     items: vec![Item::Separator],
                 },
-                Item::Separator,
                 Item::Submenu {
                     label: "Document",
                     items: vec![Item::Separator],
@@ -734,12 +731,10 @@ pub fn menus() -> Vec<Menu> {
                     label: "Local Mode",
                     id: "Window.SetLocalMode",
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Hex Edit",
                     id: "Text.ToggleHexEdit",
                 },
-                Item::Separator,
                 Item::Check {
                     label: "Word Wrap",
                     id: "Text.ToggleWordWrap",
@@ -753,18 +748,16 @@ pub fn menus() -> Vec<Menu> {
                 Item::Check {
                     label: "Multiple Caret",
                     id: "Text.ToggleMultipleCaret",
-                    checked: CheckState::Fixed(false),
+                    checked: CheckState::Fixed(true),
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Focus Mode",
                     id: "Window.ToggleFocusMode",
                 },
                 Item::Action {
-                    label: "Focus Mode Settings",
+                    label: "Focus Mode Settings...",
                     id: "Window.OpenFocusModeSettings",
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Full Screen",
                     id: "Window.ToggleFullScreen",
@@ -773,12 +766,10 @@ pub fn menus() -> Vec<Menu> {
                     label: "Always On Top",
                     id: "Window.ToggleAlwaysOnTop",
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Lock Screen",
                     id: "Window.LockScreen",
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Debug Mode",
                     id: "Window.ToggleDebugMode",
@@ -859,7 +850,6 @@ pub fn menus() -> Vec<Menu> {
                     label: "Split View Vertically",
                     id: "Window.SplitViewVertically",
                 },
-                Item::Separator,
                 Item::Action {
                     label: "Split Group Horizontally",
                     id: "Window.SplitGroupHorizontally",
@@ -890,7 +880,7 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Windows Manager",
+                    label: "Windows Manager...",
                     id: "Window.WindowManager",
                 },
                 Item::Separator,

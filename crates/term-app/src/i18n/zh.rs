@@ -147,8 +147,11 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Select To Previous Word End" => "选择到上一词尾",
         // ── 跳转 ──
         "Goto Line" => "跳到行",
+        "Goto Position..." => "跳到位置…",
         "Goto Session" => "跳到会话",
+        "Goto Session..." => "跳到会话…",
         "Goto Symbol" => "跳到符号",
+        "Goto Symbol..." => "跳到符号…",
         "Goto Address Bar" => "跳到地址栏",
         // 这一行此前也叫「地址栏」，与上一行是同一个名字下的两件事。
         // 它做的是「把一行字当 shell 命令发出去」，所以叫命令行。
@@ -209,6 +212,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // `Local Mode` / `Remote Mode` 的译文在「状态栏」一节，键共用：
         // 菜单与状态栏说的是同一个模式，不该有第二份译法。
         "Focus Mode Settings" => "专注模式设置",
+        "Focus Mode Settings..." => "专注模式设置…",
         "Sync Input" => "同步输入",
         "Sync Input..." => "同步输入…",
         "Focus Mode" => "专注模式",
@@ -240,6 +244,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // ── 视觉基线 Window 菜单 ──
         "Close Group" => "关闭组",
         "Windows Manager" => "窗口管理器",
+        "Windows Manager..." => "窗口管理器…",
         "Highlight Text" => "高亮文本",
         "Highlight Text..." => "高亮文本…",
         "White Spaces" => "空白符",

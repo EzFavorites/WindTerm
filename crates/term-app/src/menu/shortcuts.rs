@@ -80,7 +80,7 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         label: "Find Next",
     },
     Shortcut {
-        chord: "Cmd+K",
+        chord: "Alt+G",
         id: "Window.GotoLine",
         label: "Goto Line",
     },

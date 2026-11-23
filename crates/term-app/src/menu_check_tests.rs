@@ -76,21 +76,15 @@ fn mode_menu_matches_the_reference_row_for_row() {
             // 这里 `shape()` 只标占位符「◻」，不预计算运行期值。
             "◻ Remote Mode",
             "Local Mode",
-            "|",
             "Hex Edit",
-            "|",
             "✓ Word Wrap",
             "☐ Virtual Space",
-            "☐ Multiple Caret",
-            "|",
+            "✓ Multiple Caret",
             "Focus Mode",
-            "Focus Mode Settings",
-            "|",
+            "Focus Mode Settings...",
             "Full Screen",
             "Always On Top",
-            "|",
             "Lock Screen",
-            "|",
             "Debug Mode",
         ]
     );

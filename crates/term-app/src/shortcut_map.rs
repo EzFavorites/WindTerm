@@ -102,7 +102,7 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Window.GotoAddressBar", chord: "Alt+D" },
     BindingRow { id: "Window.GotoSession", chord: "Alt+O" },
     BindingRow { id: "Window.GotoSymbol", chord: "Alt+'" },
-    BindingRow { id: "Window.GotoLine", chord: "Cmd+K" },
+    BindingRow { id: "Window.GotoLine", chord: "Alt+G" },
     BindingRow { id: "Text.LineUp", chord: "Up" },
     BindingRow { id: "Text.LineDown", chord: "Down" },
     BindingRow { id: "Terminal.SyncInput", chord: "Cmd+Shift+M" },
