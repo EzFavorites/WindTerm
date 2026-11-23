@@ -215,10 +215,12 @@ pub fn draw_find_bar(
     };
     let step = ICON_W;
 
-    // `.*` 正则（未接线）
+    // `.*` 正则（`ToggleRegex`）——与 Aa / W 同构：激活时铺底色，点击派发。
     let r = icon_rect(x, ICON_W);
     let resp = ui.interact(r, egui::Id::new("find_icon_regex"), egui::Sense::click());
-    if resp.hovered() {
+    if find_state.regex {
+        ui.painter().rect_filled(r, 0.0, active_bg);
+    } else if resp.hovered() {
         ui.painter().rect_filled(r, 0.0, hover_bg);
     }
     let g = ui
@@ -226,7 +228,19 @@ pub fn draw_find_bar(
         .layout_no_wrap(".*".to_owned(), font.clone(), text_c);
     ui.painter()
         .galley(r.center() - g.size() / 2.0, g, text_c);
-    resp.on_hover_text("正则表达式（未接线：本仓无正则引擎）");
+    // 表达式写错时给出明确提示——匹配的 0/N  silent 失败最容易让人以为
+    // 「搜不到」，其实是正则语法错。只在激活且查询非空时校验。
+    let regex_hint = if find_state.regex && !find_state.query.is_empty() {
+        match term_core::find::validate_regex(&find_state.query) {
+            Ok(()) => "Regular expression (on)".to_string(),
+            Err(e) => format!("Regular expression — invalid pattern: {e}"),
+        }
+    } else {
+        "Regular expression".to_string()
+    };
+    if resp.on_hover_text(regex_hint).clicked() {
+        dispatch(Action::Find(FindAction::ToggleRegex));
+    }
     x += step;
 
     // `Aa` 大小写（真接线）

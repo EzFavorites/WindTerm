@@ -144,6 +144,7 @@ pub(crate) fn find_parse(id: &str) -> Option<FindAction> {
         "Text.FindPrevious" => FindAction::Previous,
         "Text.FindNextSelection" => FindAction::SelectionNext,
         "Text.FindPreviousSelection" => FindAction::SelectionPrev,
+        "Text.FindRegex" => FindAction::ToggleRegex,
         _ => return None,
     };
     Some(action)

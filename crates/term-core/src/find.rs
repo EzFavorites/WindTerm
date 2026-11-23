@@ -138,25 +138,75 @@ pub fn find_previous(
     Some((last, all[last]))
 }
 
-/// 单行扫描：快照与事实窗口共用的唯一实现。
+/// 校验正则语法；供 UI 在查询串上实时提示「表达式写错了」。
 ///
-/// `row` 是这一行的内容绝对行号，`cells` 是它的完整单元格。
+/// 与 [`find_matches_regex_in`] 用同一套 `regex` 语法（同一 builder 配置），
+/// 避免 UI 说合法、引擎却报错的口径漂移。UI 无需直接依赖 regex crate。
+pub fn validate_regex(pattern: &str) -> Result<(), String> {
+    regex::Regex::new(pattern)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// 在事实窗口里用正则表达式查找，返回所有匹配。
 ///
-/// 扫描单位是**字形**，不是格：宽字符占两格（起始格带字、第二格是占位空格），
-/// 按格扫会让「你好」在中隔一个空格，`查找 "你好"` 永远命中不了。这里先把格
-/// 折叠成 `(列号, 字符)` 序列，匹配在字符序列上做，命中后再用列号还原成
-/// 「屏上从第几格到第几格」——高亮框与文本因此不会各说一套。
+/// 与字面版 [`find_matches_in`] 共用字形折叠与坐标系：`Match.row` 是内容绝对
+/// 行号，`col_start/col_end` 是单元格列（宽字符占位格算在内），可直接画高亮。
 ///
-/// 行尾空白不参与匹配（终端一行的右半部分是填充）。
-fn scan_line(
-    row: i64,
-    cells: &[Cell],
-    query: &[char],
+/// `case_sensitive` 通过 `RegexBuilder::case_insensitive` 控制；`whole_word`
+/// 整词语义留给字面版——正则用户自己写 `\b` 更精确。
+///
+/// 语法错误返回 `Err` 而不是吞掉：调用方要能把「表达式写错了」与「没有匹配」
+/// 区分开（后者显示 0/N，前者应当提示用户改表达式）。
+pub fn find_matches_regex_in(
+    image: &ScreenImage,
+    pattern: &str,
     case_sensitive: bool,
-    whole_word: bool,
-    out: &mut Vec<Match>,
-) {
-    // 字形序列：`cols[i]` 是第 i 个字形的起始列，`chars[i]` 是它的字符。
+) -> Result<Vec<Match>, regex::Error> {
+    let re = regex::RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .build()?;
+    let mut out = Vec::new();
+    for line in &image.lines {
+        let (cols, chars) = glyphs_and_cols(&line.cells);
+        if chars.is_empty() {
+            continue;
+        }
+        let text: String = chars.iter().collect();
+        // 正则给的是字节偏移，折叠表按字形(char)索引。建一张 byte→char 的表：
+        // 每个字节都映射到「包含它的那个字形」的下标。多字节字形的非首字节
+        // （如汉字「你」的 2/3 号字节）也必须映射到它自己，不能假设偏移落在
+        // 字形起点——`m.end()-1` 恰恰可能是多字节字形的最后一个字节。
+        let mut byte_to_char = vec![0usize; text.len() + 1];
+        for (idx, (start, ch)) in text.char_indices().enumerate() {
+            for b in start..start + ch.len_utf8() {
+                byte_to_char[b] = idx;
+            }
+        }
+        let char_at = |byte: usize| -> usize { byte_to_char[byte] };
+        for m in re.find_iter(&text) {
+            if m.start() == m.end() {
+                continue; // 空匹配（如 `a*`）不画高亮，否则零宽框没意义。
+            }
+            let first = char_at(m.start());
+            let last = char_at(m.end() - 1);
+            let col_start = cols[first];
+            let cell_end = cols[last] + if line.cells[cols[last]].wide { 2 } else { 1 };
+            out.push(Match::new(line.row, col_start, cell_end));
+        }
+    }
+    Ok(out)
+}
+
+/// 把一行的单元格折叠成「字形 → 起始列」两条平行序列，裁掉行尾空白。
+///
+/// `cols[i]` 是第 i 个字形的起始列，`chars[i]` 是它的字符。宽字符占两格
+/// （起始格带字、第二格是占位空格），占位格没有字形——按格扫会让「你好」
+/// 中间隔一个空格，`查找 "你好"` 永远命中不了。匹配在字符序列上做，命中后
+/// 再用 `cols` 还原成「屏上从第几格到第几格」，高亮框与文本才不会各说一套。
+///
+/// 字面扫描与正则扫描共用这一份折叠，避免两套口径在高亮列上漂移。
+fn glyphs_and_cols(cells: &[Cell]) -> (Vec<usize>, Vec<char>) {
     let mut cols: Vec<usize> = Vec::with_capacity(cells.len());
     let mut chars: Vec<char> = Vec::with_capacity(cells.len());
     for (col, cell) in cells.iter().enumerate() {
@@ -170,6 +220,22 @@ fn scan_line(
         chars.pop();
         cols.pop();
     }
+    (cols, chars)
+}
+
+/// 单行扫描：快照与事实窗口共用的唯一实现。
+///
+/// `row` 是这一行的内容绝对行号，`cells` 是它的完整单元格。
+/// 行尾空白不参与匹配（终端一行的右半部分是填充）。
+fn scan_line(
+    row: i64,
+    cells: &[Cell],
+    query: &[char],
+    case_sensitive: bool,
+    whole_word: bool,
+    out: &mut Vec<Match>,
+) {
+    let (cols, chars) = glyphs_and_cols(cells);
     if chars.len() < query.len() {
         return;
     }
@@ -313,6 +379,30 @@ mod tests {
         assert_eq!(find_matches_in(&img, "world", true, false), vec![Match::new(0, 4, 9)]);
         // 搜索串本身也按字形比较：中间不能多出一个空格。
         assert!(find_matches_in(&img, "你 好", true, false).is_empty());
+    }
+
+    #[test]
+    fn regex_matches_use_the_same_cell_coordinates_as_literal_matches() {
+        let img = window_from(&["你好world", "abc123"], 12, 0);
+        // 字面与正则对同一模式给出完全相同的列区间。
+        let literal = find_matches_in(&img, "world", false, false);
+        let regex = find_matches_regex_in(&img, "w.rld", false).expect("合法正则");
+        assert_eq!(regex, literal);
+        // 宽字符：汉字占两格，正则的列映射必须和字面版一样按格算，
+        // 不能按字节把「你」算成一格。
+        let han = find_matches_regex_in(&img, "好", false).expect("合法正则");
+        assert_eq!(han, vec![Match::new(0, 2, 4)]);
+    }
+
+    #[test]
+    fn regex_matches_honour_case_and_report_syntax_errors() {
+        let img = window_from(&["Hello hello"], 12, 0);
+        let ci = find_matches_regex_in(&img, "hello", false).expect("合法正则");
+        assert_eq!(ci.len(), 2, "忽略大小写时两处都命中");
+        let cs = find_matches_regex_in(&img, "hello", true).expect("合法正则");
+        assert_eq!(cs.len(), 1, "区分大小写时只命中小写那处");
+        // 语法错必须返回 Err，让 UI 能提示「表达式写错了」而不是显示 0 个匹配。
+        assert!(find_matches_regex_in(&img, "[", false).is_err());
     }
 
     #[test]

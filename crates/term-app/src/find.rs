@@ -14,7 +14,7 @@
 //! `current_match`（用户的「第几个」选择，按总数取模使用）。
 
 use crate::state::FindState;
-use term_core::find::{find_matches_in, Match};
+use term_core::find::{find_matches_in, find_matches_regex_in, Match};
 use term_core::grid::ScreenImage;
 
 pub use crate::vocab::FindAction;
@@ -31,7 +31,13 @@ pub fn matches(state: &FindState, window: &ScreenImage) -> Vec<Match> {
     if !state.visible || state.query.is_empty() {
         return Vec::new();
     }
-    find_matches_in(window, &state.query, state.case_sensitive, state.whole_word)
+    if state.regex {
+        // 表达式写错时返回空集合（显示 0/N），而不是退回字面匹配——那会让
+        // 用户以为 `[` 真的搜到了东西。UI 另有语法校验提示（见 find_bar）。
+        find_matches_regex_in(window, &state.query, state.case_sensitive).unwrap_or_default()
+    } else {
+        find_matches_in(window, &state.query, state.case_sensitive, state.whole_word)
+    }
 }
 
 /// 当前匹配在匹配集合里的下标；没有匹配时为 `None`。
@@ -66,6 +72,7 @@ pub fn reduce(state: &mut FindState, action: FindAction, window: Option<&ScreenI
             state.query.clear();
             state.case_sensitive = false;
             state.whole_word = false;
+            state.regex = false;
             state.current_match = 0;
         }
         FindAction::SetQuery(q) => {
@@ -81,6 +88,11 @@ pub fn reduce(state: &mut FindState, action: FindAction, window: Option<&ScreenI
         // 换匹配口径 = 换了一个匹配集合，与改大小写同理要回到第一个。
         FindAction::ToggleWholeWord => {
             state.whole_word = !state.whole_word;
+            state.current_match = 0;
+        }
+        // 正则与整词同理：换匹配口径就换了一个匹配集合，回到第一个。
+        FindAction::ToggleRegex => {
+            state.regex = !state.regex;
             state.current_match = 0;
         }
         // 栏关着时按 Find Next，之前只挪了 `current_match`：没人看得见
@@ -203,6 +215,25 @@ mod tests {
 
     fn counted(state: &FindState, win: &ScreenImage) -> usize {
         matches(state, win).len()
+    }
+
+    #[test]
+    fn regex_toggle_changes_the_match_set_and_open_resets_it() {
+        let win = window_from(&["cat cot cut"], 12, 0);
+        let mut s = open_state();
+        s.query = "c.t".into();
+        // 字面模式：`c.t` 不含通配符，搜不到任何东西。
+        assert_eq!(counted(&s, &win), 0, "字面模式不该把 . 当通配符");
+        // 正则模式：一个模式命中三个词。
+        reduce(&mut s, FindAction::ToggleRegex, None);
+        assert!(s.regex);
+        assert_eq!(counted(&s, &win), 3, "正则模式 c.t 命中 cat/cot/cut");
+        // 语法错返回空集合而非 panic。
+        s.query = "[".into();
+        assert_eq!(counted(&s, &win), 0, "非法正则不该 panic，计为 0 个匹配");
+        // Open 必须把 regex 复位，否则新一次查找会带着上一次的口径。
+        reduce(&mut s, FindAction::Open, None);
+        assert!(!s.regex, "Open 应复位正则开关");
     }
 
     // ── 缺陷修复：栏关着时 Find Next / Previous 要有可见效果 ─────────

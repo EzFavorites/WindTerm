@@ -57,6 +57,9 @@ pub struct FindState {
     /// 与 `case_sensitive` 同一条纪律——**只由 `reduce` 写**，投影层只读；
     /// 匹配集合在 `term_core::find::find_matches_in` 里算，这里不存结果。
     pub whole_word: bool,
+    /// `.*`（Regular Expression）：查询串按正则解释。与大小写 / 整词同一纪律，
+    /// 只由 `reduce` 写；匹配集合在 `find::matches` 里按这一位选字面 / 正则引擎。
+    pub regex: bool,
     /// 当前匹配在窗口内匹配集合中的索引（对总数取模，窗口变了也不会越界）。
     pub current_match: usize,
 }

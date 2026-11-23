@@ -486,6 +486,8 @@ pub enum FindAction {
     ToggleCase,
     /// `W`（Match Whole Word）：命中两端必须落在词边界上。
     ToggleWholeWord,
+    /// `.*`（Regular Expression）：查询串按正则解释，而非字面子串。
+    ToggleRegex,
     Next,
     Previous,
     /// 以「当前选区文本」为查询词，再跳到下一个 / 上一个匹配。
