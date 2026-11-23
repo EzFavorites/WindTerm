@@ -369,8 +369,10 @@ fn default_identity(home: Option<&Path>) -> Option<PathBuf> {
 
 /// 会话配置 → `SshOptions`。
 ///
-/// 与界面那份（`ui/dialogs/ssh_ask.rs::options_for`）的差别只有主机密钥策略和
-/// 这里多接的两项：`ProxyJump` 与 `agent_forward`。**不**复用界面那份函数是
+/// 与界面那份（`ui/dialogs/ssh_ask.rs::options_for`）的差别只有主机密钥策略。
+/// `ProxyJump` / `agent_forward` / X11 三项两条路径都接了——**不能**让 headless
+/// 静默丢掉这些配置（与「无窗口路径不能与 GUI 分叉」同一条纪律）。
+/// **不**复用界面那份函数是
 /// 有意的——那一份是 `pub(in crate::ui)`，让核心路径去依赖投影层的可见性，
 /// 等于把「谁都能改界面」接成「谁都能改无窗口连接行为」。
 fn ssh_options(
@@ -401,6 +403,11 @@ fn ssh_options(
     opts.rekey_time_minutes = config.rekey_time_minutes;
     opts.rekey_data_mbytes = config.rekey_data_mbytes;
     opts.agent_forward = config.agent_forward;
+    // X11 转发与 GUI 那份（`ssh_ask.rs`）读同一组字段。后端是 best-effort：
+    // 没有 $DISPLAY 时只 warn 不挂连接，所以 headless 也可以放心转发。
+    // 漏读会让「desk script / serve 里配了 X11」变成静默无效——与 GUI 分叉。
+    opts.x11_forward = config.x11_forward;
+    opts.x11_screen = config.x11_screen;
     // 忽略 `ProxyJump` 会让「配了跳板机的会话」连到一个连不上的主机，
     // 而用户看到的是「连接失败」——那是沉默的撒谎。语法错误在碰网络之前报出来。
     opts.proxy_jump = term_ssh::parse_proxy_jump(&config.proxy_jump)
@@ -711,6 +718,20 @@ mod tests {
         assert_eq!(p.host, "127.0.0.1");
         assert_eq!(p.port, 1080);
         assert!(opts.proxy_jump.is_empty());
+    }
+
+    #[test]
+    fn headless_path_also_honours_x11_forward() {
+        // 与 `headless_path_also_uses_the_outbound_proxy` 同一条纪律：无窗口
+        // 路径不能与 GUI 分叉。GUI 的 `ssh_ask.rs::options_for` 读了这两个字段，
+        // headless 也必须读——否则在 `desk script` / `desk serve` 里配了 X11
+        // 转发会静默无效。
+        let mut config = ssh_config(AuthMethod::Agent, 22);
+        config.x11_forward = true;
+        config.x11_screen = 3;
+        let opts = ssh_options(&config, SshAuth::Agent, 80, 24).expect("X11 配置能构造");
+        assert!(opts.x11_forward, "headless 必须转发 X11");
+        assert_eq!(opts.x11_screen, 3, "headless 必须用会话里配的 screen 号");
     }
 
     #[test]
