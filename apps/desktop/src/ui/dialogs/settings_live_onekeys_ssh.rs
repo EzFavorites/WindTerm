@@ -132,7 +132,36 @@ pub(in crate::ui) fn ssh_editor(
     // 输入框下方。以前在这里重取 `ui.cursor().min`，后面所有表格都下移
     // 45pt（实测视觉基线表格顶 y=318，实现 y=413）。
     let o = ui.cursor().min;
-    labeled_field(ui, FIELD_W, "Username:", Y_USER_LABEL, Y_USER_FIELD, &mut key.username);
+    // 原版 `onekeys-account-selected-111.png`：选中方案时 Username 框是
+    // #444444 1pt 描边 + #1C1C1C 内部；空列表时是 #333333 实心无边框。
+    if edit.selected.is_some() {
+        place(
+            ui,
+            egui::Rect::from_min_size(
+                o + egui::vec2(0.0, Y_USER_LABEL),
+                egui::vec2(FIELD_W, 12.0),
+            ),
+            |ui| {
+                ui.label(egui::RichText::new("Username:").color(rgb(0xC8C8C8)));
+            },
+        );
+        let rect = egui::Rect::from_min_size(
+            o + egui::vec2(0.0, Y_USER_FIELD),
+            egui::vec2(FIELD_W, FIELD_HH),
+        );
+        let p = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(rect.expand(2.0));
+        p.rect_filled(rect, egui::Rounding::ZERO, rgb(0x1C1C1C));
+        p.rect_stroke(rect, egui::Rounding::ZERO, egui::Stroke::new(1.0, rgb(0x444444)));
+        place(ui, rect.shrink2(egui::vec2(3.0, 2.0)), |ui| {
+            ui.add(
+                egui::TextEdit::singleline(&mut key.username)
+                    .desired_width(f32::INFINITY)
+                    .frame(false),
+            );
+        });
+    } else {
+        labeled_field(ui, FIELD_W, "Username:", Y_USER_LABEL, Y_USER_FIELD, &mut key.username);
+    }
 
     label_at(ui, o + egui::vec2(0.0, Y_PASS_LABEL), "Password:");
     place(

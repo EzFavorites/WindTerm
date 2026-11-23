@@ -147,6 +147,8 @@ mod quick_fixtures;
 mod context_fixtures;
 mod reference_popup;
 mod menu_fixtures;
+/// OneKeys 逐张出图夹具（`mod.rs` 行数上限）。
+mod onekeys_fixtures;
 /// 脚本两窗（运行窗口 / 编辑器）的夹具。与 `reference_popup` 同一条理由：
 /// 本文件贴近 500 行上限，再添一个 arm 就越线。
 mod script_fixtures;
@@ -246,29 +248,8 @@ impl TerminalWindow {
                         self.draw_triggers_dialog(ctx);
                     }
                     dialogs::SettingsPage::OneKeys => {
-                        // 夹具专用：让三张页签能各自单独出图比对。生产路径不读
-                        // 这个变量（harness::fixture_mode 仅在截图/组件下有值）。
                         if harness::fixture_mode() {
-                            if let Ok(tab) = std::env::var("WINDTERM_ONEKEYS_TAB") {
-                                use dialogs::settings_live_onekeys::Tab;
-                                let want = match tab.as_str() {
-                                    "account" => Some(Tab::Account),
-                                    "sessions" => Some(Tab::Sessions),
-                                    "ssh" => Some(Tab::Ssh),
-                                    _ => None,
-                                };
-                                if let Some(want) = want {
-                                    self.onekeys_edit
-                                        .get_or_insert_with(Default::default)
-                                        .tab = want;
-                                }
-                            }
-                            // 新建方案模态框出图用（原版 onekeys-new-dialog.png）。
-                            if std::env::var("WINDTERM_ONEKEYS_MODAL").as_deref() == Ok("1") {
-                                let edit = self.onekeys_edit.get_or_insert_with(Default::default);
-                                edit.new_scheme_modal = true;
-                                edit.new_scheme_buf = "onekey_1".to_string();
-                            }
+                            onekeys_fixtures::apply(self);
                         }
                         self.view.show_onekeys = true;
                         self.draw_onekeys_dialog(ctx);

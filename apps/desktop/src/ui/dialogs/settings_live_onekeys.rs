@@ -429,10 +429,17 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
                         }
                         continue;
                     }
-                    if ui
-                        .selectable_label(edit.selected == Some(i), &draft[i].name)
-                        .clicked()
-                    {
+                    let selected = edit.selected == Some(i);
+                    // 原版 `onekeys-account-selected-111.png`：选中行首有一枚粉色
+                    // 状态点 #FC3DB8（与 SSH 标签的粉点同色系），空态行没有。
+                    let dot = ui.allocate_exact_size(
+                        egui::vec2(12.0, 16.0),
+                        egui::Sense::hover(),
+                    ).0;
+                    if selected {
+                        ui.painter().circle_filled(dot.center(), 2.5, rgb(0xFC3DB8));
+                    }
+                    if ui.selectable_label(selected, &draft[i].name).clicked() {
                         edit.selected = Some(i);
                         edit.renaming = false;
                     }
