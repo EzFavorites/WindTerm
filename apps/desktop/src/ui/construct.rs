@@ -241,8 +241,9 @@ impl TerminalWindow {
             // ：光标周期 / 宽度，同一份 prefs（构造时读一次，设置页同步）。
             caret_period: prefs.caret_period_value(),
             caret_width: prefs.caret_width_value(),
-            // Text / Behaviour 页的三个开关：同一份 prefs，同一写法（构造时读一次，
-            // 设置页改完写回并同步窗口上的副本）。出厂值都等于「现在就是这样」。
+            // Text 页的三行与已移除 Behaviour 页的三开关：同一份 prefs（构造时读一次；
+            // 三页移除后这些值只能由 prefs 文件配置，窗口副本仍供原有读者使用）。
+            // 出厂值都等于「现在就是这样」。
             alt_row_bg: prefs.text_alternate_row_bg,
             hide_cursor_typing: prefs.text_hide_cursor_while_typing,
             // Highlight 页第 4 行：出厂 `true`（这个效果本来就无条件在画，

@@ -77,7 +77,7 @@ pub(in crate::ui) struct ConfirmState {
     pub(in crate::ui) suppress_window: bool,
     /// 「关闭会话不再提示」（prefs.json 持久化）。
     pub(in crate::ui) suppress_session: bool,
-    /// `Behaviour ▸ Confirm before closing multiple tabs`（prefs.json 持久化）。
+    /// `prefs.confirm_close_multi_tabs`（原 Behaviour 页已移除）（prefs.json 持久化）。
     ///
     /// 门控（`should_confirm_close`）读的是这一份缓存而不是每帧读盘：关标签是
     /// 一条同步路径，不能为了一个 bool 去碰文件。设置页改完必须**同一帧**写回

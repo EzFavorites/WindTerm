@@ -46,7 +46,7 @@ mod settings_live_highlight;
 // ：Caret 页 Period / Width 接成真数字框后，那一页自带写回，
 // 从 `settings_live.rs` 拆出来（那个文件已贴着  的 500 代码行上限）。
 mod settings_live_caret;
-// ：「部分真控件」的三页（Text / Behaviour / Toolbar / Menu）。
+// ：Text 页的「部分真控件」画法（Behaviour / Toolbar / Menu 三页已移除）。
 mod settings_live_text;
 // ：Terminal 页从数据表改手绘——两个粘贴确认开关接了字段，
 // 其余两行由同一份 `draw_row` 画成灰的。

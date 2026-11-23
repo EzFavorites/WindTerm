@@ -144,8 +144,8 @@ impl TerminalWindow {
         self.layout.split(active_pane, horizontal, new_pane);
         // 结构变了，本帧末即时落盘（经 `Action::SaveLayout` 死路径复活）。
         self.pending_save_layout = true;
-        // 新窗格获得焦点，敲键盘立刻进新会话——除非 `Behaviour ▸ Focus the new
-        // tab` 关着（那时焦点留在原来的窗格，新标签照样建出来了）。
+        // 新窗格获得焦点，敲键盘立刻进新会话——除非 `prefs.focus_new_tab` 关着
+        // （原 Behaviour 页已移除；那时焦点留在原窗格，新标签照样建出来）。
         self.activate_new_tab(new_tab);
         self.ctx.request_repaint();
     }
