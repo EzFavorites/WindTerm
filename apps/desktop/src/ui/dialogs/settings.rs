@@ -18,10 +18,11 @@
 //! # 后的三条硬约束
 //!
 //! 1. **默认页是 `Application`**（兼容终端打开就停在这一页），不是 `Appearance`。
-//! 2. **左栏只画 [`SettingsPage::NAV_TOP`] 那 6 项 + 三个组头**。后来补的
-//!    `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` / `Triggers` / `OneKeys`
-//!    不出现在树里；实现保留，Triggers / OneKeys 仍由 `Terminal.ManageTriggers`
-//!    / `ManageOneKeys` 直接翻到（见 `effects.rs`），其余三页留给组件夹具逐页验收。
+//! 2. **左栏只画 [`SettingsPage::NAV_TOP`] 那 6 项 + 三个组头**，与原版 19 页一致。
+//!    `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` 原版不存在，是 Rust 重制版
+//!    一度新增的三页，现已从设置页移除（对应 prefs 字段保留给原读者）。
+//!    `Triggers` / `OneKeys` 是重制版新增的管理页，仍由 `Terminal.ManageTriggers`
+//!    / `ManageOneKeys` 直接翻到（见 `effects.rs`）。
 //! 3. **无标题栏**：兼容终端没有 `Preferences` 标题条与右上角 ×，经
 //!    [`StableWindow::without_title_bar`] 单独关掉；关闭只走页脚 `Close`。
 //!
@@ -46,7 +47,7 @@
 //!   `GridSnapshot.alt`；右键三档与「选中即复制」落 `Prefs.right_click_action` /
 //!   `copy_on_select`；`Enable local mode` 勾的是活动标签的只读态
 //!   （见 `settings_live_terminal`）。
-//! - `Text` / `Behaviour` / `Toolbar / Menu` ：**部分真控件**。
+//! - `Text` ：**部分真控件**。
 //!   隔行底色、打字隐光标、新标签抢焦点三个勾真的改行为并落 prefs；工具行开关
 //!   真的收起那条面板（但**不落盘**，见 `settings_live_text`）。同一页里剩下的
 //!   行仍是灰显空框——理由写在每行的悬停与页底说明里。
@@ -166,12 +167,6 @@ pub(in crate::ui) enum SettingsPage {
     Widgets,
     Filer,
     QuickBar,
-    /// §2.6 点名但此前未建页：快捷键表。当前无字段，灰显占位。
-    ShortcutKeys,
-    /// §2.6 点名但此前未建页：行为选项。当前无字段，灰显占位。
-    Behaviour,
-    /// §2.6 点名但此前未建页：工具栏 / 菜单。当前无字段，灰显占位。
-    ToolbarMenu,
     /// 触发器规则编辑器（事件 → 匹配 → 动作）。这一页是真的：编辑结果直接
     /// 写回 `prefs.triggers`，并由 `TerminalWindow.triggers` 在每帧 `poll` 里喂给求值器。
     Triggers,
@@ -210,16 +205,13 @@ impl SettingsPage {
 
     /// **全部顶层页**（含不显示在左栏的管理页），只用于派生 [`SettingsPage::ALL`]
     /// ——即组件夹具 `SettingsPage(i)` 的页序，不是左栏顺序。
-    const TOP: [SettingsPage; 11] = [
+    const TOP: [SettingsPage; 8] = [
         SettingsPage::Application,
         SettingsPage::Appearance,
         SettingsPage::Proxy,
         SettingsPage::Search,
         SettingsPage::Security,
         SettingsPage::Tabs,
-        SettingsPage::ShortcutKeys,
-        SettingsPage::Behaviour,
-        SettingsPage::ToolbarMenu,
         // 触发器规则编辑器。放在顶层叶末尾（组头之前）。
         SettingsPage::Triggers,
         // `Terminal.ManageOneKeys`：凭据管理器（SSH / Account / Sessions）。
@@ -234,7 +226,7 @@ impl SettingsPage {
     ];
 
     /// 全部页（测试与 `settings_pages` 的覆盖断言用它枚举）。
-    pub(in crate::ui) const ALL_PAGES: [SettingsPage; 24] = [
+    pub(in crate::ui) const ALL_PAGES: [SettingsPage; 21] = [
         SettingsPage::Application,
         SettingsPage::Appearance,
         SettingsPage::Proxy,
@@ -254,9 +246,6 @@ impl SettingsPage {
         SettingsPage::Widgets,
         SettingsPage::Filer,
         SettingsPage::QuickBar,
-        SettingsPage::ShortcutKeys,
-        SettingsPage::Behaviour,
-        SettingsPage::ToolbarMenu,
         SettingsPage::Triggers,
         SettingsPage::OneKeys,
     ];
@@ -266,10 +255,10 @@ impl SettingsPage {
     ///
     /// 它**不再等于左栏顺序**：左栏只画 [`SettingsPage::NAV_TOP`]
     /// 那六项，其余五页仍要有独立基线逐页验收，所以继续留在 `TOP`/`ALL` 里。
-    /// 从上面四个分组常量派生，不另抄一份名单；`[..; 24]` 的长度是最后一道
+    /// 从上面四个分组常量派生，不另抄一份名单；`[..; 21]` 的长度是最后一道
     /// 闸——少写一行就编译不过，也不会让 24 张已冻结的 PNG 集体错位。
-    pub(in crate::ui) const ALL: [SettingsPage; 24] = {
-        let mut out = [SettingsPage::Application; 24];
+    pub(in crate::ui) const ALL: [SettingsPage; 21] = {
+        let mut out = [SettingsPage::Application; 21];
         let mut n = 0;
         let mut i = 0;
         while i < SettingsPage::TOP.len() {
@@ -328,9 +317,6 @@ impl SettingsPage {
             SettingsPage::Widgets => "Widgets",
             SettingsPage::Filer => "Filer",
             SettingsPage::QuickBar => "Quick Bar",
-            SettingsPage::ShortcutKeys => "Shortcut Keys",
-            SettingsPage::Behaviour => "Behaviour",
-            SettingsPage::ToolbarMenu => "Toolbar / Menu",
             SettingsPage::Triggers => "Triggers",
             SettingsPage::OneKeys => "OneKeys",
         }
@@ -578,8 +564,6 @@ impl TerminalWindow {
                         // 字段，其余行仍走数据表那套灰显画法（同一页里两种控件
                         // 并存，是真接线的一半，不是回退）。见那边模块文档。
                         SettingsPage::Text => settings_live_text::text(self, ui),
-                        SettingsPage::Behaviour => settings_live_text::behaviour(self, ui),
-                        SettingsPage::ToolbarMenu => settings_live_text::toolbar_menu(self, ui),
                         // 触发器规则编辑器。这一页是真的——改完当场喂进每帧
                         // poll 的求值器，按「Save」落盘进 prefs.triggers。
                         SettingsPage::Triggers => settings_live_triggers::triggers(self, ui),
@@ -589,7 +573,7 @@ impl TerminalWindow {
                         // 只读的快捷键表也要运行期数据：覆盖表活在窗口上
                         // （`dialogs::shortcuts` 写入），数据层只给静态骨架。
                         other => {
-                            settings_pages_view::draw(ui, other, &self.shortcut_overrides)
+                            settings_pages_view::draw(ui, other)
                         }
                     }
                         });
@@ -696,7 +680,7 @@ mod tests {
         assert_eq!(SettingsPage::from_index(0), Some(SettingsPage::Application));
     }
 
-    /// 「混入了其他东西」的防回归：左栏顶层只有兼容终端那六项，后补的五页
+    /// 「混入了其他东西」的防回归：左栏顶层只有兼容终端那六项，两个新增管理页
     /// 不许再挂回树上（它们仍有自己的入口 / 组件基线）。
     #[test]
     fn the_nav_tree_has_only_the_six_original_top_level_pages() {
@@ -712,9 +696,6 @@ mod tests {
             ]
         );
         for hidden in [
-            SettingsPage::ShortcutKeys,
-            SettingsPage::Behaviour,
-            SettingsPage::ToolbarMenu,
             SettingsPage::Triggers,
             SettingsPage::OneKeys,
         ] {
@@ -723,15 +704,11 @@ mod tests {
         }
     }
 
-    /// 组件基线按 `ALL` 的下标登记（24 张 PNG）。把隐藏页从 `ALL` 里删掉会让
-    /// 那几张图的名字与页错位，所以「从树上隐藏」不等于「从注册表里删除」。
+    /// 组件基线按 `ALL` 的下标登记（21 张 PNG，与原版 19 页 + 2 个新增管理页一致）。
     #[test]
     fn hidden_pages_keep_their_component_baseline_slots() {
-        assert_eq!(SettingsPage::ALL.len(), 24);
+        assert_eq!(SettingsPage::ALL.len(), 21);
         for hidden in [
-            SettingsPage::ShortcutKeys,
-            SettingsPage::Behaviour,
-            SettingsPage::ToolbarMenu,
             SettingsPage::Triggers,
             SettingsPage::OneKeys,
         ] {

@@ -157,7 +157,7 @@ pub enum ShellAction {
     ToggleMenuBar,
     ToggleStatusBar,
     ToggleQuickBar,
-    /// `Toolbar / Menu ▸ Show toolbar`：标签条下面那条窗格工具行的显示开关。
+    /// show_toolbar（原 Toolbar / Menu 页已移除）：标签条下面那条窗格工具行的显示开关。
     ///
     /// 唯一入口是设置页那个勾选（没有对应的菜单项：视觉基线的工具行自带齿轮，
     /// 不为它再开一条同义菜单路径）。只翻 bool，画不画由 `ui/mod.rs` 决定。

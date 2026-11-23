@@ -18,7 +18,7 @@
 //! 已生效」，而它们零读者（假勾选）。剩下的 18 行「灰显却打勾」
 //! 全改成了空框——Terminal 1（Enable local mode）、Auto Completion 6、
 //! Mouse Tracking 5、Text 2、Binary 1、Quick Bar 3；Highlight / Terminal 的
-//! 粘贴确认框 / Behaviour / Toolbar 此前已经改过。Quick Bar 那三项 2026-11-19
+//! 粘贴确认框此前已经改过。Quick Bar 那三项 2026-11-19
 //! 接成真控件，已搬去 `settings_live_quickbar`，这里只留历史口径。
 //!
 //! 真接线的页不在这里：
@@ -34,10 +34,9 @@
 //!   `Text ▸ Search Online` 按它搜；自定义引擎列表仍无存储，故 `+ − ▲ ▼` 灰显）；
 //! - `Filer`（`Show hidden items` 绑 `prefs.filer_show_hidden`，
 //!   `local_dir::list` 按它过滤，勾完当场重列）；
-//! - `Text` / `Behaviour` / `ToolbarMenu`（2026-11-10：**部分真控件**——
-//!   每页只有一两行接了字段，其余行仍按本文件的画法灰显。画法在
-//!   `settings_live_text.rs`，它同时用 `settings_pages_view::draw_row` 画那些
-//!   灰行，所以「灰行长什么样」仍然只有一份实现）；
+//! - `Text`（2026-11-10：**部分真控件**——只有一两行接了字段，其余行仍按
+//!   本文件的画法灰显。画法在 `settings_live_text.rs`，它同时用
+//!   `settings_pages_view::draw_row` 画那些灰行，所以「灰行长什么样」只有一份）；
 //! - `Tabs`（2026-11-10：**部分真控件**——关闭后激活 / 双击动作 / 省略模式
 //!   三行接了字段，其余五行灰显，逐行写清缺的是什么，见 `settings_live_tabs.rs`）。
 //! - `Terminal`（2026-11-19：**整页真控件**——粘贴确认两勾 / 右键三档 /
@@ -65,9 +64,6 @@ pub(in crate::ui) enum Block {
     },
     /// 不在分组框里的行（视觉基线里 `Binary` / `Wrap` 都有这种半截控件）。
     Rows(&'static [Row]),
-    /// 快捷键表。行不是字面量——要按 `DEFAULT_SHORTCUTS` + 运行期覆盖算出来，
-    /// 所以数据表只放这个标记，具体画法在 `settings_pages_view`。
-    Shortcuts,
 }
 
 /// 一行控件。`label` 为空串时画整宽控件（视觉基线 `Proxy` 页就是这样）。
@@ -174,16 +170,6 @@ const WRAP_NOTE: &str = "Not wired: the grid already hard-wraps at the pane widt
 /// 2026-11-19 同日：`incremental search` 也接了（那段的渲染本来就在画，补的是
 /// 关掉它的字段），灰行的四行变三行。
 
-/// `Shortcut Keys` 页的说明。这一页是**真数据、只读**，不是「没接线」：
-///
-/// 表里的每一行都是 `term_app::menu::DEFAULT_SHORTCUTS` 里的一对
-/// （命令, 生效和弦），覆盖表有值时显示覆盖值。只读是因为编辑入口已经是
-/// `Window ▸ Shortcuts` 那个对话框（`dialogs::shortcuts`）：它管着捕获态、
-/// 重绑、恢复出厂，这里再摆一套就成了第二个编辑器和第二份真相。
-const SHORTCUT_NOTE: &str = "Read-only: this list shows the bindings in effect \
-     (factory table plus your rebinds). To change them, open Window ▸ Shortcuts — \
-     that dialog owns rebinding and resetting to defaults.";
-
 /// `Triggers` 页的说明。这一页**是真的接线**，不该退回到「没有配置字段」那句：
 ///
 /// 规则编辑器直接读写 `Prefs.triggers`，每帧 `poll` 把 `TerminalWindow.triggers`
@@ -205,7 +191,7 @@ const ONEKEYS_NOTE: &str = "Credentials stored here are used automatically by SS
 /// （存储字段 / 状态机 / 渲染器 / 编码通道），「没接线」本身不是理由。
 ///
 /// 2026-11-10：`Proxy` / `Security` / `AutoCompletion` / `MouseTracking`
-/// 四页从通用那句换成专句，加上原有的 `Wrap` / `Shortcut Keys`
+/// 四页从通用那句换成专句，加上原有的 `Wrap`
 /// （`Highlight` 2026-11-19 搬去 live 页），数据表里再没有一页共用套话。（`QuickBar` 原先也有专句，
 /// 但那页 2026-11-19 接成真控件，说明跟着搬去 `settings_live_quickbar`。）`DISABLED_NOTE` 只剩空页
 /// `Widgets` 兜底——它 `blocks` 为空，
@@ -233,7 +219,6 @@ pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
         SettingsPage::MouseTracking => "", // live 页，掩码说明在页内
         SettingsPage::Wrap => WRAP_NOTE,
         SettingsPage::Highlight => "", // live 页（caret line / incremental search 真，其余三行灰）
-        SettingsPage::ShortcutKeys => SHORTCUT_NOTE,
         SettingsPage::Triggers => TRIGGERS_NOTE,
         SettingsPage::OneKeys => ONEKEYS_NOTE,
         _ => DISABLED_NOTE,
@@ -247,30 +232,8 @@ pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
 // 这张表一起删除；各页自己的说明本来就在页内（`page_note` /
 // `settings_live_text::*_NOTE`），信息没有丢。
 //
-// `Toolbar / Menu` 那条「工具行开关不落盘」的边界原先只写在页脚，现在并进
-// `settings_live_text::TOOLBAR_NOTE` 的页内说明，仍然对用户可见。
-
-/// 按运行期覆盖表算出生效的（命令, 和弦）列表——`Shortcut Keys` 页的全部数据。
-///
-/// 覆盖表的下标对应 `DEFAULT_SHORTCUTS` 的位置（`dialogs::shortcuts` 就是
-/// 这么存的）。越界下标（手改过的文件、表缩短后的残留）**忽略而不是 panic**：
-/// 页面只读，一条无效覆盖不该把整页打崩，也不该顶掉别人的行。
-pub(in crate::ui) fn effective_chords(
-    overrides: &[(usize, String)],
-) -> Vec<(&'static str, String)> {
-    term_app::menu::DEFAULT_SHORTCUTS
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let chord = overrides
-                .iter()
-                .find(|(j, _)| *j == i)
-                .map(|(_, text)| text.clone())
-                .unwrap_or_else(|| s.chord.to_string());
-            (s.label, chord)
-        })
-        .collect()
-}
+// 原 `Toolbar / Menu` 页的「工具行开关不落盘」边界随页面移除；该开关现由
+// 运行期状态持有，prefs 字段保留给原有读者。
 
 /// 页 → 内容。手绘的 live 页返回 `None`，由 `settings.rs` 自己画。
 ///
@@ -282,7 +245,7 @@ pub(in crate::ui) fn effective_chords(
 /// `settings_live_wrap.rs` 一页（同日，折行符号 / 参考列 / 列号三项真控件）+
 /// `settings_live_highlight.rs` 一页（同日，caret line 真勾选）+
 /// `settings_live_completion.rs` 一页（同日，十行全真控件）+
-/// `settings_live_text.rs` 三页（后几页每页只有几行是真控件，见那边的模块文档）。
+/// `settings_live_text.rs` 一页（Text，只有几行是真控件，见那边的模块文档）。
 pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
     let spec = match page {
         SettingsPage::Application
@@ -293,9 +256,7 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         | SettingsPage::Search
         | SettingsPage::Binary
         | SettingsPage::Filer
-        |         SettingsPage::Text
-        | SettingsPage::Behaviour
-        | SettingsPage::ToolbarMenu
+        | SettingsPage::Text
         | SettingsPage::Tabs
         | SettingsPage::Terminal
         | SettingsPage::MouseTracking
@@ -313,14 +274,6 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         // （2026-11-19 同日：incremental search 已接真，四行灰变三行）。
         // Wrap 页 2026-11-19 接成真控件（settings_live_wrap），不再在此表。
         // Quick Bar 页 2026-11-19 接成真控件（settings_live_quickbar），不再在此表。
-        // §2.6 点名的三页里，`Behaviour` / `Toolbar / Menu` 已搬去
-        // `settings_live_text.rs`（部分真控件）；只剩 `Shortcut Keys` 还在表里，
-        // 而且它不是灰显占位：表里是**真绑定**（出厂表 + 运行期覆盖），只是
-        // 只读——编辑入口在 `Window ▸ Shortcuts`，见 `SHORTCUT_NOTE`。
-        SettingsPage::ShortcutKeys => PageSpec {
-            title: "Keyboard Shortcuts",
-            blocks: &[Block::Shortcuts],
-        },
         // 视觉基线里点 `Widgets` 组头是个空页（右侧一片空白）。
         SettingsPage::Widgets => PageSpec { title: "Widgets", blocks: &[] },
     };

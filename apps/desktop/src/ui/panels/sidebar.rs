@@ -168,7 +168,7 @@ impl TerminalWindow {
             &self.ctx,
         );
         let idx = self.add_tab(tab);
-        // `Behaviour ▸ Focus the new tab`：关掉时新标签照常建出来，但不抢焦点。
+        // `prefs.focus_new_tab`：关掉时新标签照常建出来，但不抢焦点。
         self.activate_new_tab(idx);
     }
 

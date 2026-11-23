@@ -1,10 +1,10 @@
-//! `settings_pages` 的**画法**：分组框、两列栅格、灰显控件、只读快捷键表。
+//! `settings_pages` 的**画法**：分组框、两列栅格、灰显控件。
 //!
 //! 与数据分开是为了 （`ui/` 下非 `mod.rs` 文件 ≤ 450 行）：十六页的规格表
 //! 自己就三百多行，画法再挤进去就超了。两边按「数据 / 画法」切，
 //! 加一页只动数据文件，改外观只动这个文件。
 
-use super::settings_pages::{effective_chords, page_note, page_spec, Block, Row};
+use super::settings_pages::{page_note, page_spec, Block, Row};
 use super::settings::SettingsPage;
 use crate::ui::*;
 use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
@@ -21,7 +21,7 @@ pub(in crate::ui) use crate::ui::kit::form::{
     spin_field_delta, Deco, Slot, FIELD_TO_ROW,
 };
 
-pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage, overrides: &[(usize, String)]) {
+pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage) {
     let Some(spec) = page_spec(page) else { return };
     // 说明文字跟着页走：有的页缺的是「哪个字段」，有的页缺的是「哪一段渲染」，
     // 两者混用一句就会变成套话。
@@ -63,7 +63,6 @@ pub(in crate::ui) fn draw(ui: &mut egui::Ui, page: SettingsPage, overrides: &[(u
                 }
                 ui.add_space(BLOCK_GAP);
             }
-            Block::Shortcuts => shortcuts_table(ui, overrides),
         }
     }
     // 说明文字不画在页底：视觉基线的 19 张设置截图里没有任何页脚小字，
@@ -237,44 +236,9 @@ fn page_label_col(ui: &egui::Ui, blocks: &[Block]) -> f32 {
         match block {
             Block::Group { rows, .. } => push(rows),
             Block::Rows(rows) => push(rows),
-            Block::Shortcuts => {}
         }
     }
     label_col(ui, &labels)
 }
 
-
-/// `Shortcut Keys` 页的表：`DEFAULT_SHORTCUTS` 的每一对（命令, 生效和弦），只读。
-///
-/// 这里曾经还有一张 `Search` 页的两列表（6 个搜索引擎 + `+ − ▲ ▼ / Modify`
-/// 工具条）。Search 改成手绘的 live 页后那张表零使用者，一并删掉：留着它就是
-/// 第二套「引擎长什么样」的说法，改一边不会提醒另一边。
-/// 列宽收窄到 150 + 150：这页只有「命令 / 和弦」两列。
-fn shortcuts_table(ui: &mut egui::Ui, overrides: &[(usize, String)]) {
-    let rows = effective_chords(overrides);
-    group_box(ui, None, |ui| {
-        ui.spacing_mut().item_spacing.y = 2.0;
-        // 两列都按**可用宽度**分：命令名一列吃掉「除和弦列之外的全部」，
-        // 和弦列固定 150。原先两列各写死 150，表只占中间的 300，右边空出
-        // 一大片（用户 「左右留白」）。
-        let gap = ui.spacing().item_spacing.x;
-        let chord_w = 150.0;
-        let label_w = (ui.available_width() - chord_w - gap).max(120.0);
-        // 用 `field_label` 而不是 `add_sized(Label)`：后者把内容在格子**居中**，
-        // 于是整张表变成两列居中的字，与仓里其余左对齐的文字对不上。
-        ui.horizontal(|ui| {
-            field_label(ui, "Command", label_w);
-            field_label(ui, "Shortcut", chord_w);
-        });
-        for (label, chord) in &rows {
-            ui.horizontal(|ui| {
-                // 10 行都是出厂绑定名；`field_label` 自带 `truncate`，防手改过的
-                // 超长覆盖把右栏顶宽——窗口尺寸钉死，最后被裁掉的是页脚 `Close`。
-                field_label(ui, label, label_w);
-                field_label(ui, chord, chord_w);
-            });
-        }
-    });
-    ui.add_space(4.0);
-}
 

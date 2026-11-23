@@ -245,7 +245,7 @@ pub struct TerminalWindow {
     /// 数字，读 `prefs.json` 会多出一份可能落后的真相（拖动时盘上还是旧值，
     /// 喂回去就跳回原位）。同 `settings_live_font` 的字号。
     hex_defaults: terminal::HexParams,
-    /// `Behaviour ▸ Focus the new tab`（`prefs.focus_new_tab`，出厂 `true`）。
+    /// `prefs.focus_new_tab`（`prefs.focus_new_tab`，出厂 `true`）。
     ///
     /// 读者是新建标签的三个落地点（分屏 / 会话树连接 / 复制标签）：关掉时新标签
     /// 照常建出来，但不动 `active_tab`。
@@ -262,17 +262,17 @@ pub struct TerminalWindow {
     /// `Tabs ▸ Show the tab number on tabs:`（0 = 不显示 / 1 = 前九个 / 2 = 全部）；
     /// `Middle click:`（0 = 没有动作 / 1 = 关闭标签）；
     /// `Right click:`（0 = 标签菜单 / 1 = 关闭标签 / 2 = 没有动作）。
-    /// `Toolbar / Menu ▸ Show address bar`（`prefs.show_address_bar`，出厂 `true`）：
+    /// prefs.show_address_bar（`prefs.show_address_bar`，出厂 `true`）：
     /// 读者是 `shell/tool_bar.rs`；构造时读一次，设置页负责同步。
     tab_numbers: usize, tab_middle_click: usize, tab_right_click: usize, show_address_bar: bool,
-    /// `Toolbar / Menu ▸ Auto-hide the menu bar`（`prefs.auto_hide_menu_bar`）。
+    /// prefs.auto_hide_menu_bar（`prefs.auto_hide_menu_bar`）。
     /// 展开状态是投影态：指针靠近顶端 / 按住 Alt / 有菜单弹层时展开，
     /// 否则收成细带。不落盘。
     /// `ui.input.time` 口径的「保持展开到」时刻，避免指针在细带附近抖动。
     auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
     lock_timeout_secs: u32, last_lock_activity: f64,
-    /// `Preferences ▸ Behaviour ▸ Reconnect automatically`（出厂关）。
+    /// prefs.auto_reconnect（出厂关）。
     auto_reconnect: bool, prefer_theme_fonts: bool,
     /// 悬停激活：当前悬停的会话与起算时刻。
     tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
@@ -1051,7 +1051,7 @@ impl TerminalWindow {
                         self.draw_tabs(ui);
                     });
                 });
-            // `Toolbar / Menu ▸ Show toolbar`：工具行在此之前无条件绘制，现在受
+            // show_toolbar（原 Toolbar / Menu 页已移除）：工具行在此之前无条件绘制，现在受
             // `view.show_toolbar` 管。专注模式仍然连标签条一起压掉（上游那个 if
             // 已经管住了），所以这里不再重复判 `focus`。
             if self.view.show_toolbar {

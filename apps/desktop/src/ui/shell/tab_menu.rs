@@ -219,7 +219,7 @@ impl TerminalWindow {
             &self.ctx,
         );
         let idx = self.add_tab(tab);
-        // 复制出来的是**新标签**，同样受 `Behaviour ▸ Focus the new tab` 管。
+        // 复制出来的是**新标签**，同样受 `prefs.focus_new_tab` 管。
         self.activate_new_tab(idx);
         self.save_sessions();
     }

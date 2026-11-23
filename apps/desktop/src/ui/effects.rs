@@ -40,7 +40,7 @@ impl TerminalWindow {
         }
     }
 
-    /// `Behaviour ▸ Focus the new tab`：新标签建好之后要不要把焦点切过去。
+    /// `prefs.focus_new_tab`：新标签建好之后要不要把焦点切过去。
     ///
     /// 出厂行为就是「切过去」（`focus_new_tab = true`）。关掉时**不动
     /// `active_tab`**，但必须把它夹回存在的范围——有几个调用点在这之前刚改过
@@ -235,8 +235,8 @@ impl TerminalWindow {
     ///
     /// 2026-11-08：先经关闭确认弹窗（Yes 才真关，No 就地返回）；
     /// 勾了「不再提示」的直接走。2026-11-10：门控与另外两处共用
-    /// `confirm::should_confirm_close`（`Behaviour ▸ Confirm before closing
-    /// multiple tabs` 的粒度只在该函数里判一次）。
+    /// `confirm::should_confirm_close`（`prefs.confirm_close_multi_tabs`，原 Behaviour 页
+    /// 已移除；关多标签的粒度只在该函数里判一次）。
     pub(super) fn close_active_view(&mut self) {
         let i = self.active_slot();
         if crate::ui::dialogs::confirm::should_confirm_close(
@@ -715,7 +715,7 @@ impl TerminalWindow {
 /// Help 的落点：本项目自己的仓库（About 与状态栏的链接都走这里）。
 const HELP_URL: &str = "https://github.com/EzFavorites/WindTerm";
 
-/// 新标签建好之后 `active_tab` 该取什么值（`Behaviour ▸ Focus the new tab`）。
+/// 新标签建好之后 `active_tab` 该取什么值（`prefs.focus_new_tab`）。
 ///
 /// 抽成纯函数是为了让「关掉之后不许把下标指到不存在的标签上」这件事能被单测
 /// 钉住：`activate_new_tab` 只是把它写回窗口，判断逻辑只有这一份。

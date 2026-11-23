@@ -65,7 +65,7 @@ pub struct FindState {
 ///
 /// 字段集与「读者」一一对应（读者在 `ui/`，括号里注明）：
 /// - `show_*` 五个：面板绘制前后的条件（`ui/mod.rs` 的 panel 分支）；
-///   `show_toolbar` 是最后一个加入的（`Toolbar / Menu ▸ Show toolbar`）；
+///   `show_toolbar` 是最后一个加入的（show_toolbar（原 Toolbar / Menu 页已移除））；
 /// - `full_screen` / `always_on_top`：每帧与「已应用值」比较后发 `ViewportCommand`；
 /// - `focus_mode`：压掉 sidebar / 状态栏 / 快捷栏 / 标签栏（菜单栏保留，作为退出路径）。
 ///
@@ -81,7 +81,7 @@ pub struct ViewState {
     // ── 窗口 chrome ──
     pub show_sidebar: bool,
     pub show_menu_bar: bool,
-    /// `Toolbar / Menu ▸ Show toolbar`：标签条下面那条「窗格工具行」要不要画。
+    /// show_toolbar（原 Toolbar / Menu 页已移除）：标签条下面那条「窗格工具行」要不要画。
     ///
     /// 在此之前它**无条件绘制**（只有专注模式会压掉）。读者是 `ui/mod.rs`
     /// 声明 `pane_tools` 那条 `TopBottomPanel` 的那一行。

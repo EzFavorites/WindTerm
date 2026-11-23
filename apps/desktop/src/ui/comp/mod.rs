@@ -592,8 +592,8 @@ mod tests {
 
     #[test]
     fn every_settings_page_has_exactly_one_registered_component() {
-        // 与 New Session 同一条契约：一页一张图。Preferences 24 页，
-        // 漏一页就是那一页的内容改了没人知道。
+        // 与 New Session 同一条契约：一页一张图。Preferences 21 页
+        // （原版 19 + Triggers / OneKeys），漏一页就没人发现内容改了。
         let pages: Vec<u8> = CompId::ALL
             .iter()
             .filter_map(|c| match c {
@@ -602,8 +602,8 @@ mod tests {
             })
             .collect();
         assert_eq!(pages.len(), dialogs::SettingsPage::ALL.len());
-        assert_eq!(pages.len(), 24);
-        for n in 0..24u8 {
+        assert_eq!(pages.len(), 21);
+        for n in 0..21u8 {
             assert_eq!(
                 pages.iter().filter(|p| **p == n).count(),
                 1,
@@ -615,8 +615,8 @@ mod tests {
     #[test]
     fn settings_page_baselines_follow_the_page_keys() {
         // 期望值 = `SettingsPage::key()` 的 slug，按组件夹具页序
-        // （TOP 11 项 → Terminal / Text / Widgets 三个「组头 + 子页」；
-        // 其中 5 项 2026-11-15 起不再画进左栏，但基线槽位不动）。
+        // （TOP 8 项 → Terminal / Text / Widgets 三个「组头 + 子页」；
+        // 其中 2 项新增管理页不再画进左栏，但基线槽位不动）。
         // 这条同时钉住三件事：名字、页序（下标 ↔ 页）、`parse` 的反查。
         let slugs = [
             "application",
@@ -625,9 +625,6 @@ mod tests {
             "search",
             "security",
             "tabs",
-            "shortcut_keys",
-            "behaviour",
-            "toolbar_menu",
             "triggers",
             "onekeys",
             "terminal",

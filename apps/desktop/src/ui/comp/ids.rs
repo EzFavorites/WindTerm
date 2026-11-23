@@ -72,14 +72,15 @@ impl CompId {
         CompId::NewSessionPage(23),
         // Preferences 同理按**页**登记：整张弹窗那张 `dialog_settings` 只守住
         // 默认页（是 Application）的位置与外观。
-        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 24 页；其中 5 页不在
-        // 左栏显示，但逐页基线仍在。
+        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 21 页（原版 19 页 +
+        // Triggers / OneKeys 两个新增管理页）；其中 2 页不在左栏显示。
         CompId::SettingsPage(0),
         CompId::SettingsPage(1),
         CompId::SettingsPage(2),
         CompId::SettingsPage(3),
         CompId::SettingsPage(4),
         CompId::SettingsPage(5),
+        // 6 / 7 = Triggers / OneKeys（新增管理页，不在左栏，仍有基线）。
         CompId::SettingsPage(6),
         CompId::SettingsPage(7),
         CompId::SettingsPage(8),
@@ -95,11 +96,6 @@ impl CompId {
         CompId::SettingsPage(18),
         CompId::SettingsPage(19),
         CompId::SettingsPage(20),
-        CompId::SettingsPage(21),
-        //  新增的 Triggers 页：下标 = `SettingsPage::ALL` 里 Triggers 的位置（22）。
-        CompId::SettingsPage(22),
-        // `Terminal.ManageOneKeys`：凭据管理器页，下标 = 23。
-        CompId::SettingsPage(23),
         CompId::QuickCommandBar,
         CompId::StatusBar,
         CompId::ConfirmCloseWindow,
@@ -290,7 +286,7 @@ impl CompId {
 /// Preferences 页的基线名：`dialog_settings_<页名>`。
 ///
 /// `<页名>` 是 `SettingsPage::key ` 的 slug（空格 / 斜杠换下划线、全小写），
-/// 例如 `Shortcut Keys` → `dialog_settings_shortcut_keys`。`&'static str` 没法
+/// 例如 `Triggers` → `dialog_settings_triggers`。`&'static str` 没法
 /// 在运行期拼出来，所以只能逐页写成字面量；漏一页编译不过（穷尽 match），
 /// 「名字的次序与组件夹具页序一致」由 `settings_page_baselines_follow_the_page_keys` 守。
 fn settings_component(page: dialogs::SettingsPage) -> &'static str {
@@ -302,9 +298,6 @@ fn settings_component(page: dialogs::SettingsPage) -> &'static str {
         SP::Search => "dialog_settings_search",
         SP::Security => "dialog_settings_security",
         SP::Tabs => "dialog_settings_tabs",
-        SP::ShortcutKeys => "dialog_settings_shortcut_keys",
-        SP::Behaviour => "dialog_settings_behaviour",
-        SP::ToolbarMenu => "dialog_settings_toolbar_menu",
         SP::Terminal => "dialog_settings_terminal",
         SP::AutoCompletion => "dialog_settings_auto_completion",
         SP::CommandHistory => "dialog_settings_command_history",

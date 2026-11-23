@@ -1,5 +1,5 @@
 //! 界面偏好的持久化：语言、两个关闭抑制位、Logging 配置页五项、光标样式、
-//! 在线搜索模板、Filer 的隐藏项开关、Text 页与 Behaviour 页的三个新开关、
+//! 在线搜索模板、Filer 的隐藏项开关、Text 页三行与已移除 Behaviour 页的三个开关、
 //! 关多标签的确认开关、两个粘贴确认开关、终端字号，以及 Tabs 页的三项标签行为。
 //!
 //! # 为什么单独一个文件，不塞进 `layout.json`
@@ -196,7 +196,7 @@ pub struct Prefs {
     /// `ui/terminal/pane.rs` 画光标的那一段，判据来自 `Tab` 上记的输入时刻。
     #[serde(default)]
     pub text_hide_cursor_while_typing: bool,
-    /// `Behaviour ▸ Focus the new tab`：新开标签（分屏 / 从会话树连接 / 复制标签）
+    /// `prefs.focus_new_tab`（原 Behaviour 页已移除）：新开标签（分屏 / 从会话树连接 / 复制标签）
     /// 之后要不要把焦点切过去。
     ///
     /// 出厂 **`true`**：现在的行为就是「新标签立刻成为活动标签」，改默认值会让
@@ -351,7 +351,7 @@ pub struct Prefs {
     /// `Tab.marks` 上（每条标签各一份）。两者语义不同，别顺手合并。
     #[serde(default = "default_true")]
     pub text_highlight_search: bool,
-    /// `Behaviour ▸ Confirm before closing multiple tabs`：还开着别的标签时，
+    /// `prefs.confirm_close_multi_tabs`（原 Behaviour 页已移除）：还开着别的标签时，
     /// 关一条标签要不要先问一句。
     ///
     /// 出厂 **`true`**——现状就是「关标签一律确认」，改默认值等于升级一次
@@ -419,14 +419,14 @@ pub struct Prefs {
     pub quickbar_show_group_title: bool,
     #[serde(default)]
     pub quickbar_alphabetical: bool,
-    /// `Toolbar / Menu ▸ Show address bar`：工具行右段那块 `#333333` 的
+    /// `prefs.show_address_bar`（原 Toolbar / Menu 页已移除）：工具行右段那块 `#333333` 的
     /// 面包屑面板（`(i) │ ▸ 分组 ▸ 会话`，点它开地址栏浮层）。
     ///
     /// 出厂 `true` = 现状（视觉基线里面板段一直在），所以升级不改外观；
     /// 关掉只是不画那一段，左端按钮组与右端三件菜单原样保留。
     #[serde(default = "default_true")]
     pub show_address_bar: bool,
-    /// `Toolbar / Menu ▸ Auto-hide the menu bar`：出厂关（现状常驻），
+    /// `prefs.auto_hide_menu_bar`（原 Toolbar / Menu 页已移除）：出厂关（现状常驻），
     /// 打开后菜单条收成一条细带，指针靠近顶端或按住 Alt 时展开。
     #[serde(default)]
     pub auto_hide_menu_bar: bool,
@@ -434,7 +434,7 @@ pub struct Prefs {
     /// 出厂 1800 = 30 分钟，与官方文档默认一致；0 = 不自动锁。
     #[serde(default = "default_1800")]
     pub lock_timeout_secs: u32,
-    /// `Preferences ▸ Behaviour ▸ Reconnect automatically when the connection drops`。
+    /// `prefs.auto_reconnect`（原 Behaviour 页已移除）。
     /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
     #[serde(default)]
     pub auto_reconnect: bool,
