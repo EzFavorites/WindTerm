@@ -161,6 +161,12 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
         // Mode 菜单（视觉基线）：同一菜单里 `F̲ocus Mode` 先占了 F，
         // 紧跟的 `Focus Mode S̲ettings...` 于是划 Settings 的 S——视觉基线就是这样。
         ("Focus Mode Settings", "Settings"),
+        // View ▸ Hex（原版 `01-view-menu.png`）：三行都以 `Hex ` 开头，
+        // 下划线钉在第二个词的首字母上（`Hex B̲ase` / `Hex C̲olumns` /
+        // `Hex G̲roup Chars`），不是每行都重复的 `H`。
+        ("Hex Base", "Base"),
+        ("Hex Columns", "Columns"),
+        ("Hex Group Chars", "Group"),
         // Tool ▸ Transfer Binary（视觉基线）：六行的下划线全钉在传输
         // 协议的字母上（`S̲end X̲Modem` → 划 X），不是首字母 `S` / `R`。
         // 六行同处一个子菜单，首字母全是 S、R 两个重复字母，划首位等于没划。
@@ -290,6 +296,10 @@ mod tests {
         // Log 子菜单的两个例外：避开重复的 O。
         assert_eq!(access_char_pos("Open Log File"), Some(5));
         assert_eq!(access_char_pos("Open Log Folder"), Some(9));
+        // View ▸ Hex 三行：避开重复的 H，划第二个词的首字母。
+        assert_eq!(access_char_pos("Hex Base"), Some(4));
+        assert_eq!(access_char_pos("Hex Columns"), Some(4));
+        assert_eq!(access_char_pos("Hex Group Chars"), Some(4));
     }
 
     /// 视觉基线：Log 子菜单是四组，文案比旧版短；命令 ID 一个都不动

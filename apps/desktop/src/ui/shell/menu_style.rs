@@ -399,6 +399,11 @@ pub(in crate::ui) fn apply_popup_style(ui: &mut egui::Ui) {
     w.inactive.bg_fill = egui::Color32::TRANSPARENT;
     w.inactive.bg_stroke = egui::Stroke::NONE;
     w.active.bg_stroke = egui::Stroke::NONE;
+    // 行与行之间不留 egui 的默认 3pt 间距：菜单行自己带上下留白
+    // （[`MENU_ROW_PAD_Y`]），再加一行间距会让节距变成 31，整张菜单比原版
+    // `01-*-menu.png` 的 28 松一档。原版行是紧挨着排的（高亮块 27、分隔线 1），
+    // `allocate_exact_size` 每行紧接下一行才是正解。
+    ui.spacing_mut().item_spacing.y = 0.0;
 }
 
 /// 弹层里**行**需要多宽（`Frame` 内边距之内）＝ 最宽行的格数 × 等宽字宽
@@ -448,9 +453,11 @@ pub(in crate::ui) const POPUP_INNER_X: f32 = 4.0;
 pub(in crate::ui) const MENU_ROW_PAD_X: f32 = 8.0;
 /// 行内文字上下留白（行高 = 字高 + 2×这个值）。
 ///
-/// 2026-11-14：从 3 → 7。兼容终端菜单（同一张 `01-mode-menu.png`）每行上下留白约
-/// 5–6px，此前 3 太挤；先试 5 仍偏挤（出图实测行高仍约 19pt），提到 7 后纵向
-/// 明显舒展。复选框按比例缩小到 11×11 后，行内也不再被大框挤。
+/// 2026-11-23：原版 `01-menu-bar/*/01-*-menu.png` 的行节距是 **28px**
+/// （`search` 的高亮行 27 + 1 分隔线 = 28，`mode` / `view` / `window` 三张图
+/// 的分隔线间距也全是 28 的整数倍）。本程序字高 14，留白 7 → 行高 28；
+/// 之前看起来「间距偏大」不是这个值，而是 egui 默认的 3pt 行间距把节距
+/// 顶到了 31——已在 [`apply_popup_style`] 里清零。
 pub(in crate::ui) const MENU_ROW_PAD_Y: f32 = 7.0;
 
 /// 这棵菜单树的**行宽**（`Frame` 之内用）。
