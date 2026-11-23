@@ -20,14 +20,16 @@ fn origin(o: egui::Pos2) -> egui::Pos2 {
 /// 之前的可用高度」铺开，与事件页的分支共用同一套绘制（`page_action::fields`）。
 pub(super) fn custom(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut term_app::trigger::Rule) {
     let base = origin(o);
-    match_box(ui, base, rule, spec::custom::MATCH_H, false);
+    // 夹具专用：原版 `10` / `23` 的 Match 框是聚焦蓝边，Action 下拉则是普通态。
+    let match_focus = std::env::var_os("WINDTERM_TRIG_FOCUS_MATCH").is_some();
+    match_box(ui, base, rule, spec::custom::MATCH_H, match_focus);
     let combo_top = spec::custom::MATCH_H + spec::custom::FLAG_H + 8.5;
     label_ul(ui, base.x, base.y + combo_top + 4.0, "Action:", 'A');
     let cr = egui::Rect::from_min_size(
         base + egui::vec2(0.0, combo_top + 19.0),
         egui::vec2(spec::BODY.2, spec::custom::COMBO_H),
     );
-    if combo(ui, cr, rule.config.action.kind.label(), true).clicked() {
+    if combo(ui, cr, rule.config.action.kind.label(), false).clicked() {
         view.toggle_at(Open::Action, cr);
     }
 

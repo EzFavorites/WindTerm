@@ -70,7 +70,7 @@ pub(in crate::ui) fn preset(view: &mut View, ctx: &egui::Context, o: egui::Pos2)
         // 新建触发器弹窗（`03` / `09`），`types` 连 Type 列表一起展开（`08`）。
         "new" | "types" => {
             view.new_dialog = true;
-            view.new_name = "111".to_owned();
+            view.new_name.clear();
             view.type_menu = which == "types";
             // 视觉基线 `08` 高亮首项 Custom link；缺省 `new_kind=6`（Highlight text）
             // 会让类型列表的高亮行落在第 7 项，整图差分无从可比。`types` 预设

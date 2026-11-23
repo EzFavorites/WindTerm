@@ -35,13 +35,17 @@ pub(super) fn sample_triggers() -> Vec<term_app::trigger::Rule> {
     // 第二批视觉基线（`23` / `26` / `30`）里 `Match` 框都是空的，而第一批的
     // `01` / `13` 依赖 `error` 这行样例——所以只在这些类型下清空 pattern，
     // 不动已冻结的 Highlight 基线。
-    let first_pattern = match main_kind {
+    let first_pattern = if std::env::var_os("WINDTERM_TRIG_PATTERN_EMPTY").is_some() {
+        ""
+    } else {
+    match main_kind {
         TriggerKind::CustomMenu
         | TriggerKind::CustomLink
         | TriggerKind::RunCommand
         | TriggerKind::ShowTooltip
         | TriggerKind::PlaySound => "",
         _ => "error",
+    }
     };
     let mut v = vec![mk("r1", "111", main_kind, first_pattern)];
     for (i, (name, kind)) in [
