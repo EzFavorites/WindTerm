@@ -26,10 +26,12 @@ pub struct LockState {
 }
 
 /// 终端左边栏五列的开关（留白 / 行号 / 符号 / 时间戳 / 折叠）。
-/// margin 各列的开关。默认：留白 / 行号 / 符号开，时间戳与折叠关。
+/// margin 各列的开关。默认：留白 / 行号 / 符号 / 时间戳开，折叠关。
 ///
-/// 为什么时间戳默认关：它占 10 格（`[HH:MM:SS]` 正好 10 个字符），80 列终端里
-/// 一口气吃掉八分之一；用户要看再开（`Text.MarginTimestamp`）。
+/// 2026-11-23 起时间戳默认开：用户反馈「默认不显示时间」，而宿主在
+/// `term-io::supervisor` 里每批输出前都会 `stamp_row(now_secs())`，数据一直有，
+/// 只是原先默认把这一列关着。它占 10 格（`[HH:MM:SS]` 正好 10 个字符），
+/// 不想要的用户可以用 `Text.MarginTimestamp` 关掉。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MarginState {
     pub blank: bool,

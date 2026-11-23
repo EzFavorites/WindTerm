@@ -302,9 +302,9 @@ pub struct Fixture {
     pub selection: Option<Selection>,
     /// 夹具只描述「按了哪些动作」，不携带领域状态。
     find: Vec<Action>,
-    /// 2026-11-07：margin 夹具。夹具**不直接写** `ViewState.margin`——
-    /// 它派发 `Text.MarginTimestamp`，由同一个 `reduce` 打开时间戳列，
-    /// 所以 baseline 拍到的是「用户点了菜单」之后的真实状态。
+    /// 2026-11-07：margin 夹具。夹具**不直接写** `ViewState.margin`，只派发
+    /// margin 动作。2026-11-23 起时间戳列默认开启，这里恒为空（留着通道给
+    /// 将来某个夹具要翻别的列用）。
     margin: Vec<Action>,
     /// 2026-11-07：底带夹具。同样只派发命令（打开 Sender / Shell），不写状态。
     shell: Vec<Action>,
@@ -607,9 +607,9 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
             BinKind::None => term_runtime::prefs::DisplayMode::Text,
             BinKind::Line | BinKind::Overflow => term_runtime::prefs::DisplayMode::Bin,
         },
-        margin: vec![Action::Margin(term_app::margin::MarginAction::Toggle(
-            term_app::margin::MarginPart::Timestamp,
-        ))],
+        // 2026-11-23：时间戳列默认就开着，夹具不再需要 Toggle（再翻一次
+        // 反而会把它关掉）。留空向量只是守着同一条「夹具只描述动作」的规矩。
+        margin: Vec::new(),
         // 默认布局已经把 Sender / Shell 打开：再 Toggle 一次是**关掉**它们，
         // 底带会从图上消失。夹具只负责钉死字节流，不碰外壳状态。
         // Sysmon 是唯一的例外：它出厂关着（底部细带只露按钮），展开夹具派发
@@ -757,7 +757,7 @@ mod tests {
         assert!(rows.windows(2).all(|w| w[1] > w[0]), "行号应严格递增：{rows:?}");
         let secs: Vec<u64> = f.snapshot.row_times.iter().map(|(_, t)| *t).collect();
         assert!(secs.windows(2).all(|w| w[1] >= w[0]), "时刻不该倒流");
-        // 夹具只描述动作：时间戳列是「按了菜单」打开的，不是直接写状态。
+        // 夹具只描述动作：时间戳列现在是出厂默认开着的，夹具不再改状态。
         assert!(f
             .margin_actions()
             .iter()
