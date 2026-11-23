@@ -263,6 +263,12 @@ impl TerminalWindow {
                                         .tab = want;
                                 }
                             }
+                            // 新建方案模态框出图用（原版 onekeys-new-dialog.png）。
+                            if std::env::var("WINDTERM_ONEKEYS_MODAL").as_deref() == Ok("1") {
+                                let edit = self.onekeys_edit.get_or_insert_with(Default::default);
+                                edit.new_scheme_modal = true;
+                                edit.new_scheme_buf = "onekey_1".to_string();
+                            }
                         }
                         self.view.show_onekeys = true;
                         self.draw_onekeys_dialog(ctx);

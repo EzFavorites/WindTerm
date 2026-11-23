@@ -16,7 +16,7 @@ use crate::ui::kit::window::{DialogId, DialogWindow};
 /// 内容最小尺寸。2026-11-15：初版按兼容终端 438 高，结果「左栏列表 + 按钮行 +
 /// 页脚」加起来超了 20 点，页脚整条被裁掉（截图里只剩 Cancel/Ok 的空白）。
 /// 兼容终端窗口本身是 496 高，页脚在主体下方**独立一条**，所以这里给到 462。
-const CONTENT_MIN: egui::Vec2 = egui::vec2(684.0, 653.0);
+const CONTENT_MIN: egui::Vec2 = egui::vec2(684.0, 637.0);
 
 /// 内容区宽度：弹窗 702 宽 − 边框与内边距 ≈18。
 const CONTENT_W: f32 = 684.0;

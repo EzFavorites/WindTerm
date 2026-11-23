@@ -49,6 +49,7 @@
 //!   `onekey:<name>` 为 id），锁着时 `Ok` 禁用。
 
 use super::dialog_chrome::{framed_button, place, plain_button, rgb, tiny_button};
+use super::settings_live_onekeys_modal::new_scheme_dialog;
 use super::settings_live_onekeys_pages::{account_editor, sessions_editor};
 use super::settings_live_onekeys_ssh::ssh_editor;
 use crate::ui::*;
@@ -56,16 +57,21 @@ use term_core::onekey::OneKey;
 
 // ── 实测几何（逻辑点） ──
 pub(in crate::ui) const DIALOG_W: f32 = 702.0;
-pub(in crate::ui) const DIALOG_H: f32 = 655.0;
+// 原版 `07-dialogs/onekeys-*.png` 实测：对话框 1408×1274 物理 ÷ 2 = 704×637。
+pub(in crate::ui) const DIALOG_H: f32 = 637.0;
 const PAD: f32 = 9.0;
 const TAB_H: f32 = 23.0;
-const TAB_GAP: f32 = 10.0;
+const TAB_GAP: f32 = 11.0;
+/// 右栏字段区高度（SSH 表2 底相对主体顶 = 560）。
 const BODY_H: f32 = 560.0;
+/// 左列表框高度（原版列表底 y=1148 物理，相对主体顶 68 = 540）；
+/// 比右栏矮 20，下面那 20 正是工具行。
+const LIST_H: f32 = 540.0;
 const LIST_W: f32 = 257.0;
 const COL_GAP: f32 = 8.0;
 pub(in crate::ui) const FIELD_W: f32 = 420.0;
-const TOOL_H: f32 = 19.0;
-const FOOT_H: f32 = 41.0;
+const TOOL_H: f32 = 20.0;
+const FOOT_H: f32 = 43.0;
 
 /// 本对话框的三分类（顶部标签），与视觉基线「SSH / Account / Sessions」同序。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -100,6 +106,10 @@ pub(in crate::ui) struct OneKeysEdit {
     /// SSH 页两张表是否处于 `Modify` 编辑态（视觉基线默认是只读，只有链接）。
     pub(in crate::ui) key_editing: bool,
     pub(in crate::ui) ki_editing: bool,
+    /// 新建方案模态框（原版 `07-dialogs/onekeys-new-dialog.png`）：点 `+` 后
+    /// 弹出「Enter a name for the new OneKey.」+ Name 输入框 + Cancel/Create。
+    pub(in crate::ui) new_scheme_modal: bool,
+    pub(in crate::ui) new_scheme_buf: String,
 }
 
 fn new_name(existing: &[OneKey]) -> String {
@@ -125,6 +135,46 @@ fn name_ok(draft: &[OneKey], at: usize, name: &str) -> bool {
             .iter()
             .enumerate()
             .any(|(i, k)| i != at && k.name == name)
+}
+
+/// OneKeys 的三标签复用共享页签原语，但原版 `07-dialogs/onekeys-*.png` 在
+/// SSH / Account 两块各自左上角有一枚状态点（SSH 粉 #FF008E、Account 绿
+/// #00B66A，5×5 逻辑点）。共享 `kit::tabs` 被 Triggers / Modem 复用，不能
+/// 就地改，所以在这里叠加绘制——Sessions 无点。
+
+fn onekeys_tab(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    label: &str,
+    active: bool,
+    dot: Option<u32>,
+) -> egui::Response {
+    // 不直接改共享 `kit::tabs`——Triggers / Modem 也用它。这里按原版色值
+    // （选中字 #FFFFFF / 未选 #BBBBBB）就地画一份，并叠加状态点。
+    let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
+    let p = ui.painter_at(rect);
+    let (bg, fg) = if active {
+        (0x1C1C1C, 0xFFFFFF)
+    } else {
+        (0x333333, 0xBBBBBB)
+    };
+    p.rect_filled(rect, egui::Rounding::ZERO, rgb(bg));
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let galley = p.layout_no_wrap(label.to_owned(), font.clone(), rgb(fg));
+    let w = galley.size().x;
+    p.galley(rect.center() - galley.size() / 2.0, galley, rgb(fg));
+    let cw = w / label.chars().count().max(1) as f32;
+    let x0 = rect.center().x - w / 2.0;
+    let y = rect.center().y + ui.style().text_styles[&egui::TextStyle::Button].size * 0.62;
+    p.line_segment(
+        [egui::pos2(x0, y), egui::pos2(x0 + cw, y)],
+        egui::Stroke::new(1.0, rgb(fg)),
+    );
+    if let Some(color) = dot {
+        p.circle_filled(rect.min + egui::vec2(15.0, 10.5), 2.5, rgb(color));
+    }
+    resp
 }
 
 /// OneKeys 对话框的入口：标签条 + 左列表 + 右字段 + 页脚，全部按实测坐标摆。
@@ -162,14 +212,12 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         |ui| {
             ui.spacing_mut().item_spacing.x = 0.0;
             ui.horizontal(|ui| {
-                for (tab, label) in [
-                    (Tab::Ssh, "SSH"),
-                    (Tab::Account, "Account"),
-                    (Tab::Sessions, "Sessions"),
+                for (tab, label, dot) in [
+                    (Tab::Ssh, "SSH", Some(0xFF008E)),
+                    (Tab::Account, "Account", Some(0x00B66A)),
+                    (Tab::Sessions, "Sessions", None),
                 ] {
-                    if super::settings_pages_view::dialog_tab(ui, tab_w, TAB_H, label, edit.tab == tab)
-                        .clicked()
-                    {
+                    if onekeys_tab(ui, tab_w, TAB_H, label, edit.tab == tab, dot).clicked() {
                         edit.tab = tab;
                     }
                 }
@@ -182,7 +230,7 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // SSH / Account 两页才是「左列表 + 右字段 + 工具行」。
     let is_sessions = edit.tab == Tab::Sessions;
     let body_y = if is_sessions { TAB_H + 3.0 } else { TAB_H + TAB_GAP };
-    let body_h = if is_sessions { 614.0 - body_y } else { BODY_H };
+    let body_h = if is_sessions { 594.0 - body_y } else { BODY_H };
     let body = egui::Rect::from_min_size(
         origin + egui::vec2(0.0, body_y),
         egui::vec2(content_w, body_h),
@@ -200,7 +248,8 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         write_body(ui, body, win, &mut edit);
     }
 
-    let tool_y = body.max.y;
+    // 工具行紧贴左列表框底（body.min.y + LIST_H），不是右栏字段区底。
+    let tool_y = if is_sessions { body.max.y } else { body.min.y + LIST_H };
     // ── 左栏工具行：**独立的一个框**（上下各一条横线把按钮组框住），
     // 与 Triggers 的两条工具条同形；不再被左侧大框吞掉。
     let strip = egui::Rect::from_min_size(egui::pos2(body.min.x, tool_y), egui::vec2(LIST_W, TOOL_H));
@@ -215,12 +264,14 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 3.0;
                 if tiny_button(ui, "+").clicked() {
-                    if let Some(draft) = edit.draft.as_mut() {
-                        let name = new_name(draft);
-                        draft.push(OneKey { name, ..OneKey::default() });
-                        edit.selected = Some(draft.len() - 1);
-                        edit.renaming = false;
-                    }
+                    // 原版点 `+` 会先弹「Enter a name for the new OneKey.」模态框，
+                    // 由用户输入名字再 Create，不是直接塞一个 onekey_N。
+                    edit.new_scheme_buf = edit
+                        .draft
+                        .as_ref()
+                        .map(|d| new_name(d))
+                        .unwrap_or_else(|| "onekey_1".to_string());
+                    edit.new_scheme_modal = true;
                 }
                 // `-` 删的是**当前选中**项；没有选中就置灰可辨（`tiny_button` 在
                 // disabled 的 ui 里自动只收 hover，见它的实现）。
@@ -274,6 +325,12 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ),
         |ui| write_footer(ui, win, &mut save, &mut close, &mut toggle_lock),
     );
+
+    // 新建方案模态框盖在最上层（原版点 `+` 后的形态）。
+    if edit.new_scheme_modal {
+        new_scheme_dialog(ui, origin, &mut edit);
+    }
+
     // 页脚的黄色锁是真入口：锁着 → 复用锁屏问主密码；开着 → 直接锁回去。
     if toggle_lock {
         if win.vault_unlocked() {
@@ -319,14 +376,18 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         origin,
         egui::vec2(
             content_w,
-            body_y + body_h + if is_sessions { 0.0 } else { TOOL_H } + FOOT_H,
+            if is_sessions {
+                body_y + body_h + FOOT_H
+            } else {
+                body_y + LIST_H + TOOL_H + FOOT_H
+            },
         ),
     ));
 }
 
 /// 主体：左栏带边框列表 + 右栏字段区。
 fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edit: &mut OneKeysEdit) {
-    let list = egui::Rect::from_min_size(body.min, egui::vec2(LIST_W, BODY_H));
+    let list = egui::Rect::from_min_size(body.min, egui::vec2(LIST_W, LIST_H));
     // 列表边框实测 (68,68,68)，比 `line` 亮一档。
     ui.painter()
         .rect_stroke(list, egui::Rounding::ZERO, egui::Stroke::new(1.0, rgb(0x444444)));
@@ -416,17 +477,25 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
     });
 }
 
-/// 页脚那把锁：几何画出（视觉基线是单色 `#FF8400` 铜锁，不是彩色 emoji），
-/// 整行可点。下划线落在 `lock` 上，和视觉基线的键盘加速器写法一致。
+/// 页脚的锁/钥匙：几何画出（原版图 `07-dialogs/onekeys-*.png` 是单色 `#FF8400`，
+/// 不是彩色 emoji），整行可点。下划线落在关键词上，和原版的加速器写法一致。
+///
+/// 原版两态文案不同：锁着 `Click the lock to make changes.`；
+/// 解锁 `Click the key to prevent further changes.`——关键词从 lock 变 key，
+/// 图标也从锁头变钥匙，颜色两态都是铜橙 #FF8400（不是绿色）。
 fn lock_hint(ui: &mut egui::Ui, unlocked: bool) -> bool {
-    let tail = if unlocked { "prevent" } else { "make" };
-    let color = rgb(if unlocked { 0x6BBF59 } else { 0xFF8400 });
+    let (keyword, tail) = if unlocked {
+        ("key", "prevent further")
+    } else {
+        ("lock", "make")
+    };
+    let color = rgb(0xFF8400);
     let font = egui::TextStyle::Button.resolve(ui.style());
     let plain = egui::TextFormat::simple(font.clone(), color);
     let mut job = egui::text::LayoutJob::default();
     job.append("Click the ", 0.0, plain.clone());
     job.append(
-        "lock",
+        keyword,
         0.0,
         egui::TextFormat { underline: egui::Stroke::new(1.0, color), ..plain.clone() },
     );
@@ -439,17 +508,26 @@ fn lock_hint(ui: &mut egui::Ui, unlocked: bool) -> bool {
     let resp = ui.allocate_rect(rect, egui::Sense::click());
     let p = ui.painter_at(rect);
     let center = rect.min + egui::vec2(11.0, rect.height() / 2.0);
-    // 锁身：实心圆角方块；锁梁：开口朝右的圆环（解锁态挪一点表示弹开）。
-    p.rect_filled(
-        egui::Rect::from_center_size(center + egui::vec2(0.0, 2.5), egui::vec2(11.0, 8.0)),
-        egui::Rounding::same(1.0),
-        color,
-    );
-    p.circle_stroke(
-        center + egui::vec2(if unlocked { 2.0 } else { 0.0 }, -3.0),
-        3.5,
-        egui::Stroke::new(1.0, color),
-    );
+    if unlocked {
+        // 钥匙：圆环柄 + 斜向杆 + 齿。
+        p.circle_stroke(center + egui::vec2(-2.0, -3.0), 2.5, egui::Stroke::new(1.0, color));
+        p.line_segment(
+            [center + egui::vec2(0.0, -1.0), center + egui::vec2(6.0, 5.0)],
+            egui::Stroke::new(1.5, color),
+        );
+        p.line_segment(
+            [center + egui::vec2(3.0, 5.0), center + egui::vec2(5.0, 3.0)],
+            egui::Stroke::new(1.0, color),
+        );
+    } else {
+        // 锁身：实心圆角方块；锁梁：开口朝右的圆环。
+        p.rect_filled(
+            egui::Rect::from_center_size(center + egui::vec2(0.0, 2.5), egui::vec2(11.0, 8.0)),
+            egui::Rounding::same(1.0),
+            color,
+        );
+        p.circle_stroke(center + egui::vec2(0.0, -3.0), 3.5, egui::Stroke::new(1.0, color));
+    }
     p.galley(
         rect.min + egui::vec2(28.0, (rect.height() - galley.size().y) / 2.0),
         galley,
@@ -473,7 +551,9 @@ fn write_footer(
             *toggle_lock = true;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let can_save = unlocked || win.onekeys.is_empty();
+            // 原版：锁着时 Ok 一律禁用（图 1/图 7 空列表锁着也是灰的）；
+            // 要先点铜锁解锁，才能保存。
+            let can_save = unlocked;
             if framed_button(ui, "Ok", can_save, true).clicked() {
                 *save = true;
                 *close = true;

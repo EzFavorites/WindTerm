@@ -149,7 +149,6 @@ const GROUP_ROUNDING: f32 = 2.0;
 /// 画法已收进 [`crate::ui::kit::tabs::tab`]：两档底色（选中 #1C1C1C，
 /// 与下方内容区连成一片 / 未选 #333333）、首字符访问键下划线都只有一处实现。
 /// 这里保留旧名字给现有调用点，不再是一份独立绘制代码。
-pub(in crate::ui) use crate::ui::kit::tabs::tab as dialog_tab;
 
 
 /// 画一行。`settings_live_text` 也用它画「没有消费者」的那几行——同一页里

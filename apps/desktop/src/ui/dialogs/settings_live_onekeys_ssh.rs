@@ -3,7 +3,7 @@
 //! 右栏各元素的 y 均为视觉基线（1408×1314 @2×）物理像素 ÷2 的实测值，
 //! 相对右栏内容原点；绘制走 `place` 绝对定位，不用 flow。
 
-use super::dialog_chrome::{fill_field, labeled_field, place, rgb, table_frame, tiny_button, toggle, FIELD_HH};
+use super::dialog_chrome::{fill_field, labeled_field, place, rgb, table_frame, tiny_button, FIELD_HH};
 use super::settings_live_onekeys::{OneKeysEdit, FIELD_W};
 use crate::ui::*;
 use term_core::onekey::{ChallengeResponse, OneKey, SYSTEM_NAMES};
@@ -15,15 +15,40 @@ const Y_PASS_LABEL: f32 = 54.0;
 const Y_PASS_FIELD: f32 = 73.0;
 const Y_KEY_LABEL: f32 = 105.0;
 const Y_KEY_TABLE: f32 = 125.0;
-const Y_KEY_TABLE_H: f32 = 194.0;
-const Y_KI_LABEL: f32 = 347.0;
-const Y_KI_TABLE: f32 = 367.0;
-const Y_KI_TABLE_H: f32 = 193.0;
+// 原版 `07-dialogs/onekeys-*.png` 实测（相对主体顶）：两表各高 203，
+// 表2 顶 357、底 560——与右栏总高 560 对齐。
+const Y_KEY_TABLE_H: f32 = 203.0;
+const Y_KI_LABEL: f32 = 337.0;
+const Y_KI_TABLE: f32 = 357.0;
+const Y_KI_TABLE_H: f32 = 203.0;
+
+/// OneKeys 的密码显示开关。原版 `07-dialogs/onekeys-*.png` 关态是实心
+/// #444444 胶囊 + 白滑块、**没有**亮描边；共享 `dialog_chrome::toggle` 给
+/// Triggers 用的 #3A3A3A + #4A4A4A 描边版本在这里会显得厚一圈，故本地化。
+fn onekeys_toggle(ui: &mut egui::Ui, size: egui::Vec2, on: &mut bool) -> egui::Response {
+    let (rect, mut resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let p = ui.ctx().layer_painter(ui.layer_id()).with_clip_rect(rect);
+    let r = size.y / 2.0;
+    p.rect_filled(rect, egui::Rounding::same(r), rgb(if *on { 0x003E69 } else { 0x444444 }));
+    let knob = size.y - 4.0;
+    let cx = if *on {
+        rect.right() - 2.0 - knob / 2.0
+    } else {
+        rect.left() + 2.0 + knob / 2.0
+    };
+    p.circle_filled(egui::pos2(cx, rect.center().y), knob / 2.0, rgb(0xFFFFFF));
+    resp
+}
 
 /// 表格右下角那枚 `Modify`：纯文字 + 下划线，点击切到编辑态。
-fn modify_link(ui: &mut egui::Ui, rect: egui::Rect, label: &str) -> bool {
+fn modify_link(ui: &mut egui::Ui, rect: egui::Rect, label: &str, enabled: bool) -> bool {
     let resp = ui.allocate_rect(rect, egui::Sense::click());
-    let c = rgb(0xAAAAAA);
+    // 原版：无选中/无条目时 Modify 是禁用灰 #555555，有选中才是 #BBBBBB。
+    let c = rgb(if enabled { 0xBBBBBB } else { 0x555555 });
     let mut job = egui::text::LayoutJob::default();
     job.append(
         label,
@@ -117,9 +142,7 @@ pub(in crate::ui) fn ssh_editor(
             egui::vec2(32.0, 16.0),
         ),
         |ui| {
-            // 与 Triggers 的 `Rules:` 开关**同一个控件**（`dialog_chrome::toggle`）：
-            // 两页的开关形状/尺寸/开闭色必须一致，不再一个用 checkbox、一个手绘。
-            toggle(ui, egui::vec2(32.0, 16.0), &mut edit.show_password, true)
+            onekeys_toggle(ui, egui::vec2(32.0, 16.0), &mut edit.show_password)
                 .on_hover_text("Reveal password");
         },
     );
@@ -183,6 +206,7 @@ pub(in crate::ui) fn ssh_editor(
             egui::vec2(44.0, 14.0),
         ),
         "Modify",
+        edit.selected.is_some(),
     ) {
         edit.key_editing = !edit.key_editing;
     }
@@ -259,6 +283,7 @@ pub(in crate::ui) fn ssh_editor(
             egui::vec2(44.0, 14.0),
         ),
         "Modify",
+        false, // 原图 Keyboard Interactive 无条目，Modify 恒为禁用灰
     ) {
         edit.ki_editing = !edit.ki_editing;
     }

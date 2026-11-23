@@ -61,6 +61,7 @@ mod settings_live_triggers;
 // `prefs.onekeys`，连接流程按会话的 `onekey` 宏名消费；凭据走 vault。
 // `pub(in crate::ui)`：`OneKeysEdit` 是窗口上的字段类型，`ui/mod.rs` 要声明。
 pub(in crate::ui) mod settings_live_onekeys;
+mod settings_live_onekeys_modal;
 // ：OneKeys 的 Account / Sessions 两页拆出来（ 单文件行数），顺手把
 // 它们从 egui 默认控件换成对话框那一套（`dark_field` / `toggle` / `tiny_button`）。
 mod settings_live_onekeys_pages;
