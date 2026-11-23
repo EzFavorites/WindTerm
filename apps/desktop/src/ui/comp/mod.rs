@@ -468,15 +468,15 @@ impl TerminalWindow {
                 });
             }
             comp::CompId::ConfirmCloseWindow | comp::CompId::ConfirmCloseSession => {
-                // 复选框按视觉基线画成勾上（那是用户勾完的状态）；pending
-                // 直接摆好，弹窗绘制与交互路径同一份代码。
+                // 复选框按原版图 `07-dialogs/confirm-*.png` 画成未勾选（默认态）；
+                // pending 直接摆好，弹窗绘制与交互路径同一份代码。
                 self.confirm.pending = Some(match comp {
                     comp::CompId::ConfirmCloseSession => {
                         crate::ui::dialogs::confirm::ConfirmClose::Tab(0)
                     }
                     _ => crate::ui::dialogs::confirm::ConfirmClose::Window,
                 });
-                self.confirm.check = true;
+                self.confirm.check = false;
                 self.draw_confirm_close_dialog(ctx);
             }
             comp::CompId::MenuMode => {
