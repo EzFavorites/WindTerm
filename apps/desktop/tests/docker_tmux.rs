@@ -24,6 +24,20 @@ fn var(name: &str) -> String {
     })
 }
 
+/// Docker 真机环境是否就绪。测试**默认不标 `#[ignore]`**：有 `WINDTERM_DOCKER_SSH`
+/// 就真连容器跑闭环，没有就打一行说明后返回——这样 `cargo test --workspace` 在
+/// 普通 CI 上不会因缺 docker 而红，而在 `scripts/docker-verify.sh` 里无需
+/// `--ignored` 自动执行。密钥由 docker-verify.sh 每次运行 `mktemp` + `gen-keys.sh`
+/// 现生成，客户端一律 `-F /dev/null -i <临时私钥> -o IdentityAgent=none
+/// -o IdentitiesOnly=yes`，全程不碰系统 `~/.ssh` / agent / 钥匙串。
+fn docker_ready() -> bool {
+    let ready = std::env::var_os("WINDTERM_DOCKER_SSH").is_some();
+    if !ready {
+        eprintln!("跳过 tmux 真机闭环：未设置 WINDTERM_DOCKER_SSH（用 bash scripts/docker-verify.sh tmux 启动）");
+    }
+    ready
+}
+
 /// 起一条 `ssh -tt` 到容器里跑 `tmux -CC`，把 stdout 的行送进通道。
 ///
 /// 为什么必须 `-tt`：没有远端 pty 时 tmux 会直接拒绝进控制模式（它需要一个
@@ -33,6 +47,14 @@ fn spawn_control_mode() -> (std::process::Child, mpsc::Receiver<String>) {
     let port = var("WINDTERM_DOCKER_PORT");
     let user = var("WINDTERM_DOCKER_USER");
     let key = var("WINDTERM_DOCKER_KEY");
+    // 硬保证：私钥必须来自本次运行 mktemp 出来的一次性目录，绝不拿系统的
+    // ~/.ssh 或 agent 里的钥匙。ssh 那侧还有 -F /dev/null + IdentityAgent=none
+    // + IdentitiesOnly=yes 三道兜底，这里在测试入口先把误用挡住。
+    let keys_dir = var("WINDTERM_TEST_KEYS_DIR");
+    assert!(
+        key.starts_with(&keys_dir) && keys_dir.contains("1zterm-docker-keys."),
+        "测试私钥必须来自一次性随机目录（{keys_dir}），不是：{key}"
+    );
 
     let mut child = Command::new("ssh")
         .args([
@@ -96,8 +118,10 @@ fn send_line(stdin: &mut std::process::ChildStdin, line: &str) {
 }
 
 #[test]
-#[ignore = "需要 Docker 里的真 sshd + tmux：bash scripts/docker-verify.sh tmux"]
 fn real_tmux_control_mode_is_parsed_into_events() {
+    if !docker_ready() {
+        return;
+    }
     // 纯解析验证：attach 即可见 %begin/%end/%session-changed/%output
     let (mut child, rx) = spawn_control_mode();
     let mut mode = ControlMode::default();
@@ -164,8 +188,10 @@ fn real_tmux_control_mode_is_parsed_into_events() {
 }
 
 #[test]
-#[ignore = "需要 Docker 里的真 sshd + tmux：bash scripts/docker-verify.sh tmux"]
 fn real_tmux_bidirectional_split_then_detach() {
+    if !docker_ready() {
+        return;
+    }
     // 真机双向闭环
     // 1) attach，拿到首屏 %session-changed + %layout-change（单窗格）
     // 2) 发送 `split-window -h`，等待 %layout-change 包含 2 个 pane

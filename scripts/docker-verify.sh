@@ -48,7 +48,7 @@ KEY="$KEYS/client/id_ed25519"
 export TEST_CLIENT_KEYS="$KEYS/client"
 export TEST_TARGET_KEYS="$KEYS/target"
 export TEST_BASTION_KEYS="$KEYS/bastion"
-pass "本次运行的一次性测试密钥就绪（$KEYS）"
+pass "本次运行的一次性测试密钥就绪（${KEYS}）"
 
 cleanup() {
     if [ "${KEEP:-0}" = "1" ]; then
@@ -146,8 +146,10 @@ run_group() {
         ;;
     tmux)
         say "5. tmux -CC 真实控制模式"
+        # 测试自带 docker_ready() 门控：有本脚本导出的 WINDTERM_DOCKER_SSH 就真连，
+        # 所以这里不再需要 --ignored（普通 cargo test 在无 docker 时会自行跳过）。
         if cargo test -p term-desk --test docker_tmux --target-dir "$ROOT/target" -F term-app/planned \
-            -- --ignored --test-threads=1 --nocapture; then
+            -- --test-threads=1 --nocapture; then
             pass "term-app::tmux 解析器吃到了真的控制模式输出"
         else
             note "docker_tmux 失败"
