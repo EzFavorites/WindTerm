@@ -32,6 +32,15 @@ pub(super) enum Source {
     Sftp,
 }
 
+/// 文件面板是否走 SFTP：既要有远端凭据，也要会话的 `Sftp` 子系统开关开着。
+///
+/// `SessionConfig.sftp` 有 UI 开关与存储，但 `ensure_filer_session` 此前不看它——
+/// 关掉后仍会起 SFTP。产品裁定：关掉 Sftp 的会话退回本地用户目录，与本地
+/// shell / 系统 ssh 的「无凭据看本地」同一条路径，不另造空态。
+fn filer_uses_sftp(config: &SessionConfig, has_auth: bool) -> bool {
+    config.sftp && has_auth
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum SortBy {
     #[default]
@@ -255,19 +264,16 @@ impl TerminalWindow {
         };
 
         let tab = self.tabs.get(self.active_slot()).expect("上一行刚查过");
-        let Some(auth) = tab.auth.clone() else {
-            // 本地 shell / 系统 ssh：没有远端凭据，看本地目录而不是显示一句抱歉。
-            self.filer.source = Source::Local;
-            let path = if self.filer.demo_rows.is_some() {
-                PathBuf::from("/Users/unique/")
-            } else {
-                local_dir::home()
-            };
-            self.filer.local_path = path.clone();
-            self.filer.path_input = path.to_string_lossy().into_owned();
-            self.reload_local_dir();
+        // 没有远端凭据（本地 shell / 系统 ssh）或会话显式关掉了 Sftp 子系统时，
+        // 都退回本地用户目录——与面板既有的「无凭据看本地」同一条路径，不另造空态。
+        if !filer_uses_sftp(&tab.config, tab.auth.is_some()) {
+            self.show_local_dir_in_filer();
             return;
-        };
+        }
+        let auth = tab
+            .auth
+            .clone()
+            .expect("上面已确认有凭据且 Sftp 开着");
         self.filer.source = Source::Sftp;
         // 主机密钥用 `Tofu`：终端那条连接已经裁决过（能连上说明账本里有它），
         // 这里再问一遍指纹只会让用户困惑「为什么又问」。
@@ -510,10 +516,26 @@ impl TerminalWindow {
         }
     }
 
+    /// 把面板切到本地用户目录（无远端凭据 / 关掉 Sftp 的会话）。
+    ///
+    /// 从 `ensure_filer_session` 抽出，是为了两条入口共用同一份「看本地」路径，
+    /// 不会出现「关掉 Sftp 进去看到的东西」与「本地 shell 进去看到的」两套。
+    fn show_local_dir_in_filer(&mut self) {
+        self.filer.source = Source::Local;
+        let path = if self.filer.demo_rows.is_some() {
+            PathBuf::from("/Users/unique/")
+        } else {
+            local_dir::home()
+        };
+        self.filer.local_path = path.clone();
+        self.filer.path_input = path.to_string_lossy().into_owned();
+        self.reload_local_dir();
+    }
+
     /// 重列当前本地目录（`Show hidden items` 改了就当场调它）。
     ///
     /// 本地面板的 `local_rows` 只有两处来源：这里是**唯一**的重列入口，
-    /// 另一处是 `ensure_filer_session`（换会话）。夹具注入的固定条目优先——
+    /// 另一处是 `show_local_dir_in_filer`（换会话）。夹具注入的固定条目优先——
     /// 截图基线不能钉在真实家目录上（见模块注释），过滤对它们不适用。
     pub(in crate::ui) fn reload_local_dir(&mut self) {
         if let Some(rows) = &self.filer.demo_rows {
@@ -678,6 +700,18 @@ mod tests {
             date: date.to_string(),
             target: name.to_string(),
         }
+    }
+
+    #[test]
+    fn filer_uses_sftp_only_with_both_credentials_and_the_session_switch() {
+        let mut config = SessionConfig::new(Protocol::Ssh);
+        // 两个条件缺一不可：没凭据（本地 shell / 系统 ssh）看本地；
+        // 有凭据但用户关掉 Sftp 子系统，也看本地用户目录。
+        assert!(!filer_uses_sftp(&config, false), "无凭据不该起 SFTP");
+        config.sftp = false;
+        assert!(!filer_uses_sftp(&config, true), "关掉 Sftp 不该起 SFTP");
+        config.sftp = true;
+        assert!(filer_uses_sftp(&config, true), "两项都满足才起 SFTP");
     }
 
     #[test]
