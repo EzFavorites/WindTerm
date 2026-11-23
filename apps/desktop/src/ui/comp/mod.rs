@@ -137,6 +137,8 @@ pub(in crate::ui) enum CompId {
     MenuView,
     MenuWindow,
     MenuHelp,
+    /// 原版子菜单展开态（`menu_submenu_*`），路径表在 `submenu_fixtures`。
+    MenuSubmenu(u8),
 }
 
 // 名字表（`ALL` / `name` / `has_baseline` / `page` / `parse`）在 `ids.rs`。
@@ -149,6 +151,7 @@ mod quick_fixtures;
 mod context_fixtures;
 mod reference_popup;
 mod menu_fixtures;
+mod submenu_fixtures;
 /// OneKeys 逐张出图夹具（`mod.rs` 行数上限）。
 mod onekeys_fixtures;
 /// 脚本两窗（运行窗口 / 编辑器）的夹具。与 `reference_popup` 同一条理由：
@@ -531,6 +534,7 @@ impl TerminalWindow {
                 };
                 self.draw_top_menu_demo(ctx, label);
             }
+            comp::CompId::MenuSubmenu(i) => submenu_fixtures::draw(self, ctx, i),
             _ => unreachable!("视觉基线夹具已提前返回"),
         }
     }

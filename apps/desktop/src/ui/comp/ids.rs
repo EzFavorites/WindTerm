@@ -111,6 +111,37 @@ impl CompId {
         CompId::MenuView,
         CompId::MenuWindow,
         CompId::MenuHelp,
+        CompId::MenuSubmenu(0),
+        CompId::MenuSubmenu(1),
+        CompId::MenuSubmenu(2),
+        CompId::MenuSubmenu(3),
+        CompId::MenuSubmenu(4),
+        CompId::MenuSubmenu(5),
+        CompId::MenuSubmenu(6),
+        CompId::MenuSubmenu(7),
+        CompId::MenuSubmenu(8),
+        CompId::MenuSubmenu(9),
+        CompId::MenuSubmenu(10),
+        CompId::MenuSubmenu(11),
+        CompId::MenuSubmenu(12),
+        CompId::MenuSubmenu(13),
+        CompId::MenuSubmenu(14),
+        CompId::MenuSubmenu(15),
+        CompId::MenuSubmenu(16),
+        CompId::MenuSubmenu(17),
+        CompId::MenuSubmenu(18),
+        CompId::MenuSubmenu(19),
+        CompId::MenuSubmenu(20),
+        CompId::MenuSubmenu(21),
+        CompId::MenuSubmenu(22),
+        CompId::MenuSubmenu(23),
+        CompId::MenuSubmenu(24),
+        CompId::MenuSubmenu(25),
+        CompId::MenuSubmenu(26),
+        CompId::MenuSubmenu(27),
+        CompId::MenuSubmenu(28),
+        CompId::MenuSubmenu(29),
+        CompId::MenuSubmenu(30),
     ];
 
     /// 视觉基线专用夹具：快捷命令 2 个 + 右键菜单 2 个 + 未挂接弹层 3 个。
@@ -185,6 +216,7 @@ impl CompId {
             CompId::MenuView => "menu_view",
             CompId::MenuWindow => "menu_window",
             CompId::MenuHelp => "menu_help",
+            CompId::MenuSubmenu(i) => super::submenu_fixtures::name(i),
         }
     }
 
@@ -232,7 +264,8 @@ impl CompId {
             // B1-c：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
             // 对过（勾选栏几何见 视觉基线），纳入比对。
             CompId::MenuMode => true,
-            CompId::MenuEdit
+            CompId::MenuSubmenu(_)
+            | CompId::MenuEdit
             | CompId::MenuTool
             | CompId::MenuSearch
             | CompId::MenuSelection
