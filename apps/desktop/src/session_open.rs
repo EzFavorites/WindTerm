@@ -393,7 +393,13 @@ fn ssh_options(
     }
     opts.keepalive =
         (config.keep_alive > 0).then(|| Duration::from_secs(u64::from(config.keep_alive)));
-    opts.host_key = HEADLESS_HOST_KEY_POLICY;
+    opts.host_key = if config.verify_host_key {
+        HEADLESS_HOST_KEY_POLICY
+    } else {
+        term_ssh::HostKeyPolicy::Insecure
+    };
+    opts.rekey_time_minutes = config.rekey_time_minutes;
+    opts.rekey_data_mbytes = config.rekey_data_mbytes;
     opts.agent_forward = config.agent_forward;
     // 忽略 `ProxyJump` 会让「配了跳板机的会话」连到一个连不上的主机，
     // 而用户看到的是「连接失败」——那是沉默的撒谎。语法错误在碰网络之前报出来。

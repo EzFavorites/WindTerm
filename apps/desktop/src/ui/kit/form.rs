@@ -415,18 +415,82 @@ pub(in crate::ui) fn underlined_label(ui: &mut egui::Ui, text: &str) {
 /// 而设置页正文页是左对齐。两种对齐都是兼容终端，但**格子**必须只有一份实现：
 /// 宽度、行高、截断规则同源，才不会一边 20 点高一边 22 点。
 pub(in crate::ui) fn label_right(ui: &mut egui::Ui, text: &str, col: f32) {
-    let height = ui.fonts(|f| f.row_height(&egui::TextStyle::Body.resolve(ui.style())));
-    ui.allocate_ui_with_layout(
-        egui::vec2(col, height),
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            ui.set_min_width(col);
-            // **必须 truncate**：裸 `ui.label` 的 galley 不受分配宽度约束，
-            // 长标签会把 `allocate_ui_with_layout` 撑大，进而顶宽整个右栏
-            // （对话框是钉死尺寸的，最后被裁掉的是页脚按钮）。
-            ui.add(egui::Label::new(text).truncate());
-        },
+    label_right_acc(ui, text, col, None);
+}
+
+/// 同 [`label_right`]，但指定助记词：划该词的**首字母**而不是整条标签的首字母。
+///
+/// 兼容终端的表单标签并非总划第一个字母：`Default file creation permissions:`
+/// 划 `f`（file），KEX 页的 `Max time before rekey (Minutes):` 划 `t`（time）。
+/// 那些行用这个变体；其余标签走 [`label_right`]（首字母）。
+pub(in crate::ui) fn label_right_acc(
+    ui: &mut egui::Ui,
+    text: &str,
+    col: f32,
+    acc: Option<&str>,
+) {
+    let font = egui::TextStyle::Body.resolve(ui.style());
+    let color = ui.visuals().text_color();
+    let height = ui.fonts(|f| f.row_height(&font));
+    // **必须截断**：裸 `ui.label` 的 galley 不受分配宽度约束，长标签会把
+    // 整条右栏撑大（对话框是钉死尺寸的，最后被裁掉的是页脚按钮）。这里按
+    // 像素宽度裁并补 `…`，与 `underlined_label` 保持同一套截断口径。
+    let avail = (col - 4.0).max(0.0);
+    let shown = truncate_to_width(ui, text, &font, avail);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(col, height), egui::Sense::hover());
+    // 助记词起点：`acc` 是原文里的词，取它在显示文本里的字节位置；词被截掉
+    // 时退回首字母（划一条不存在的词的字母没有意义）。
+    let start = match acc {
+        Some(word) => shown
+            .find(word)
+            .unwrap_or(0),
+        None => 0,
+    };
+    let acc_len = shown[start..]
+        .chars()
+        .next()
+        .map(|c| c.len_utf8())
+        .unwrap_or(0);
+    let mut underlined = egui::TextFormat::simple(font.clone(), color);
+    underlined.underline = egui::Stroke::new(1.0, color);
+    let mut job = egui::text::LayoutJob::default();
+    job.append(&shown[..start], 0.0, egui::TextFormat::simple(font.clone(), color));
+    job.append(&shown[start..start + acc_len], 0.0, underlined);
+    job.append(&shown[start + acc_len..], 0.0, egui::TextFormat::simple(font, color));
+    job.wrap.max_width = rect.width();
+    let galley = ui.fonts(|f| f.layout_job(job));
+    let pos = egui::pos2(
+        rect.right() - 2.0 - galley.size().x,
+        rect.center().y - galley.size().y / 2.0,
     );
+    ui.painter().galley(pos, galley, color);
+}
+
+/// 按像素宽度把标签裁进 `avail`，放不下时以 `…` 收尾。
+fn truncate_to_width(
+    ui: &egui::Ui,
+    text: &str,
+    font: &egui::FontId,
+    avail: f32,
+) -> String {
+    let width = |s: String| {
+        ui.painter()
+            .layout_no_wrap(s, font.clone(), egui::Color32::WHITE)
+            .size()
+            .x
+    };
+    if width(text.to_owned()) <= avail {
+        return text.to_owned();
+    }
+    let mut kept = String::new();
+    for ch in text.chars() {
+        let probe = format!("{kept}{ch}…");
+        if width(probe) > avail {
+            break;
+        }
+        kept.push(ch);
+    }
+    format!("{kept}…")
 }
 
 /// 标签行的**实测高度**：只取字体的行高，不含任何额外的行距。

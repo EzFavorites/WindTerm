@@ -261,7 +261,15 @@ pub(in crate::ui) fn options_for(
     }
     opts.keepalive = (config.keep_alive > 0)
         .then(|| std::time::Duration::from_secs(config.keep_alive as u64));
-    opts.host_key = policy;
+    // Authentication 页的「Verifying the server's fingerprint」关掉时明确走
+    // Insecure；默认开着时保持调用方给的严格/TOFU 策略不变。
+    opts.host_key = if config.verify_host_key {
+        policy
+    } else {
+        HostKeyPolicy::Insecure
+    };
+    opts.rekey_time_minutes = config.rekey_time_minutes;
+    opts.rekey_data_mbytes = config.rekey_data_mbytes;
     // V1-3：跳板链与 agent 转发在这里真正落到连接参数上。此前这两项只存在
     // `SessionConfig` 里，内置 russh 路径从来没读过——填了等于没填。
     opts.proxy_jump = term_ssh::parse_proxy_jump(&config.proxy_jump)?;
@@ -435,6 +443,24 @@ mod tests {
             other => panic!("应当报不支持，实际是 {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_fingerprint_checkbox_and_rekey_fields_reach_the_client() {
+        let mut c = ssh_session(AuthMethod::Password);
+        assert_eq!(
+            options_for(&c, SshAuth::Agent, HostKeyPolicy::Strict)
+                .unwrap()
+                .host_key,
+            HostKeyPolicy::Strict
+        );
+        c.verify_host_key = false;
+        c.rekey_time_minutes = 25;
+        c.rekey_data_mbytes = 400;
+        let opts = options_for(&c, SshAuth::Agent, HostKeyPolicy::Strict).unwrap();
+        assert_eq!(opts.host_key, HostKeyPolicy::Insecure);
+        assert_eq!(opts.rekey_time_minutes, 25);
+        assert_eq!(opts.rekey_data_mbytes, 400);
     }
 
     #[test]

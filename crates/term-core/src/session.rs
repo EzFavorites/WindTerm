@@ -191,6 +191,35 @@ fn default_shell_exec_delay() -> u32 {
     1
 }
 
+/// Authentication 页三格「Delay」的出厂值：与兼容终端一样是 1 秒。
+fn default_auth_exec_delays() -> [u32; 3] {
+    [1, 1, 1]
+}
+
+/// Key Exchange 页的两个重换密钥阈值（金标准：60 分钟 / 1000 MB）。
+fn default_rekey_time() -> u32 {
+    60
+}
+fn default_rekey_data() -> u32 {
+    1000
+}
+
+/// 平台页签的顺序：`0 = macOS`、`1 = Linux`、`2 = Windows`。
+///
+/// 会话文件里三格按这个次序存；运行时只取本机那一格。
+pub const AUTH_PLATFORMS: [&str; 3] = ["macOS", "Linux", "Windows"];
+
+/// 本机在 [`AUTH_PLATFORMS`] 里的下标。
+pub const fn auth_platform() -> usize {
+    if cfg!(target_os = "macos") {
+        0
+    } else if cfg!(target_os = "windows") {
+        2
+    } else {
+        1
+    }
+}
+
 /// 三页签各自的包长档位：X=128、Y=1024、Z 没有包长行（该位不使用）。
 fn default_modem_large_packets() -> [bool; 3] {
     [false, true, false]
@@ -371,8 +400,33 @@ pub struct SessionConfig {
     #[serde(default)]
     pub proxy_jump: String,
     /// 导入器带过来的 `IdentityFile` 路径，只记路径不记内容。
+    ///
+    /// 新表单把它当**当前平台**那一格 [`Self::auth_identity`] 的镜像写盘：
+    /// 系统 `ssh -i` 与内置客户端都只认这一个字段。
     #[serde(default)]
     pub identity_file: String,
+    /// 自动认证的身份文件，按 macOS / Linux / Windows 分三格。
+    ///
+    /// 兼容终端的 Authentication 页把这一项放在三个平台页签里（同一份会话
+    /// 可能同步到不同系统）。运行时只读**本机**那一格，见 [`auth_platform`]。
+    #[serde(default)]
+    pub auth_identity: [String; 3],
+    /// 认证成功后要执行的命令，同样按平台分三格（空串 = 不执行）。
+    #[serde(default)]
+    pub auth_exec_command: [String; 3],
+    /// 上面那条命令的延迟秒数，按平台分三格（默认 1s，与兼容终端一致）。
+    #[serde(default = "default_auth_exec_delays")]
+    pub auth_exec_delay: [u32; 3],
+    /// 连接时校验服务器指纹（默认开）。关掉等于 `HostKeyPolicy::Insecure`：
+    /// 未知主机会被静默接受——这是用户明确关掉检查才有的行为。
+    #[serde(default = "default_true")]
+    pub verify_host_key: bool,
+    /// Key Exchange 页 `Max time before rekey (Minutes)`，默认 60。
+    #[serde(default = "default_rekey_time")]
+    pub rekey_time_minutes: u32,
+    /// Key Exchange 页 `Max data before rekey (MBytes)`，默认 1000。
+    #[serde(default = "default_rekey_data")]
+    pub rekey_data_mbytes: u32,
     /// 允许把本地 ssh-agent 转发到远端（系统 `ssh -A`）。
     #[serde(default)]
     pub agent_forward: bool,
@@ -562,6 +616,12 @@ impl SessionConfig {
             scrollback: crate::config::DEFAULT_SCROLLBACK,
             proxy_jump: String::new(),
             identity_file: String::new(),
+            auth_identity: Default::default(),
+            auth_exec_command: Default::default(),
+            auth_exec_delay: default_auth_exec_delays(),
+            verify_host_key: true,
+            rekey_time_minutes: default_rekey_time(),
+            rekey_data_mbytes: default_rekey_data(),
             agent_forward: false,
             x11_forward: false,
             x11_screen: 0,

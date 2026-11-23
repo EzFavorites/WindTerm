@@ -93,7 +93,22 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) forward_error: Option<String>,
     // ── 10 页页条新增的可编辑字段 ──
     pub(in crate::ui) proxy_jump: String,
-    pub(in crate::ui) identity_file: String,
+    /// 认证身份文件，按 macOS / Linux / Windows 三格存（见 `SessionConfig`）。
+    pub(in crate::ui) auth_identity: [String; 3],
+    /// 认证成功后执行的命令与延迟，同样按平台分三格。
+    pub(in crate::ui) auth_exec_command: [String; 3],
+    pub(in crate::ui) auth_exec_delay: [u32; 3],
+    /// Authentication 页当前选中的平台页签（纯界面状态，不落盘）。
+    pub(in crate::ui) auth_tab: usize,
+    /// `View` 按钮展开的凭据保险库面板。
+    pub(in crate::ui) auth_vault_open: bool,
+    /// `Clear` 之后的一句回执（避免「点了但什么都没发生」）。
+    pub(in crate::ui) auth_vault_note: Option<String>,
+    /// 连接时校验服务器指纹（默认开）。
+    pub(in crate::ui) verify_host_key: bool,
+    /// Key Exchange 页的重换密钥阈值（分钟 / MB），落到 russh `Limits`。
+    pub(in crate::ui) rekey_time_minutes: u32,
+    pub(in crate::ui) rekey_data_mbytes: u32,
     pub(in crate::ui) agent_forward: bool,
     /// X11 转发（`ssh -X`）。默认关——需要本机有 X server 才有意义。
     pub(in crate::ui) x11_forward: bool,
@@ -156,6 +171,12 @@ impl NewSessionData {
     /// 密码留空：它从来不在 `SessionConfig` 里（那样会被写进 user.sessions），
     /// 所以这里也没有可回填的东西——想改密码就是「这次连接时重新输一遍」。
     pub(in crate::ui) fn from_config(config: &SessionConfig) -> Self {
+        let platform = term_core::session::auth_platform();
+        let mut auth_identity = config.auth_identity.clone();
+        // 老会话只有单个 `identity_file`：把它读进**本机**那一格，其余留空。
+        if auth_identity.iter().all(|s| s.is_empty()) && !config.identity_file.is_empty() {
+            auth_identity[platform] = config.identity_file.clone();
+        }
         Self {
             protocol: config.protocol,
             name: config.name.clone(),
@@ -219,7 +240,15 @@ impl NewSessionData {
             forwards: config.forwards.join("\n"),
             forward_error: None,
             proxy_jump: config.proxy_jump.clone(),
-            identity_file: config.identity_file.clone(),
+            auth_identity,
+            auth_exec_command: config.auth_exec_command.clone(),
+            auth_exec_delay: config.auth_exec_delay,
+            auth_tab: platform,
+            auth_vault_open: false,
+            auth_vault_note: None,
+            verify_host_key: config.verify_host_key,
+            rekey_time_minutes: config.rekey_time_minutes,
+            rekey_data_mbytes: config.rekey_data_mbytes,
             agent_forward: config.agent_forward,
             x11_forward: config.x11_forward,
             x11_screen: config.x11_screen,
@@ -268,11 +297,25 @@ impl NewSessionData {
     /// `scrollback`、串口位宽……保存一次属性不该把它们悄悄抹成默认值）。
     pub(in crate::ui) fn to_config(&self, base: SessionConfig) -> SessionConfig {
         let mut c = base;
+        // 兼容终端的 Host 提示是 `[user@]hostname`：登录名写在同一格里，
+        // Authentication 页没有单独的 Username 字段。保存时把内联用户名拆出来，
+        // 否则 russh 会把 `deploy@host` 整个当主机名去解析（必然连不上）。
+        // 没写内联用户名时回落到本机登录名，与系统 `ssh` 的默认行为一致。
+        let (inline_user, host_only) = match self.host.trim().rsplit_once('@') {
+            Some((user, host)) if !user.is_empty() && !host.is_empty() => {
+                (Some(user.to_string()), host.to_string())
+            }
+            _ => (None, self.host.trim().to_string()),
+        };
+        let mut user = inline_user.unwrap_or_else(|| self.username.clone());
+        if user.trim().is_empty() {
+            user = term_io::host::login();
+        }
         c.protocol = self.protocol;
         c.name = self.name.clone();
-        c.host = self.host.clone();
+        c.host = host_only;
         c.port = self.port;
-        c.username = self.username.clone();
+        c.username = user;
         c.auth = self.auth;
         c.auth_chain = self.auth_chain.clone();
         c.group = self.group.clone();
@@ -343,7 +386,14 @@ impl NewSessionData {
         c.proxy_host = if outbound { self.proxy_host.clone() } else { String::new() };
         c.proxy_port = if outbound { self.proxy_port } else { 0 };
         c.proxy_command = if outbound { self.proxy_command.clone() } else { String::new() };
-        c.identity_file = self.identity_file.clone();
+        c.auth_identity = self.auth_identity.clone();
+        c.auth_exec_command = self.auth_exec_command.clone();
+        c.auth_exec_delay = self.auth_exec_delay;
+        // 单字段是本机那一格的镜像：`ssh -i`、内置客户端与导入器都只认它。
+        c.identity_file = self.auth_identity[term_core::session::auth_platform()].clone();
+        c.verify_host_key = self.verify_host_key;
+        c.rekey_time_minutes = self.rekey_time_minutes;
+        c.rekey_data_mbytes = self.rekey_data_mbytes;
         c.agent_forward = self.agent_forward;
         c.x11_forward = self.x11_forward;
         c.x11_screen = self.x11_screen;
@@ -683,13 +733,16 @@ mod tests {
         let mut old = a_saved_ssh_session();
         old.identity_file = "~/.ssh/id_work".to_string();
         old.agent_forward = true;
+        let platform = term_core::session::auth_platform();
         let mut f = NewSessionData::from_config(&old);
-        assert_eq!(f.identity_file, "~/.ssh/id_work");
+        // 老配置的单个 `identity_file` 落进**本机**那一格。
+        assert_eq!(f.auth_identity[platform], "~/.ssh/id_work");
         assert!(f.agent_forward);
 
-        f.identity_file = "/keys/other.pem".to_string();
+        f.auth_identity[platform] = "/keys/other.pem".to_string();
         let saved = f.to_config(old);
         assert_eq!(saved.identity_file, "/keys/other.pem");
+        assert_eq!(saved.auth_identity[platform], "/keys/other.pem");
         assert!(saved.agent_forward);
     }
 
@@ -778,6 +831,39 @@ mod tests {
         assert!(saved.bell_sound.is_empty());
         assert_eq!(saved.bell_dedup_secs, 0);
         assert!(!saved.sysmon);
+    }
+
+    #[test]
+    fn host_with_inline_user_is_split_on_save() {
+        // 金标准 Host 提示是 `[user@]hostname`，Authentication 页没有
+        // Username 框。内联写法必须在保存时拆成 user + host，否则 russh
+        // 会把整个串当主机名去解析。
+        let mut f = NewSessionData::from_config(&SessionConfig::new(Protocol::Ssh));
+        f.host = "deploy@10.0.0.7".to_string();
+        let saved = f.to_config(SessionConfig::new(Protocol::Ssh));
+        assert_eq!(saved.host, "10.0.0.7");
+        assert_eq!(saved.username, "deploy");
+    }
+
+    #[test]
+    fn auth_platform_fields_and_rekey_limits_round_trip() {
+        let platform = term_core::session::auth_platform();
+        let mut old = a_saved_ssh_session();
+        old.auth_exec_command[platform] = "cd /srv".to_string();
+        old.auth_exec_delay[platform] = 7;
+        old.verify_host_key = false;
+        old.rekey_time_minutes = 30;
+        old.rekey_data_mbytes = 512;
+        let mut f = NewSessionData::from_config(&old);
+        assert_eq!(f.auth_tab, platform);
+        assert_eq!(f.auth_exec_command[platform], "cd /srv");
+        f.auth_identity[platform] = "/keys/id_ed25519".to_string();
+        let saved = f.to_config(old);
+        assert_eq!(saved.identity_file, "/keys/id_ed25519");
+        assert_eq!(saved.auth_exec_delay[platform], 7);
+        assert!(!saved.verify_host_key);
+        assert_eq!(saved.rekey_time_minutes, 30);
+        assert_eq!(saved.rekey_data_mbytes, 512);
     }
 
     #[test]

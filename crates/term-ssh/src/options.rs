@@ -424,6 +424,10 @@ pub struct SshOptions {
     pub x11_forward: bool,
     /// X11 screen number，随 `x11-req` 一并下发给服务端（`-X` 的 `:<host>.<screen>`）。
     pub x11_screen: u32,
+    /// Key Exchange 页 `Max time before rekey (Minutes)`：换钥时间上限。
+    pub rekey_time_minutes: u32,
+    /// Key Exchange 页 `Max data before rekey (MBytes)`：换钥字节上限。
+    pub rekey_data_mbytes: u32,
     /// 算法白名单（空 = 用 russh 默认清单）。语义见 [`AlgorithmPolicy`]。
     pub algorithms: AlgorithmPolicy,
     /// 出网代理。`None` = 第一段 TCP 直连目标（或第一跳跳板机）。
@@ -460,6 +464,8 @@ impl fmt::Debug for SshOptions {
             .field("agent_forward", &self.agent_forward)
             .field("x11_forward", &self.x11_forward)
             .field("x11_screen", &self.x11_screen)
+            .field("rekey_time_minutes", &self.rekey_time_minutes)
+            .field("rekey_data_mbytes", &self.rekey_data_mbytes)
             .field("algorithms", &self.algorithms)
             .field("outbound_proxy", &self.outbound_proxy)
             .finish()
@@ -487,6 +493,8 @@ impl SshOptions {
             agent_forward: false,
             x11_forward: false,
             x11_screen: 0,
+            rekey_time_minutes: 60,
+            rekey_data_mbytes: 1000,
             algorithms: AlgorithmPolicy::default(),
             outbound_proxy: None,
         }

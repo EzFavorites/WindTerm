@@ -21,7 +21,8 @@
 //! `Session / Connection / Authentication / Tunnels` 四页要写真实字段，
 //! 在 `session_form_body.rs`；`Ciphers` 等 SSH 算法页在 `session_ssh_pages.rs`。
 
-use super::session_form_body::{form_row, heading, seconds_text, FIELD_W};
+use super::session_form_body::{form_row, heading, seconds_text, FIELD_W, FORM_W, ROW_H};
+use crate::ui::kit::form::{label_right_acc, read_only, Deco};
 use crate::ui::kit::field::{choice_row_resp, choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::form::{field_box, spin_field_delta};
 use crate::ui::*;
@@ -101,9 +102,12 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut ptype = win.new_session.proxy_type;
     let name = TYPES.get(ptype).copied().unwrap_or(TYPES[0]);
 
-    ui.label(egui::RichText::new("Proxy Type:").strong());
+    // 金标准 `ssh/13-ssh-proxy.png`：普通字重的标签（不是强体、没有下划线），
+    // 下拉框通栏 402 宽。选 No proxy 时下面什么都没有——不要补说明文字。
+    ui.label("Proxy Type:");
     egui::ComboBox::from_id_salt("proxy_type")
         .selected_text(name)
+        .width(FORM_W)
         .show_ui(ui, |ui| {
             for (i, t) in TYPES.iter().enumerate() {
                 if ui.selectable_label(ptype == i, *t).clicked() {
@@ -114,13 +118,7 @@ fn proxy_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     win.new_session.proxy_type = ptype;
 
     match ptype {
-        PROXY_NONE => {
-            placeholder_note(
-                ui,
-                "No proxy selected: the connection goes direct. \
-                 HTTP / SOCKS5 proxies are configured on the other two entries.",
-            );
-        }
+        PROXY_NONE => {}
         PROXY_JUMP => {
             ui.add_space(6.0);
             ui.label(egui::RichText::new("Jump & identity:").strong());
@@ -284,21 +282,25 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             });
         ui.end_row();
     });
-    ui.add_space(8.0);
-    placeholder_note(
-        ui,
-        "All five serial parameters are stored per session and passed to the \
-         serial backend when the port is opened.",
-    );
 }
 
-/// 视觉基线里「看起来是下拉、实际改不了」的那一行：灰底只读框，不是可点控件。
-fn read_only_value(ui: &mut egui::Ui, value: &str) {
-    // 统一字段面 + 正常亮度的只读文字：不再用 `add_enabled(false, TextEdit)`
-    // （它把文字冲到几乎不可见）。
-    field_box(ui, |ui| {
-        crate::ui::kit::form::dead_value(ui, value, crate::ui::kit::form::Deco::None);
-    });
+/// 定宽只读框：SFTP 页那两个权限值是后端常量，不能装成可编辑字段。
+fn read_only_value(ui: &mut egui::Ui, value: &str, width: f32) -> egui::Response {
+    ui.allocate_ui_with_layout(
+        egui::vec2(width, ROW_H),
+        egui::Layout::left_to_right(egui::Align::Min),
+        |ui| {
+            field_box(ui, |ui| {
+                read_only(
+                    ui,
+                    value,
+                    crate::theme::chrome(term_core::theme::CHROME_SCALE.text),
+                    Deco::None,
+                )
+            })
+        },
+    )
+    .inner
 }
 
 /// 20 `SSH ▾ SFTP`：视觉基线 `shell/19-ssh-sftp.png`。
@@ -311,8 +313,8 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut keep_dir_mtime = win.new_session.sftp_preserve_dir_mtime;
     let mut keep_mtime = win.new_session.sftp_preserve_mtime;
     if choice_row_resp(
-        ui, ChoiceKind::Checkbox, "Automatically fix invalid path characters", "Automatically",
-        &mut fix_invalid, true, UnderlineStyle::None,
+        ui, ChoiceKind::Checkbox, "Automatically fix invalid path characters", "characters",
+        &mut fix_invalid, true, UnderlineStyle::Dialog,
     )
     .on_hover_text(
         "Replace unsafe characters in each destination path segment with '_'. \
@@ -324,33 +326,33 @@ fn sftp_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         win.new_session.sftp_fix_invalid_path = fix_invalid;
     }
     if choice_row_styled(
-        ui, ChoiceKind::Checkbox, "Preserve original file modification time", "Preserve",
-        &mut keep_mtime, true, UnderlineStyle::None,
+        ui, ChoiceKind::Checkbox, "Preserve original file modification time", "file",
+        &mut keep_mtime, true, UnderlineStyle::Dialog,
     ) {
         win.new_session.sftp_preserve_mtime = keep_mtime;
     }
     if choice_row_styled(
-        ui, ChoiceKind::Checkbox, "Preserve original folder modification time", "Preserve",
-        &mut keep_dir_mtime, true, UnderlineStyle::None,
+        ui, ChoiceKind::Checkbox, "Preserve original folder modification time", "folder",
+        &mut keep_dir_mtime, true, UnderlineStyle::Dialog,
     ) {
         win.new_session.sftp_preserve_dir_mtime = keep_dir_mtime;
     }
-    ui.add_space(6.0);
-    grid(ui, "new_session_sftp_grid", |ui| {
-        form_row(ui, "Default file creation permissions:");
-        // 常量是 mode 位（`0o644`），这里取八进制三位数显示 —— 视觉基线同样写 644。
-        read_only_value(ui, &format!("{:o}", term_core::config::DEFAULT_FILE_MODE));
-        ui.end_row();
-        form_row(ui, "Default folder creation permissions:");
-        read_only_value(ui, &format!("{:o}", term_core::config::DEFAULT_DIR_MODE));
-        ui.end_row();
-    });
-    placeholder_note(
-        ui,
-        "Modes apply to created items; overwrites keep theirs. File modification time \
-         is written back after each transfer; directory timestamps are written after \
-         the whole tree arrives. Invalid destination characters become underscores.",
-    );
+    // 金标准 `ssh/19-ssh-sftp.png`：三句勾选之后是两行「右对齐标签 + 145 宽
+    // 数值框」。标签列比 93 宽得多（253），否则这两行长标签会被截成 `Default…`。
+    ui.add_space(10.0);
+    egui::Grid::new("new_session_sftp_grid")
+        .num_columns(2)
+        .spacing(egui::vec2(5.0, 4.0))
+        .show(ui, |ui| {
+            label_right_acc(ui, "Default file creation permissions:", 260.0, Some("file"));
+            read_only_value(ui, &format!("{:o}", term_core::config::DEFAULT_FILE_MODE), 137.0)
+                .on_hover_text("Created files use mode 0644; overwrites keep their own mode.");
+            ui.end_row();
+            label_right_acc(ui, "Default folder creation permissions:", 260.0, Some("folder"));
+            read_only_value(ui, &format!("{:o}", term_core::config::DEFAULT_DIR_MODE), 137.0)
+                .on_hover_text("Created folders use mode 0755; existing folders are unchanged.");
+            ui.end_row();
+        });
 }
 
 /// 21 `Telnet ▾ Connection` / `Tcp ▾ Connection`：视觉基线里这两页截图逐字一致，
@@ -379,14 +381,14 @@ fn tcp_connection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     ui.add_space(5.0);
     if choice_row_styled(
         ui, ChoiceKind::Checkbox, "Disable Nagle's algorithm (TCP_NODELAY option)", "Disable",
-        &mut nodelay, true, UnderlineStyle::None,
+        &mut nodelay, true, UnderlineStyle::Dialog,
     ) {
         win.new_session.tcp_low_delay = nodelay;
     }
     ui.add_space(4.5);
     choice_row_resp(
         ui, ChoiceKind::Checkbox, "Enable TCP keepalives (SO_KEEPALIVE option)", "Enable",
-        &mut keepalive, false, UnderlineStyle::None,
+        &mut keepalive, false, UnderlineStyle::Dialog,
     )
     .on_hover_text(
         "The field is stored per session, but the Telnet socket layer does not \

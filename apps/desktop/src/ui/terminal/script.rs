@@ -311,6 +311,56 @@ impl TerminalWindow {
         self.logon_fired.retain(|id| live.contains(id));
     }
 
+    /// Authentication 页「Execute command after authentication」：标签带着活会话
+    /// 出现之后，等 `Delay` 秒把命令写进**同一条**会话的输入。
+    ///
+    /// 内置 SSH 的标签在认证成功之后才建（`adopt_channel`），所以「标签存在」
+    /// 在这里就是认证完成的信号。系统 `ssh` 路径的标签先出现再认证，那条路上
+    /// 命令会写进远端 shell 的键盘缓冲区（等认证完自然被读到），语义仍然成立。
+    /// 命令文本是用户填的，不在这里解析、不伪造输出：写进去什么就是什么。
+    pub(in crate::ui) fn fire_auth_commands(&mut self) {
+        use std::time::{Duration, Instant};
+        let platform = term_core::session::auth_platform();
+        let now = Instant::now();
+        let mut due: Vec<(SessionId, String)> = Vec::new();
+        for tab in &self.tabs {
+            let Some(id) = tab.session else { continue };
+            if self.auth_exec_fired.contains(&id) || tab.local_mode {
+                continue;
+            }
+            let command = if tab.config.protocol == Protocol::Ssh && tab.config.builtin_ssh {
+                // 只在内置客户端上发：系统 ssh 的标签在建连前就出现，那时把
+                // 命令写进 PTY 会被 ssh 的密码提示吃掉，变成一次莫名其妙的认证失败。
+                tab.config.auth_exec_command[platform].trim()
+            } else {
+                ""
+            };
+            if command.is_empty() {
+                continue;
+            }
+            match self.auth_exec_pending.get(&id) {
+                None => {
+                    let delay = tab.config.auth_exec_delay[platform];
+                    self.auth_exec_pending
+                        .insert(id, now + Duration::from_secs(u64::from(delay)));
+                }
+                Some(at) if now >= *at => due.push((id, command.to_string())),
+                _ => {}
+            }
+        }
+        for (id, command) in due {
+            self.auth_exec_fired.insert(id);
+            let line = format!("{command}\r");
+            if !self.pool.send(id, line.as_bytes()) {
+                self.log_note = Some("The session ended before its post-auth command ran".to_string());
+            }
+        }
+        let live: std::collections::HashSet<SessionId> =
+            self.tabs.iter().filter_map(|tab| tab.session).collect();
+        self.auth_exec_pending.retain(|id, _| live.contains(id));
+        self.auth_exec_fired.retain(|id| live.contains(id));
+    }
+
     /// 每帧收一次结果与提示。
     pub(in crate::ui) fn poll_script(&mut self) {
         let Some(dialog) = self.script.as_mut() else {

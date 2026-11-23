@@ -313,6 +313,8 @@ pub(in crate::ui) fn window_with(
         script_ask: None,
         script_runs: Default::default(),
         logon_fired: Default::default(),
+        auth_exec_pending: Default::default(),
+        auth_exec_fired: Default::default(),
         logon_runs: Vec::new(),
         script_recent: Vec::new(),
         recorder: Default::default(),

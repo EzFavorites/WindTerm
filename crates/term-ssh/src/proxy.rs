@@ -298,6 +298,16 @@ async fn handshake(
         .algorithms
         .apply(russh::Preferred::default())
         .map_err(SshError::Config)?;
+    // Key Exchange 页那两个数值框在这里生效：russh 的 `Limits` 要求字节上限
+    // ≤ 1 GiB（nonce 复用边界），所以按上限夹紧；时间 0 给 1 秒而不是 0，
+    // 免得握手成功的一瞬间就被要求重换密钥。
+    let byte_limit = (opts.rekey_data_mbytes as usize)
+        .saturating_mul(1024 * 1024)
+        .clamp(1, 1usize << 30);
+    let time_limit = std::time::Duration::from_secs(
+        opts.rekey_time_minutes.saturating_mul(60) as u64,
+    )
+    .max(std::time::Duration::from_secs(1));
     let config = Arc::new(client::Config {
         // 不设「空闲就断」：终端窗口可以开一整天。只用心跳发现「其实已经断了」。
         inactivity_timeout: None,
@@ -305,6 +315,7 @@ async fn handshake(
         keepalive_max: 3,
         nodelay: true,
         preferred,
+        limits: russh::Limits::new(byte_limit, byte_limit, time_limit),
         ..Default::default()
     });
     let rejection: Rejection = Arc::new(std::sync::Mutex::new(None));

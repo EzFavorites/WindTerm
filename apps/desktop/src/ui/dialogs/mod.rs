@@ -16,6 +16,7 @@ mod new_session;
 // 拆出，正文仍在那一个文件里。
 mod session_dialog_shell;
 mod session_form;
+mod session_auth_page;
 mod session_form_body;
 pub(in crate::ui) mod session_nav;
 // 会话页 `OneKey:` 行：候选来自 `prefs.onekeys` + 行内齿轮。

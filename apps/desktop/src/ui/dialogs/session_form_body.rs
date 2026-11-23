@@ -139,10 +139,20 @@ pub(in crate::ui) fn full_spin(
     value: &mut u32,
     show: fn(u32) -> String,
 ) -> egui::Response {
+    spin_width(ui, value, show, FORM_W)
+}
+
+/// [`full_spin`] 的定宽版本：KEX 页那两个数值框是 165 宽而不是通栏。
+pub(in crate::ui) fn spin_width(
+    ui: &mut egui::Ui,
+    value: &mut u32,
+    show: fn(u32) -> String,
+    width: f32,
+) -> egui::Response {
     let resp = ui
         .with_layout(egui::Layout::left_to_right(egui::Align::Min), |ui| {
             ui.add_sized(
-                egui::vec2(FORM_W, ROW_H),
+                egui::vec2(width, ROW_H),
                 DragValue::new(value)
                     .range(0..=3600)
                     .custom_formatter(|n, _| show(n as u32)),
@@ -211,7 +221,7 @@ fn spin_arrows(ui: &egui::Ui, rect: egui::Rect) {
 /// egui 的非编辑态 DragValue 是一个 `Button`，文字恒居中；而视觉基线的 `Port`
 /// 数值贴左、右侧留给箭头。这里保留 DragValue 的全部交互（点击输入、拖动
 /// 步进），只把它画出来的中间区域按当前底色盖掉、再按视觉基线重画。
-fn spin_box(ui: &egui::Ui, rect: egui::Rect, text: &str, hovered: bool) {
+pub(in crate::ui) fn spin_box(ui: &egui::Ui, rect: egui::Rect, text: &str, hovered: bool) {
     let s = &term_core::theme::CHROME_SCALE;
     let fill = crate::theme::chrome(if hovered { s.hover } else { s.field });
     let p = ui.painter();
@@ -278,20 +288,6 @@ fn combo_term(ui: &mut egui::Ui, current: &mut usize) {
         });
 }
 
-/// 认证方式在勾选块里的文案。逐字取自视觉基线
-/// `03-ssh-authentication.png`（`Attempt ssh-agent authentication` 等五条），
-/// 不用 `AuthMethod::to_string `——那是日志与配置里的短名（`Password`、
-/// `GSSAPI with MIC`），放进界面既不是兼容终端措辞也读不出「尝试」的含义。
-fn attempt_label(m: AuthMethod) -> &'static str {
-    match m {
-        AuthMethod::Agent => "Attempt ssh-agent authentication",
-        AuthMethod::Password => "Attempt password authentication",
-        AuthMethod::PublicKey => "Attempt public-key authentication",
-        AuthMethod::KeyboardInteractive => "Attempt keyboard-interactive authentication",
-        AuthMethod::GssapiWithMic => "Attempt gssapi-with-mic authentication",
-    }
-}
-
 impl TerminalWindow {
     /// 内容页分派入口。下标与显示名的唯一来源是 `session_nav::PAGES`。
     pub(in crate::ui) fn draw_session_form(&mut self, ui: &mut egui::Ui) {
@@ -304,7 +300,7 @@ impl TerminalWindow {
         match page {
             0 => self.session_page(ui),
             4 => self.connection_page(ui),
-            6 => self.authentication_page(ui),
+            6 => super::session_auth_page::draw(self, ui),
             12 => self.tunnels_page(ui),
             other => super::session_pages::draw_page(self, ui, other),
         }
@@ -343,20 +339,32 @@ impl TerminalWindow {
                             ui.end_row();
                         }
                         Protocol::Serial => {
-                            form_row(ui, "Serial Port:");
-                            // 提示按平台给：Windows 上串口叫 `COM3`，unix 上才叫
-                            // `/dev/...`。让 Windows 用户照着 `/dev/tty.usbserial`
-                            // 去敲，等于给了一条必然失败的示例。
-                            ui.add_sized(
-                                egui::vec2(FIELD_W, ROW_H),
-                                TextEdit::singleline(&mut self.new_session.host).hint_text(
-                                    if cfg!(windows) {
-                                        "COM3"
-                                    } else {
-                                        "/dev/tty.usbserial"
-                                    },
-                                ),
-                            );
+                            // 金标准 `serial/00-session.png` 是 `Serial:` 下拉框，
+                            // 候选来自本机枚举到的串口设备；已填但当前不在册的值
+                            // 也留在列表首位（否则重开表单会把用户的选择吃掉）。
+                            form_row(ui, "Serial:");
+                            let current = self.new_session.host.clone();
+                            let mut devices = term_io::serial::list_devices();
+                            if !current.is_empty() && !devices.contains(&current) {
+                                devices.insert(0, current.clone());
+                            }
+                            let mut chosen = current.clone();
+                            let label = if chosen.is_empty() {
+                                if cfg!(windows) { "COM3" } else { "/dev/tty.usbserial" }.to_string()
+                            } else {
+                                chosen.clone()
+                            };
+                            egui::ComboBox::from_id_salt("session_serial_device")
+                                .selected_text(label)
+                                .width(FIELD_W)
+                                .show_ui(ui, |ui| {
+                                    for device in &devices {
+                                        if ui.selectable_label(chosen == *device, device).clicked() {
+                                            chosen = device.clone();
+                                        }
+                                    }
+                                });
+                            self.new_session.host = chosen;
                             ui.end_row();
                         }
                         _ => {
@@ -412,6 +420,25 @@ impl TerminalWindow {
                             .hint_text("[nesting groups] a>b>c"),
                     );
                     ui.end_row();
+                    // 金标准 `tcp/00-session.png` 与 `serial/00-session.png` 在
+                    // Group 与 Term 之间多一行 `Data: binary`。这一版通道只传输
+                    // 原始字节，没有文本转码后端，所以按规矩灰显并说明原因，
+                    // 不摆一个能点却没效果的假下拉。
+                    if matches!(self.new_session.protocol, Protocol::Tcp | Protocol::Serial) {
+                        form_row(ui, "Data:");
+                        let resp = crate::ui::kit::form::field_box(ui, |ui| {
+                            crate::ui::kit::form::read_only(
+                                ui,
+                                "binary",
+                                crate::theme::chrome(term_core::theme::CHROME_SCALE.text),
+                                crate::ui::kit::form::Deco::Down,
+                            );
+                        });
+                        resp.on_hover_text(
+                            "TCP and serial sessions exchange raw bytes; text mode is not available in this build.",
+                        );
+                        ui.end_row();
+                    }
                     // 兼容终端 `04-new-session/00-ssh-session.png` 的 Session 页
                     // 没有 Logon Script；CRT 那一项不属于 WindTerm 会话表单，
                     // 字段仍留在数据层供脚本侧读取，但不再画进 1:1 页面。
@@ -498,13 +525,13 @@ impl TerminalWindow {
         choice_row_styled(
             ui, ChoiceKind::Checkbox,
             "Disable Nagle's algorithm (TCP_NODELAY option)", "Disable",
-            &mut self.new_session.tcp_low_delay, true, UnderlineStyle::None,
+            &mut self.new_session.tcp_low_delay, true, UnderlineStyle::Dialog,
         );
         ui.add_space(4.5);
         choice_row_styled(
             ui, ChoiceKind::Checkbox,
             "Enable TCP keepalives (SO_KEEPALIVE option)", "Enable",
-            &mut self.new_session.tcp_keep_alive, true, UnderlineStyle::None,
+            &mut self.new_session.tcp_keep_alive, true, UnderlineStyle::Dialog,
         );
         ui.add_space(6.0);
         heading(ui, "Sends null packet to keep session alive:");
@@ -512,124 +539,6 @@ impl TerminalWindow {
         ui.add_space(6.0);
         heading(ui, "Maximum connection timeout:");
         full_spin(ui, &mut self.new_session.connection_timeout, seconds_text);
-    }
-
-    /// 6 `Authentication`：认证方式（勾选即回退链）+ 凭据。
-    ///
-    /// 视觉基线 `02-session-dialog/ssh/03-ssh-authentication.png` 的勾选块原样
-    /// 照抄（标题 `Automatic authentication methods:` + 五条 `Attempt …`，
-    /// 顺序 ssh-agent / password / public-key / keyboard-interactive /
-    /// gssapi-with-mic）。用户名与密码是本实现多出来的两项——兼容终端把这两样
-    /// 推迟到连接时的密码提示里问，而我们要在「保存即连接」的一次点击里
-    /// 就把凭据备齐；它们按同一套「标题在上」的语法接在勾选块后面。
-    fn authentication_page(&mut self, ui: &mut egui::Ui) {
-        if self.new_session.protocol != Protocol::Ssh {
-            ui.label("Authentication is only applicable to SSH sessions.");
-            return;
-        }
-        ui.label("Automatic authentication methods:");
-        // 多勾选 = OneKey 回退链。勾选里排第一的是首选（`auth`），其余进
-        // `auth_chain`；连接时按这个顺序逐个尝试（例如密码被拒后自动改试公钥）。
-        // 至少保留一个——取消最后一个不生效，否则这条会话没有任何认证方式。
-        let all = [
-            AuthMethod::Password,
-            AuthMethod::PublicKey,
-            AuthMethod::Agent,
-            AuthMethod::GssapiWithMic,
-            AuthMethod::KeyboardInteractive,
-        ];
-        // 用「首选 + 回退链」重建当前勾选集，并按 `all` 的显示顺序排列：勾选
-        // 顺序不会漂移成每次重开表单都换个次序。
-        let mut selected: Vec<AuthMethod> = all
-            .iter()
-            .copied()
-            .filter(|a| *a == self.new_session.auth || self.new_session.auth_chain.contains(a))
-            .collect();
-        // 勾选块的**显示顺序**照视觉基线，与 `all` 的链路顺序无关：链路只看
-        // `selected` 的排序（仍由 `all` 决定），这里只决定哪一行画在哪。
-        const SHOWN: [AuthMethod; 5] = [
-            AuthMethod::Agent,
-            AuthMethod::Password,
-            AuthMethod::PublicKey,
-            AuthMethod::KeyboardInteractive,
-            AuthMethod::GssapiWithMic,
-        ];
-        ui.add_space(5.5);
-        for (i, auth) in SHOWN.iter().copied().enumerate() {
-            if i > 0 {
-                ui.add_space(5.5);
-            }
-            let mut on = selected.contains(&auth);
-            let acc = match auth {
-                AuthMethod::Agent => "ssh-agent",
-                AuthMethod::Password => "password",
-                AuthMethod::PublicKey => "public-key",
-                AuthMethod::KeyboardInteractive => "keyboard-interactive",
-                AuthMethod::GssapiWithMic => "gssapi-with-mic",
-            };
-            if choice_row_styled(
-                ui, ChoiceKind::Checkbox, attempt_label(auth), acc,
-                &mut on, true, UnderlineStyle::Dialog,
-            ) {
-                if on {
-                    if !selected.contains(&auth) {
-                        selected.push(auth);
-                    }
-                } else {
-                    selected.retain(|m| *m != auth);
-                    // 不许一个都不剩。
-                    if selected.is_empty() {
-                        selected.push(auth);
-                    }
-                }
-            }
-        }
-        if selected.is_empty() {
-            // 理论上到不了这里；兜底保证会话永远有一种认证方式。
-            selected.push(AuthMethod::Password);
-        }
-        // 归一：首选尽量保持不变（仍被勾选就继续当首选），否则取第一个勾选项；
-        // 其余进回退链。
-        let primary = if selected.contains(&self.new_session.auth) {
-            self.new_session.auth
-        } else {
-            selected[0]
-        };
-        self.new_session.auth = primary;
-        self.new_session.auth_chain = selected
-            .into_iter()
-            .filter(|a| *a != primary)
-            .collect();
-        // 只要勾选里含密码 / 键盘交互，就展示密码框（两者共用同一个密码字段）。
-        let needs_password = matches!(
-            self.new_session.auth,
-            AuthMethod::Password | AuthMethod::KeyboardInteractive
-        ) || self
-            .new_session
-            .auth_chain
-            .iter()
-            .any(|m| matches!(m, AuthMethod::Password | AuthMethod::KeyboardInteractive));
-        ui.add_space(8.0);
-        heading(ui, "Username:");
-        ui.add_sized(
-            egui::vec2(FORM_W, ROW_H),
-            TextEdit::singleline(&mut self.new_session.username)
-                .hint_text("root")
-                .desired_width(FORM_W),
-        );
-        if needs_password {
-            ui.add_space(6.0);
-            heading(ui, "Password:");
-            ui.add_sized(
-                egui::vec2(FORM_W, ROW_H),
-                TextEdit::singleline(&mut self.new_session.password)
-                    .password(true)
-                    .desired_width(FORM_W),
-            );
-        }
-        // 凭据保险库的解锁 / 创建。放在这里而不是弹窗，
-        // 是因为用完密码就要连，嵌套两个模态窗口最容易「关不掉」。
-        self.draw_vault_section(ui);
     }
 
     /// 12 `Tunnels`：转发规则。原先同样挤在 Connection 页底部。

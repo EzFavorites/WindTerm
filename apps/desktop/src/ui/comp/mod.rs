@@ -341,6 +341,20 @@ impl TerminalWindow {
                 // 04-new-session 与 default-session 的 Session 页都是 SSH；protocol_for_page(0)
                 // 按首项给 Shell，夹具按视觉基线覆盖。
                 if page == 0 { protocol = term_core::session::Protocol::Ssh; }
+                // 夹具专用：Session 页按协议有一行不同的首字段（Tcp=Host+Data、
+                // Serial=设备下拉）。出图时可用 WINDTERM_SESSION_PROTOCOL 覆盖，
+                // 生产路径不读这个变量。
+                if page == 0 && harness::fixture_mode() {
+                    if let Ok(name) = std::env::var("WINDTERM_SESSION_PROTOCOL") {
+                        protocol = match name.as_str() {
+                            "shell" => Protocol::Shell,
+                            "telnet" => Protocol::Telnet,
+                            "tcp" => Protocol::Tcp,
+                            "serial" => Protocol::Serial,
+                            _ => Protocol::Ssh,
+                        };
+                    }
+                }
                 self.view.show_new_session = true; self.new_session.protocol = protocol;
                 self.new_session.port = protocol.default_port(); self.new_session.selected_page = page;
                 // 比对夹具：同一张表单按 New / Default / Properties 出图；只在组件夹具下读。

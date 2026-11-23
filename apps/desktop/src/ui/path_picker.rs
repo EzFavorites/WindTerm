@@ -16,6 +16,8 @@ pub(in crate::ui) enum PathTarget {
     ModemDownloadDir,
     /// 首次启动「Choose Profiles Directory」的指定目录。
     ProfileDir,
+    /// Authentication 页的身份文件；`usize` 是平台页签下标，写回对应那一格。
+    AuthIdentity(usize),
 }
 
 pub(in crate::ui) struct PathPicker {
@@ -53,6 +55,7 @@ fn apply(win: &mut TerminalWindow, target: PathTarget, path: String) {
         PathTarget::ModemUploadDir => win.new_session.modem_upload_dir = path,
         PathTarget::ModemDownloadDir => win.new_session.modem_download_dir = path,
         PathTarget::ProfileDir => win.profile_choice.custom_dir = path,
+        PathTarget::AuthIdentity(tab) => win.new_session.auth_identity[tab] = path,
     }
 }
 
@@ -63,6 +66,7 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     };
     let title = match picker.target {
         PathTarget::BellSound => "Choose sound file",
+        PathTarget::AuthIdentity(_) => "Choose identity file",
         PathTarget::ModemUploadDir | PathTarget::ModemDownloadDir | PathTarget::ProfileDir => {
             "Choose directory"
         }

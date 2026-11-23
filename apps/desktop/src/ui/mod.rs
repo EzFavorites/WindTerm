@@ -505,7 +505,9 @@ pub struct TerminalWindow {
     /// 按 `SessionId` 而不是标签下标记：重排 / 分屏会让下标漂，而「这条会话的
     /// 登录脚本跑过了」是个**一次性**事实，认错对象就会跑两遍（登录脚本常常
     /// 是 `sudo` 或改配置，跑两遍比不跑更糟）。
-    logon_fired: std::collections::HashSet<SessionId>,
+    /// 同两组登记簿：`logon_fired` 是登录脚本；`auth_exec_*` 是 Authentication
+    /// 页的认证后命令（待发时刻 + 一次性标记）。都按 `SessionId` 而非标签下标。
+    logon_fired: std::collections::HashSet<SessionId>, auth_exec_pending: std::collections::HashMap<SessionId, std::time::Instant>, auth_exec_fired: std::collections::HashSet<SessionId>,
     /// 正在跑的登录脚本。**句柄要留着**：丢了就等于让它在后台对着 PTY 继续
     /// 说话，而界面上没有任何「它还在跑」的痕迹，同会话互斥也会提前放行。
     logon_runs: Vec<crate::script_run::ScriptRun>,
@@ -1176,7 +1178,8 @@ impl TerminalWindow {
         self.drain_script_activated();
         // 登录脚本：标签带着活会话出现之后跑一次（§S6）。放在 `poll_script` 之前，
         // 这样登录脚本的第一条提示能在同一帧进状态栏。
-        self.fire_logon_scripts();
+        // 认证后命令与登录脚本同一帧调度：前者写进会话，后者起脚本线程。
+        self.fire_logon_scripts(); self.fire_auth_commands();
         // 录制器：每帧看一眼屏幕是否安静（录制中才做事）。
         self.tick_recorder();
         self.poll_script();
