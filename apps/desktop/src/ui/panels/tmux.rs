@@ -110,6 +110,20 @@ impl TerminalWindow {
                 ui.label("No panes parsed yet — feed a %output / %layout line first.");
             } else {
                 ui.label("Panes (from control output):");
+                // 发给窗格的文本：先按快捷栏同一套规则解转义（`\n`/`\x03`…），
+                // 再由 `send_text` 决定走 `-l` 引号路径还是控制字节的十六进制路径。
+                // 这是那条一直只有单测构造、没有生产调用者的安全 API 的真入口。
+                ui.horizontal(|ui| {
+                    ui.label("Send to pane:");
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut self.tmux_send)
+                            .hint_text("ls -l\\n"),
+                    );
+                    if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        // Enter 只提交，不换行；真正发送按下面的窗格按钮。
+                        resp.request_focus();
+                    }
+                });
                 for pane in &tmux_panes {
                     ui.horizontal(|ui| {
                         if ui.button(format!("Select %{pane}")).clicked() {
@@ -121,6 +135,11 @@ impl TerminalWindow {
                             actions.push(Action::TmuxCommand(
                                 term_app::tmux::Command::KillPane(*pane).line(),
                             ));
+                        }
+                        if !self.tmux_send.is_empty() && ui.button(format!("Send %{pane}")).clicked() {
+                            let bytes = term_core::keys::decode_send_text(&self.tmux_send);
+                            let cmd = term_app::tmux::send_keys_raw(*pane, &bytes);
+                            actions.push(Action::TmuxCommand(cmd.line()));
                         }
                         // `resize-pane` 改的是单个窗格，不是整窗：尺寸取本地终端此刻的
                         // 网格大小，窗格号仍从解析集合里来（带目标的命令必须校验）。

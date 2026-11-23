@@ -354,6 +354,7 @@ impl TerminalWindow {
             tunnel_input: String::new(),
             tunnel_error: None,
             tmux_input: String::new(),
+            tmux_send: String::new(),
             tmux_blocks: Vec::new(),
             connector: None,
             ssh_password: String::new(),

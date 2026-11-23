@@ -43,6 +43,8 @@ fn docker_ready() -> bool {
 /// 为什么必须 `-tt`：没有远端 pty 时 tmux 会直接拒绝进控制模式（它需要一个
 /// 终端来决定尺寸）。`-tt` 强制分配，即使本地 stdin 是管道。
 fn spawn_control_mode() -> (std::process::Child, mpsc::Receiver<String>) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
     let host = var("WINDTERM_DOCKER_HOST");
     let port = var("WINDTERM_DOCKER_PORT");
     let user = var("WINDTERM_DOCKER_USER");
@@ -84,8 +86,14 @@ fn spawn_control_mode() -> (std::process::Child, mpsc::Receiver<String>) {
             "-o",
             "BatchMode=yes",
             &format!("{user}@{host}"),
-            // `-A` 复用已存在的会话：重复跑不会堆一堆 session。
-            "tmux -CC new-session -A -s docker",
+            // 每条用例用**独立会话名**（进程号），避免上一条 detach 后重连到
+            // 同一 session 却收不到新输出——那种状态残留会让 send-keys 用例
+            // 稳定失败，而它测的其实是别的用例留下的现场。
+            &format!(
+                "tmux -CC new-session -A -s wt{}-{}",
+                std::process::id(),
+                SEQ.fetch_add(1, Ordering::Relaxed)
+            ),
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -113,8 +121,9 @@ fn spawn_control_mode() -> (std::process::Child, mpsc::Receiver<String>) {
 /// 发送一行到 tmux 控制模式（以 `\n` 结尾）。
 fn send_line(stdin: &mut std::process::ChildStdin, line: &str) {
     use std::io::Write;
-    let _ = stdin.write_all(line.as_bytes());
-    let _ = stdin.flush();
+    if let Err(e) = stdin.write_all(line.as_bytes()).and_then(|_| stdin.flush()) {
+        eprintln!("send_line 写入失败（{line:?}）：{e}");
+    }
 }
 
 #[test]
@@ -306,3 +315,4 @@ fn real_tmux_bidirectional_split_then_detach() {
         }
     }
 }
+

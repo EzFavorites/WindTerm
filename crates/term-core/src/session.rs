@@ -696,7 +696,17 @@ impl SessionConfig {
                 // 四档互斥：单选说是 Http 就不能还偷偷带上 `-J`。
                 match self.effective_proxy_type() {
                     ProxyType::Jump => {
-                        argv.extend(["-J".to_string(), self.proxy_jump.trim().to_string()]);
+                        // 用户显式填了 Proxy command 时以它为准：Jump 档也能用
+                        // 自定义跳板命令（如 `ssh -W %h:%p gw`），不再只认 -J。
+                        // 留空仍走 -J，与升级前的行为逐字一致。
+                        if self.proxy_command.trim().is_empty() {
+                            argv.extend(["-J".to_string(), self.proxy_jump.trim().to_string()]);
+                        } else {
+                            argv.extend([
+                                "-o".to_string(),
+                                format!("ProxyCommand={}", self.proxy_command.trim()),
+                            ]);
+                        }
                     }
                     ProxyType::Http | ProxyType::Socks5 => {
                         let command = if self.proxy_command.trim().is_empty() {
@@ -1118,6 +1128,20 @@ mod tests {
         // 认得的那些还在。
         assert!(joined.contains("TCPKeepAlive="), "{joined}");
         assert!(joined.contains("PreferredAuthentications="), "{joined}");
+    }
+
+    #[test]
+    fn a_jump_session_with_a_custom_proxy_command_uses_it_instead_of_minus_j() {
+        let mut cfg = SessionConfig::new(Protocol::Ssh);
+        cfg.host = "internal.example".to_string();
+        cfg.proxy_jump = "user@bastion:2222".to_string();
+        cfg.proxy_command = "ssh -W %h:%p gw.example".to_string();
+        let Ok(SpawnPlan::External(argv)) = cfg.spawn_plan() else {
+            panic!("应当生成外部命令")
+        };
+        let joined = argv.join(" ");
+        assert!(joined.contains("ProxyCommand=ssh -W %h:%p gw.example"), "{joined}");
+        assert!(!joined.contains(" -J "), "两条不能同时带：{joined}");
     }
 
     #[test]

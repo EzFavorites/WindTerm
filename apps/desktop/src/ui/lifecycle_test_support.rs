@@ -289,6 +289,7 @@ pub(in crate::ui) fn window_with(
         tunnel_error: None,
         tmux_log: Vec::new(),
         tmux_input: String::new(),
+        tmux_send: String::new(),
         tmux_blocks: Vec::new(),
         pending_select: None,
         connector: None,
