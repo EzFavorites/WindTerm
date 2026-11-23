@@ -240,7 +240,9 @@ fn x11_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 true,
                 UnderlineStyle::Dialog,
             ) {
-                ext = !ext;
+                // `paint_choice` 点击时已经把 `ext` 翻转过一次；这里再翻一次会
+                // 精确抵消，导致这一项永远选不中。radio 选中就是 true，直接写。
+                ext = true;
             }
             ui.add_space(8.0);
             let (rect, resp) = ui.allocate_exact_size(egui::vec2(235.0, ROW_H), egui::Sense::hover());
@@ -264,17 +266,20 @@ fn x11_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         ui.add_space(16.0);
         underlined_label(ui, "X11 authentication protocol:");
         ui.add_space(6.0);
-        // russh 的 x11-req 固定下发 MIT-MAGIC-COOKIE-1；另一项没有后端，灰显。
+        // russh 的 x11-req 固定下发 MIT-MAGIC-COOKIE-1，没有可切换的后端；
+        // 这一项画成灰显固定选中，与同组 XDM 的只读口径一致——不要画成可点
+        // （点了只会闪一下又弹回，等于假选项）。
         let mut mit = true;
-        choice_row_styled(
+        choice_row_resp(
             ui,
             ChoiceKind::Radio,
             "MIT-MAGIC-COOKIE-1",
             "MIT",
             &mut mit,
-            true,
+            false,
             UnderlineStyle::Dialog,
-        );
+        )
+        .on_hover_text("The built-in client always sends MIT-MAGIC-COOKIE-1 in x11-req.");
         ui.add_space(6.0);
         let mut xdm = false;
         choice_row_resp(
