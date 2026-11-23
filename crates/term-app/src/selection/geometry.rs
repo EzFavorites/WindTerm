@@ -352,39 +352,55 @@ pub(super) fn stuttered_page(image: &ScreenImage) -> i64 {
 
 // ------------------------------------------------------------- 括号对（`Pair`）
 
-/// 开括号 → 配对的闭括号。
-fn closing_of(ch: char) -> Option<char> {
-    match ch {
-        '(' => Some(')'),
-        '[' => Some(']'),
-        '{' => Some('}'),
-        _ => None,
-    }
-}
+/// 出厂括号对：每两个字符一对。空串配置的读者用这一套。
+pub const DEFAULT_BRACKET_PAIRS: &str = "()[]{}";
 
-/// 闭括号 → 配对的开括号。
-fn opening_of(ch: char) -> Option<char> {
-    match ch {
-        ')' => Some('('),
-        ']' => Some('['),
-        '}' => Some('{'),
-        _ => None,
-    }
-}
+/// 用户可配的括号对（会话属性 `bracket_pairs`）。纯数据、无 IO，
+/// 由 [`Pairs::parse`] 从「每两字符一对」的字符串构造；空串回落出厂值。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Pairs(Vec<(char, char)>);
 
-fn is_bracket(ch: char) -> bool {
-    closing_of(ch).is_some() || opening_of(ch).is_some()
+impl Pairs {
+    pub fn parse(raw: &str) -> Self {
+        let raw = if raw.trim().is_empty() {
+            DEFAULT_BRACKET_PAIRS
+        } else {
+            raw
+        };
+        let chars: Vec<char> = raw.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i + 1 < chars.len() {
+            // 相邻两字符相同（如 `||`）没有开闭之分，忽略——否则栈扫描时
+            // 同一个字符既当开又当闭，配对结果会随扫描顺序乱跳。
+            if chars[i] != chars[i + 1] {
+                out.push((chars[i], chars[i + 1]));
+            }
+            i += 2;
+        }
+        Self(out)
+    }
+
+    pub fn default_pairs() -> Self {
+        Self::parse("")
+    }
+
+    fn closing(&self, ch: char) -> Option<char> {
+        self.0.iter().find(|(open, _)| *open == ch).map(|(_, close)| *close)
+    }
+
+    fn opening(&self, ch: char) -> Option<char> {
+        self.0.iter().find(|(_, close)| *close == ch).map(|(open, _)| *open)
+    }
 }
 
 /// 可见窗口里的括号字形，按阅读顺序（**跨行连续**，把整屏当一个字符流）。
-///
-/// 「跨行连续」是这套配对的关键：一段 `(` 写在上一行、`)` 写在下一行，
-/// 在编辑器里仍然是一对；按行各自配对的话它们都是孤零零的半个。
-fn brackets(image: &ScreenImage) -> Vec<(Pos, char)> {
+/// 配对种类由 `pairs` 决定——出厂 `()[]{}`，会话可加 `<>` 等自定义对。
+fn brackets(image: &ScreenImage, pairs: &Pairs) -> Vec<(Pos, char)> {
     let mut out: Vec<(Pos, char)> = Vec::new();
     for line in &image.lines {
         for g in glyphs(&line.cells) {
-            if is_bracket(g.ch) {
+            if pairs.closing(g.ch).is_some() || pairs.opening(g.ch).is_some() {
                 out.push((Pos::new(line.row, g.from), g.ch));
             }
         }
@@ -393,19 +409,15 @@ fn brackets(image: &ScreenImage) -> Vec<(Pos, char)> {
 }
 
 /// 括号流里每个括号的配对端下标表；没配上的是 `None`。
-///
-/// 一趟**栈扫描**：开括号压栈、闭括号出栈，出栈时种类必须对得上。
-/// 这样 `( [ ) ]` 这种交叉嵌套两边都配不上（栈顶是 `[`，来的是 `)`），
-/// 于是整条命令「不动」；而屏幕上别处多出来的一个孤立 `]` 只是自己配不上，
-/// 不会把别人的括号对一起判死。
-fn pair_partners(stream: &[(Pos, char)]) -> Vec<Option<usize>> {
+/// 一趟栈扫描：开括号压栈、闭括号出栈，出栈时种类必须对得上。
+fn pair_partners(stream: &[(Pos, char)], pairs: &Pairs) -> Vec<Option<usize>> {
     let mut partner: Vec<Option<usize>> = vec![None; stream.len()];
     let mut open: Vec<usize> = Vec::new();
     for (i, (_, ch)) in stream.iter().enumerate() {
-        if closing_of(*ch).is_some() {
+        if pairs.closing(*ch).is_some() {
             open.push(i);
         } else if let Some(top) = open.pop() {
-            if closing_of(stream[top].1) == Some(*ch) {
+            if pairs.closing(stream[top].1) == Some(*ch) {
                 partner[top] = Some(i);
                 partner[i] = Some(top);
             }
@@ -415,8 +427,8 @@ fn pair_partners(stream: &[(Pos, char)]) -> Vec<Option<usize>> {
 }
 
 /// 括号流里第 `idx` 个括号的配对端下标；不平衡（种类对不上）则 `None`。
-fn match_index(stream: &[(Pos, char)], idx: usize) -> Option<usize> {
-    pair_partners(stream).get(idx).copied().flatten()
+fn match_index(stream: &[(Pos, char)], idx: usize, pairs: &Pairs) -> Option<usize> {
+    pair_partners(stream, pairs).get(idx).copied().flatten()
 }
 
 /// 距 `at` 最近的括号下标：先看 `at` 所在（或右侧第一个），右侧没有就退到最后一个。
@@ -435,32 +447,44 @@ fn nearest_bracket(stream: &[(Pos, char)], at: Pos) -> Option<usize> {
 /// 光标停在 `foo(bar|)` 的中间时，`(…)` 这一对由最近的括号（`(`）确定，
 /// 落点是 `(` 本身——这就是「跳到这一对的开头」。
 pub fn pair_start(image: &ScreenImage, at: Pos) -> Option<Pos> {
-    let stream = brackets(image);
+    pair_start_with(image, at, &Pairs::default_pairs())
+}
+
+pub fn pair_start_with(image: &ScreenImage, at: Pos, pairs: &Pairs) -> Option<Pos> {
+    let stream = brackets(image, pairs);
     let idx = nearest_bracket(&stream, at)?;
-    let other = match_index(&stream, idx)?;
+    let other = match_index(&stream, idx, pairs)?;
     let open = idx.min(other);
     Some(stream[open].0)
 }
 
 /// `End Of Pair`：落到同一对的**闭**端。
 pub fn pair_end(image: &ScreenImage, at: Pos) -> Option<Pos> {
-    let stream = brackets(image);
+    pair_end_with(image, at, &Pairs::default_pairs())
+}
+
+pub fn pair_end_with(image: &ScreenImage, at: Pos, pairs: &Pairs) -> Option<Pos> {
+    let stream = brackets(image, pairs);
     let idx = nearest_bracket(&stream, at)?;
-    let other = match_index(&stream, idx)?;
+    let other = match_index(&stream, idx, pairs)?;
     let close = idx.max(other);
     Some(stream[close].0)
 }
 
 /// 双击选区：只有当光标**正好**落在一个有配对的括号上时才返回整对区间
 /// （含两端）；其它位置返回 `None`，调用方回退到双击选词。
-///
-/// 与 `pair_start`/`pair_end` 的区别：那两个是「最近括号」语义（方便键盘跳转），
-/// 双击要的是「这一点本身就是括号」，否则在 `foo` 里双击会莫名其妙选到很远的
-/// 一对括号上。
 pub fn pair_selection_at(image: &ScreenImage, at: Pos) -> Option<Selection> {
-    let stream = brackets(image);
+    pair_selection_at_with(image, at, &Pairs::default_pairs())
+}
+
+pub fn pair_selection_at_with(
+    image: &ScreenImage,
+    at: Pos,
+    pairs: &Pairs,
+) -> Option<Selection> {
+    let stream = brackets(image, pairs);
     let idx = stream.iter().position(|(p, _)| *p == at)?;
-    let other = match_index(&stream, idx)?;
+    let other = match_index(&stream, idx, pairs)?;
     let (open, close) = if idx < other { (idx, other) } else { (other, idx) };
     let start = stream[open].0;
     let end = stream[close].0;
@@ -468,22 +492,22 @@ pub fn pair_selection_at(image: &ScreenImage, at: Pos) -> Option<Selection> {
 }
 
 /// `Previous Pair`：先退到上一个括号字形，再跳到它的配对端。
-pub(super) fn pair_prev(image: &ScreenImage, at: Pos) -> Option<Pos> {
-    let stream = brackets(image);
+pub(super) fn pair_prev_with(image: &ScreenImage, at: Pos, pairs: &Pairs) -> Option<Pos> {
+    let stream = brackets(image, pairs);
     let idx = stream
         .iter()
         .rposition(|(p, _)| (p.row, p.col) < (at.row, at.col))?;
-    let other = match_index(&stream, idx)?;
+    let other = match_index(&stream, idx, pairs)?;
     Some(stream[other].0)
 }
 
 /// `Next Pair`：先前进到下一个括号字形，再跳到它的配对端。
-pub(super) fn pair_next(image: &ScreenImage, at: Pos) -> Option<Pos> {
-    let stream = brackets(image);
+pub(super) fn pair_next_with(image: &ScreenImage, at: Pos, pairs: &Pairs) -> Option<Pos> {
+    let stream = brackets(image, pairs);
     let idx = stream
         .iter()
         .position(|(p, _)| (p.row, p.col) > (at.row, at.col))?;
-    let other = match_index(&stream, idx)?;
+    let other = match_index(&stream, idx, pairs)?;
     Some(stream[other].0)
 }
 
@@ -729,25 +753,27 @@ mod tests {
     fn a_pair_is_matched_across_lines() {
         // 整屏当一个字符流：开括号在上一行、闭括号在下一行，仍然是一对。
         let img = image(&["fn f(", "  a)", ")"], 8);
-        let stream = brackets(&img);
+        let pairs = Pairs::default_pairs();
+        let stream = brackets(&img, &pairs);
         assert_eq!(stream.len(), 3);
-        assert_eq!(match_index(&stream, 0), Some(1), "第 0 个括号的配对端");
-        assert_eq!(match_index(&stream, 2), None, "多出来的闭括号没有配对");
+        assert_eq!(match_index(&stream, 0, &pairs), Some(1), "第 0 个括号的配对端");
+        assert_eq!(match_index(&stream, 2, &pairs), None, "多出来的闭括号没有配对");
     }
 
     #[test]
     fn nesting_is_counted_and_unbalanced_brackets_have_no_pair() {
         // 括号流：`(` `(` `)` `)` `[` `]`。
         let img = image(&["(a(b)c) [d]"], 16);
-        let stream = brackets(&img);
-        assert_eq!(match_index(&stream, 0), Some(3), "外层括号配最外层那一半");
-        assert_eq!(match_index(&stream, 1), Some(2), "内层括号配内层");
-        assert_eq!(match_index(&stream, 4), Some(5), "方括号自成一对");
+        let pairs = Pairs::default_pairs();
+        let stream = brackets(&img, &pairs);
+        assert_eq!(match_index(&stream, 0, &pairs), Some(3), "外层括号配最外层那一半");
+        assert_eq!(match_index(&stream, 1, &pairs), Some(2), "内层括号配内层");
+        assert_eq!(match_index(&stream, 4, &pairs), Some(5), "方括号自成一对");
         // 交叉嵌套：`( [ ) ]` 里 `(` 找不到自己的 `)`。
         let crossed = image(&["( [ ) ]"], 8);
-        let stream = brackets(&crossed);
-        assert_eq!(match_index(&stream, 0), None, "不平衡就不动");
-        assert_eq!(match_index(&stream, 1), None);
+        let stream = brackets(&crossed, &pairs);
+        assert_eq!(match_index(&stream, 0, &pairs), None, "不平衡就不动");
+        assert_eq!(match_index(&stream, 1, &pairs), None);
     }
 
     #[test]
@@ -784,19 +810,36 @@ mod tests {
     }
 
     #[test]
+    fn custom_bracket_pairs_are_honored_and_default_when_empty() {
+        let img = image(&["a<b>c"], 6);
+        // 出厂表没有 `<>`：`b` 上双击选不到对。
+        assert!(pair_selection_at(&img, Pos::new(0, 2)).is_none());
+        // 会话加了 `<>` 就能选到整对（含两端）。
+        let pairs = Pairs::parse("<>");
+        let sel = pair_selection_at_with(&img, Pos::new(0, 1), &pairs).unwrap();
+        assert_eq!(sel.anchor(), Pos::new(0, 1));
+        assert_eq!(sel.head(), Pos::new(0, 4));
+        // 空串回落出厂 `()[]{}`，仍不认 `<>`。
+        assert!(pair_selection_at_with(&img, Pos::new(0, 2), &Pairs::parse("")).is_none());
+        let normal = image(&["a(b)c"], 6);
+        assert!(pair_selection_at_with(&normal, Pos::new(0, 1), &Pairs::parse("")).is_some());
+    }
+
+    #[test]
     fn previous_and_next_pair_step_onto_a_bracket_first() {
         // 括号流：`(`(1) `)`(3) `[`(5) `]`(7)。
         let img = image(&["a(b)c[d]e"], 10);
+        let pairs = Pairs::default_pairs();
         // 光标在 `[` 上：Next Pair 先移到 `]`（下一个括号字形），再跳到它的配对端 `[`。
-        assert_eq!(pair_next(&img, Pos::new(0, 5)), Some(Pos::new(0, 5)));
+        assert_eq!(pair_next_with(&img, Pos::new(0, 5), &pairs), Some(Pos::new(0, 5)));
         // 光标在 `d` 上（`[` 之后）：Next 落到 `]` 的配对端 `[`。
-        assert_eq!(pair_next(&img, Pos::new(0, 6)), Some(Pos::new(0, 5)));
+        assert_eq!(pair_next_with(&img, Pos::new(0, 6), &pairs), Some(Pos::new(0, 5)));
         // 光标在 `d` 上：Previous 先退到 `[`，再跳到配对端 `]`。
-        assert_eq!(pair_prev(&img, Pos::new(0, 6)), Some(Pos::new(0, 7)));
+        assert_eq!(pair_prev_with(&img, Pos::new(0, 6), &pairs), Some(Pos::new(0, 7)));
         // 光标在最左边：没有上一个括号，不动。
-        assert_eq!(pair_prev(&img, Pos::new(0, 0)), None);
+        assert_eq!(pair_prev_with(&img, Pos::new(0, 0), &pairs), None);
         // 光标在最右边：没有下一个括号，不动。
-        assert_eq!(pair_next(&img, Pos::new(0, 9)), None);
+        assert_eq!(pair_next_with(&img, Pos::new(0, 9), &pairs), None);
     }
 
     #[test]

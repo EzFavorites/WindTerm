@@ -82,6 +82,7 @@ pub(super) fn pointer_selection(
     image: &ScreenImage,
     geom: GridGeom,
     separators: &str,
+    pairs: &term_app::selection::Pairs,
 ) {
     let image_cols = image.cols.max(1);
     // F1：鼠标 → 内容行列。行号用事实窗口的绝对行号，滚动不会让选区漂。
@@ -163,7 +164,7 @@ pub(super) fn pointer_selection(
         if let Some(p) = resp.interact_pointer_pos() {
             let pos = to_pos(p);
             // 双击括号 → 选整对（含两端）；不在括号上才回退双击选词。
-            let sel = term_app::selection::pair_selection_at(image, pos)
+            let sel = term_app::selection::pair_selection_at_with(image, pos, pairs)
                 .or_else(|| word_at_with(image, pos, separators));
             selections.set_active(sel);
         }

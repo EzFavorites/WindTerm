@@ -122,6 +122,8 @@ pub(in crate::ui) struct NewSessionData {
     /// `Window ▸ Selection` 的两组选区分隔符；空串 = 未设置（页面显示出厂串）。
     pub(in crate::ui) word_separators: String,
     pub(in crate::ui) word_separators_alt: String,
+    /// `Window ▸ Selection` 的括号对：每两字符一对，空串 = 未设置。
+    pub(in crate::ui) bracket_pairs: String,
     /// `Sftp ▸ Preserve original file modification time`（传输时写回 mtime）。
     pub(in crate::ui) sftp_preserve_mtime: bool,
     pub(in crate::ui) sftp_preserve_dir_mtime: bool,
@@ -265,6 +267,7 @@ impl NewSessionData {
             },
             word_separators: config.word_separators.clone(),
             word_separators_alt: config.word_separators_alt.clone(),
+            bracket_pairs: config.bracket_pairs.clone(),
             logon_script: config.logon_script.clone(),
             cols: if config.cols == 0 {
                 term_core::config::DEFAULT_COLS
@@ -413,6 +416,7 @@ impl NewSessionData {
         c.working_dir = self.working_dir.clone();
         c.word_separators = self.word_separators.clone();
         c.word_separators_alt = self.word_separators_alt.clone();
+        c.bracket_pairs = self.bracket_pairs.clone();
         c.logon_script = self.logon_script.clone();
         c
     }

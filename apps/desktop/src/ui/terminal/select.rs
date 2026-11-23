@@ -15,6 +15,35 @@
 
 use crate::ui::*;
 
+use super::pane_pointer::visible_separators;
+
+/// 菜单派人送来的选区命令落地（`draw_tab` 每帧调一次）。
+///
+/// 两道门，顺序与原先内联在 `pane.rs` 时逐字相同：
+/// ① `pending` 立刻取走——留到下一帧会变成「上一次点的命令过几帧才生效」；
+/// ② Bin 下**就地丢弃**（hex 视图没有字符坐标），不留到切回 Text 再生效。
+/// 「只作用于活动标签页的主区槽位」由调用方按槽位判，不在这道门里。
+pub(in crate::ui) fn dispatch_pending_select(pending: &mut Option<Cmd>, tab: &mut Tab, bin: bool) {
+    let Some(cmd) = pending.take() else {
+        return;
+    };
+    if bin {
+        return;
+    }
+    // `GotoPreviousCommand` / `GotoNextCommand` / `GotoPreviousScope` /
+    // `GotoNextScope` 四条要 OSC 133 块表（绝对行号）。块表在 `GridSnapshot`
+    // 上、不在事实窗口里，而这里正好两个都在手上——所以走带块表的入口。
+    // 其余命令不看块表，多传一个参数没有代价。
+    term_app::selection::apply_cmd_with_pairs(
+        cmd,
+        &tab.view,
+        &tab.snapshot.blocks,
+        &mut tab.selections,
+        visible_separators(&tab.config, tab.snapshot.alt),
+        &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
+    );
+}
+
 /// 一批选区的底色浓度：活动那份用原色，其余淡一档。
 ///
 /// 为什么必须区分：`Text.ActivateNextSelection` 改的只是「谁是活动的」，

@@ -227,11 +227,29 @@ fn selection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     if alt_separators != win.new_session.word_separators_alt {
         win.new_session.word_separators_alt = alt_separators.clone();
     }
+    // 括号对：缺省显示出厂 `()[]{}`，只有真改过才写回配置（与上面同口径）。
+    let mut pairs = if win.new_session.bracket_pairs.is_empty() {
+        term_app::selection::DEFAULT_BRACKET_PAIRS.to_string()
+    } else {
+        win.new_session.bracket_pairs.clone()
+    };
+    ui.label("Bracket Pairs:");
+    field_box(ui, |ui| {
+        ui.add(
+            TextEdit::singleline(&mut pairs)
+                .desired_width(ui.available_width())
+                .frame(false),
+        );
+    });
+    if pairs != win.new_session.bracket_pairs {
+        win.new_session.bracket_pairs = pairs.clone();
+    }
     placeholder_note(
         ui,
-        "These separators break words for double-click selection and \
-         Shift+Alt+arrow movement. An empty main field falls back to the \
-         factory set; an empty alternate field follows the main one.",
+        "Word separators break words for double-click selection and Shift+Alt+arrow \
+         movement. Bracket pairs are two-character open/close pairs used by pair \
+         navigation, double-click pair selection and pair highlight; empty falls \
+         back to the factory set.",
     );
 }
 

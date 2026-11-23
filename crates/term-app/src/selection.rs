@@ -44,11 +44,14 @@ pub use crate::vocab::Cmd;
 pub use crate::vocab::Op;
 pub use crate::vocab::SetOp;
 pub use ops::{
-    apply, apply_cmd, apply_cmd_with_blocks, apply_cmd_with_blocks_seps, apply_with_blocks,
-    apply_with_blocks_seps, parse, parse_set, Selections,
+    apply, apply_cmd, apply_cmd_with_blocks, apply_cmd_with_blocks_seps, apply_cmd_with_pairs,
+    apply_with_blocks, apply_with_blocks_seps, apply_with_pairs, parse, parse_set, Selections,
 };
 pub use words::{line_span_at, separators_or_default, word_at, word_at_with, DEFAULT_SEPARATORS};
-pub use geometry::{pair_end, pair_selection_at, pair_start};
+pub use geometry::{
+    pair_end, pair_end_with, pair_selection_at, pair_selection_at_with, pair_start, pair_start_with,
+    Pairs, DEFAULT_BRACKET_PAIRS,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Pos {

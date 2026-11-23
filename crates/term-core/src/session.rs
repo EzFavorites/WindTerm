@@ -488,6 +488,10 @@ pub struct SessionConfig {
     /// 备用屏（alternate screen）的选区分隔符；空串 = 与主屏同值。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub word_separators_alt: String,
+    /// 括号配对分隔符：每两个字符一对（如 `()[]{}<>`）。空串 = 未设置，
+    /// 读者回落到出厂 `()[]{}`。与 `word_separators` 同一套迁移口径。
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub bracket_pairs: String,
     /// 登录脚本（SecureCRT 的 Logon Script）：会话**连上之后**自动跑一次的 `.rhai` 路径。
     ///
     /// 空串 = 没有登录脚本（绝大多数会话）。`#[serde(default)]` 让老会话库读出来是
@@ -643,6 +647,7 @@ impl SessionConfig {
             // 空串 = 未设置，读者回落出厂分隔符；老会话库读出来也是空串。
             word_separators: String::new(),
             word_separators_alt: String::new(),
+            bracket_pairs: String::new(),
             logon_script: String::new(),
         }
     }

@@ -121,9 +121,10 @@ pub(super) fn paint_body(
         let mut pair_cells: Vec<(i64, usize)> = Vec::new();
         if tab.marks.current_pair {
             if let Some(at) = at {
+                let pairs = term_app::selection::Pairs::parse(&tab.config.bracket_pairs);
                 for pos in [
-                    term_app::selection::pair_start(image, at),
-                    term_app::selection::pair_end(image, at),
+                    term_app::selection::pair_start_with(image, at, &pairs),
+                    term_app::selection::pair_end_with(image, at, &pairs),
                 ]
                 .into_iter()
                 .flatten()

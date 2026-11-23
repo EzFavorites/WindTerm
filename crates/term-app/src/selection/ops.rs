@@ -12,8 +12,8 @@ use crate::vocab::{Cmd, Op, SetOp};
 use super::geometry::{
     caret, char_next, char_next_in_row, char_prev, char_prev_in_row, clamp_col, clamp_row,
     command_rows, content_len, document_end, indentation_target, line_end, nearest_above,
-    nearest_below, page, pair_end, pair_next, pair_prev, pair_start, paragraph_next, paragraph_prev,
-    scope_rows, stuttered_page, window_start, last_row,
+    nearest_below, page, pair_end_with, pair_next_with, pair_prev_with, pair_start_with,
+    paragraph_next, paragraph_prev, scope_rows, stuttered_page, window_start, last_row, Pairs,
 };
 use super::words::{
     line_span_at, word_at_with, word_end_next, word_end_prev, word_part_next, word_part_prev,
@@ -65,6 +65,18 @@ pub fn apply_with_blocks_seps(
     current: Option<Selection>,
     blocks: &[CommandBlock<i64>],
     separators: &str,
+) -> Option<Selection> {
+    apply_with_pairs(op, image, current, blocks, separators, &Pairs::default_pairs())
+}
+
+/// 与 [`apply_with_blocks_seps`] 相同，但 Pair 命令用会话配置的括号对。
+pub fn apply_with_pairs(
+    op: Op,
+    image: &ScreenImage,
+    current: Option<Selection>,
+    blocks: &[CommandBlock<i64>],
+    separators: &str,
+    pairs: &Pairs,
 ) -> Option<Selection> {
     let head = current.map(|s| s.head()).or_else(|| caret(image))?;
     match op {
@@ -203,19 +215,19 @@ pub fn apply_with_blocks_seps(
         },
 
         // ── Pair：`()[]{}` 深度配对，不平衡就不动 ──
-        Op::PairStart => match pair_start(image, head) {
+        Op::PairStart => match pair_start_with(image, head, pairs) {
             Some(to) => extend(current, head, to),
             None => current,
         },
-        Op::PairEnd => match pair_end(image, head) {
+        Op::PairEnd => match pair_end_with(image, head, pairs) {
             Some(to) => extend(current, head, to),
             None => current,
         },
-        Op::PairPrev => match pair_prev(image, head) {
+        Op::PairPrev => match pair_prev_with(image, head, pairs) {
             Some(to) => extend(current, head, to),
             None => current,
         },
-        Op::PairNext => match pair_next(image, head) {
+        Op::PairNext => match pair_next_with(image, head, pairs) {
             Some(to) => extend(current, head, to),
             None => current,
         },
@@ -608,12 +620,24 @@ pub fn apply_cmd_with_blocks_seps(
     set: &mut Selections,
     separators: &str,
 ) {
+    apply_cmd_with_pairs(cmd, image, blocks, set, separators, &Pairs::default_pairs());
+}
+
+/// 与 [`apply_cmd_with_blocks_seps`] 相同，但用会话配置的括号对解析 Pair 命令。
+pub fn apply_cmd_with_pairs(
+    cmd: Cmd,
+    image: &ScreenImage,
+    blocks: &[CommandBlock<i64>],
+    set: &mut Selections,
+    separators: &str,
+    pairs: &Pairs,
+) {
     match cmd {
         Cmd::Move(op) => {
             if set.is_locked() {
                 return;
             }
-            let updated = apply_with_blocks_seps(op, image, set.active(), blocks, separators);
+            let updated = apply_with_pairs(op, image, set.active(), blocks, separators, pairs);
             set.assign_active(updated);
         }
         Cmd::Set(op) => match op {

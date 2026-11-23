@@ -197,6 +197,7 @@ impl TerminalWindow {
                 // 空串 = 未设置：页面显示出厂串，读侧回落到同一串。
                 word_separators: String::new(),
                 word_separators_alt: String::new(),
+                bracket_pairs: String::new(),
                 sftp_preserve_mtime: true,
                 sftp_preserve_dir_mtime: false,
                 sftp_fix_invalid_path: true,

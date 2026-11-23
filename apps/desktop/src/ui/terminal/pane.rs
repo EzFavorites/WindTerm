@@ -341,26 +341,7 @@ impl TerminalWindow {
         // 它），所以 `Shell` 面板不消费这个槽位——否则「在面板里点全选，主区的
         // 选区变了」。
         if matches!(slot, TabSlot::Main(_) if self.active == Some(tab.identity)) {
-            if let Some(cmd) = self.pending_select.take() {
-                // Bin 下选区命令无处落地（hex 视图没有字符坐标），**就地丢弃**：
-                // 留到切回 Text 再生效，等于「点了一个当时没反应的动作，几秒后
-                // 屏幕突然跳出一片高亮」。
-                if !bin {
-                    // `Text.GotoPreviousCommand` / `GotoNextCommand` /
-                    // `GotoPreviousScope` / `GotoNextScope` 四条要 OSC 133 块表
-                    // （绝对行号）。块表在 `GridSnapshot` 上、不在事实窗口里，
-                    // 而这里正好两个都在手上——所以走带块表的入口。
-                    // 其余命令不看块表，多传一个参数没有代价（`&[]` 与真表
-                    // 只在 match 的那两个分支里被读）。
-                    selection::apply_cmd_with_blocks_seps(
-                        cmd,
-                        &tab.view,
-                        &tab.snapshot.blocks,
-                        &mut tab.selections,
-                        visible_separators(&tab.config, tab.snapshot.alt),
-                    );
-                }
-            }
+            select::dispatch_pending_select(&mut self.pending_select, tab, bin);
         }
         let image = &tab.view;
 
@@ -386,6 +367,7 @@ impl TerminalWindow {
                 image,
                 geom,
                 visible_separators(&tab.config, tab.snapshot.alt),
+                &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
             );
         }
 
@@ -572,12 +554,13 @@ impl TerminalWindow {
                 // 借用拆分：`image` 借的是 `tab.view`，这里只写 `tab.selections`。
                 // 与菜单那条同一条路：Shift+方向键走到的四条 Command/Scope 命令
                 // 也要块表，否则键盘与菜单会得到两种结果。
-                selection::apply_cmd_with_blocks_seps(
+                selection::apply_cmd_with_pairs(
                     Cmd::Move(op),
                     &tab.view,
                     &tab.snapshot.blocks,
                     &mut tab.selections,
                     visible_separators(&tab.config, tab.snapshot.alt),
+                    &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
                 );
             }
             // 补全手势先落地。Accept 把后缀并进 key_bytes，和真实按键
