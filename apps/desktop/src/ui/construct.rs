@@ -93,6 +93,7 @@ impl TerminalWindow {
         let open_order = tabs.iter().map(|t| t.identity).collect();
         let active = tabs.first().map(|t| t.identity);
 
+        let (shortcut_map, seq_table) = crate::ui::dialogs::shortcuts::build_runtime(&prefs);
         // ④-0：初始单窗格 = 一个 PaneId + 一片只含当前会话的 group。
         let init_pane = mint_pane_identity();
         let mut pane_groups: std::collections::HashMap<PaneId, PaneGroup> = Default::default();
@@ -353,12 +354,10 @@ impl TerminalWindow {
             goto_input: String::new(),
             center_input: String::new(),
             lock_password: String::new(),
-            // D7：重绑定的快捷键从同一份 prefs 读（构造时一次，之后由编辑器写回）。
-            // 空 = 全部用出厂和弦；下标越界时派发侧会自然跳过。
-            shortcut_overrides: prefs.shortcut_overrides.clone(),
+            shortcuts: shortcut_map,
             shortcut_capture: None,
             keyseq: term_app::shortcuts::KeySeqState::new(),
-            seq_table: crate::ui::dialogs::shortcuts::runtime_sequence_table(),
+            seq_table,
             tab_colors: Vec::new(),
             tmux_log: Vec::new(),
             tunnel_input: String::new(),

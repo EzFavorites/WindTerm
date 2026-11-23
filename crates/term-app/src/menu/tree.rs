@@ -177,7 +177,7 @@ pub fn menus() -> Vec<Menu> {
                 // 省略号都没有。省略号是当初照英文截图抄进菜单、又顺手抄进译文
                 // 表时加上的，2026-11-14 一并去掉（见 `i18n/zh.rs` 顶部注记）。
                 Item::Action {
-                    label: "Find",
+                    label: "Find...",
                     id: "Text.Find",
                 },
                 Item::Submenu {
@@ -206,7 +206,7 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Highlight Text",
+                    label: "Highlight Text...",
                     id: "Text.HighlightText",
                 },
             ],
@@ -788,28 +788,25 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             label: "Tool",
             items: vec![
-                // 视觉基线 `01-tool-menu.png`：五项连续、无分隔线。
-                // OneKeys / Triggers / Tunnels 会弹配置窗口，但它们**不带省略号**：
-                // 官方英中对照表里两侧都没有（见 `i18n/zh.rs` 顶部注记）。
+                // 视觉基线 `01-tool-menu.png`：前四项带省略号，无分隔线。
+                // `Tunnel Settings` 是本实现多出的一行（隧道配置编辑器入口），
+                // 保留它是因为 `Terminal.ManageTunnels` 面板没有别的菜单入口。
                 Item::Action {
-                    label: "Sync Input",
+                    label: "Sync Input...",
                     id: "Terminal.SyncInput",
                 },
                 Item::Action {
-                    label: "OneKeys",
+                    label: "OneKeys...",
                     id: "Terminal.ManageOneKeys",
                 },
                 Item::Action {
-                    label: "Triggers",
+                    label: "Triggers...",
                     id: "Terminal.ManageTriggers",
                 },
                 Item::Action {
-                    label: "Tunnels",
+                    label: "Tunnels...",
                     id: "Terminal.ManageTunnels",
                 },
-                // 2026-11-17：设置对话框与「在跑的面板」是两个入口。
-                // 兼容终端的 `Tunnels` 打开的是配置编辑器，本仓那条先占住了面板，
-                // 所以设置单独给一行——两件事都还在。
                 Item::Action {
                     label: "Tunnel Settings",
                     id: "Terminal.TunnelSettings",

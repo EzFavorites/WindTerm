@@ -113,7 +113,7 @@ fn draw_action_row(
         ui,
         text,
         underline_for(text, label),
-        term_app::menu::shortcut_text(id),
+        &win.shortcuts.display(id),
         RowLook {
             state,
             check,
@@ -244,7 +244,7 @@ fn draw_static_row(
         ui,
         text,
         underline_for(text, label),
-        term_app::menu::shortcut_text(id),
+        &win.shortcuts.display(id),
         RowLook {
             state,
             check,

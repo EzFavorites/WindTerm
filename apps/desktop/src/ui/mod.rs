@@ -393,9 +393,10 @@ pub struct TerminalWindow {
     center_input: String,
     /// V1-3：锁屏主密码的跨帧缓冲（受控输入，不进 ViewState）。
     lock_password: String,
-    /// V1-2：快捷键绑定表的覆盖项（下标 → 新和弦）与捕获态。
-    shortcut_overrides: Vec<(usize, String)>,
-    shortcut_capture: Option<usize>,
+    /// V1-2：快捷键映射层（出厂表 + 用户覆盖 + 平台展示）与重绑捕获态。
+    /// 捕获态记的是**命令 ID**，不是表下标——表增删项不会把用户绑定挪到别的命令。
+    shortcuts: term_app::shortcut_map::KeyBindingMap,
+    shortcut_capture: Option<String>,
     /// 两段式键（`Alt+W, Alt+H`）的等待态与解析好的运行期表。
     ///
     /// 都活在窗口上而不是 `ViewState`：前缀是**跨帧的控件状态**，不是业务事实。
@@ -403,9 +404,9 @@ pub struct TerminalWindow {
     /// 而且 reducer 测试里整份 `ViewState` 会被 `assert_eq!(state, before)`，
     /// 塞一个时间戳进去等于承认 reducer 碰墙钟。
     ///
-    /// `seq_table` 是 `DEFAULT_SHORTCUT_SEQS` 解析并**按「已接线」过滤**后的
-    /// 结果（见 `dialogs::shortcuts::runtime_sequence_table`）：没接线的键序
-    /// 不进运行期表，否则它的第一段会白吞按键。
+    /// `seq_table` 由映射层（`shortcut_map::KeyBindingMap`）派生并按「已接线」
+    /// 过滤（见 `dialogs::shortcuts::sequence_table`）：没接线的键序不进
+    /// 运行期表，否则它的第一段会白吞按键。
     keyseq: term_app::shortcuts::KeySeqState,
     seq_table: Vec<(Vec<term_app::shortcuts::Chord>, &'static str)>,
     /// V1-2：标签 12 色（下标 → 调色板索引）。

@@ -512,6 +512,11 @@ pub struct Prefs {
     /// 构造时一次 `clone()` 就能接上，不需要格式转换。
     #[serde(default)]
     pub shortcut_overrides: Vec<(usize, String)>,
+    /// 新格式：按**命令 ID** 存用户重绑，避免出厂表增删项后下标漂移。
+    /// 老文件的 `shortcut_overrides` 在构造窗口时由 `shortcut_map::migrate_legacy`
+    /// 迁到这里；本字段一旦有值即以它为准。
+    #[serde(default)]
+    pub shortcut_bindings: Vec<(String, String)>,
     /// 窗口透明度 —— 透明开关。开 = 让 OS 窗口背景透明（eframe 0.29 经
     /// `NativeOptions.viewport.transparent` 转 winit `with_transparency`，
     /// `glow_integration.rs:926` / `wgpu_integration.rs:194` 已确认跨平台走通）。
@@ -730,6 +735,7 @@ impl Default for Prefs {
             tunnels_enabled: true,
             // 出厂没有任何重绑定的快捷键（全部用出厂和弦）。
             shortcut_overrides: Vec::new(),
+            shortcut_bindings: Vec::new(),
             // 出厂是不透明窗口（透明开关默认关，现状不变）。
             window_transparent: false,
             window_opacity: 1.0,
@@ -2034,6 +2040,22 @@ mod tests {
         let reported = last_recovery().expect("保全之后必须能报出备份路径");
         assert!(reported.is_file(), "报出去的路径必须真的存在");
         assert_eq!(std::fs::read_to_string(&reported).unwrap(), "{ broken");
+    }
+
+    #[test]
+    fn shortcut_bindings_by_command_id_survive_a_round_trip() {
+        // 新格式以命令 ID 为键：出厂表增删项不再让用户的重绑漂移。
+        let path = tmp();
+        let prefs = Prefs {
+            shortcut_bindings: vec![
+                ("Text.Find".to_string(), "Cmd+Shift+F".to_string()),
+                ("Text.Paste".to_string(), "Cmd+V".to_string()),
+            ],
+            ..Prefs::default()
+        };
+        assert!(save_to(&path, &prefs));
+        let back = load_from(&path).expect("读回");
+        assert_eq!(back.shortcut_bindings, prefs.shortcut_bindings);
     }
 
     #[test]

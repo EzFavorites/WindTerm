@@ -170,6 +170,17 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
         // Tool ▸ Transfer Binary（视觉基线）：六行的下划线全钉在传输
         // 协议的字母上（`S̲end X̲Modem` → 划 X），不是首字母 `S` / `R`。
         // 六行同处一个子菜单，首字母全是 S、R 两个重复字母，划首位等于没划。
+        // Edit（`01-edit-menu.png`）：`Paste Selected T̲ext` 划第二个词，
+        // `Copy Session N̲ame` / `Copy Session U̲rl` 划末词，不是首字母 C。
+        ("Paste Selected Text", "Selected"),
+        ("Copy Session Name", "Name"),
+        ("Copy Session Url", "Url"),
+        // Search（`01-search-menu.png`）：四条 Find 行划「Next / Previous」，
+        // 不是每行重复的 F。
+        ("Find Next", "Next"),
+        ("Find Previous", "Previous"),
+        ("Find Next Selection", "Next"),
+        ("Find Previous Selection", "Previous"),
         ("Send XModem", "X"),
         ("Send YModem", "Y"),
         ("Send ZModem", "Z"),
@@ -258,8 +269,8 @@ mod tests {
         let at = tool
             .items
             .iter()
-            .position(|i| label_of(i) == "Tunnels")
-            .expect("Tool 逐项里要有 Tunnels");
+            .position(|i| label_of(i) == "Tunnels...")
+            .expect("Tool 逐项里要有 Tunnels...（金标准带省略号）");
         assert_eq!(
             label_of(&tool.items[at + 1]),
             "Tunnel Settings",
@@ -284,8 +295,8 @@ mod tests {
         assert_eq!(shortcut_text("Window.CloseActiveView"), "Meta+Shift+W");
         assert_eq!(shortcut_text("Window.Close"), "Meta+Shift+Q");
         assert_eq!(shortcut_text("Application.Exit"), "Alt+F4");
-        // 没抄进视觉基线的项一律空串（不占位）。
-        assert_eq!(shortcut_text("Text.Copy"), "");
+        // 金标准 `01-edit-menu.png` 给 Copy 标了 Shift+Del（由映射层派生）。
+        assert_eq!(shortcut_text("Text.Copy"), "Shift+Del");
         // 下划线：默认首字母，例外词取词首。
         assert_eq!(access_char_pos("Save Session"), Some(0));
         assert_eq!(access_char_pos("New Window"), Some(4));

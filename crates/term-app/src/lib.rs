@@ -99,6 +99,7 @@ pub mod parse;
 pub mod reduce;
 pub mod selection;
 pub mod shell;
+pub mod shortcut_map;
 pub mod shortcuts;
 pub mod startup;
 pub mod state;

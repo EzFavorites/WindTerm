@@ -258,7 +258,7 @@ fn shortcut_rows() -> Vec<(&'static str, &'static str)> {
     let mut rows = Vec::new();
     for cap in capability::inventory() {
         let shown = shortcut_text(cap.id);
-        if !shown.is_empty() {
+        if !shown.is_empty() && !rows.iter().any(|(id, _)| *id == cap.id) {
             rows.push((cap.id, shown));
         }
     }

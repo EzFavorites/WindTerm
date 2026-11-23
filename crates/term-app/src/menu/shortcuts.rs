@@ -70,12 +70,12 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         label: "New Window",
     },
     Shortcut {
-        chord: "Cmd+Shift+F",
+        chord: "Cmd+F",
         id: "Text.Find",
         label: "Find",
     },
     Shortcut {
-        chord: "Cmd+G",
+        chord: "Alt+F3",
         id: "Text.FindNext",
         label: "Find Next",
     },
@@ -293,43 +293,5 @@ pub fn shortcut_for(chord_text: &str) -> Option<&'static str> {
 /// （断言会因为你没删而红，这是有意的）。`Application.NewWindow` 就是这么
 /// 销账的：绑定表补一行、清单删一项，菜单列一个字没动。
 pub fn shortcut_text(id: &str) -> &'static str {
-    match id {
-        "Terminal.NewSession" => "Meta+N",
-        "Application.NewWindow" => "Meta+Shift+N",
-        "Terminal.ReconnectSession" => "Return",
-        "Terminal.OpenSession" => "Meta+O",
-        "Terminal.Save" => "Meta+S",
-        "Terminal.SaveSelectionAs" => "Meta+Shift+S",
-        "Window.CloseActiveView" => "Meta+Shift+W",
-        "Window.Close" => "Meta+Shift+Q",
-        "Application.Exit" => "Alt+F4",
-        // 2026-11-08 视觉基线逐项抄录：Goto / Tool / Mode / View / Window 的
-        // 快捷键列。文案与截图一字不差，供并排比对。
-        //
-        // D3：这一行与 `DEFAULT_SHORTCUTS` 里的 `Alt+D` 现在**一致**——
-        // 之前只在这里标着，派发层根本不知道有这条绑定。
-        "Window.GotoAddressBar" => "Alt+D",
-        "Window.GotoSession" => "Alt+O",
-        "Window.GotoSymbol" => "Alt+'",
-        "Text.LineUp" => "Up",
-        "Text.LineDown" => "Down",
-        "Terminal.SyncInput" => "Meta+Shift+M",
-        "Terminal.ManageOneKeys" => "Meta+T, Meta+K",
-        "Terminal.ManageTriggers" => "Meta+T, Meta+T",
-        "Terminal.ManageTunnels" => "Meta+Shift+U",
-        "Window.SetRemoteMode" => "Alt+Return",
-        "Text.ToggleHexEdit" => "Alt+M, Alt+H",
-        "Text.ToggleWordWrap" => "Alt+M, Alt+W",
-        "Window.ToggleFocusMode" => "Ctrl+Return",
-        "Window.ToggleFullScreen" => "Meta+F11",
-        "Window.LockScreen" => "Meta+Alt+L",
-        "Window.ShowPaletteAnything" => "Alt+S",
-        "Window.ShowPaletteCommand" => "Alt+;",
-        "Window.SplitViewHorizontally" => "Alt+W, Alt+H",
-        "Window.SplitViewVertically" => "Alt+W, Alt+V",
-        "Window.CloseActiveGroup" => "Alt+W, Alt+G",
-        "Window.ActivateNextView" => "Meta+PgDown",
-        "Window.ActivatePreviousView" => "Meta+PgUp",
-        _ => "",
-    }
+    crate::shortcut_map::default_display(id)
 }

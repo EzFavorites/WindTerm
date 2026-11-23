@@ -246,7 +246,7 @@ pub(super) fn widest_cells(win: &TerminalWindow, items: &[Item]) -> usize {
     for item in items {
         let cells = match item {
             Item::Action { label, id } | Item::Check { label, id, .. } => {
-                row_cells(win.tr(label), term_app::menu::shortcut_text(id))
+                row_cells(win.tr(label), &win.shortcuts.display(id))
             }
             // 子菜单的箭头画在弹层右边缘（见 `draw_menu_row` 的 `submenu` 分支），
             // 不占中间的快捷键列，所以这里只算文本宽度；否则 `▸` 会被算进最宽行，

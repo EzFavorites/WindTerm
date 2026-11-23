@@ -104,6 +104,7 @@ impl CompId {
         CompId::MenuLog,
         CompId::MenuMode,
         CompId::MenuEdit,
+        CompId::MenuTool,
         CompId::MenuSearch,
         CompId::MenuSelection,
         CompId::MenuGoto,
@@ -177,6 +178,7 @@ impl CompId {
             CompId::MenuLog => "menu_log",
             CompId::MenuMode => "menu_mode",
             CompId::MenuEdit => "menu_edit",
+            CompId::MenuTool => "menu_tool",
             CompId::MenuSearch => "menu_search",
             CompId::MenuSelection => "menu_selection",
             CompId::MenuGoto => "menu_goto",
@@ -243,6 +245,7 @@ impl CompId {
             // 对过（勾选栏几何见 视觉基线），纳入比对。
             CompId::MenuMode => true,
             CompId::MenuEdit
+            | CompId::MenuTool
             | CompId::MenuSearch
             | CompId::MenuSelection
             | CompId::MenuGoto

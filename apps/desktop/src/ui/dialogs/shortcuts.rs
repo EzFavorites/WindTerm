@@ -1,23 +1,71 @@
-//! 全局快捷键与可重绑定的绑定表（U-CMDPAL）。
+//! 全局快捷键派发与重绑定编辑器（U-CMDPAL）。
 //!
-//! 绑定表的数据在 `term_app::menu::DEFAULT_SHORTCUTS`（命令 ID 只在数据层），
-//! 这里一个命令 ID 字面量都没有：`dispatch(id)` 拿的是表里的 `&'static str`。
-//! 键 → 动作的匹配交给纯层 `term_app::shortcuts`，投影只负责收 egui 的按键事件。
+//! 唯一真相是 `term_app::shortcut_map::KeyBindingMap`：出厂表 + 用户覆盖
+//! 都按**命令 ID** 键控，平台只影响展示（`Cmd` 在 macOS 显示 `Meta`，
+//! Win/Linux 显示 `Ctrl`）。菜单右侧那一列也从它取，不再抄第二份字符串。
 //!
-//! 「可绑定」是真的可改：点某一行的 `Rebind` 进入捕获态，下一次按下的组合键
-//! 覆盖该条。覆盖表活在投影层（控件状态，不进 ViewState，同款），但 **会**
-//! 落盘到 `prefs.json` 的 `shortcut_overrides`：重绑一次、重启仍生效。
-//! 清空覆盖（Reset to defaults）同样写回，之后所有条目回到出厂和弦。
+//! 这里一个命令 ID 字面量都没有：`dispatch(id)` 拿映射层给出的 ID。
+//! 重绑先构造候选映射、跑冲突检测，再经 `save_prefs` 写回 `shortcut_bindings`；
+//! 老 prefs 的 `shortcut_overrides`（数组下标）在 `build_runtime` 里一次性迁移。
 //!
-//! **两段式键**（`Alt+W, Alt+H`）走第二条通路：`DEFAULT_SHORTCUT_SEQS` 经
-//! `runtime_sequence_table` 解析成运行期表，再由纯层 `KeySeqState` 判定
-//! 「这一击是前缀 / 命中 / 放过」。两条通路并列而不是嵌套——单段用
-//! `matches`（一次按下就能判），多段必须带跨帧状态（`matches` 对多段恒 false）。
+//! **两段式键**（`Alt+W, Alt+H`）同样来自映射层：`sequence_table` 从绑定派生
+//! 运行期表，纯层 `KeySeqState` 判定「这一击是前缀 / 命中 / 放过」。单段与
+//! 多段共用一张绑定表，只是判定路径不同。
 
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use super::settings_live::save_prefs;
 use term_app::shortcuts::{self, Chord, SeqStep};
+use term_app::shortcut_map::{KeyBindingMap, Platform};
+
+/// 命令 ID 的展示名。设置页那张表仍带人类可读 label，新映射层只认 ID。
+fn label_for(id: &str) -> String {
+    term_app::menu::DEFAULT_SHORTCUTS
+        .iter()
+        .find(|s| s.id == id)
+        .map(|s| s.label.to_string())
+        .unwrap_or_else(|| id.to_string())
+}
+
+fn static_id(id: &str) -> Option<&'static str> {
+    term_app::shortcut_map::DEFAULT_BINDINGS
+        .iter()
+        .find(|r| r.id == id)
+        .map(|r| r.id)
+}
+
+/// 从 prefs 构造映射层与运行期键序表。老格式（数组下标）在这里一次性迁移。
+pub(in crate::ui) fn build_runtime(
+    prefs: &term_profile::prefs::Prefs,
+) -> (KeyBindingMap, Vec<(Vec<Chord>, &'static str)>) {
+    let platform = match std::env::var("WINDTERM_SHORTCUT_PLATFORM").as_deref() {
+        Ok("windows") => Platform::Windows,
+        Ok("linux") => Platform::Linux,
+        Ok("macos") => Platform::Macos,
+        _ => Platform::current(),
+    };
+    let user = if prefs.shortcut_bindings.is_empty() {
+        term_app::shortcut_map::migrate_legacy(&prefs.shortcut_overrides)
+    } else {
+        prefs.shortcut_bindings.clone()
+    };
+    let map = KeyBindingMap::new(&user, platform);
+    let seq = sequence_table(&map);
+    (map, seq)
+}
+
+/// 键序表从映射层派生，不再单独抄一份 `DEFAULT_SHORTCUT_SEQS`。
+fn sequence_table(map: &KeyBindingMap) -> Vec<(Vec<Chord>, &'static str)> {
+    let mut table = Vec::new();
+    for (id, chord) in map.rows() {
+        if let (Some(id), Some(seq)) = (static_id(&id), shortcuts::parse_chord_seq(&chord)) {
+            if seq.len() > 1 && term_app::capability::is_implemented(id) {
+                table.push((seq, id));
+            }
+        }
+    }
+    table
+}
 
 /// 把 egui 的键名折成纯层认识的大写名。不在纯层里认 egui（4f）。
 fn key_name(key: egui::Key) -> Option<&'static str> {
@@ -59,16 +107,7 @@ fn key_name(key: egui::Key) -> Option<&'static str> {
 ///    `Action::parse` 返回 None（`dispatch` 里直接 return）。把它们的键序也装进来，
 ///    第一段（如 `Cmd+T`）就会进前缀态白吞按键，还永远等不到后继动作。
 pub(in crate::ui) fn runtime_sequence_table() -> Vec<(Vec<Chord>, &'static str)> {
-    let mut table: Vec<(Vec<Chord>, &'static str)> = term_app::menu::DEFAULT_SHORTCUT_SEQS
-        .iter()
-        .map(|s| {
-            let seq = shortcuts::parse_chord_seq(s.chord)
-                .unwrap_or_else(|| panic!("键序绑定解析不了：{:?}", s.chord));
-            (seq, s.id)
-        })
-        .collect();
-    table.retain(|(_, id)| term_app::capability::is_implemented(id));
-    table
+    sequence_table(&KeyBindingMap::new(&[], Platform::current()))
 }
 
 /// 本帧收集到的一次按下：纯层和弦 + 还原事件所需的 egui 原件。
@@ -125,14 +164,27 @@ impl TerminalWindow {
         // 捕获态优先：正在重新绑定时，这一次的按键不触发任何命令。
         // 先清掉键序前缀：用户「点 Rebind → 按了第一段就放弃 → 关窗」会留下
         // 跨帧 pending，下一次按 H 就会意外分屏。
-        if let Some(idx) = self.shortcut_capture {
+        if let Some(id) = self.shortcut_capture.clone() {
             self.keyseq.clear();
             if let Some(press) = pressed.first() {
                 if press.chord.cmd || press.chord.alt {
-                    self.shortcut_overrides.retain(|(i, _)| *i != idx);
-                    self.shortcut_overrides.push((idx, press.chord.text()));
-                    // 重绑立即落盘，重启后仍生效。
-                    self.persist_shortcut_overrides();
+                    let mut user = self.shortcuts.user_bindings();
+                    user.retain(|(key, _)| key != &id);
+                    user.push((id.clone(), press.chord.text()));
+                    let trial = KeyBindingMap::new(&user, self.shortcuts.platform());
+                    let clash = trial.conflicts().into_iter().find(|(_, a, b)| {
+                        a == &id || b == &id
+                    });
+                    if let Some((chord, _, other)) = clash {
+                        self.log_note = Some(format!(
+                            "快捷键 {chord} 已被 {} 占用",
+                            label_for(&other)
+                        ));
+                    } else {
+                        self.shortcuts = trial;
+                        // 重绑立即落盘，重启后仍生效。
+                        self.persist_shortcuts();
+                    }
                 }
                 self.shortcut_capture = None;
             }
@@ -163,38 +215,15 @@ impl TerminalWindow {
             }
         }
 
-        // ② 单段匹配：只有这一击既不是前缀也不是命中序列时才轮到它。
+        // ② 单段匹配：映射层同时管出厂表与用户覆盖，调用方不再知道它们的存在。
         if consumed.is_empty() {
             for (idx, press) in pressed.iter().enumerate() {
-                let chord = press.chord;
-                // 覆盖表先命中（用户改过的优先于出厂）。
-                let overridden = self
-                    .shortcut_overrides
-                    .iter()
-                    .find(|(i, text)| {
-                        shortcuts::matches(text, chord)
-                            && term_app::menu::DEFAULT_SHORTCUTS.get(*i).is_some()
-                    })
-                    .and_then(|(i, _)| term_app::menu::DEFAULT_SHORTCUTS.get(*i));
-                if let Some(s) = overridden {
-                    consumed.push(idx);
-                    self.dispatch(s.id);
-                    break;
-                }
-                // 出厂表：跳过被覆盖的那些下标，否则旧和弦还会触发。
-                let default = term_app::menu::DEFAULT_SHORTCUTS
-                    .iter()
-                    .enumerate()
-                    .find(|(i, s)| {
-                        !self.shortcut_overrides.iter().any(|(j, _)| j == i)
-                            && shortcuts::matches(s.chord, chord)
-                    })
-                    .map(|(_, s)| s);
-                if let Some(s) = default {
-                    consumed.push(idx);
-                    self.dispatch(s.id);
-                    break;
-                }
+                let Some(id) = self.shortcuts.dispatch(&[press.chord]).map(str::to_string) else {
+                    continue;
+                };
+                consumed.push(idx);
+                self.dispatch(&id);
+                break;
             }
         }
 
@@ -255,13 +284,10 @@ fn eat_shortcut_events(ctx: &egui::Context, eaten: &[(egui::Modifiers, egui::Key
 }
 
 impl TerminalWindow {
-    /// 把当前重绑定的快捷键写回 `prefs.json`，使重启后仍生效。
-    ///
-    /// 只改 `shortcut_overrides` 这一个字段，不碰语言 / 启动策略 / 光标样式等
-    /// 其它偏好——这是 `save_prefs` 的 load-modify-save 纪律（见
-    /// `settings_live::save_prefs`）：每页只写自己那几个字段，避免互相踩。
-    fn persist_shortcut_overrides(&mut self) {
-        save_prefs(|p| p.shortcut_overrides = self.shortcut_overrides.clone());
+    /// 把用户覆盖按命令 ID 写回 `prefs.json`，使重启后仍生效。
+    fn persist_shortcuts(&mut self) {
+        let bindings = self.shortcuts.user_bindings();
+        save_prefs(|p| p.shortcut_bindings = bindings);
     }
 
     /// 绑定表窗口（默认关）。列出全部绑定、允许重绑、能清空覆盖。
@@ -273,41 +299,36 @@ impl TerminalWindow {
         .show(ctx, |ui| {
             ui.label("Click Rebind, then press the new combination (Cmd/Ctrl/Alt + key).");
             ui.separator();
-            let mut rebind: Option<usize> = None;
+            let mut rebind: Option<String> = None;
+            let rows = self.shortcuts.rows();
             egui::Grid::new("shortcut_grid").num_columns(3).show(ui, |ui| {
                 ui.label("Action");
                 ui.label("Shortcut");
                 ui.label("");
                 ui.end_row();
-                for (i, s) in term_app::menu::DEFAULT_SHORTCUTS.iter().enumerate() {
-                    ui.label(s.label);
-                    let text = self
-                        .shortcut_overrides
-                        .iter()
-                        .find(|(j, _)| *j == i)
-                        .map(|(_, t)| t.clone())
-                        .unwrap_or_else(|| s.chord.to_string());
-                    let capturing = self.shortcut_capture == Some(i);
+                for (id, text) in &rows {
+                    ui.label(label_for(id));
+                    let capturing = self.shortcut_capture.as_deref() == Some(id.as_str());
                     ui.colored_label(
                         if capturing { egui::Color32::YELLOW } else { ui.visuals().text_color() },
-                        if capturing { "press a key…".to_string() } else { text },
+                        if capturing { "press a key…".to_string() } else { text.clone() },
                     );
                     if ui.button("Rebind").clicked() {
-                        rebind = Some(i);
+                        rebind = Some(id.clone());
                     }
                     ui.end_row();
                 }
             });
-            if let Some(i) = rebind {
-                self.shortcut_capture = Some(i);
+            if let Some(id) = rebind {
+                self.shortcut_capture = Some(id);
             }
             ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Reset to defaults").clicked() {
-                    self.shortcut_overrides.clear();
+                    self.shortcuts = KeyBindingMap::new(&[], self.shortcuts.platform());
                     self.shortcut_capture = None;
                     // 清空覆盖同样写回，之后所有条目回到出厂和弦。
-                    self.persist_shortcut_overrides();
+                    self.persist_shortcuts();
                 }
                 if ui.button("Close").clicked() {
                     self.view.show_shortcuts = false;

@@ -110,6 +110,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Hex Group Chars" => "十六进制分组字符",
         // ── 搜索 ──
         "Find" => "查找",
+        "Find..." => "查找…",
         "Find Next" => "查找下一个",
         "Find Previous" => "查找上一个",
         // ：状态栏联动那条 `18 of 30 Found` 的后半截。
@@ -209,14 +210,18 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // 菜单与状态栏说的是同一个模式，不该有第二份译法。
         "Focus Mode Settings" => "专注模式设置",
         "Sync Input" => "同步输入",
+        "Sync Input..." => "同步输入…",
         "Focus Mode" => "专注模式",
         "Manage Tunnels" => "管理隧道",
         "Tunnels" => "隧道",
+        "Tunnels..." => "隧道…",
         "Manage Triggers" => "管理触发器",
         "Manage One Keys" => "管理单键命令",
         // ── 视觉基线 Tool 菜单（对齐）──
         "OneKeys" => "单键命令",
+        "OneKeys..." => "单键命令…",
         "Triggers" => "触发器",
+        "Triggers..." => "触发器…",
         // ── 视觉基线 Selection 菜单平铺项 ──
         "Activate Next Selection" => "激活下一个选区",
         "Activate Previous Selection" => "激活上一个选区",
@@ -236,6 +241,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Close Group" => "关闭组",
         "Windows Manager" => "窗口管理器",
         "Highlight Text" => "高亮文本",
+        "Highlight Text..." => "高亮文本…",
         "White Spaces" => "空白符",
         "Symbols" => "符号",
         "Folds" => "折叠",

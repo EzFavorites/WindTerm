@@ -509,7 +509,8 @@ cmd_in_ui=$(grep -rEn '"[A-Z][A-Za-z]+\.[A-Za-z]+"' apps/desktop/src/ui --includ
 #                        ApiClass::…)`），与 menu.rs 同属「命令数据表」这一侧。它回答的是
 #                        「这条命令为什么不在脚本 API 里」，不是投影层的硬编码分支——
 #                        真正的判定逻辑（`class_of` / 五条断言）里一个 ID 字面量都没有。
-# 这四处之外，term-app 下任何 .rs 出现 ID 字面量一律判红（例如某个
+# `shortcut_map.rs` 是快捷键绑定表（命令 ID → 按键序列），同属纯数据表。
+# 这五处之外，term-app 下任何 .rs 出现 ID 字面量一律判红（例如某个
 # reducer 里偷偷写死一个命令字符串）；各能力的 `"ID" => ...` 分支放行。
 # 测试代码里出现 ID 是合法的，所以扫描时截断 #[cfg(test)] 之后的部分；
 # 由 `#[path]` 引入的纯测试模块见上面的 `test_only_mods`，整文件跳过。
@@ -520,7 +521,7 @@ cmd_in_ui=$(grep -rEn '"[A-Z][A-Za-z]+\.[A-Za-z]+"' apps/desktop/src/ui --includ
 # 不用 `case`：bash 3.2 在 `$( … )` 里解析 `case … ;; esac` 会语法错（见上方注释）。
 cmd_in_app=$(printf '%s\n' "$APP_SRC_FILES" | while IFS= read -r f; do
   [ -n "$f" ] || continue
-  if [ "$f" = "crates/term-app/src/menu.rs" ] || [ "$f" = "crates/term-app/src/menu_submenus.rs" ] || [ "$f" = "crates/term-app/src/tab.rs" ] || [ "$f" = "crates/term-app/src/api_class.rs" ]; then
+  if [ "$f" = "crates/term-app/src/menu.rs" ] || [ "$f" = "crates/term-app/src/menu_submenus.rs" ] || [ "$f" = "crates/term-app/src/tab.rs" ] || [ "$f" = "crates/term-app/src/api_class.rs" ] || [ "$f" = "crates/term-app/src/shortcut_map.rs" ]; then
     continue
   fi
   if [ "${f#crates/term-app/src/menu/}" != "$f" ]; then continue; fi
@@ -784,7 +785,8 @@ check_layer "$APP_SRC_DIR/palette.rs"   '^crate::(vocab|capability|menu|tab|pars
 check_layer "$APP_SRC_DIR/i18n/zh.rs"            '^crate::i18n$'
 check_layer "$APP_SRC_DIR/menu/tree.rs"          '^crate::(dock|menu|vocab)$'
 check_layer "$APP_SRC_DIR/menu/bars.rs"          '^crate::(dock|menu|vocab)$'
-check_layer "$APP_SRC_DIR/menu/shortcuts.rs"     '^crate::(dock|menu|vocab)$'
+check_layer "$APP_SRC_DIR/menu/shortcuts.rs"     '^crate::(dock|menu|vocab|shortcut_map)$'
+check_layer "$APP_SRC_DIR/shortcut_map.rs"       '^crate::(menu|shortcuts)$'
 check_layer "$APP_SRC_DIR/selection/geometry.rs" '^crate::(selection|vocab)$'
 check_layer "$APP_SRC_DIR/selection/words.rs"    '^crate::(selection|vocab)$'
 check_layer "$APP_SRC_DIR/selection/ops.rs"      '^crate::(parse|selection|vocab)$'
@@ -792,7 +794,7 @@ check_layer "$APP_SRC_DIR/selection/ops.rs"      '^crate::(parse|selection|vocab
 # 判据失效自检：白名单点名的文件必须都还在。改名/挪位时这里先红，
 # 而不是让那一行 grep 静默匹配空、整项判绿。
 LAY_REQUIRED="vocab.rs effect.rs parse.rs state.rs action.rs capability.rs palette.rs \
-i18n/zh.rs menu/tree.rs menu/bars.rs menu/shortcuts.rs \
+i18n/zh.rs menu/tree.rs menu/bars.rs menu/shortcuts.rs shortcut_map.rs \
 selection/geometry.rs selection/words.rs selection/ops.rs"
 missing_lay=""
 for f in $LAY_REQUIRED; do
