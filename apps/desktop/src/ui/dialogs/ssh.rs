@@ -369,6 +369,7 @@ impl TerminalWindow {
             }
             Step::NeedHostKey { fingerprint } => {
                 DialogWindow::new(DialogId::SshHostkey, &title)
+                    .without_title_bar()
                     .show(ctx, |ui| {
                         ui.heading("Unknown host");
                         ui.label(format!(
@@ -401,6 +402,7 @@ impl TerminalWindow {
                 let password = &mut self.ssh_password;
                 let save = &mut self.save_password;
                 DialogWindow::new(DialogId::SshPassword, &title)
+                    .without_title_bar()
                     .show(ctx, |ui| {
                         ui.label(reason.clone());
                         ui.add_space(6.0);
