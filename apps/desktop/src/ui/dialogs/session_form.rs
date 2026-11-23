@@ -79,6 +79,12 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) sysmon: bool,
     /// 本地 Shell 启动命令（仅 Shell 协议）。
     pub(in crate::ui) shell_command: String,
+    /// Shell ▾ Process / Environment 页字段。
+    pub(in crate::ui) shell_arguments: String,
+    pub(in crate::ui) shell_exec_command: String,
+    pub(in crate::ui) shell_exec_delay: u32,
+    pub(in crate::ui) shell_locale: String,
+    pub(in crate::ui) shell_env_vars: Vec<(String, String)>,
     pub(in crate::ui) selected_page: usize,
     /// 转发规则（一行一条，`L` / `R` / `D` 开头）。表单存**文本**，
     /// 校验与解析在 `tunnels::parse_rules`——这里只负责搬。
@@ -204,6 +210,11 @@ impl NewSessionData {
             bell_dedup_secs: config.bell_dedup_secs,
             sysmon: config.sysmon,
             shell_command: config.shell_command.clone(),
+            shell_arguments: config.shell_arguments.clone(),
+            shell_exec_command: config.shell_exec_command.clone(),
+            shell_exec_delay: config.shell_exec_delay,
+            shell_locale: config.shell_locale.clone(),
+            shell_env_vars: config.shell_env_vars.clone(),
             selected_page: 0,
             forwards: config.forwards.join("\n"),
             forward_error: None,
@@ -305,6 +316,11 @@ impl NewSessionData {
         c.bell_dedup_secs = self.bell_dedup_secs;
         c.sysmon = self.sysmon;
         c.shell_command = self.shell_command.clone();
+        c.shell_arguments = self.shell_arguments.clone();
+        c.shell_exec_command = self.shell_exec_command.clone();
+        c.shell_exec_delay = self.shell_exec_delay;
+        c.shell_locale = self.shell_locale.clone();
+        c.shell_env_vars = self.shell_env_vars.clone();
         // 转发规则：这里只拆行，**不**校验（校验会失败，而 `to_config` 是不会失败的——
         // 失败那一步由 `save_session_dialog` 先跑 `parse_rules` 拦下）。
         c.forwards = tunnels::split_rules(&self.forwards);

@@ -180,6 +180,17 @@ fn default_modem_commands() -> [String; 3] {
     ["rx".into(), "rb".into(), "rz".into()]
 }
 
+/// Shell ▾ Process / Environment 页的金标准出厂值（`04-new-session/shell/02..03`）。
+fn default_shell_arguments() -> String {
+    "-1 -1".into()
+}
+fn default_shell_locale() -> String {
+    "Automatic (zh_CN.UTF-8)".into()
+}
+fn default_shell_exec_delay() -> u32 {
+    1
+}
+
 /// 三页签各自的包长档位：X=128、Y=1024、Z 没有包长行（该位不使用）。
 fn default_modem_large_packets() -> [bool; 3] {
     [false, true, false]
@@ -306,6 +317,19 @@ pub struct SessionConfig {
     /// 本地 Shell 的启动命令（仅 Shell 协议；其余协议为空）。
     #[serde(default)]
     pub shell_command: String,
+    /// Shell ▾ Process：Arguments / Working directory 之外的启动参数。
+    #[serde(default = "default_shell_arguments")]
+    pub shell_arguments: String,
+    /// Shell ▾ Process：启动后执行的命令与延迟秒数。
+    #[serde(default)]
+    pub shell_exec_command: String,
+    #[serde(default = "default_shell_exec_delay")]
+    pub shell_exec_delay: u32,
+    /// Shell ▾ Environment：locale 档位与自定义环境变量。
+    #[serde(default = "default_shell_locale")]
+    pub shell_locale: String,
+    #[serde(default)]
+    pub shell_env_vars: Vec<(String, String)>,
     /// `serial.baudRate` / `dataBits` / `parity` / `stopBits` / `flowControl`
     pub baud_rate: u32,
     pub data_bits: u8,
@@ -516,6 +540,11 @@ impl SessionConfig {
             bell_dedup_secs: 2,
             sysmon: false,
             shell_command: String::new(),
+            shell_arguments: default_shell_arguments(),
+            shell_exec_command: String::new(),
+            shell_exec_delay: default_shell_exec_delay(),
+            shell_locale: default_shell_locale(),
+            shell_env_vars: Vec::new(),
             description: String::new(),
             baud_rate: u32::from(crate::config::SERIAL_BAUD),
             data_bits: crate::config::SERIAL_DATA_BITS,
