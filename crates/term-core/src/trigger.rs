@@ -498,6 +498,9 @@ pub enum TriggerAction {
     Beep,
     /// 派发一条菜单命令 ID，走既有命令通道。
     RunCommand(String),
+    /// 内置触发器专用：写给底带本地 Shell 面板（不是当前远端会话）。
+    /// 动作语义与 `SendLine` 一致，只是目标不同；由投影层帧末统一消费。
+    LocalSendLine(String),
 }
 
 /// 一次命中。`matched` 是本轮窗口里真正匹配到的文本（事件类命中为空串）。

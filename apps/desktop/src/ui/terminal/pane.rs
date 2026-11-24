@@ -374,6 +374,7 @@ impl TerminalWindow {
             );
         }
 
+        if !bin && !tab.local_mode { if let Some(hit) = super::ip_hover::paint(ui, image, geom, tab.word_wrap) { self.pending_ip_hit = Some(hit); } }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {
             let mods = ui.input(|i| i.modifiers);
@@ -708,6 +709,7 @@ impl TerminalWindow {
         // 与事实窗口的绘制抢同一个 `self`（E0499）。
         // 同步输入 + 折叠列点击都要借整个窗口，攒到这里一次性落地。
         self.flush_deferred(sync_bytes, pending_fold);
+        if let Some(hit) = self.pending_ip_hit.take() { if let Some(t) = tab_of(&mut self.tabs, &mut self.shell_tabs, slot) { t.apply_trigger(hit, &mut Vec::new()); } }
         // 粘贴的落地在这里而不是上面那个输入循环里：`tab` 的借用已经结束，
         // 才能写 `self.pending_paste` / `self.command_history`。三条入口
         // （Cmd+V / 右键 Paste / 中键）最后都汇到这一个 `Event::Paste`，

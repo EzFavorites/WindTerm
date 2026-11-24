@@ -193,7 +193,7 @@ pub(in crate::ui) fn window_with(
         selected_session: 0,
         session_filter: String::new(),
         panel_filters: Default::default(),
-        shell_tabs: Vec::new(),
+        shell_tabs: Vec::new(), pending_ip_hit: None,
         shell_active: None,
         shell_filter: String::new(),
         shell_list_open: false,

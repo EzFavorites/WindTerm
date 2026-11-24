@@ -9,6 +9,7 @@
 pub enum Builtin {
     Url,
     Ipv4,
+    Ipv6,
 }
 
 /// 一次检测到的片段。
@@ -72,6 +73,52 @@ fn ipv4_at(chunk: &[u8], i: usize) -> Option<usize> {
     Some(end)
 }
 
+/// 从 `i` 起尝试吃一个 IPv6 字面量，返回结束偏移。
+///
+/// 不引入正则引擎：只认 1–4 位十六进制的段，`::` 最多一次，完整写法 8 段，
+/// 压缩写法少于 8 段。边界后面不能再跟十六进制、冒号或点，免得把版本号吞进来。
+fn ipv6_at(chunk: &[u8], i: usize) -> Option<usize> {
+    if i > 0 && (chunk[i - 1].is_ascii_hexdigit() || matches!(chunk[i - 1], b':' | b'.')) {
+        return None;
+    }
+    let mut end = i;
+    while end < chunk.len()
+        && (chunk[end].is_ascii_hexdigit() || chunk[end] == b':')
+    {
+        end += 1;
+    }
+    let text = std::str::from_utf8(&chunk[i..end]).ok()?;
+    if !text.contains(':') || text.matches("::").count() > 1 {
+        return None;
+    }
+    let compressed = text.contains("::");
+    let parts: Vec<&str> = if compressed {
+        let mut halves = text.splitn(2, "::");
+        vec![halves.next().unwrap_or(""), halves.next().unwrap_or("")]
+    } else {
+        vec![text]
+    };
+    let mut groups = 0usize;
+    for part in parts {
+        if part.is_empty() {
+            continue;
+        }
+        for group in part.split(':') {
+            if group.is_empty() || group.len() > 4 || !group.bytes().all(|b| b.is_ascii_hexdigit()) {
+                return None;
+            }
+            groups += 1;
+        }
+    }
+    if groups == 0 || groups > 8 || (!compressed && groups != 8) {
+        return None;
+    }
+    if chunk.get(end).is_some_and(|b| b.is_ascii_hexdigit() || matches!(b, b':' | b'.')) {
+        return None;
+    }
+    Some(end)
+}
+
 /// 从一段输出里找所有 URL / IPv4。同一位置只报一种（URL 优先）。
 pub fn detect(chunk: &str) -> Vec<Found> {
     let bytes = chunk.as_bytes();
@@ -88,15 +135,26 @@ pub fn detect(chunk: &str) -> Vec<Found> {
             i = end.max(i + 1);
             continue;
         }
-        if bytes[i].is_ascii_digit() {
-            if let Some(end) = ipv4_at(bytes, i) {
+        if bytes[i].is_ascii_hexdigit() || bytes[i] == b':' {
+            if let Some(end) = ipv6_at(bytes, i) {
                 out.push(Found {
-                    kind: Builtin::Ipv4,
+                    kind: Builtin::Ipv6,
                     text: String::from_utf8_lossy(&bytes[i..end]).into_owned(),
                     start: i,
                 });
                 i = end.max(i + 1);
                 continue;
+            }
+            if bytes[i].is_ascii_digit() {
+                if let Some(end) = ipv4_at(bytes, i) {
+                    out.push(Found {
+                        kind: Builtin::Ipv4,
+                        text: String::from_utf8_lossy(&bytes[i..end]).into_owned(),
+                        start: i,
+                    });
+                    i = end.max(i + 1);
+                    continue;
+                }
             }
         }
         i += 1;
@@ -135,6 +193,22 @@ mod tests {
                 start: 4,
             }]
         );
+    }
+
+    #[test]
+    fn detects_ipv6_in_compressed_and_full_forms() {
+        for text in ["::1", "2001:db8::1", "fe80::1%lo0"] {
+            let found = detect(text);
+            assert!(
+                found.iter().any(|f| f.kind == Builtin::Ipv6),
+                "{text} 应识别为 IPv6：{found:?}",
+            );
+        }
+        let full = detect("2001:0db8:85a3:0000:0000:8a2e:0370:7334");
+        assert_eq!(full.len(), 1);
+        assert_eq!(full[0].kind, Builtin::Ipv6);
+        assert!(detect("1:2:3").is_empty(), "段数不够不是 IPv6");
+        assert!(detect("2001:db8:::1").is_empty(), "三冒号不合法");
     }
 
     #[test]

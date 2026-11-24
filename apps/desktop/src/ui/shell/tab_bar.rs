@@ -81,6 +81,13 @@ pub(in crate::ui) fn tab_number_prefix(mode: usize, index: usize) -> String {
     }
 }
 
+/// 官网 page/15：标签列表菜单里的 Filter 判据。抽成纯函数与 Shell 面板的
+/// `shell_tab_matches` 同款口径——大小写不敏感的子串，空词不筛。
+fn tab_title_matches(title: &str, filter: &str) -> bool {
+    let needle = filter.trim().to_lowercase();
+    needle.is_empty() || title.to_lowercase().contains(&needle)
+}
+
 impl TerminalWindow {
     pub(in crate::ui) fn draw_tabs(&mut self, ui: &mut egui::Ui) {
         let font = egui::TextStyle::Button.resolve(ui.style());
@@ -295,11 +302,8 @@ impl TerminalWindow {
                                         .hint_text("Filter sessions")
                                         .desired_width(160.0),
                                 );
-                                let needle = self.tab_list_filter.trim().to_lowercase();
                                 for (i, (title, _)) in labels.iter().enumerate() {
-                                    if !needle.is_empty()
-                                        && !title.to_lowercase().contains(&needle)
-                                    {
+                                    if !tab_title_matches(title, &self.tab_list_filter) {
                                         continue;
                                     }
                                     if ui
@@ -478,6 +482,13 @@ mod tests {
         // 手改 prefs 写了 9：与 0 一样原样画，不 panic、不猜一档。
         let long = "abcdefghijklmnopqrstuvwxyz0123456789";
         assert_eq!(elide_title(long, 9), long);
+    }
+
+    #[test]
+    fn tab_list_filter_is_a_case_insensitive_substring() {
+        assert!(tab_title_matches("Local Shell", ""));
+        assert!(tab_title_matches("Local Shell", " shell "));
+        assert!(!tab_title_matches("My Server", "shell"));
     }
 
     #[test]

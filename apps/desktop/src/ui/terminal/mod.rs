@@ -67,6 +67,7 @@ pub(in crate::ui) mod tab_slot;
 /// 2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
 /// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
 /// 搬走的这一块本来就是自由函数，行为一行未改。
+mod ip_hover;
 mod pane_pointer;
 /// 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
 ///

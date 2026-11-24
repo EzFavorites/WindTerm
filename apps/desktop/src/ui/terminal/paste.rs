@@ -92,7 +92,7 @@ mod tests {
             auto_reconnect_blocked: false,
             // 折叠与输入行表出厂为空：粘贴测试不折任何东西（空集合 = 一屏不变）。
             folds: term_app::folds::Folds::new(),
-            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()),
+            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
             // N：恢复运行态字段（新建标签出厂 None）。
             restore_scroll_top: None,
             restore_history_len: None,

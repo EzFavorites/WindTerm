@@ -344,6 +344,13 @@ impl Tab {
                 TriggerAction::RunCommand(id) => {
                     run_commands.push(id.clone());
                 }
+                TriggerAction::LocalSendLine(s) => {
+                    let mut text = s.clone();
+                    text.push('\r');
+                    if let Ok(bytes) = term_core::send_escapes::decode(&text) {
+                        self.pending_local_sends.push(String::from_utf8_lossy(&bytes).into_owned());
+                    }
+                }
                 TriggerAction::Highlight => {
                     // 命中发生在这一帧的事实窗口里：记下光标的绝对内容行，
                     // 由 paint_rows 铺一层淡底。只保留最近 64 行，避免长会话

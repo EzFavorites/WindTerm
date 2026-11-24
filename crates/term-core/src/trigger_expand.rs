@@ -20,6 +20,7 @@ pub(crate) fn expand_actions(rule: &Rule, matched: &str) -> Vec<TriggerAction> {
             TriggerAction::SendText(s) => TriggerAction::SendText(text(s)),
             TriggerAction::SendLine(s) => TriggerAction::SendLine(text(s)),
             TriggerAction::RunCommand(s) => TriggerAction::RunCommand(expand(s)),
+            TriggerAction::LocalSendLine(s) => TriggerAction::LocalSendLine(text(s)),
             other => other.clone(),
         })
         .collect()

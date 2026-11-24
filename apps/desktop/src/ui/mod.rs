@@ -16,7 +16,7 @@
 //! **划分原则**：固定框架 / 可停靠 / 临时覆盖 / 模态，四类生命周期不同，
 //! 混在一起就是 此前那个 1,586 行的 `mod.rs`。
 
-mod clipboard_policy; mod comp;
+mod clipboard_policy; mod comp; mod ip_probe;
 mod construct;
 mod dialogs; mod dispatch; mod lifecycle_events;
 mod effects; mod harness;
@@ -430,7 +430,7 @@ pub struct TerminalWindow {
     /// 槽位里放的是 `Cmd`——位移（`Move`）与集合命令（`Set`）共用它，
     /// 所以「锁 / 拆分 / 反选」与「选到下一行」走的是同一条落地路径，
     /// 不会因为多开一个字段而出现两条先后顺序不明的待办。
-    pending_select: Option<Cmd>,
+    pending_select: Option<Cmd>, pending_ip_hit: Option<term_app::trigger::Hit>,
     /// 进行中的原生 SSH 连接（`None` = 没有）。
     /// 它不在 `ViewState` 里：`ViewState` 是**领域状态**（只能由 `reduce` 写），
     /// 而这个东西是「一次副作用正在发生」，带有 `Receiver`、线程与凭据——
@@ -819,6 +819,7 @@ impl TerminalWindow {
         // panic 之后本帧剩下的一半不会执行——画在最后就等于「崩了永远看不到为什么」。
         // 它是前景浮层，先画也压在上面。
         self.draw_notice(ctx);
+        self.flush_local_sends();
         // L1 的故障注入（`WINDTERM_PANIC_FRAME=<n>`，只在 debug 构建里）：这里
         // 是「提示条已画出、后面半帧还没画」的位置，panic 的形状与真实崩溃一致。
         harness::maybe_panic_on_frame();

@@ -198,6 +198,9 @@ pub struct Tab {
     /// 命令"，而 `snapshot.blocks` 只给行号、文本得回当前屏找——滚出屏的命令就丢了。
     /// 这份缓存跟着标签走，与 `input_rows` 同一类观测值，不进领域状态。
     pub(in crate::ui) command_texts: std::cell::RefCell<Vec<(i64, String)>>,
+    /// 触发器 `LocalSendLine` 动作的落地队列：绘制期只攒命令，帧末由窗口层写入
+    /// 底带 Shell 面板。与远端 `SendLine` 共用 `apply_trigger` 这一个执行器。
+    pub(in crate::ui) pending_local_sends: Vec<String>,
     /// 这个标签从**创建那一刻**起收到的原始字节流（hex 视图的唯一数据源）。
     ///
     /// 与 `mode` 无关，这是本轮设计的关键：tap 在 `tab_from` 里无条件挂上，

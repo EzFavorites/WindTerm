@@ -138,7 +138,7 @@ impl TerminalWindow {
             selected_session: 0,
             session_filter: String::new(),
             panel_filters: crate::ui::layout::PanelFilters::default(),
-            shell_tabs: Vec::new(),
+            shell_tabs: Vec::new(), pending_ip_hit: None,
             shell_active: None,
             shell_filter: String::new(),
             shell_list_open: false,

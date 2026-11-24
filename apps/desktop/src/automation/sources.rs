@@ -124,6 +124,8 @@ fn convert_action(old: &TriggerAction) -> Option<Action> {
         }
         TriggerAction::Beep => Some(Action::App(AppAction::Alert(AlertKind::Beep))),
         TriggerAction::RunCommand(id) => Some(Action::App(AppAction::Dispatch(id.clone()))),
+        // 内置触发器的本地 shell 副作用在无渲染基底里没有目标，保留命中不产出动作。
+        TriggerAction::LocalSendLine(_) => None,
         // 无渲染基底：保留规则命中，但不产出副作用（与旧轨一致）。
         TriggerAction::Highlight => None,
     }

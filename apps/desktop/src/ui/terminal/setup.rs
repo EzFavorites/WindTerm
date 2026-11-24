@@ -181,7 +181,7 @@ pub(in crate::ui) fn tab_from(
             // 折叠：新建标签还没折过任何一段，输入行表也是空的（第一批要等用户
             // 真的敲一次回车）。与 `marks` 一样是「每条会话一份」的显示状态。
             folds: term_app::folds::Folds::new(),
-            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()),
+            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
             // 恢复运行态字段——默认 None，由 restore_layout 写入
             restore_scroll_top: None,
             restore_history_len: None,
