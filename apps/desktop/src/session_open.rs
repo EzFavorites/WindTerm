@@ -109,12 +109,31 @@ pub(crate) fn open_session(
     // 无窗口路径没有人替控制面灌方案表（界面在构造时灌一次、每次落盘 OneKeys
     // 之后再灌一次）。这里读一次盘：`prefs.json` 才是这份数据的正本，
     // 内存里那一份只是界面编辑用的副本。
-    pool.set_onekeys(
-        term_runtime::prefs::load()
-            .map(|p| p.onekeys)
-            .unwrap_or_default(),
-    );
+    // 「Auto login next time」没勾时把空表交给控制面：`SessionPool::open` 进门就
+    // `resolve_onekey`，空表 = 方案不参与自动登录，用户自己登。判定与界面路径
+    // 共用 `wants_onekey_auto_login`，不另起一套认证逻辑。
+    let saved = term_runtime::prefs::load()
+        .map(|p| p.onekeys)
+        .unwrap_or_default();
+    pool.set_onekeys(onekeys_for_open(config, saved));
     pool.open(config, cols, rows).map_err(open_failure)
+}
+
+/// 「Auto login next time」在无窗口连接路径上的落点。
+///
+/// `SessionPool::open` / `open_with_channel` 进门就 [`SessionPool::resolve_onekey`]，
+/// 所以只要不给它方案表，那一次连接就不会应用 OneKey——这正是没勾开关时要的
+/// 行为。勾了且有真选方案时原样交出落盘的方案表，让控制面用**已有的**解析能力
+/// 覆盖用户名 / 私钥；密码与键盘交互应答仍由调用方按凭据来源补，这里不碰。
+pub(crate) fn onekeys_for_open(
+    config: &SessionConfig,
+    saved: Vec<term_core::onekey::OneKey>,
+) -> Vec<term_core::onekey::OneKey> {
+    if config.wants_onekey_auto_login() {
+        saved
+    } else {
+        Vec::new()
+    }
 }
 
 /// [`OpenRequest`] → 真正的那一条会话。**脚本与桥接共用的唯一映射点**。
@@ -463,6 +482,27 @@ mod tests {
         ));
         std::fs::create_dir_all(dir.join(".ssh")).expect("建 .ssh");
         dir
+    }
+
+    #[test]
+    fn the_auto_login_bit_selects_whether_onekeys_reach_the_connection() {
+        // 连接行为的选择分支：没勾 → 空表（控制面的 resolve_onekey 变成空操作）；
+        // 勾了且真选了方案 → 原样交出方案表；勾了但没选 → 仍不交。
+        let schemes = vec![term_core::onekey::OneKey {
+            name: "prod".to_string(),
+            username: "ops".to_string(),
+            enabled: true,
+            ..term_core::onekey::OneKey::default()
+        }];
+        let mut config = ssh_config(AuthMethod::Agent, closed_port());
+        assert!(onekeys_for_open(&config, schemes.clone()).is_empty());
+
+        config.auto_login = true;
+        config.onekey = "prod".to_string();
+        assert_eq!(onekeys_for_open(&config, schemes.clone()), schemes);
+
+        config.onekey.clear();
+        assert!(onekeys_for_open(&config, schemes).is_empty());
     }
 
     #[test]

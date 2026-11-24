@@ -73,6 +73,8 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) system: String,
     /// OneKey 宏名（WindTerm Session 页 `OneKey`，默认 `None`）。
     pub(in crate::ui) onekey: String,
+    /// OneKey 行下面那格「Auto login next time」勾选框。
+    pub(in crate::ui) auto_login: bool,
     /// Sftp 子系统开关（WindTerm 默认 ON）。
     pub(in crate::ui) sftp: bool,
     /// 系统监控开关（WindTerm 默认 OFF）。
@@ -209,6 +211,7 @@ impl NewSessionData {
             charset: config.charset.clone(),
             system: config.system.clone(),
             onekey: config.onekey.clone(),
+            auto_login: config.auto_login,
             sftp: config.sftp,
             sftp_preserve_mtime: config.sftp_preserve_mtime,
             sftp_preserve_dir_mtime: config.sftp_preserve_dir_mtime,
@@ -338,6 +341,7 @@ impl NewSessionData {
         c.charset = self.charset.clone();
         c.system = self.system.clone();
         c.onekey = self.onekey.clone();
+        c.auto_login = self.auto_login;
         c.sftp = self.sftp;
         c.sftp_preserve_mtime = self.sftp_preserve_mtime;
         c.sftp_preserve_dir_mtime = self.sftp_preserve_dir_mtime;
@@ -758,6 +762,7 @@ mod tests {
         old.system = "windows".to_string();
         old.charset = "GBK".to_string();
         old.onekey = "Ctrl+A".to_string();
+        old.auto_login = true;
         old.sftp = false;
         old.sftp_preserve_mtime = false;
         old.sftp_preserve_dir_mtime = true;
@@ -778,6 +783,7 @@ mod tests {
         assert_eq!(f.system, "windows");
         assert_eq!(f.charset, "GBK");
         assert_eq!(f.onekey, "Ctrl+A");
+        assert!(f.auto_login, "勾了 Auto login next time 要回填到表单");
         assert!(!f.sftp);
         assert!(!f.sftp_preserve_mtime);
         assert!(f.sftp_preserve_dir_mtime);
@@ -799,6 +805,7 @@ mod tests {
         f.system = "macos".to_string();
         f.charset = "Big5".to_string();
         f.onekey = "None".to_string();
+        f.auto_login = false;
         f.sftp = true;
         f.sftp_preserve_mtime = true;
         f.sftp_preserve_dir_mtime = false;
@@ -819,6 +826,7 @@ mod tests {
         assert_eq!(saved.system, "macos");
         assert_eq!(saved.charset, "Big5");
         assert_eq!(saved.onekey, "None");
+        assert!(!saved.auto_login, "取消勾选要落盘，不能留在 base 的旧值");
         assert!(saved.sftp);
         assert!(saved.sftp_preserve_mtime);
         assert!(!saved.sftp_preserve_dir_mtime);
@@ -878,6 +886,7 @@ mod tests {
         assert_eq!(f.system, "linux");
         assert_eq!(f.charset, term_core::config::CHARSET);
         assert_eq!(f.onekey, "None");
+        assert!(!f.auto_login, "Auto login next time 默认不勾");
         assert!(f.sftp, "WindTerm 默认 Sftp 开");
         assert!(f.sftp_preserve_mtime, "WindTerm 默认保留文件 mtime");
         assert!(!f.sftp_preserve_dir_mtime, "目录 mtime 默认关（setstat 非通用）");

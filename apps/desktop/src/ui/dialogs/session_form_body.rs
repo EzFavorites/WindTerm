@@ -406,6 +406,13 @@ impl TerminalWindow {
                         self.view.show_onekeys = true;
                     }
                     ui.end_row();
+                    // Auto login next time：紧挨 OneKey 行，勾了才让连接层按
+                    // 方案自动登录（判定在 `SessionConfig::wants_onekey_auto_login`）。
+                    super::session_onekey_row::auto_login_row(
+                        ui,
+                        &mut self.new_session.auto_login,
+                    );
+                    ui.end_row();
                     // WindTerm 的「Label」即本实现的显示名（内部仍是 `new_session.name`）。
                     form_row(ui, "Label:");
                     ui.add_sized(

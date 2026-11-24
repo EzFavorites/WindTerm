@@ -261,6 +261,14 @@ pub struct SessionConfig {
     /// OneKey 宏名（WindTerm Session 页 `OneKey`，默认 `None`）。
     #[serde(default = "default_onekey")]
     pub onekey: String,
+    /// OneKey「Auto login next time」：勾了才在连接时**按选中的方案自动登录**
+    /// （覆盖用户名/私钥、从保险库取密码与键盘交互应答、跑 Account 自动应答）。
+    /// 没勾 = 方案只是表单里选着备用，连接时用户自己登。
+    ///
+    /// `#[serde(default)]`：老会话库没有这个键时读出来是 `false`，行为与升级前
+    /// 一致——不会把「以前从没勾过」的会话突然变成自动登录。
+    #[serde(default)]
+    pub auto_login: bool,
     /// Sftp 子系统开关（WindTerm 默认 ON）。
     #[serde(default = "default_true")]
     pub sftp: bool,
@@ -578,6 +586,8 @@ impl SessionConfig {
             charset: crate::config::CHARSET.to_string(),
             system: "linux".to_string(),
             onekey: "None".to_string(),
+            // 新会话默认不勾「Auto login next time」：自动登录要用户显式开。
+            auto_login: false,
             sftp: true,
             sftp_preserve_mtime: true,
             sftp_preserve_dir_mtime: false,
@@ -683,6 +693,20 @@ impl SessionConfig {
             }
         }
         out
+    }
+
+    /// 「Auto login next time」勾了、并且**确实选了一档方案**时，连接层才让
+    /// OneKey 参与自动登录。
+    ///
+    /// 这是两条连接路径（界面的 `ui/dialogs/ssh.rs`、无窗口的 `session_open.rs`）
+    /// 共用的**唯一判定**，所以「勾没勾」只有这一个出处：以后改口径只动这里，
+    /// 不会出现「界面自动登了、脚本没登」这种只在某一条路径上偶发的分叉。
+    ///
+    /// `None` 是 [`default_onekey`] 的出厂值，不是方案名；没选方案时即使勾了
+    /// 开关也没有东西可自动执行，所以返回 `false`——连接层不会凭空造登录动作。
+    pub fn wants_onekey_auto_login(&self) -> bool {
+        let scheme = self.onekey.trim();
+        self.auto_login && !scheme.is_empty() && scheme != default_onekey()
     }
 
     /// **唯一**的「这条会话到底走哪种代理」判定。
@@ -1307,6 +1331,38 @@ mod tests {
         assert_eq!(back.effective_proxy_type(), ProxyType::None);
         assert_eq!(back.proxy_host, "");
         assert_eq!(back.proxy_port, 0);
+        assert!(!back.auto_login, "老配置缺 auto_login 键 → 不自动登录");
+    }
+
+    #[test]
+    fn auto_login_round_trips_through_json() {
+        // 新会话默认不勾；勾上之后 JSON 往返必须把这一位带回来，
+        // 否则「勾了、保存了、重开又没了」正是这一刀要关掉的缺口。
+        let mut s = SessionConfig::new(Protocol::Ssh);
+        assert!(!s.auto_login, "出厂不自动登录");
+        s.auto_login = true;
+        s.onekey = "prod".to_string();
+        let json = serde_json::to_string(&s).expect("序列化");
+        assert!(json.contains("\"auto_login\":true"), "{json}");
+        let back: SessionConfig = serde_json::from_str(&json).expect("反序列化");
+        assert!(back.auto_login);
+        assert_eq!(back.onekey, "prod");
+    }
+
+    #[test]
+    fn onekey_auto_login_needs_both_the_flag_and_a_real_scheme() {
+        // 只有「勾了 + 真选了方案」两条同时成立才触发自动登录；
+        // 没勾 / 空串 / 出厂 `None` 都不该让连接层凭空造一个登录动作。
+        let mut s = SessionConfig::new(Protocol::Ssh);
+        assert!(!s.wants_onekey_auto_login(), "出厂没勾没选，不自动登录");
+        s.onekey = "prod".to_string();
+        assert!(!s.wants_onekey_auto_login(), "只选了方案但没勾，不自动登录");
+        s.auto_login = true;
+        assert!(s.wants_onekey_auto_login(), "勾了且选了方案，自动登录");
+        s.onekey = "  None  ".to_string();
+        assert!(!s.wants_onekey_auto_login(), "出厂 `None` 不是方案名");
+        s.onekey = String::new();
+        assert!(!s.wants_onekey_auto_login(), "空串也不是方案名");
     }
 
     #[test]

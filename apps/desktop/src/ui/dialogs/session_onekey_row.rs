@@ -21,7 +21,7 @@
 //! 也把这句话显示在框里。理由：连接时会**跳过**停用的方案，而这行字是唯一能在
 //! 点「连接」之前告诉他这件事的地方。
 
-use super::session_form_body::{form_row_accent, FIELD_W};
+use super::session_form_body::{form_row, form_row_accent, FIELD_W};
 use crate::ui::kit::form::FIELD_ROUNDING;
 use crate::ui::*;
 use term_core::onekey::OneKey;
@@ -34,6 +34,28 @@ pub(in crate::ui) const NONE: &str = "None";
 /// `⚙` 中心距字段框右缘。视觉基线 @2× 量得 65 物理像素 = 32.5 逻辑点；
 /// 下拉箭头落在右缘内约 12，两者不重叠。
 const GEAR_INSET: f32 = 32.0;
+
+/// OneKey 行下方那格「Auto login next time」勾选框。
+///
+/// 真勾选框：走 `kit::field` 那套手绘控件，和这个对话框里其它勾选同一套几何
+/// （12×12 描边方框 + 勾），不是只显示一句文字的假控件。它直接读写
+/// [`term_core::session::SessionConfig::auto_login`] 的表单镜像：勾了并保存，
+/// 下次打开 Session Properties 会原样回显；连接层按这一位决定是否让
+/// OneKey 自动登录（判定唯一出处是 `wants_onekey_auto_login`）。
+///
+/// 标签列留空，让整句文案落在与 `OneKey:` 下拉同一列的字段格里。
+pub(in crate::ui) fn auto_login_row(ui: &mut egui::Ui, value: &mut bool) {
+    form_row(ui, "");
+    crate::ui::kit::field::choice_row_styled(
+        ui,
+        crate::ui::kit::field::ChoiceKind::Checkbox,
+        "Auto login next time",
+        "",
+        value,
+        true,
+        crate::ui::kit::field::UnderlineStyle::None,
+    );
+}
 
 /// 画 `OneKey:` 整行（标签 + 下拉 + 齿轮）。
 ///

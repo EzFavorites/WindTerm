@@ -53,8 +53,18 @@ impl TerminalWindow {
         // 系统 `ssh` 那条路径不经过本函数，只有控制面才能同时罩住两条。
         // 这里问它要两份东西：覆盖后的配置（喂给 `ask`）和方案本身（凭据在
         // 保险库里，控制面不认识保险库）。
-        let scheme = self.pool.onekey_for(&config.onekey);
-        let config = self.pool.resolve_onekey(&config);
+        // 「Auto login next time」没勾（或没选方案）时，OneKey 不参与自动登录：
+        // 不覆盖用户名/私钥、不取保险库里的密码与键盘交互应答，照旧问用户。
+        // 判定只有 `wants_onekey_auto_login` 一个出处——无窗口那条路径
+        // （`session_open::open_session`）用的是同一个函数，不会出现
+        //「界面自动登了、脚本没登」这种只在一条路径上偶发的分叉。
+        let auto_login = config.wants_onekey_auto_login();
+        let scheme = auto_login.then(|| self.pool.onekey_for(&config.onekey)).flatten();
+        let config = if auto_login {
+            self.pool.resolve_onekey(&config)
+        } else {
+            config
+        };
         let answers = scheme
             .as_ref()
             .map(|s| onekey_answers(s, self.vault.as_ref()))
