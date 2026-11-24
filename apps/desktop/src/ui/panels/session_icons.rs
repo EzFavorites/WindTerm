@@ -40,8 +40,9 @@ pub(super) fn paint_protocol_icon(
     center: egui::Pos2,
     r: f32,
     protocol: Protocol,
+    override_color: Option<u32>,
 ) {
-    let color = crate::theme::chrome(protocol_color(protocol));
+    let color = crate::theme::chrome(override_color.unwrap_or_else(|| protocol_color(protocol)));
     let rect = egui::Rect::from_center_size(center, egui::vec2(2.0 * r, 2.0 * r));
     p.rect_filled(rect, 2.5, color);
     p.rect_filled(

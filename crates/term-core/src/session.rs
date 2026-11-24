@@ -228,6 +228,9 @@ fn default_modem_large_packets() -> [bool; 3] {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub name: String,
+    /// 会话树图标的自定义颜色（ARGB/RGB 十六进制低 24 位）。`None` = 按协议上色。
+    #[serde(default)]
+    pub color: Option<u32>,
     pub protocol: Protocol,
     pub host: String,
     pub port: u16,
@@ -551,6 +554,7 @@ impl SessionConfig {
 
     pub fn new(protocol: Protocol) -> Self {
         Self {
+            color: None,
             name: match protocol {
                 Protocol::Shell => "Local Shell".to_string(),
                 other => format!("New {}", other.label()),

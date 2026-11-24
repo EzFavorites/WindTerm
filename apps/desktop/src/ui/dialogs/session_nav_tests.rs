@@ -119,7 +119,7 @@ fn every_protocol_has_a_different_configuration() {
         assert!(ssh.contains(&word), "黄金 SSH 树缺少 {word:?}");
     }
     assert!(labels_of(Protocol::Serial).contains(&"Protocol"));
-    assert!(labels_of(Protocol::Shell).contains(&"Command"));
+    assert!(labels_of(Protocol::Shell).contains(&"Process"));
     // Telnet / Tcp 树里没有 SSH 的认证与算法项，但有连接页。
     for protocol in [Protocol::Telnet, Protocol::Tcp] {
         let tree = labels_of(protocol);

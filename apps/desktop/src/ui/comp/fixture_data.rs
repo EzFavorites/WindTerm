@@ -5,18 +5,28 @@ use crate::ui::TerminalWindow;
 /// 原版 `09-panels/session-tree.png`：Shell sessions 分组 + 8 行会话。
 pub(in crate::ui) fn seed_session_tree(win: &mut TerminalWindow) {
     win.groups = vec!["Shell sessions".to_string()];
-    win.sessions = [
-        "10.255.255.1", "10.255.255.1", "u****@localhost", "u****@localhost",
-        "u****@localhost", "u****@localhost", "u****@localhost", "u****@localhost",
-    ]
-    .iter()
-    .map(|name| {
-        let mut cfg = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
-        cfg.name = (*name).to_string();
-        cfg.group = "Shell sessions".to_string();
-        cfg
-    })
-    .collect();
+    let rows: [(&str, Option<u32>); 10] = [
+        ("10.255.255.1", Some(0x3AA0FF)),
+        ("10.255.255.1", Some(0xA97BE0)),
+        ("u****@localhost", Some(0xFF8A50)),
+        ("u****@localhost", Some(0xE02020)),
+        ("u****@localhost", Some(0xA97BE0)),
+        ("u****@localhost", Some(0x20A020)),
+        ("u****@localhost", Some(0xE02020)),
+        ("u****@localhost", Some(0xA97BE0)),
+        ("u****@localhost", Some(0x3AA0FF)),
+        ("u****@localhost", Some(0xE08080)),
+    ];
+    win.sessions = rows
+        .iter()
+        .map(|(name, color)| {
+            let mut cfg = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
+            cfg.name = (*name).to_string();
+            cfg.group = "Shell sessions".to_string();
+            cfg.color = *color;
+            cfg
+        })
+        .collect();
     win.selected_session = 0;
 }
 

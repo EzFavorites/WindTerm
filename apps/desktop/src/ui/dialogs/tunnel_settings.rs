@@ -231,8 +231,9 @@ fn list(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
 fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
     // 金标准 `tunnel-settings-empty.png`：列表为空时右栏仍显示一份出厂占位
     // （Name/Type/Session 空、Listen Port = Dynamic port allocation、Dest Port 0）。
+    let has_sel = ed.current().is_some();
     let mut next = ed.current().cloned().unwrap_or_default();
-    if ed.current().is_none() {
+    if !has_sel {
         next.name.clear();
         next.session.clear();
         next.dest_host.clear();
@@ -241,7 +242,7 @@ fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
     }
 
     text_row(ui, o, ROW_Y[0], "Name:", &mut next.name);
-    kind_row(ui, o, ROW_Y[1], &mut next.kind);
+    kind_row(ui, o, ROW_Y[1], &mut next.kind, !has_sel);
     session_row(ui, o, ROW_Y[2], &mut next.session, ed);
     port_row(ui, o, ROW_Y[3], "Listen Port:", &mut next.listen_port, true);
     text_row(ui, o, ROW_Y[4], "Destination Host:", &mut next.dest_host);
@@ -260,8 +261,8 @@ fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
         },
     );
 
-    check_row(ui, o, CHECK_Y[0], "Accept local connections only", &mut next.local_only);
-    check_row(ui, o, CHECK_Y[1], "Automatically open at startup", &mut next.auto_open);
+    check_row(ui, o, CHECK_Y[0], "Accept local connections only", &mut next.local_only, has_sel);
+    check_row(ui, o, CHECK_Y[1], "Automatically open at startup", &mut next.auto_open, has_sel);
 
     if let Some(i) = ed.sel {
         if let Some(slot) = ed.rows.get_mut(i) {
@@ -367,10 +368,11 @@ fn port_row(
 }
 
 /// `Type` 下拉：三项，与 `TunnelKind::ALL` 同序。
-fn kind_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, value: &mut TunnelKind) {
+fn kind_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, value: &mut TunnelKind, blank: bool) {
     label(ui, o, y, "Type:");
     let rect = field_rect(o, y);
-    combo(ui, rect, value.name(), |ui| {
+    let shown = if blank { "" } else { value.name() };
+    combo(ui, rect, shown, |ui| {
         for k in TunnelKind::ALL {
             if ui.selectable_label(*value == k, k.name()).clicked() {
                 *value = k;
@@ -461,7 +463,7 @@ fn combo(
         });
 }
 
-fn check_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, text: &str, on: &mut bool) {
+fn check_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, text: &str, on: &mut bool, enabled: bool) {
     let box_r = egui::Rect::from_min_size(
         o + egui::vec2(LABEL_X, y),
         egui::vec2(CHECK_BOX, CHECK_BOX),
@@ -471,11 +473,11 @@ fn check_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, text: &str, on: &mut bool
         egui::Id::new(("chk", text)),
         egui::Sense::click(),
     );
-    if resp.clicked() {
+    if enabled && resp.clicked() {
         *on = !*on;
     }
     let p = ui.painter();
-    p.rect_stroke(box_r, 0.0, egui::Stroke::new(1.0, rgb(0x555555)));
+    p.rect_stroke(box_r, 0.0, egui::Stroke::new(1.0, rgb(if enabled { 0x555555 } else { 0x3F3F3F })));
     if *on {
         p.line_segment(
             [box_r.left_center() + egui::vec2(3.0, 0.0), box_r.center() + egui::vec2(1.0, 3.0)],
@@ -491,7 +493,7 @@ fn check_row(ui: &mut egui::Ui, o: egui::Pos2, y: f32, text: &str, on: &mut bool
         egui::Align2::LEFT_CENTER,
         text,
         egui::TextStyle::Button.resolve(ui.style()),
-        rgb(if *on { C_LABEL } else { 0x777777 }),
+        rgb(if !enabled { 0x555555 } else if *on { C_LABEL } else { 0x777777 }),
     );
 }
 

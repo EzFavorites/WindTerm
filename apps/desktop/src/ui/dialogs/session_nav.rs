@@ -99,7 +99,7 @@ pub(in crate::ui) const PAGES: [PageSpec; 24] = [
     // 本项目自有页（视觉基线导航树没有）：`forwards` 编辑器；只为组件基线
     // 与既有字段保留，不挂到会话弹窗的 SSH 树上。
     PageSpec { label: "Tunnels",        component: "dialog_new_session_tunnels" },
-    PageSpec { label: "Command",        component: "dialog_new_session_command" },
+    PageSpec { label: "Process",        component: "dialog_new_session_command" },
     PageSpec { label: "Environment",    component: "dialog_new_session_environment" },
     // 视觉基线串口树里这一项叫 `Protocol`（页面内容仍是波特率/数据位那一组）。
     PageSpec { label: "Protocol",       component: "dialog_new_session_serial_port" },
@@ -202,7 +202,7 @@ const SHELL_GROUP: NavEntry = NavEntry::Group {
     page: None,
     label: "Shell",
     children: &[
-        NavLeaf { label: "Command", page: 13 },
+        NavLeaf { label: "Process", page: 13 },
         NavLeaf { label: "Environment", page: 14 },
         NavLeaf { label: "X/Y/Z Modem", page: 16 },
     ],

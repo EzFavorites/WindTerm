@@ -276,6 +276,7 @@ impl TerminalWindow {
                 // 这里定格 Shell 协议 + Logging 页 + 出厂日志配置。
                 self.log_settings = dialogs::LogSettingsData::default(); self.view.show_log_settings = false;
                 self.new_session.protocol = term_core::session::Protocol::Shell; self.new_session.selected_page = 2; self.view.show_new_session = true;
+                self.session_dialog = dialogs::SessionDialogKind::Properties { index: 0 };
                 self.draw_new_session_dialog(ctx);
             }
             comp::CompId::SshConnecting

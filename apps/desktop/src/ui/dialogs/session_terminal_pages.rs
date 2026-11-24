@@ -142,10 +142,9 @@ fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         }
     }
     let enabled = win.log_settings.log_type.enabled();
-    let overwrite = usize::from(win.log_settings.overwrite == Some(true));
     ui.label("Log options:");
     for (i, label) in ["Overwrite log file", "Append log file"].iter().enumerate() {
-        let mut on = overwrite == i;
+        let mut on = win.log_settings.overwrite == Some(i == 0);
         if choice_row_styled(
             ui,
             ChoiceKind::Radio,

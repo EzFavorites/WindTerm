@@ -148,16 +148,16 @@ impl TerminalWindow {
                 }
 
                 for &i in &members {
-                    let (name, protocol, running) = {
+                    let (name, protocol, color, running) = {
                         let cfg = &self.sessions[i];
                         let running = self.tabs.iter().any(|t| t.config.name == cfg.name);
-                        (cfg.name.clone(), cfg.protocol, running)
+                        (cfg.name.clone(), cfg.protocol, cfg.color, running)
                     };
                     let (rect, resp) = ui.allocate_exact_size(
                         egui::vec2(ui.available_width(), ROW_H),
                         egui::Sense::click(),
                     );
-                    paint_session_row(ui, rect, &name, protocol, running, selected == i, resp.hovered());
+                    paint_session_row(ui, rect, &name, protocol, color, running, selected == i, resp.hovered());
 
                     if resp.clicked() {
                         self.selected_session = i;

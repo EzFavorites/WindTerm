@@ -222,7 +222,7 @@ mod tests {
                 ("Window", 0.0, true),
                 ("Selection", INDENT, false),
                 ("Shell", 0.0, true),
-                ("Command", INDENT, false),
+                ("Process", INDENT, false),
                 ("Environment", INDENT, false),
                 ("X/Y/Z Modem", INDENT, false),
             ]

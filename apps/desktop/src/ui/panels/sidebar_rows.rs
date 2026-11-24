@@ -83,6 +83,7 @@ pub(super) fn paint_session_row(
     rect: egui::Rect,
     name: &str,
     protocol: Protocol,
+    color: Option<u32>,
     running: bool,
     selected: bool,
     hovered: bool,
@@ -105,6 +106,7 @@ pub(super) fn paint_session_row(
         egui::pos2(rect.left() + SESSION_ICON_CX, rect.center().y),
         ICON_R,
         protocol,
+        color,
     );
     p.text(
         egui::pos2(rect.left() + SESSION_TEXT_X, rect.center().y),

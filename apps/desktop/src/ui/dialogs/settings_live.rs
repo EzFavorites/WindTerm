@@ -111,7 +111,9 @@ fn label_row(
             egui::vec2(LABEL_W, 20.0),
             egui::Layout::right_to_left(egui::Align::Center),
             |ui| {
-                ui.label(egui::WidgetText::from(crate::ui::kit::field::underlined_job(ui, text, acc_word, crate::ui::kit::field::UnderlineStyle::Dialog)));
+                // 金标准 `02-appearance.png` 的标签都带冒号（星号在左侧）。
+                let shown = format!("{text}:");
+                ui.label(egui::WidgetText::from(crate::ui::kit::field::underlined_job(ui, &shown, acc_word, crate::ui::kit::field::UnderlineStyle::Dialog)));
                 if star {
                     ui.label(egui::RichText::new("* ").color(col(STAR_RED)));
                 }
@@ -240,6 +242,10 @@ pub(in crate::ui) fn appearance(
             opacity_edit = Some(current);
         }
     });
+    // 原版页脚：改语言/主题要重启的橙色提示（文案照抄，含原版的 "affect"）。
+    let gap = (ui.max_rect().bottom() - ui.cursor().top() - 18.0).max(0.0);
+    ui.add_space(gap);
+    ui.colored_label(egui::Color32::from_rgb(0xFF, 0x84, 0x00), "* Requires a restart to take affect.");
     AppearanceEdit {
         lang: picked,
         theme_name: theme_picked,
