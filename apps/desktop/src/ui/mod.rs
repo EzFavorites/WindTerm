@@ -24,7 +24,7 @@ pub(crate) mod kit;
 pub(crate) use kit::type_scale;
 mod layout;
 mod lock_timeout;
-mod modem_drop;
+mod modem_auto; mod modem_drop;
 mod reconnect;
 mod overlays;
 mod panels;
@@ -918,6 +918,8 @@ impl TerminalWindow {
         for id in &run_commands {
             self.dispatch(id);
         }
+        // Modem：传输期键盘取消 + 输出命中 rz/sz/rx/rb 后开弹层/直启；必须在 pane 吃键之前。
+        modem_auto::poll(ctx, self);
         if changed {
             ctx.request_repaint();
         }

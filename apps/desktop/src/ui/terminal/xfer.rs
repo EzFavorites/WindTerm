@@ -227,6 +227,8 @@ impl TerminalWindow {
             XferDirection::Receive => XferKind::Receive,
         };
         let protocol = prompt.protocol;
+        // 接收弹层选的同名冲突策略原样交给驱动；发送侧不用，传默认档即可。
+        let policy = prompt.policy;
         // 一次只跑一个：起第二个会把旧句柄丢掉，而它的 `Drop` 就是取消——
         // 用户会看到上一次传输莫名其妙停了。挡住，让他自己决定取消还是等。
         if let Some(job) = self.xfer.as_ref() {
@@ -240,12 +242,13 @@ impl TerminalWindow {
             self.xfer_prompt_error("这个标签没有活着的会话".to_string());
             return;
         };
-        match XferHandle::start(
+        match XferHandle::start_with_policy(
             self.pool.clone(),
             session,
             kind,
             run_protocol(protocol),
             path.clone(),
+            policy,
         ) {
             Ok(handle) => {
                 self.xfer = Some(XferJob {

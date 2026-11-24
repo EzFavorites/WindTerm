@@ -134,6 +134,8 @@ pub struct Tab {
     pub(in crate::ui) trigger_highlight_rows: Vec<i64>,
     /// Account OneKey 的 `expect → send` 已触发过的条目，避免同一提示连环发送。
     pub(in crate::ui) onekey_expects_fired: std::collections::HashSet<String>,
+    /// Modem 自动触发的扫描态（跨块滚动尾 + 本帧请求）。投影态，不落盘。
+    pub(in crate::ui) modem: crate::ui::modem_auto::TabState,
     /// 这条会话的**调试覆盖层**开关（`Mode ▸ Debug Mode`）。
     ///
     /// 与 [`Tab::mode`] / [`Tab::hex`] / [`Tab::marks`] 完全同一套两层模型：归 tab

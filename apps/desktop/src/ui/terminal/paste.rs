@@ -72,6 +72,7 @@ mod tests {
             marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
         onekey_expects_fired: std::collections::HashSet::new(),
+        modem: crate::ui::modem_auto::TabState::default(),
             // 调试覆盖层：粘贴测试不碰它，取出厂值（关 = 屏幕一个像素都不变）。
             debug: false,
             debug_log_active: false,

@@ -122,6 +122,9 @@ impl Tab {
                 // 落地——`SendText` / `SendLine` / `Beep` 走 `write`（PTY 唯一漏斗），
                 // `RunCommand` 收集到 `run_commands` 交给窗口层派发。
                 let text = String::from_utf8_lossy(&bytes);
+                // Modem 自动触发：与触发器读同一份本帧输出，但只认提示符后 /
+                // 行首的 rz/sz/rx/rb。命中只记在 tab 上，落地在窗口级 modem_auto。
+                self.modem.note(&text, &self.config.modem_commands);
                 let target = term_core::trigger_target::Target {
                     system: &self.config.system,
                     session: &self.config.name,

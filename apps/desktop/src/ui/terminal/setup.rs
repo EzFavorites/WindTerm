@@ -156,7 +156,8 @@ pub(in crate::ui) fn tab_from(
             // `Prefs.view_*`，`View ▸ *` 改的是这份副本、不落盘。
             marks,
             trigger_highlight_rows: Vec::new(),
-        onekey_expects_fired: std::collections::HashSet::new(),
+            onekey_expects_fired: std::collections::HashSet::new(),
+            modem: crate::ui::modem_auto::TabState::default(),
             // 调试覆盖层与只读查看都出厂关：与 `marks` 一样是「每条会话一份」的
             // 显示状态、不落盘。夹具与生产都从这里起步，视觉基线逐字节不变。
             debug: false,

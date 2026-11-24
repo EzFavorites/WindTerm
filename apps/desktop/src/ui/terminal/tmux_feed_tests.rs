@@ -46,6 +46,7 @@ fn bare_tab() -> Tab {
         marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
         onekey_expects_fired: std::collections::HashSet::new(),
+        modem: crate::ui::modem_auto::TabState::default(),
         // 调试覆盖层：这条夹具只验 tmux 控制行，覆盖层取出厂值（关）。
         debug: false,
         debug_log_active: false,

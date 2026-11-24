@@ -33,6 +33,25 @@ pub(crate) enum Decision {
     Skip,
 }
 
+/// 接收弹层下拉的档位与文案。**唯一一份清单**：弹层按这个顺序画，判据按这个
+/// 清单遍历，加了变体忘写名字会在单测里当场撞出来。
+pub(crate) const POLICIES: [(ConflictPolicy, &str); 5] = [
+    (ConflictPolicy::Overwrite, "Overwrite"),
+    (ConflictPolicy::Newer, "Only if newer"),
+    (ConflictPolicy::NewerAndLonger, "Only if newer and longer"),
+    (ConflictPolicy::Rename, "Rename"),
+    (ConflictPolicy::Skip, "Skip"),
+];
+
+/// 下拉里显示的文案；未知档位（反序列化越界）回落到默认档的文案。
+pub(crate) fn label(policy: ConflictPolicy) -> &'static str {
+    POLICIES
+        .iter()
+        .find(|(candidate, _)| *candidate == policy)
+        .map(|(_, text)| *text)
+        .unwrap_or(POLICIES[0].1)
+}
+
 fn renamed(path: &Path) -> PathBuf {
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let ext = path.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
@@ -123,6 +142,17 @@ mod tests {
             decide(path, old, None, None, ConflictPolicy::Newer),
             Decision::Write(_)
         ));
+    }
+
+    #[test]
+    fn every_policy_has_a_distinct_dropdown_label() {
+        let mut seen = std::collections::BTreeSet::new();
+        for &(policy, text) in &POLICIES {
+            assert!(!text.is_empty(), "{policy:?} 缺下拉文案");
+            assert!(seen.insert(text), "{text} 与另一档撞名");
+            assert_eq!(label(policy), text);
+        }
+        assert_eq!(seen.len(), POLICIES.len());
     }
 
     #[test]

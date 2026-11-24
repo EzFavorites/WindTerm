@@ -69,6 +69,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
         onekey_expects_fired: std::collections::HashSet::new(),
+        modem: crate::ui::modem_auto::TabState::default(),
         // 调试覆盖层：这条夹具要逐像素数斑马线底色块，覆盖层必须关。
         debug: false,
         debug_log_active: false,
