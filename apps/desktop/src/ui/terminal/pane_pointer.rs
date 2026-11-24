@@ -83,36 +83,44 @@ pub(super) fn pointer_selection(
     geom: GridGeom,
     separators: &str,
     pairs: &term_app::selection::Pairs,
+    word_wrap: bool,
 ) {
     let image_cols = image.cols.max(1);
+    // 鼠标命中用的段表，与正文 / margin 同一口径：软折开时屏幕行 ≠ 逻辑行，
+    // 屏幕第 n 行要经段表反查内容 (行, 列)。关软折时段表恒等，与旧行为逐像素相同。
+    let wrap_cols = term_app::wrap::effective_wrap_cols(image_cols, word_wrap);
+    let segments = term_app::wrap::segments_from_image(image, wrap_cols, word_wrap);
     // F1：鼠标 → 内容行列。行号用事实窗口的绝对行号，滚动不会让选区漂。
     let to_pos = |p: egui::Pos2| -> Pos {
-        let row = ((p.y - geom.start.y) / geom.cell.y).floor().max(0.0) as usize;
-        let row = row.min(image.lines.len().saturating_sub(1));
+        let screen_row = ((p.y - geom.start.y) / geom.cell.y).floor().max(0.0) as usize;
         // 右边界守卫：鼠标越过网格右缘（落在右侧 15pt 滚动条命中区）时，列号不参与——
         // 退到「最后一列之后」（哨兵 `image_cols`），避免被下面的 `.min` 钳成「最后一列」
         // 而误产生选区（设计稿 §3.4 / §5.5）。滚动条 widget 已注册在 content `resp` 之上
         // 会抢走按下事件，这里是兜底，二者不冲突。
         let right_edge = geom.start.x + (geom.cols as f32) * geom.cell.x;
-        let col = if p.x > right_edge {
+        let local_col = if p.x > right_edge {
             image_cols
         } else {
             ((p.x - geom.start.x) / geom.cell.x).floor().max(0.0) as usize
         };
-        // 绝对行从**这一行本身**取（`lines[i].row`），不是算出来的：折叠后窗口
-        // 里的行号不连续，`窗口首行 + 鼠标行` 会落到相邻行上，选区就漂了。
-        // `row` 上面已钳进 `lines` 的范围，正常必中；兜底分支只为不 panic，退回
-        // 窗口首行（空窗口的退化情形，原本也是这个值）。
-        let content_row = image
-            .lines
-            .get(row)
-            .map_or_else(|| image.view_range().start().get(), |l| l.row);
-        // OOB 哨兵不钳；正常列钳进实际内容列宽（与上面同样的越界保护）。
-        let col_out = if col >= image_cols {
-            col
-        } else {
-            col.min(image_cols.saturating_sub(1))
-        };
+        // 屏幕 (行, 段内列) → 内容 (行, 绝对列)，经段表反查。关软折时段表恒等：
+        // screen_row == 逻辑行下标、绝对列 == local_col，与旧行为逐像素相同。
+        let (content_row, col_out) = segments
+            .screen_to_content(screen_row, local_col)
+            .map(|(line_idx, abs_col)| {
+                let row = image
+                    .lines
+                    .get(line_idx)
+                    .map_or_else(|| image.view_range().start().get(), |l| l.row);
+                (row, abs_col.min(image_cols.saturating_sub(1)))
+            })
+            .unwrap_or_else(|| {
+                let row = image
+                    .lines
+                    .get(screen_row)
+                    .map_or_else(|| image.view_range().start().get(), |l| l.row);
+                (row, local_col.min(image_cols.saturating_sub(1)))
+            });
         Pos::new(content_row, col_out)
     };
 

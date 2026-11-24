@@ -18,23 +18,28 @@ pub(in crate::ui) fn paint_row_floor(
     word_cells: &[(i64, usize)],
     pair_cells: &[(i64, usize)],
     row: i64,
+    seg_start: usize,
+    seg_width: usize,
 ) {
     let soft_tint = |r: u8, g: u8, b: u8| Color32::from_rgba_unmultiplied(r, g, b, 36);
-    let w = (image.cols as f32) * cell.x;
+    // 软折时底色只铺本段宽度（不越到右侧留白）；关软折时 seg_width == image.cols。
+    let w = (seg_width.min(image.cols.saturating_sub(seg_start)) as f32) * cell.x;
+    let seg_origin_x = origin.x + (seg_start as f32) * cell.x;
 
+    let seg_origin = Pos2::new(seg_origin_x, origin.y);
     if highlight_rows.contains(&row) {
-        painter.rect_filled(Rect::from_min_size(origin, Vec2::new(w, cell.y)), 0.0, soft_tint(0x2E, 0x7C, 0xD2));
+        painter.rect_filled(Rect::from_min_size(seg_origin, Vec2::new(w, cell.y)), 0.0, soft_tint(0x2E, 0x7C, 0xD2));
     }
     if fold_rows.contains(&row) {
-        painter.rect_filled(Rect::from_min_size(origin, Vec2::new(w, cell.y)), 0.0, soft_tint(0xD2, 0x8B, 0x00));
+        painter.rect_filled(Rect::from_min_size(seg_origin, Vec2::new(w, cell.y)), 0.0, soft_tint(0xD2, 0x8B, 0x00));
     }
     for (cell_row, col) in word_cells.iter().chain(pair_cells.iter()) {
-        if *cell_row != row || *col >= image.cols {
+        if *cell_row != row || *col < seg_start || *col >= seg_start + seg_width {
             continue;
         }
         painter.rect_filled(
             Rect::from_min_size(
-                Pos2::new(origin.x + *col as f32 * cell.x, y),
+                Pos2::new(origin.x + ((*col - seg_start) as f32) * cell.x, y),
                 Vec2::new(cell.x, cell.y),
             ),
             0.0,

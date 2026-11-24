@@ -208,12 +208,10 @@ macOS 上是 Command，Windows / Linux 上归一为 Ctrl；设置里可以改绑
 
 ## 已知限制
 
-- 5 条命令仍然置灰：`Window.GotoSymbol`、`Window.SetRemoteMode`、
-  `Text.ToggleWordWrap`、`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`。
-  其中 `ToggleVirtualSpace` / `ToggleMultipleCaret` 属于内置编辑器生态，
-  `SetRemoteMode` 属于 vim 键位模式，都不在本项目的范围内；`ToggleWordWrap`
-  需要内核支持按可调列宽重排，并且联动选区、查找与回滚坐标系，目前开关没有
-  可见效果，所以宁可置灰。
+- 2 条命令仍然置灰：`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`，
+  属于内置编辑器生态，不在本项目范围内。以下已接线：`Window.GotoSymbol`
+  （符号表 = OSC 133 命令块）、`Window.SetRemoteMode`（退出只读）、
+  `Text.ToggleWordWrap`（Mode ▸ Word Wrap，按 wrap column 软折，2026-11-24）。
 - 菜单里个别项的快捷键文案与出厂绑定不同（为保真视觉基线保留），按上表按键。
 - 窗口透明目前是纯 alpha；macOS vibrancy / Windows acrylic 的平台模糊还没做。
 - 不做云同步、账号体系、团队协作、远程桌面与通用文本编辑器，范围见

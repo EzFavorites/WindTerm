@@ -3,8 +3,9 @@
 //!
 //! # 为什么这三项能真接
 //!
-//! `Wrap mode` / `Wrap column` 缺的是软换行本体——内核已经按列宽硬折过行，
-//! 再接一层软换行是恒等映射（`term-app/src/wrap.rs` 的实测记录）。但
+//! `Wrap mode` / `Wrap column` 的本体（软换行）已于 2026-11-24 接真：开关在
+//! Mode ▸ Word Wrap，段表按 `Tab.word_wrap` 每帧现算；本页保留两档下拉的
+//! 视觉基线形状，只更新悬停/页底说明，不另造第二个写入者。
 //! `Show wrap symbols` / `Show column markers` / `Columns:` 在 就有
 //! 完整渲染器：`View.ToggleWrapSymbols` / `View.ToggleColumnMarker` 走
 //! `MarksKnob` → `Tab.marks`，画在 `terminal/marks.rs` 与 `marks_paint.rs`。
@@ -26,12 +27,13 @@ use crate::ui::*;
 
 /// 页底：哪三格真、哪三格没有渲染器，分别说清。
 const WRAP_LIVE_NOTE: &str = "Wrap symbols, column markers and the marker column apply \
-     immediately and are saved. Wrap mode / Wrap column still need a soft-wrap engine (the grid \
-     already hard-wraps), and Marker style has only one implementation (a line).";
+     immediately and are saved. Soft wrapping is toggled per tab via Mode ▸ Word Wrap (or \
+     Alt+M, Alt+W): when on, lines fold at the wrap column. Marker style has one implementation.";
 
-/// 无软换行时的两档：照抄视觉基线，灰显但保留形状。
-const WRAP_MODE_NOTE: &str = "Not wired: the grid already hard-wraps at the pane width, so a \
-     soft-wrap toggle would map every line onto itself (see term-app/src/wrap.rs).";
+/// 两档下拉保持视觉基线形状；软换行本体已接真，开关在 Mode 菜单里
+/// （本页只展示出厂口径，不另造第二个写入者）。
+const WRAP_MODE_NOTE: &str = "Toggle soft wrapping with Mode ▸ Word Wrap (Alt+M, Alt+W). \
+     When off, the grid hard-wraps at the pane width (Window edge).";
 const MARKER_STYLE_NOTE: &str = "Not wired: the column marker has one renderer (a line); there \
      is no second style to choose from.";
 
@@ -132,9 +134,9 @@ mod tests {
     }
 
     #[test]
-    fn the_page_note_separates_live_rows_from_the_two_dead_ones() {
+    fn the_page_note_describes_the_wired_and_display_only_rows() {
         assert!(WRAP_LIVE_NOTE.contains("apply"));
-        assert!(WRAP_LIVE_NOTE.contains("Wrap mode / Wrap column"));
+        assert!(WRAP_LIVE_NOTE.contains("Word Wrap"), "软换行入口要写清");
         assert!(WRAP_LIVE_NOTE.contains("Marker style"));
     }
 }

@@ -312,7 +312,7 @@ pub fn paint_rows(
     selections: &Selections,
     selection_bg: Color32,
     alt_row_bg: bool,
-    caret_row: Option<usize>,
+    caret_row: Option<i64>,
     highlight_rows: &[i64],
     fold_rows: &[i64],
     word_cells: &[(i64, usize)],
@@ -371,6 +371,7 @@ pub fn paint_rows(
         super::highlights::paint_row_floor(
             painter, image, pos2(origin.x, y), y, cell,
             highlight_rows, fold_rows, word_cells, pair_cells, line.row,
+            seg.start_col, seg.width,
         );
 
         // `span.col` / `run.col` 都是**段内**列，所以 x 从 `origin.x` 起算
@@ -394,10 +395,10 @@ pub fn paint_rows(
         // - 在字形之前 —— 底色永远不许盖住文字，这是「底色」与「标记」的分界；
         // - 在选区之前 —— 选中一段时选区那档更亮，选择本身要压过光标行提示。
         //
-        // 判据用**段序号** `i`（`caret_row` 是视口行号）。今天两者恒等；等 reflow
-        // 接线、一行折出多段之后，这里要换成「本段所在的逻辑行 == 光标行」，
-        // 那是下一批的事，本批不动。
-        if caret_row == Some(i) {
+        // `caret_row` 是光标的**内容绝对行号**（不再是视口行号）。软折后一条
+        // 逻辑行占多段，按段循环时这里判「本段所属逻辑行 == 光标行」，于是
+        // 光标行的所有段都铺底色。关软折时每段==一行，与旧行为逐像素相同。
+        if caret_row == Some(line.row) {
             let w = (image.cols as f32) * cell.x;
             painter.rect_filled(
                 Rect::from_min_size(pos2(origin.x, y), Vec2::new(w, cell.y)),
@@ -494,13 +495,22 @@ pub fn paint_cursor(
     // `cursor.0` 是**网格行**（0 = 屏首），不是屏内下标：折叠后两者不再相等。
     // 查不到 = 光标那一行被折叠收起，此时**不画光标**是正确行为而非退化——那一行
     // 用户看不见，硬按 `cr` 画会把它浮在别的行上，等于指着另一行说「光标在这」。
-    let Some(screen_row) = super::pane::screen_index_of_grid_row(&tab.view, cr) else {
+    let Some(line_idx) = super::pane::screen_index_of_grid_row(&tab.view, cr) else {
         return;
     };
+    // 软折后光标列 cc 可能落在逻辑行的第 2+ 段：用段表反查所在段，
+    // y = 段序号、x = 段内列。关软折时段表恒等（段 0 = 整行），与旧行为逐像素相同。
+    let wrap_cols = term_app::wrap::effective_wrap_cols(tab.view.cols.max(1), tab.word_wrap);
+    let segments = term_app::wrap::segments_from_image(&tab.view, wrap_cols, tab.word_wrap);
+    let Some(seg_idx) = segments.cell_to_segment(line_idx, cc) else {
+        return;
+    };
+    let seg = &segments.rows[seg_idx];
+    let local_col = cc - seg.start_col;
     let cell_rect = Rect::from_min_size(
         pos2(
-            origin.x + (cc as f32) * cell.x,
-            origin.y + (screen_row as f32) * cell.y,
+            origin.x + (local_col as f32) * cell.x,
+            origin.y + (seg_idx as f32) * cell.y,
         ),
         cell,
     );

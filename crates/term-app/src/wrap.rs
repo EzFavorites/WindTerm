@@ -55,10 +55,21 @@
 //! 「一行逻辑行 = n 段」——四处一起动才不自相矛盾。所以这不是「渲染没做完」，
 //! 是**下一轮要整体迁移坐标系**；迁移完成之前，这一格保持置灰。
 //!
-//! 2026-11-14 判定：第 1 条要触到，必须先做**内核 reflow**（上面三处 + 三张行号
-//! 表的重映射），那是独立一轮的活，**本轮搁置**。搁置只表示「这一轮不做」，不
-//! 表示上面那段坐标系迁移（选区 / 查找 / 回看 / margin 四处一起改）的必要性被
-//! 推翻——那四条仍然是接线的前提，只是现在连原料都还没有。
+//! # 2026-11-24：走第 2 条路落地（折行宽度可配，内核零改动）
+//!
+//! 上面「原料不在了」的讨论适用于第 1 条 reflow（拼回被 resize 丢弃的逻辑行）——
+//! 那条路确实要约内核改三处 + 三张行号表重映射。但第 2 条路不需要内核原料：
+//! grid 每行恒为 cols 宽、硬折两半都在相邻行，只要用**比内核列宽更窄的 wrap
+//! column** 再折一次，就能让一条硬折行占多段。有效列 [`effective_wrap_cols`]
+//! 默认 40：关软换行时 == image.cols（恒等、零像素）；开时折到 40 列，并裁掉
+//! 行尾 padding（[`glyph_widths_trimmed`]）——否则短行 / 空行也会被 padding 撑成
+//! 多段。
+//!
+//! 内核 `vt.rs` / `ScreenImage` / 三张绝对行号表**全部不动**。`wraps` 保持
+//! 「硬折续行绝对行号」原义；软折续段用 [`VisualRow::soft_continued`] 独立表达。
+//! 材质流 [`SegmentTable`] 每帧在投影层算一次，正文 / 查找 / 选区命中 / margin /
+//! 回看各自按段做坐标换算（段表就是「一行逻辑行 = n 段」这层坐标系）。
+//! 端到端判据：`--demo scroll` 与 `--demo wrap` 同字节流、截图逐字节不同。
 
 /// 一段屏幕行：来自哪个逻辑行、从该行第几列开始、占多少显示列。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -185,6 +196,39 @@ pub fn segments_for(
         seg.hard_continued = hard_continued.get(seg.line).copied().unwrap_or(false);
     }
     table
+}
+
+/// 从一屏事实窗口构造段表（生产入口）。
+///
+/// `wrap_cols == image.cols` 且 `trim == false` 时得到恒等映射（软换行关）——
+/// 每条逻辑行恰好一段、覆盖整行，零像素变化。`word_wrap` 开时调用方传更窄的
+/// `wrap_cols`（如 80）与 `trim == true`（裁行尾 padding）。
+///
+/// 硬折轴这里留 `false`：内核硬折续行由 `GridSnapshot.wraps` 表达，margin /
+/// 行尾勾的消费者本就拿着 `snap`，继续用 `is_continued(snap.wraps, ...)` 即可，
+/// 不需要塞进段表（ScreenImage 本来也不带 wraps）。
+pub fn segments_from_image(
+    image: &term_core::grid::ScreenImage,
+    wrap_cols: usize,
+    trim: bool,
+) -> SegmentTable {
+    let cells: Vec<Vec<term_core::grid::Cell>> =
+        image.lines.iter().map(|l| l.cells.clone()).collect();
+    segments_for(&cells, wrap_cols, trim, &vec![false; cells.len()])
+}
+
+/// 一屏的折行列宽：软换行关时 == 内核列宽（恒等）；开时取 `min(cols, 40)`。
+///
+/// 默认 40 列（比典型命令行宽，比整窗窄）：开时普通会话输出就会折行，
+/// 用户立刻看到效果；窗口比 40 窄时仍恒等（与现状一致）。这也让端到端
+/// 判据成立——同一字节流下开关两态的截图必然不同。
+pub fn effective_wrap_cols(image_cols: usize, word_wrap: bool) -> usize {
+    const DEFAULT_WRAP_COLUMN: usize = 40;
+    if word_wrap {
+        image_cols.min(DEFAULT_WRAP_COLUMN)
+    } else {
+        image_cols
+    }
 }
 
 /// 可视行数 ↔ 内容行数换算（滚动 / 回看 / 预览用）。

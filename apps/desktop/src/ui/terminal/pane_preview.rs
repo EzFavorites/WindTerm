@@ -69,6 +69,7 @@ pub(super) fn paint(
     folds: &Folds,
     bg: egui::Color32,
     alt_row_bg: bool,
+    word_wrap: bool,
 ) {
     // 框底两层：先用不透明主题色盖掉下层实时视口的字（`paint_rows` 只画非默认
     // 背景的格，框底透明会重影），再叠与真实终端同源的窗口背景（含窗口 alpha）。
@@ -77,12 +78,10 @@ pub(super) fn paint(
     painter.rect_filled(box_rect, 0.0, bg);
 
     let mut cache = LineCache::default();
-    let widths: Vec<Vec<u8>> = image
-        .lines
-        .iter()
-        .map(|line| wrap::glyph_widths(&line.cells))
-        .collect();
-    let segments = wrap::wrap_lines(&widths, image.cols.max(1));
+    // 与正文同一套折行口径：关 → 恒等；开 → 折到 wrap column 并裁 padding。
+    let wrap_cols = wrap::effective_wrap_cols(image.cols.max(1), word_wrap);
+    let segments = wrap::segments_from_image(image, wrap_cols, word_wrap);
+    let segments = segments.rows.as_slice();
     let selection_bg = to_color32(palette.default_fg).gamma_multiply(0.25);
     // egui 0.29：`with_clip_rect` 返回**新的** `Painter`（clip 取交集），不是闭包式。
     let clipped = painter.with_clip_rect(box_rect);
@@ -105,6 +104,7 @@ pub(super) fn paint(
         folds,
         font_id,
         None,
+        word_wrap,
     );
 
     // 正文从边栏之后起画：`origin.x + margin_met.width` 与真实终端的 `start_x`

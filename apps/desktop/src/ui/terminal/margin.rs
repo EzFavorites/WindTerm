@@ -204,10 +204,16 @@ pub(in crate::ui) fn paint(
     folds: &Folds,
     font: &egui::FontId,
     current_row: Option<i64>,
+    word_wrap: bool,
 ) {
     if met.width <= 0.0 {
         return;
     }
+    // 与正文同一套段表口径：软折开时按 wrap column 折，关时恒等。
+    // 纯函数、同输入同输出，算两次无副作用（margin 与正文各算一份）。
+    let wrap_cols = term_app::wrap::effective_wrap_cols(image.cols.max(1), word_wrap);
+    let segments = term_app::wrap::segments_from_image(image, wrap_cols, word_wrap);
+    let segments = &segments.rows;
     let pal = term_core::theme::MARGIN;
     let time_col = to_color32(Rgb::from_u32(pal.time));
     let number_col = to_color32(Rgb::from_u32(pal.number));
@@ -216,7 +222,16 @@ pub(in crate::ui) fn paint(
     let wrap_col = to_color32(Rgb::from_u32(pal.wrap));
     let band = to_color32(Rgb::from_u32(pal.current_bg));
 
-    for (i, line) in image.lines.iter().enumerate() {
+    // 按段循环而非按逻辑行：软折时一条逻辑行占多段，正文按段序号算 y，边栏
+    // 必须同口径（否则行号 / 提示符 / 当前行条带与正文错行）。
+    // 行号 / 时间戳 / 提示符 / 折叠头 / 当前行底色只在**首段**画（用户裁定），
+    // `~` 续行标记画在软折续段上；软折关时 seg 恒等（每段==一行），像素不变。
+    for (seg_idx, seg) in segments.iter().enumerate() {
+        let Some(line) = image.lines.get(seg.line) else {
+            continue;
+        };
+        let i = seg_idx;
+        let soft_cont = seg.soft_continued;
         // 行号取内核给的那一行（`line.row`），不再做「窗口起点 + 下标」的减法。
         //
         // 理由与 `view.rs` 隔行底色那一条相同：折叠把行收起来之后，事实窗口里的
@@ -242,7 +257,8 @@ pub(in crate::ui) fn paint(
                 band,
             );
         }
-        if m.timestamp {
+        // 行号 / 时间戳只在首段画（续段那一行边栏留空，避免重复号码）。
+        if m.timestamp && !soft_cont {
             if let Some(epoch) = stamp_at(snap, abs) {
                 painter.text(
                     egui::pos2(area.min.x + met.stamp_x, y),
@@ -253,7 +269,7 @@ pub(in crate::ui) fn paint(
                 );
             }
         }
-        if m.number {
+        if m.number && !soft_cont {
             painter.text(
                 egui::pos2(area.min.x + met.num_right, y),
                 Align2::RIGHT_TOP,
@@ -288,7 +304,10 @@ pub(in crate::ui) fn paint(
         if m.symbol {
             let cx = area.min.x + met.sym_center;
             let cy = y + cell_h * 0.5;
-            if is_prompt(snap, abs) {
+            // `~` 续行标记：软折开时画在 soft_continued 段（wrap column 处），
+            // 否则沿用内核硬折 wraps。提示符 `›` 只画在首段。
+            let cont = soft_cont || (!word_wrap && is_wrapped(snap, abs));
+            if !soft_cont && is_prompt(snap, abs) {
                 // `›`：两条线段，不依赖字体有没有这个字形（同会话树的做法）。
                 let h = cell_h * 0.26;
                 let w = cell_h * 0.20;
@@ -300,7 +319,7 @@ pub(in crate::ui) fn paint(
                     ],
                     egui::Stroke::new((cell_h * 0.07).max(1.0), prompt_col),
                 ));
-            } else if is_wrapped(snap, abs) {
+            } else if cont {
                 // `~`：换行续行。ASCII 波浪号哪个字体都有，直接排字。
                 painter.text(
                     egui::pos2(cx, cy),

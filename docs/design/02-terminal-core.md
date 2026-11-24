@@ -61,7 +61,7 @@ pub struct ScreenImage { cols, version, range, lines, cursor, history }
 
 自动换行也是真的换了一行，内核把新行号记进 `wraps`（升序的绝对行号表）。这条表有三个消费者：行尾折行标记、边栏的 `~` 列、以及复制时「相邻两行之间该不该插换行」。判据下沉到 `grid::is_continued` 一处，三处共用一次二分查找，不再各自漂移。
 
-> **软换行（按词 / 指定列）为何仍置灰**：这不是渲染没接上，而是**原料已被内核丢弃**。`resize` 变窄时可见行的右半截当场截掉，`slice_range` 变宽时只补 padding；唯一留着整行的是 `scrollback`，却读不出 `slice_range`。`Text.ToggleWordWrap` 要真有可见效果，必须先做内核 reflow（重排 + `cmd_marks` / `row_times` / `wrap_rows` 三张绝对行号表重映射），再把选区 / 查找 / 回看 / margin 从「一行 = 一行屏幕」迁到「一行逻辑行 = n 段」。完整分析与回退记录见 `crates/term-app/src/wrap.rs` 模块头。在迁移完成前，该开关保持置灰是**有意取舍**，不是漏接线。
+> **软换行（按指定列）已于 2026-11-24 接线**：走「折行宽度可配」路线——用比内核列宽更窄的 wrap column（默认 40）再折一次，让一条硬折行占多段。内核 `vt.rs` / 三张绝对行号表全部不动；`wraps` 保持硬折原义，软折续段用 `VisualRow::soft_continued` 独立表达。段表每帧在投影层算一次，正文 / 查找 / 选区命中 / margin / 回看各自按段换算坐标（行号/时间戳只首段，行尾勾按行）。`--demo scroll` 与 `--demo wrap` 同字节流、截图逐字节不同是端到端判据。完整分析见 `crates/term-app/src/wrap.rs` 模块头。另一条「内核 reflow」路线（拼回被 resize 丢弃的逻辑行）仍未做，但当前方案不需要它。
 
 ## 5. 编码切换：只影响之后的输出
 

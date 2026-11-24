@@ -317,6 +317,9 @@ run_jobs() {
 if [ "$MODE" = "full" ] || [ "$MODE" = "all" ]; then
   add_job 'check screenshot-round64.png'
   add_job 'check screenshot-scroll.png --demo scroll'
+  # 软换行夹具：与 scroll 同一字节流、开启 Word Wrap，长行折到 wrap column。
+  # 两张基线必须逐字节不同——这正是「开关有可见效果」的端到端判据。
+  add_job 'check screenshot-wrap.png --demo wrap'
   add_job 'check screenshot-find.png --demo find'
   add_job 'check screenshot-word.png --demo word'
   add_job 'check screenshot-block.png --demo block'

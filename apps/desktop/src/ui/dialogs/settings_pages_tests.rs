@@ -99,25 +99,22 @@ use super::*;
 
     #[test]
     fn the_pages_that_cannot_be_wired_say_what_is_missing() {
-        // Wrap 仍走数据表、说明要写清「缺的是软换行引擎」；Highlight
-        // 2026-11-19 已搬去 live 页（caret line 接真），它的说明在
+        // Wrap 的软换行本体 2026-11-24 已接真：说明改成「Mode ▸ Word Wrap 切换」。
+        // Highlight 2026-11-19 已搬去 live 页（caret line 接真），说明在
         // `settings_live_highlight::HIGHLIGHT_NOTE`，不在这里。
         assert!(
-            page_note(SettingsPage::Wrap).contains("hard-wraps"),
-            "Wrap 页要写清缺的是「内核已按列宽硬折行」这件事"
+            page_note(SettingsPage::Wrap).contains("Word Wrap"),
+            "Wrap 页要说明软换行由 Mode ▸ Word Wrap 切换"
         );
-        // 2026-11-14：这句文案原先谎报「三项都没有渲染器」。`Wrap symbols` 与
-        // `Column markers` 2026-11-13 就接线了（`View.ToggleWrapSymbols` /
-        // `View.ToggleColumnMarker` → `MarksKnob::WrapSymbols` / `ColumnMarker`），
-        // 真正没有画法的只有 `Wrap column`。两条一起钉住，免得下次有人把承诺
-        // 往回改宽或改窄。
+        // 2026-11-24：软换行接真后，`WRAP_NOTE` 不再有「Only Wrap column has no
+        // renderer」这句——wrap column 现在由段表度量，软换行在 Mode 菜单可切。
         assert!(
-            page_note(SettingsPage::Wrap).contains("Only Wrap column has no renderer"),
-            "Wrap 页只能承认 `Wrap column` 没有渲染器，另两项已经由 View 菜单提供"
+            !page_note(SettingsPage::Wrap).contains("no renderer"),
+            "别再说「没有渲染器」：软换行与列标记都已接线"
         );
         assert!(
-            !page_note(SettingsPage::Wrap).contains("no renderer at all"),
-            "别再说「三项都没有渲染器」：wrap symbols / column markers 早就接线了"
+            page_note(SettingsPage::Wrap).contains("View menu"),
+            "Wrap symbols / column markers 由 View 菜单提供"
         );
         // Mouse Tracking 那句旧说明（「没有编码通道」）2026-11-19 已更正：
         // 通道在，缺的是五个事件偏好字段与 DECSET 控制权规则。钉住新说法。

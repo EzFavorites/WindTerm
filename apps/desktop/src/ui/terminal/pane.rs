@@ -235,6 +235,8 @@ impl TerminalWindow {
                         tab.raw.ring.push(&fixture.bin);
                     }
                     tab.mode = fixture.mode;
+                    // 软换行夹具与 mode 同类：显示开关直接写 tab，不经过 reducer。
+                    tab.word_wrap = fixture.word_wrap;
                     // hover 预览夹具把切好的历史快照灌进 tab 的预览槽，
                     // 并冻定轨道归一化位置（反算成绝对 y，稍后覆盖 `preview_hover_y`）。
                     tab.preview_screen = fixture.preview_screen;
@@ -368,6 +370,7 @@ impl TerminalWindow {
                 geom,
                 visible_separators(&tab.config, tab.snapshot.alt),
                 &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
+                tab.word_wrap,
             );
         }
 
@@ -638,6 +641,7 @@ impl TerminalWindow {
                 &tab.folds,
                 &font_id,
                 current_row,
+                tab.word_wrap,
             );
         }
 
@@ -697,7 +701,7 @@ impl TerminalWindow {
                 let br = preview_box_rect(rect, cell_h, hover_y);
                 // 预览复用真实终端的 margin / 快照 / 折叠集合，数字逐列同源；
                 // 底色与隔行底色跟随配置（2026-11-19 用户比对修正）。
-                preview_paint(painter, br, image, cell, &self.palette, &font_id, &margin_state, &margin_met, &tab.snapshot, &tab.folds, window_bg, self.alt_row_bg);
+                preview_paint(painter, br, image, cell, &self.palette, &font_id, &margin_state, &margin_met, &tab.snapshot, &tab.folds, window_bg, self.alt_row_bg, tab.word_wrap);
             }
         }
 

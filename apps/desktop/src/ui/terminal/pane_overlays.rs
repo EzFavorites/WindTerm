@@ -98,6 +98,9 @@ pub(super) fn paint_overlays(
     let image_cols = image.cols.max(1);
     let start_x = geom.start.x;
     let start_y = geom.start.y;
+    // 与正文 / margin 同一套段表口径（纯函数，同输入同输出）。
+    let wrap_cols = term_app::wrap::effective_wrap_cols(image_cols, tab.word_wrap);
+    let segment_table = term_app::wrap::segments_from_image(image, wrap_cols, tab.word_wrap);
     let cell_w = geom.cell.x;
     let cell_h = geom.cell.y;
 
@@ -128,10 +131,18 @@ pub(super) fn paint_overlays(
             };
             let col_start = m.col_start.min(image_cols);
             let col_end = m.col_end.min(image_cols);
-            if col_end > col_start {
-                let match_y = start_y + (line_idx as f32) * cell_h;
-                let x = start_x + (col_start as f32) * cell_w;
-                let w = ((col_end - col_start) as f32) * cell_w;
+            // 一次匹配可能横跨多个软折段——每段夹到 [start_col, start_col+width)
+            // 各画一块，y 用段序号（与正文同口径）。关软折时只有一段，等价旧行为。
+            for seg_idx in segment_table.row_to_segments(line_idx) {
+                let seg = &segment_table.rows[seg_idx];
+                let from = col_start.max(seg.start_col);
+                let to = col_end.min(seg.start_col + seg.width);
+                if to <= from {
+                    continue;
+                }
+                let match_y = start_y + (seg_idx as f32) * cell_h;
+                let x = start_x + ((from - seg.start_col) as f32) * cell_w;
+                let w = ((to - from) as f32) * cell_w;
                 painter.rect_filled(
                     Rect::from_min_size(egui::pos2(x, match_y), Vec2::new(w, cell_h)),
                     0.0,
@@ -160,13 +171,21 @@ pub(super) fn paint_overlays(
                 if to <= from {
                     continue;
                 }
-                let y = start_y + line_idx as f32 * cell_h;
-                let x = start_x + from as f32 * cell_w;
-                let rect = Rect::from_min_size(
-                    egui::pos2(x, y),
-                    Vec2::new((to - from) as f32 * cell_w, cell_h),
-                );
-                painter.rect_filled(rect, 0.0, hl);
+                for seg_idx in segment_table.row_to_segments(line_idx) {
+                    let seg = &segment_table.rows[seg_idx];
+                    let seg_from = from.max(seg.start_col);
+                    let seg_to = to.min(seg.start_col + seg.width);
+                    if seg_to <= seg_from {
+                        continue;
+                    }
+                    let y = start_y + seg_idx as f32 * cell_h;
+                    let x = start_x + ((seg_from - seg.start_col) as f32) * cell_w;
+                    let rect = Rect::from_min_size(
+                        egui::pos2(x, y),
+                        Vec2::new((seg_to - seg_from) as f32 * cell_w, cell_h),
+                    );
+                    painter.rect_filled(rect, 0.0, hl);
+                }
             }
         }
     }

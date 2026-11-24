@@ -27,7 +27,6 @@
 
 use super::bin;
 use super::hex_params::HexParams;
-use super::marks;
 use super::pane::screen_index_of_grid_row;
 use super::pane_pointer::GridGeom;
 use super::view::{self, LineCache};
@@ -93,20 +92,19 @@ pub(super) fn paint_body(
         // 夹取本身不能省：夹具 / resize 的中间态里 `cursor.0` 可能越界，
         // 那时应当钳到末行，而不是整条不画（与 `caret_band_row` 内部那句
         // `cursor_row.min(rows - 1)` 是同一个口径）。
-        let line_count = image.lines.len();
         let caret_grid_row = tab.snapshot.cursor.0.min(tab.snapshot.rows.saturating_sub(1));
-        let caret_row = screen_index_of_grid_row(image, caret_grid_row).and_then(|row| {
-            marks::caret_band_row(
-                tab.marks.caret_line,
-                tab.viewport.is_bottom(),
-                row,
-                line_count,
-            )
-        });
-        // 光标所在的内容行 / 列：三项新高亮共用同一份坐标，避免各算一遍漂移。
+        // 光标所在的**内容行号**：三项高亮共用同一份坐标。软折后一条内容行
+        // 占多段，paint_rows 按段循环时会用这个内容行号判断哪几段要铺光标底色。
         let caret_content = screen_index_of_grid_row(image, caret_grid_row)
             .and_then(|idx| image.lines.get(idx))
             .map(|line| line.row);
+        // 只有开启「Highlight Caret Line」时才把当前内容行传给 paint_rows；
+        // 传 None 表示不铺底色（与旧 caret_band_row 的开关语义一致）。
+        let caret_row = if tab.marks.caret_line && tab.viewport.is_bottom() {
+            caret_content
+        } else {
+            None
+        };
         let caret_col = tab.snapshot.cursor.1;
         let at = caret_content.map(|row| term_app::selection::Pos::new(row, caret_col));
         let mut word_cells: Vec<(i64, usize)> = Vec::new();
@@ -162,12 +160,11 @@ pub(super) fn paint_body(
         // 本批不优化：下一批 reflow 会把「拼逻辑行 → 重折 → 缓存」一起重构，
         // 现在先做局部优化等于给马上要拆的代码加一层缓存。留在这里是为了让它
         // 是一个**写下来的**已知项，而不是一个没人知道的秘密。
-        let widths: Vec<Vec<u8>> = image
-            .lines
-            .iter()
-            .map(|line| wrap::glyph_widths(&line.cells))
-            .collect();
-        let segments = wrap::wrap_lines(&widths, image.cols.max(1));
+        // 软换行开关决定折行度量：关 → 恒等映射（image.cols、不裁 padding，
+        // 零像素变化）；开 → 折到 wrap column（默认 40）并裁行尾 padding。
+        let wrap_cols = wrap::effective_wrap_cols(image.cols.max(1), tab.word_wrap);
+        let segments = wrap::segments_from_image(image, wrap_cols, tab.word_wrap);
+        let segments = segments.rows.as_slice();
         view::paint_rows(
             painter,
             cache,

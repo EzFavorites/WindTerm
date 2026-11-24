@@ -73,6 +73,9 @@ pub struct DemoSpec {
     /// `true` = 夹具额外派发 `TogglePanel(Sysmon)`，拍展开后的 `T/C/M` 读数条。
     /// 只描述「按了哪个按钮」，与 `margin` / `shell` 同一条「夹具不发状态」的路。
     pub sysmon: bool,
+    /// `true` = 夹具开启软换行（把内容折到 wrap column）。与 `mode` 同类：
+    /// 这是显示模式，夹具直接写 `tab.word_wrap`，不经过 reducer。
+    pub word_wrap: bool,
 }
 
 /// hex 夹具的字节流派别。
@@ -107,6 +110,15 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
+    };
+
+    /// 软换行：与 SCROLL 完全同一字节流、同一选区、同一回看位置，唯一差别是
+    /// 开启软换行。两张基线逐字节不同，正说明开关有可见效果（旧回退的根因是
+    /// 两者逐字节相同）。
+    pub const WRAP: DemoSpec = DemoSpec {
+        word_wrap: true,
+        ..DemoSpec::SCROLL
     };
 
     /// 回看 + 查找：每一行都含 "line"，所以窗口里必然有一片高亮，
@@ -122,6 +134,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// 2026-11-17 Find 栏**空态**：栏开着、查询是空串。
@@ -146,6 +159,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// 回看 + 列选：三行同一段列，图上是竖着的一条带子。
@@ -161,6 +175,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// margin 夹具（2026-11-07）：不滚动、不选区，只把**边栏**摊开给人看。
@@ -176,6 +191,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// 底带夹具（2026-11-07）：一条带 + 标签条摊开在图里。不滚动、不选区——
@@ -192,6 +208,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// 字形样张：不滚动、不选区、不打开查找栏，画面里只有样张与标尺。
@@ -208,6 +225,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// hex 视图夹具（本轮 ②）：环里只有一段「刚收到的响应」，贴着尾巴看。
@@ -225,6 +243,7 @@ impl DemoSpec {
         bin: BinKind::Line,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// hex 洪水夹具：环写满、`dropped > 0`，表头右侧出现「N bytes dropped」，
@@ -240,6 +259,7 @@ impl DemoSpec {
         bin: BinKind::Overflow,
         preview_hover: None,
         sysmon: false,
+        word_wrap: false,
     };
 
     /// hover 预览夹具：回看 6 行（滚动条可见）+ 冻结点亮预览框。
@@ -256,6 +276,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: Some(0.5),
         sysmon: false,
+        word_wrap: false,
     };
 
     /// Sysmon 展开夹具（2026-11-19）：贴底静态画面 + 派发 `TogglePanel(Sysmon)`。
@@ -269,6 +290,7 @@ impl DemoSpec {
     pub fn parse(name: &str) -> Option<DemoSpec> {
         match name {
             "scroll" => Some(DemoSpec::SCROLL),
+            "wrap" => Some(DemoSpec::WRAP),
             "find" => Some(DemoSpec::FIND),
             // Find 栏空态（状态栏不染色那一半）。
             "findempty" => Some(DemoSpec::FIND_EMPTY),
@@ -320,6 +342,8 @@ pub struct Fixture {
     pub preview_screen: Option<ScreenImage>,
     /// 冻定的轨道归一化位置；`None` = 普通夹具。pane.rs 据此反算绝对 y。
     pub preview_hover: Option<f32>,
+    /// 夹具要求的软换行开关；投影层直接写 `tab.word_wrap`（与 `mode` 同类）。
+    pub word_wrap: bool,
 }
 
 impl Fixture {
@@ -628,12 +652,26 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
         // 冻定的轨道归一化位置随夹具一起下发给渲染层；pane.rs 反算成绝对 y 后
         // 覆盖真实指针的 `preview_hover_y`（生产路径恒 None）。
         preview_hover: spec.preview_hover,
+        word_wrap: spec.word_wrap,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrap_fixture_differs_from_scroll_only_by_the_toggle() {
+        // 端到端判据的前提：两张基线的字节流 / 选区 / 回看位置完全相同，
+        // 唯一差别是 word_wrap。若哪天有人给 WRAP 换字节流，这条会红——
+        // 否则「两张图不同」可能只是字节不同，不是软换行生效。
+        let scroll = build(DemoSpec::SCROLL, 100, 24);
+        let wrap = build(DemoSpec::WRAP, 100, 24);
+        // ScreenImage 实现 PartialEq：同一事实窗口 == 同一字节流 + 同一回看位置。
+        assert_eq!(scroll.screen, wrap.screen, "同一事实窗口（字节流 + 回看）");
+        assert_eq!(scroll.selection, wrap.selection, "同一选区");
+        assert!(!scroll.word_wrap && wrap.word_wrap, "唯一差别是软换行开关");
+    }
 
     #[test]
     fn fixture_is_deterministic() {
