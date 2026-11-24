@@ -21,6 +21,8 @@ pub(crate) fn expand_actions(rule: &Rule, matched: &str) -> Vec<TriggerAction> {
             TriggerAction::SendLine(s) => TriggerAction::SendLine(text(s)),
             TriggerAction::RunCommand(s) => TriggerAction::RunCommand(expand(s)),
             TriggerAction::LocalSendLine(s) => TriggerAction::LocalSendLine(text(s)),
+            // URL 不是脚本文本：只替换 `${match}`，不进 Script 求值器。
+            TriggerAction::OpenLink(s) => TriggerAction::OpenLink(expand(s)),
             other => other.clone(),
         })
         .collect()
@@ -84,5 +86,29 @@ mod tests {
         );
         // 原规则不能被这次展开改写，下一次命中仍按模板来。
         assert!(matches!(&rule.actions[0], TriggerAction::SendText(s) if s.contains("${match}")));
+    }
+
+    #[test]
+    fn open_link_action_survives_a_serde_roundtrip() {
+        let action = TriggerAction::OpenLink("https://e.test/${match}".into());
+        let json = serde_json::to_string(&action).unwrap();
+        assert_eq!(json, r#"{"OpenLink":"https://e.test/${match}"}"#);
+        assert_eq!(serde_json::from_str::<TriggerAction>(&json).unwrap(), action);
+        // 新增变体不能让旧配置里的动作读不出来。
+        let old: TriggerAction = serde_json::from_str(r#"{"SendText":"go"}"#).unwrap();
+        assert_eq!(old, TriggerAction::SendText("go".into()));
+    }
+
+    #[test]
+    fn open_link_expands_the_match_placeholder_only() {
+        let mut rule = Rule::default();
+        rule.config.send.mode = SendMode::Script;
+        rule.actions = vec![TriggerAction::OpenLink("https://e.test/${match}".into())];
+        let hit = hit_with(&rule, "42".into());
+        // URL 不像 SendText 那样进脚本求值器：${match} 只是文本替换。
+        assert_eq!(
+            hit.actions,
+            vec![TriggerAction::OpenLink("https://e.test/42".into())]
+        );
     }
 }

@@ -46,15 +46,23 @@ fn custom_menu_at_pointer<'a>(
         })
 }
 
-/// 菜单项 → 触发器动作。三种有执行器的动作真接上；Open hyperlink 在本仓
-/// 没有 opener 通道，画成禁用项并说明，绝不摆一个点了没反应的假控件。
+/// 菜单项 → 触发器动作。四种动作都有执行器：`Open hyperlink` 走投影层的
+/// `sysopen::open`（与 Help / Search online 同一个 opener），不再画假禁用项。
 fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) -> Option<TriggerAction> {
     let expand = |text: &str| text.replace("${match}", matched);
     match item.action {
         ActionKind::RunCommand => Some(TriggerAction::RunCommand(expand(&rule.config.action.os[0].command))),
         ActionKind::PlaySound => Some(TriggerAction::Beep),
         ActionKind::SendText => Some(TriggerAction::SendText(expand(&rule.config.send.text))),
-        ActionKind::OpenHyperlink => None,
+        ActionKind::OpenHyperlink => {
+            let configured = rule.config.action.hyperlink.trim();
+            let url = if configured.is_empty() {
+                matched.to_owned()
+            } else {
+                expand(configured)
+            };
+            Some(TriggerAction::OpenLink(url))
+        }
     }
 }
 
@@ -145,13 +153,7 @@ pub(super) fn paint(
                         continue;
                     }
                     let action = menu_action(item, rule, matched);
-                    let enabled = action.is_some();
-                    let response = ui.add_enabled(enabled, egui::Button::new(item.label.clone()));
-                    if !enabled {
-                        response.on_disabled_hover_text("Open hyperlink: no opener wired in this build");
-                        continue;
-                    }
-                    if response.clicked() {
+                    if ui.button(item.label.clone()).clicked() {
                         // 不用 unwrap/expect：gate 4p 冻结了生产路径 panic 数。
                         if let Some(action) = action {
                             clicked_actions.push(action);
@@ -213,5 +215,33 @@ mod tests {
         // 检测产物只有十六进制、冒号与点，拼进 `Command` 参数不经过 shell，
         // 所以这里不需要额外的注入转义。
         assert!(ping.chars().all(|c| c.is_ascii_alphanumeric() || "-. :".contains(c)));
+    }
+
+    #[test]
+    fn open_hyperlink_item_is_a_real_enabled_action() {
+        let mut rule = Rule::default();
+        rule.config.action.hyperlink = "https://e.test/${match}".into();
+        let item = term_core::trigger::MenuItem {
+            action: ActionKind::OpenHyperlink,
+            ..term_core::trigger::MenuItem::default()
+        };
+        // 菜单项现在真的产出动作 —— paint 里不再有禁用项与「无 opener」提示。
+        assert_eq!(
+            menu_action(&item, &rule, "42"),
+            Some(TriggerAction::OpenLink("https://e.test/42".into()))
+        );
+    }
+
+    #[test]
+    fn open_hyperlink_item_falls_back_to_the_matched_text() {
+        let rule = Rule::default();
+        let item = term_core::trigger::MenuItem {
+            action: ActionKind::OpenHyperlink,
+            ..term_core::trigger::MenuItem::default()
+        };
+        assert_eq!(
+            menu_action(&item, &rule, "https://fallback.test/x"),
+            Some(TriggerAction::OpenLink("https://fallback.test/x".into()))
+        );
     }
 }

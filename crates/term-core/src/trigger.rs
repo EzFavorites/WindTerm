@@ -501,6 +501,9 @@ pub enum TriggerAction {
     /// 内置触发器专用：写给底带本地 Shell 面板（不是当前远端会话）。
     /// 动作语义与 `SendLine` 一致，只是目标不同；由投影层帧末统一消费。
     LocalSendLine(String),
+    /// 用系统默认程序打开 URL / 文件。只声明意图，真正 opener 由投影层调用。
+    /// 新增变体不影响旧配置里的其它变体（默认按变体名序列化）。
+    OpenLink(String),
 }
 
 /// 一次命中。`matched` 是本轮窗口里真正匹配到的文本（事件类命中为空串）。

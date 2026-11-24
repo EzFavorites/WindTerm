@@ -9,7 +9,7 @@
 //! 在这里加一个方法，而不是在绘制代码里 `tab.pool().xxx()`——否则下一次
 //! 换控制面又要改 25 处。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
@@ -26,6 +26,14 @@ fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// 用系统默认程序打开 hyperlink。失败只留一条日志，绝不 panic（gate 4p）。
+/// opener 作为参数是为了让单测能用可控的假实现覆盖「调用路径 + 失败静默」。
+fn open_link_with(url: &str, opener: impl FnOnce(&Path) -> std::io::Result<()>) {
+    if let Err(err) = opener(Path::new(url)) {
+        eprintln!("触发器 Open hyperlink 失败：{err}");
+    }
 }
 
 /// 一次粘贴实际写出去的东西。
@@ -322,6 +330,7 @@ impl Tab {
     ///   需要 `Action` 分发器，tab 这一层没有。
     /// - `Highlight`：记下命中所在的内容行，`paint_rows` 在字形下铺一层淡底；
     ///   不进选区、不影响复制。
+    /// - `OpenLink`：经投影层 `sysopen::open` 用系统默认程序打开；失败只记日志。
     pub(in crate::ui) fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
         for action in &hit.actions {
             match action {
@@ -347,6 +356,7 @@ impl Tab {
                 TriggerAction::RunCommand(id) => {
                     run_commands.push(id.clone());
                 }
+                TriggerAction::OpenLink(url) => open_link_with(url, crate::sysopen::open),
                 TriggerAction::LocalSendLine(s) => {
                     let mut text = s.clone();
                     text.push('\r');
@@ -596,5 +606,33 @@ impl Tab {
         if let Some(id) = self.session.take() {
             self.pool.close(id);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// `apply_trigger` 的 `OpenLink` 分支经这个辅助调用 opener；这里用假 opener
+    /// 钉住「URL 原样传出」与「失败不 panic」两件事，不在桌面里真起进程。
+    #[test]
+    fn open_link_calls_the_opener_with_the_exact_url() {
+        let seen = RefCell::new(Vec::new());
+        open_link_with("https://e.test/a b", |path| {
+            seen.borrow_mut().push(path.to_path_buf());
+            Ok(())
+        });
+        assert_eq!(seen.borrow().as_slice(), &[PathBuf::from("https://e.test/a b")]);
+    }
+
+    #[test]
+    fn open_link_swallows_opener_errors() {
+        let called = RefCell::new(false);
+        open_link_with("missing", |_| {
+            *called.borrow_mut() = true;
+            Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no opener"))
+        });
+        assert!(*called.borrow());
     }
 }

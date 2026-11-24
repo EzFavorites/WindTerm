@@ -126,6 +126,8 @@ fn convert_action(old: &TriggerAction) -> Option<Action> {
         TriggerAction::RunCommand(id) => Some(Action::App(AppAction::Dispatch(id.clone()))),
         // 内置触发器的本地 shell 副作用在无渲染基底里没有目标，保留命中不产出动作。
         TriggerAction::LocalSendLine(_) => None,
+        // 打开链接要调 OS opener；影子内核无渲染基底，不产出副作用（旧轨另有通道）。
+        TriggerAction::OpenLink(_) => None,
         // 无渲染基底：保留规则命中，但不产出副作用（与旧轨一致）。
         TriggerAction::Highlight => None,
     }
@@ -273,10 +275,11 @@ mod tests {
                 TriggerAction::Beep,
                 TriggerAction::RunCommand("File.Save".into()),
                 TriggerAction::Highlight,
+                TriggerAction::OpenLink("https://e.test".into()),
             ],
         );
         let r = convert_rule(&old).unwrap();
-        assert_eq!(r.actions.len(), 4, "Highlight 无渲染基底，不产动作");
+        assert_eq!(r.actions.len(), 4, "Highlight / OpenLink 无渲染基底，不产动作");
         match &r.actions[0] {
             Action::Session(inv) => {
                 assert_eq!(inv.method, "write");
