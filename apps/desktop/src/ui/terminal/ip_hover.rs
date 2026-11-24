@@ -7,9 +7,56 @@
 
 use super::pane_pointer::GridGeom;
 use crate::ui::*;
+use term_app::trigger::{self, Rule};
 use term_app::trigger_builtins::{self, Builtin};
-use term_core::trigger::TriggerAction;
+use term_core::trigger::{ActionKind, TriggerAction, TriggerOn};
 use term_core::grid::ScreenImage;
+
+/// Custom Menu 规则在指针所在行命中了哪一段文本。复用 `feed_for` 的同一个
+/// `find_in`，所以"输出时命中"与"悬停时能点到"是同一套判据。
+fn custom_menu_at_pointer<'a>(
+    image: &ScreenImage,
+    geom: GridGeom,
+    pos: egui::Pos2,
+    rules: &'a [Rule],
+) -> Option<(&'a Rule, String)> {
+    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
+    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
+    if row < 0.0 || col < 0.0 {
+        return None;
+    }
+    let line = image.lines.get(row as usize)?;
+    let text = line.text();
+    rules
+        .iter()
+        .filter(|rule| {
+            rule.enabled
+                && rule.on == TriggerOn::Output
+                && !rule.pattern.is_empty()
+                && !rule.config.menu.items.is_empty()
+        })
+        .find_map(|rule| {
+            let (start, end) = trigger::match_in_line(rule, &text)?;
+            let col = col as usize;
+            if col < start || col >= end {
+                return None;
+            }
+            let matched: String = text.chars().skip(start).take(end - start).collect();
+            Some((rule, matched))
+        })
+}
+
+/// 菜单项 → 触发器动作。三种有执行器的动作真接上；Open hyperlink 在本仓
+/// 没有 opener 通道，画成禁用项并说明，绝不摆一个点了没反应的假控件。
+fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) -> Option<TriggerAction> {
+    let expand = |text: &str| text.replace("${match}", matched);
+    match item.action {
+        ActionKind::RunCommand => Some(TriggerAction::RunCommand(expand(&rule.config.action.os[0].command))),
+        ActionKind::PlaySound => Some(TriggerAction::Beep),
+        ActionKind::SendText => Some(TriggerAction::SendText(expand(&rule.config.send.text))),
+        ActionKind::OpenHyperlink => None,
+    }
+}
 
 fn ping_command(ip: &str) -> String {
     if cfg!(windows) {
@@ -58,6 +105,7 @@ pub(super) fn paint(
     image: &ScreenImage,
     geom: GridGeom,
     word_wrap: bool,
+    rules: &[Rule],
 ) -> Option<term_app::trigger::Hit> {
     if word_wrap {
         return None;
@@ -65,45 +113,86 @@ pub(super) fn paint(
     let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else {
         return None;
     };
-    let Some(ip) = ip_at_pointer(image, geom, pos) else {
+    let mut picked: Option<(bool, String)> = None;
+    let mut clicked_actions: Vec<TriggerAction> = Vec::new();
+    let custom = if ip_at_pointer(image, geom, pos).is_none() {
+        custom_menu_at_pointer(image, geom, pos, rules)
+    } else {
+        None
+    };
+    let ip = match (ip_at_pointer(image, geom, pos), custom.as_ref()) {
+        (Some(ip), _) => Some(ip),
+        (None, Some((_, matched))) => Some(matched.clone()),
+        _ => None,
+    };
+    let Some(ip) = ip else {
         return None;
     };
-    let mut picked: Option<(bool, String)> = None;
-    egui::Area::new(egui::Id::new("ip_trigger_menu"))
+    let id = if custom.is_some() {
+        egui::Id::new("custom_trigger_menu")
+    } else {
+        egui::Id::new("ip_trigger_menu")
+    };
+    egui::Area::new(id)
         .order(egui::Order::Tooltip)
         .anchor(egui::Align2::LEFT_TOP, pos.to_vec2() + egui::vec2(10.0, 10.0))
         .show(ui.ctx(), |ui| {
-            ui.label(format!("IP: {ip}"));
-            if ui.button("Ping (remote session)").clicked() {
-                picked = Some((false, ping_command(&ip)));
-            }
-            if ui.button("Traceroute (remote session)").clicked() {
-                picked = Some((false, trace_command(&ip)));
-            }
-            ui.separator();
-            if ui.button("Ping (local shell)").clicked() {
-                picked = Some((true, ping_command(&ip)));
-            }
-            if ui.button("Traceroute (local shell)").clicked() {
-                picked = Some((true, trace_command(&ip)));
+            if let Some((rule, matched)) = &custom {
+                ui.label(matched.as_str());
+                for item in &rule.config.menu.items {
+                    if item.separator {
+                        ui.separator();
+                        continue;
+                    }
+                    let action = menu_action(item, rule, matched);
+                    let enabled = action.is_some();
+                    let response = ui.add_enabled(enabled, egui::Button::new(item.label.clone()));
+                    if !enabled {
+                        response.on_disabled_hover_text("Open hyperlink: no opener wired in this build");
+                        continue;
+                    }
+                    if response.clicked() {
+                        // 不用 unwrap/expect：gate 4p 冻结了生产路径 panic 数。
+                        if let Some(action) = action {
+                            clicked_actions.push(action);
+                        }
+                    }
+                }
+            } else {
+                ui.label(format!("IP: {ip}"));
+                if ui.button("Ping (remote session)").clicked() {
+                    picked = Some((false, ping_command(&ip)));
+                }
+                if ui.button("Traceroute (remote session)").clicked() {
+                    picked = Some((false, trace_command(&ip)));
+                }
+                ui.separator();
+                if ui.button("Ping (local shell)").clicked() {
+                    picked = Some((true, ping_command(&ip)));
+                }
+                if ui.button("Traceroute (local shell)").clicked() {
+                    picked = Some((true, trace_command(&ip)));
+                }
             }
         });
-    if let Some((local, command)) = picked {
+    let actions = if !clicked_actions.is_empty() {
+        clicked_actions
+    } else if let Some((local, command)) = picked {
         // 内置 IP 触发器的菜单项与用户触发器共用同一条 Hit → apply_trigger 链路：
         // 远端用 SendLine，本地用 LocalSendLine，二者都由触发器执行器负责落地。
-        let action = if local {
+        vec![if local {
             TriggerAction::LocalSendLine(command)
         } else {
             TriggerAction::SendLine(command)
-        };
-        let hit = term_app::trigger::Hit {
-            rule_id: "__builtin_ip".to_string(),
-            actions: vec![action],
-            matched: ip,
-        };
-        return Some(hit);
-    }
-    None
+        }]
+    } else {
+        return None;
+    };
+    let rule_id = custom
+        .as_ref()
+        .map(|(rule, _)| rule.id.clone())
+        .unwrap_or_else(|| "__builtin_ip".to_string());
+    Some(term_app::trigger::Hit { rule_id, actions, matched: ip })
 }
 
 #[cfg(test)]

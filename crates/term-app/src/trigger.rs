@@ -209,6 +209,16 @@ pub fn validate(pattern: &str) -> Result<(), String> {
     trigger_regex::parse(pattern).map(|_| ())
 }
 
+/// 在一行文本里找规则的匹配区间（字符下标 `[start, end)`）。
+///
+/// 与 `feed_for` 用的同一个 `find_in`，只是把窗口换成单行字符串。悬停菜单据此
+/// 判断指针是否落在命中串上——检测口径因此与触发器求值器完全一致，不会出现
+/// "输出时命中了、悬停时找不到" 的分裂。
+pub fn match_in_line(rule: &Rule, text: &str) -> Option<(usize, usize)> {
+    let chars: Vec<char> = text.chars().collect();
+    find_in(rule, &chars, 0)
+}
+
 fn find_in(rule: &Rule, window: &[char], scanned: usize) -> Option<(usize, usize)> {
     if rule.literal {
         let needle: Vec<char> = rule.pattern.chars().collect();
@@ -537,4 +547,16 @@ mod tests {
         assert_eq!(m.feed(&rules, "x", 1).len(), 1);
         assert!(m.event(&rules, TriggerOn::Output, 2).is_empty());
     }
+    #[test]
+    fn match_in_line_reuses_the_same_matcher_as_feed_for() {
+        let mut rule = Rule::default();
+        rule.pattern = "ERR".to_string();
+        rule.literal = true;
+        rule.case_sensitive = false;
+        assert_eq!(match_in_line(&rule, "an err occurred"), Some((3, 6)));
+        rule.pattern = "nomatch".to_string();
+        assert_eq!(match_in_line(&rule, "an err occurred"), None);
+    }
+
+
 }

@@ -374,7 +374,7 @@ impl TerminalWindow {
             );
         }
 
-        if !bin && !tab.local_mode { if let Some(hit) = super::ip_hover::paint(ui, image, geom, tab.word_wrap) { self.pending_ip_hit = Some(hit); } }
+        if !bin && !tab.local_mode { if let Some(hit) = super::ip_hover::paint(ui, image, geom, tab.word_wrap, &self.triggers) { self.pending_ip_hit = Some(hit); } }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {
             let mods = ui.input(|i| i.modifiers);
