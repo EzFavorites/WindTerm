@@ -11,6 +11,19 @@ use term_app::action::{XferCmd, XferProtocol};
 use crate::ui::*;
 use crate::ui::panels::filer::xfer::XferPick;
 
+/// 一条本地路径 → 上传意图。目录必须带 `is_dir=true`，否则会走单文件
+/// 通道去 `File::open` 一个目录（EISDIR），官网 page/21 的「上传多个文件夹」
+/// 就根本不成立。`is_dir` 由调用方按路径判定，这里只做可单测的纯映射。
+fn upload_pick_for(local: &str, is_dir: bool) -> Option<XferPick> {
+    let name = Path::new(local).file_name()?.to_string_lossy().into_owned();
+    Some(XferPick::Upload {
+        local: local.to_string(),
+        name,
+        size: 0,
+        is_dir,
+    })
+}
+
 pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     if win.view.lock.locked {
         return;
@@ -34,15 +47,10 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     });
     if over_filer && !win.filer_remote_dir().is_empty() {
         for local in &paths {
-            let Some(name) = Path::new(local).file_name().map(|n| n.to_string_lossy().into_owned()) else {
-                continue;
-            };
-            win.start_filer_transfer(XferPick::Upload {
-                local: local.clone(),
-                name,
-                size: 0,
-                is_dir: false,
-            });
+            let is_dir = Path::new(local).is_dir();
+            if let Some(pick) = upload_pick_for(local, is_dir) {
+                win.start_filer_transfer(pick);
+            }
         }
         ctx.request_repaint();
         return;
@@ -62,4 +70,30 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
         prompt.path = paths.join(";");
     }
     ctx.request_repaint();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dropped_directories_and_files_get_distinct_upload_intents() {
+        let dir = upload_pick_for("/tmp/project", true).expect("目录应有上传意图");
+        let file = upload_pick_for("/tmp/notes.txt", false).expect("文件应有上传意图");
+        match (dir, file) {
+            (XferPick::Upload { local, name, is_dir, .. }, XferPick::Upload { name: file_name, is_dir: file_is_dir, .. }) => {
+                assert_eq!(local, "/tmp/project");
+                assert_eq!(name, "project");
+                assert!(is_dir, "拖入的目录必须走树上传");
+                assert_eq!(file_name, "notes.txt");
+                assert!(!file_is_dir, "普通文件仍走单文件上传");
+            }
+            _ => panic!("上传意图类型不对"),
+        }
+    }
+
+    #[test]
+    fn a_path_without_a_file_name_is_skipped() {
+        assert!(upload_pick_for("/", false).is_none());
+    }
 }

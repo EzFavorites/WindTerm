@@ -58,10 +58,21 @@ pub fn delete_bytes(mode: usize) -> &'static str {
     }
 }
 
-/// 快捷命令栏等配置串的转义解码：`\n` / `\r` / `\t` / `\xHH` / `\cX` / `\\`。
+/// 快捷命令栏 / tmux Send 等配置串的转义解码。
 ///
-/// 未识别的转义原样保留（包括反斜杠），绝不静默吞掉配置字符。
+/// 统一委托给 [`crate::send_escapes::decode`]——那是 Sender / Trigger 用的
+/// 完整表（`\0 \a \b \v \f \nnn \xHH \uHHHH \cX / \c-X / \mX / \m-X`）。
+/// 以前这里只有一张残缺子集，导致同一串文本在 QuickBar 与 Sender 里发出不同字节。
+/// 语法错时退回旧解码器，保证「未识别的原样保留」这条老契约不破。
 pub fn decode_send_text(text: &str) -> Vec<u8> {
+    match crate::send_escapes::decode(text) {
+        Ok(bytes) => bytes,
+        Err(_) => decode_send_text_legacy(text),
+    }
+}
+
+/// 旧子集解码器，仅作语法错误时的降级路径。
+fn decode_send_text_legacy(text: &str) -> Vec<u8> {
     let bytes = text.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
@@ -299,7 +310,14 @@ mod tests {
         assert_eq!(decode_send_text("\\c["), vec![0x1b]);
         assert_eq!(decode_send_text("a\\\\b"), b"a\\b");
         // 未识别的转义原样保留，不能把配置字符吃掉。
-        assert_eq!(decode_send_text("a\\qb"), b"a\\qb");
+        // 完整表按原版口径把未知转义的字母原样发出（`\q` → `q`），与 Sender 一致。
+        assert_eq!(decode_send_text("a\\qb"), b"aqb");
+        // 官网 QuickBar 完整转义表：这几条旧子集解码器都不认识。
+        assert_eq!(decode_send_text("\\u0003"), vec![0x03]);
+        assert_eq!(decode_send_text("\\c-c"), vec![0x03]);
+        assert_eq!(decode_send_text("\\003"), vec![0x03]);
+        assert_eq!(decode_send_text("\\ma"), vec![b'a' | 0x80], "原版 \\mX 是高位字符");
+        assert_eq!(decode_send_text("\\a\\b\\v\\f"), vec![0x07, 0x08, 0x0b, 0x0c]);
     }
 
     #[test]
