@@ -390,17 +390,8 @@ impl TerminalWindow {
                 // 两种源都能用：本地视图本就列着本地文件，远端视图也可以用本地
                 // 文件填远端当前目录（源由弹层自己列，不依赖这一行）。
                 ui.separator();
-                if ui
-                    .add_enabled(
-                        blocker.is_ok() && !sync_running,
-                        egui::Button::new("选择多个本地文件上传…"),
-                    )
-                    .on_hover_text("勾选多个本地文件/目录，逐个上传到远端当前目录")
-                    .clicked()
-                {
-                    multi_upload = true;
-                    ui.close_menu();
-                }
+                let pick = ui.add_enabled(blocker.is_ok() && !sync_running, egui::Button::new("选择多个本地文件上传…"));
+                if pick.on_hover_text("勾选多个本地文件/目录，逐个上传到远端当前目录").clicked() { multi_upload = true; ui.close_menu(); }
                 if let Err(why) = blocker {
                     ui.label(egui::RichText::new(why).weak().small());
                 } else if sync_running {
@@ -579,11 +570,7 @@ impl TerminalWindow {
         if multi_upload {
             // 起点取 Filer 的本地当前目录（面板可切 Source::Local），与用户眼前
             // 那份列表同一处；空路径时退回家目录，不给一个打不开的弹层。
-            let start = if self.filer.local_path.as_os_str().is_empty() {
-                term_io::local_dir::home()
-            } else {
-                self.filer.local_path.clone()
-            };
+            let start = if self.filer.local_path.as_os_str().is_empty() { term_io::local_dir::home() } else { self.filer.local_path.clone() };
             self.open_upload_picker(start);
         }
         // 只发起扫描，不改任何文件。汇总在下一帧由 `poll_sync` 写进状态行。
@@ -603,11 +590,7 @@ impl TerminalWindow {
     /// 多选上传的汇总回执。与右键单项上传共用 Filer 状态行那一个 `progress` 槽，
     /// 不另开提示位；`view` 是 `filer` 的子模块，能写它的私有字段。
     pub(in crate::ui) fn note_multi_upload(&mut self, notes: Vec<String>) {
-        self.filer.progress = Some(if notes.is_empty() {
-            "所选路径都已不存在，未入队".to_string()
-        } else {
-            notes.join("；")
-        });
+        self.filer.progress = Some(if notes.is_empty() { "所选路径都已不存在，未入队".to_string() } else { notes.join("；") });
     }
 }
 

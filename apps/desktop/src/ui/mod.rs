@@ -28,8 +28,7 @@ mod modem_auto; mod modem_drop;
 mod reconnect;
 mod overlays;
 mod panels;
-mod path_picker;
-mod upload_picker;
+mod path_picker; mod upload_picker;
 mod shell;
 mod tab;
 mod tab_hover; mod tab_thumbnail;
@@ -840,10 +839,7 @@ impl TerminalWindow {
         }
         // 远端 Sysmon：开关开着才可能发起一次采样；节流 / 工作线程在 sysmon_remote
         // 里，这里只做每帧的参数准备，不阻塞、不碰用户 PTY。
-        self.sync_remote_sysmon(ctx);
-        // 关闭确认弹窗：键盘模态 + 系统关闭请求的拦截，必须赶在所有事件
-        // 消费者之前（见 `dialogs::confirm`）。
-        self.confirm_pre_update(ctx);
+        self.sync_remote_sysmon(ctx); self.confirm_pre_update(ctx); // 都赶在事件消费者之前
         // 粘贴确认弹窗的键盘模态：同样要赶在终端吃键之前（弹窗开着时 Esc /
         // Enter 归它，其余键与文字一律吃掉）。
         self.paste_pre_update(ctx);
