@@ -70,6 +70,20 @@
 //! 材质流 [`SegmentTable`] 每帧在投影层算一次，正文 / 查找 / 选区命中 / margin /
 //! 回看各自按段做坐标换算（段表就是「一行逻辑行 = n 段」这层坐标系）。
 //! 端到端判据：`--demo scroll` 与 `--demo wrap` 同字节流、截图逐字节不同。
+//!
+//! 2026-11-24（本刀）：按词折行与可调列宽落在 [`crate::wrap_word`]，本文件的老
+//! 签名一律不动（等于 char + 列宽 0）。下方 `pub use` 把新入口挂回本模块，六个
+//! 消费者统一走 `segments_for_wrap`，默认态逐字节回到老行为。
+
+pub use crate::wrap_word::{
+    effective_wrap_cols_with, glyph_whitespace, glyph_whitespace_trimmed, segments_for_wrap,
+    segments_for_with_mode, segments_from_image_with_mode, wrap_lines_with_mode, WrapConfig,
+    WrapMode, WrapSettings,
+};
+
+/// 软折开启时的出厂列宽（比典型命令行宽，比整窗窄）。老 `effective_wrap_cols`
+/// 与 `wrap_word::WrapConfig` 共用这一个常量，不各写一份 40。
+pub const DEFAULT_WRAP_COLUMN: usize = 40;
 
 /// 一段屏幕行：来自哪个逻辑行、从该行第几列开始、占多少显示列。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -223,7 +237,6 @@ pub fn segments_from_image(
 /// 用户立刻看到效果；窗口比 40 窄时仍恒等（与现状一致）。这也让端到端
 /// 判据成立——同一字节流下开关两态的截图必然不同。
 pub fn effective_wrap_cols(image_cols: usize, word_wrap: bool) -> usize {
-    const DEFAULT_WRAP_COLUMN: usize = 40;
     if word_wrap {
         image_cols.min(DEFAULT_WRAP_COLUMN)
     } else {

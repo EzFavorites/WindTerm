@@ -186,6 +186,7 @@ pub(in crate::ui) fn window_with(
         quick_bar_display: term_runtime::quickbar::QuickBarDisplay::default(),
         wrap_symbols: false,
         column_marker_col: 0,
+        wrap_settings: term_app::wrap::WrapSettings::default(),
         completion: term_core::completion::Settings::default(),
         completion_state: Default::default(),
         groups: Vec::new(),

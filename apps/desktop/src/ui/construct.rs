@@ -265,6 +265,7 @@ impl TerminalWindow {
             // 设置页改完写回并同步窗口副本 + 活动标签的 marks）。
             wrap_symbols: prefs.view_wrap_symbols,
             column_marker_col: prefs.view_column_marker,
+            wrap_settings: term_app::wrap::WrapSettings::from_prefs(prefs.wrap_mode, prefs.wrap_column),
             // I-AC：补全偏好一次读入运行期副本，与 wrap 两项同一写法。
             completion: prefs.completion.clone(),
             completion_state: Default::default(),

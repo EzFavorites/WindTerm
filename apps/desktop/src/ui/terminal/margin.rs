@@ -229,15 +229,15 @@ pub(in crate::ui) fn paint(
     folds: &Folds,
     font: &egui::FontId,
     current_row: Option<i64>,
-    word_wrap: bool,
+    // 与正文同源的一帧折行配置（mode / column / 软折开关）。
+    wrap_cfg: term_app::wrap::WrapConfig,
 ) {
     if met.width <= 0.0 {
         return;
     }
-    // 与正文同一套段表口径：软折开时按 wrap column 折，关时恒等。
+    // 与正文同一套段表口径：软折开时按同一份 mode / column 折，关时恒等。
     // 纯函数、同输入同输出，算两次无副作用（margin 与正文各算一份）。
-    let wrap_cols = term_app::wrap::effective_wrap_cols(image.cols.max(1), word_wrap);
-    let segments = term_app::wrap::segments_from_image(image, wrap_cols, word_wrap);
+    let segments = term_app::wrap::segments_for_wrap(image, wrap_cfg);
     let segments = &segments.rows;
     let pal = term_core::theme::MARGIN;
     let time_col = to_color32(Rgb::from_u32(pal.time));
@@ -331,7 +331,7 @@ pub(in crate::ui) fn paint(
             let cy = y + cell_h * 0.5;
             // `~` 续行标记：软折开时画在 soft_continued 段（wrap column 处），
             // 否则沿用内核硬折 wraps。提示符 `›` 只画在首段。
-            let cont = soft_cont || (!word_wrap && is_wrapped(snap, abs));
+            let cont = soft_cont || (!wrap_cfg.enabled && is_wrapped(snap, abs));
             if !soft_cont && is_prompt(snap, abs) {
                 // `›`：两条线段，不依赖字体有没有这个字形（同会话树的做法）。
                 let h = cell_h * 0.26;

@@ -370,7 +370,7 @@ impl TerminalWindow {
                 geom,
                 visible_separators(&tab.config, tab.snapshot.alt),
                 &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
-                tab.word_wrap,
+                self.wrap_settings.with(tab.word_wrap),
             );
         }
 
@@ -641,7 +641,7 @@ impl TerminalWindow {
                 &tab.folds,
                 &font_id,
                 current_row,
-                tab.word_wrap,
+                self.wrap_settings.with(tab.word_wrap),
             );
         }
 
@@ -661,7 +661,7 @@ impl TerminalWindow {
             geom,
             hex,
             self.alt_row_bg,
-            bin,
+            self.wrap_settings.with(tab.word_wrap), bin,
         );
 
         // 正文之后的全部叠层，五段一条都不许换序（顺序决定像素）：
@@ -681,7 +681,7 @@ impl TerminalWindow {
             &self.palette,
             geom,
             bin,
-            OverlayToggles { cursor_typing: self.hide_cursor_typing, search: self.highlight_search },
+            OverlayToggles { cursor_typing: self.hide_cursor_typing, search: self.highlight_search }, self.wrap_settings.with(tab.word_wrap),
         );
 
         // 第 7 段 chrome——滚动条滑块（只读 `tab.viewport`，不改任何状态）。
@@ -701,7 +701,7 @@ impl TerminalWindow {
                 let br = preview_box_rect(rect, cell_h, hover_y);
                 // 预览复用真实终端的 margin / 快照 / 折叠集合，数字逐列同源；
                 // 底色与隔行底色跟随配置（2026-11-19 用户比对修正）。
-                preview_paint(painter, br, image, cell, &self.palette, &font_id, &margin_state, &margin_met, &tab.snapshot, &tab.folds, window_bg, self.alt_row_bg, tab.word_wrap);
+                preview_paint(painter, br, image, cell, &self.palette, &font_id, &margin_state, &margin_met, &tab.snapshot, &tab.folds, window_bg, self.alt_row_bg, self.wrap_settings.with(tab.word_wrap));
             }
         }
 

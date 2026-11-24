@@ -488,6 +488,8 @@ pub fn paint_cursor(
     cell: Vec2,
     fg: Color32,
     hide_while_typing: bool,
+    // 与正文同源的一帧折行配置；光标落点按同一张段表反查。
+    wrap_cfg: term_app::wrap::WrapConfig,
 ) {
     let typing_pause = if hide_while_typing {
         tab.typing_pause_left()
@@ -521,7 +523,7 @@ pub fn paint_cursor(
     };
     // 软折后光标列 cc 可能落在逻辑行的第 2+ 段：用段表反查所在段，
     // y = 段序号、x = 段内列。关软折时段表恒等（段 0 = 整行），与旧行为逐像素相同。
-    let wrap_cols = term_app::wrap::effective_wrap_cols(tab.view.cols.max(1), tab.word_wrap); let segments = term_app::wrap::segments_from_image(&tab.view, wrap_cols, tab.word_wrap);
+    let segments = term_app::wrap::segments_for_wrap(&tab.view, wrap_cfg);
     let Some(seg_idx) = segments.cell_to_segment(line_idx, cc) else {
         return;
     };

@@ -139,11 +139,12 @@ pub(in crate::ui) const DISABLED_NOTE: &str = "Not stored yet: these settings co
 // 双击那一行没有协议事件，仍按灰显画，理由写在 `settings_live_mouse` 里。
 
 /// `Wrap` 页的说明。软换行本体已于 2026-11-24 接真：开关在 Mode ▸ Word Wrap，
-/// 段表按 `Tab.word_wrap` 每帧现算（`wrap::segments_from_image`），折到 wrap
-/// column。本页两档下拉保持视觉基线形状，只作展示，不另造第二个写入者。
-/// `Wrap symbols` / `Column markers` 仍走 View 菜单的 MarksKnob 渲染器。
-const WRAP_NOTE: &str = "Soft wrapping is toggled per tab with Mode ▸ Word Wrap; lines fold at \
-     the wrap column when on. Wrap symbols and column markers are drawn from the View menu.";
+/// 段表按 `wrap::WrapConfig` 每帧现算。本页 `Wrap mode` / `Wrap column` 两行
+/// 已是真控件（落 prefs + 同步窗口副本，六个终端消费者同源），不再是展示用
+/// 灰下拉。`Wrap symbols` / `Column markers` 仍走 View 菜单的 MarksKnob 渲染器。
+const WRAP_NOTE: &str = "Soft wrapping is toggled per tab with Mode ▸ Word Wrap; wrap mode and \
+     column are set here and applied immediately. Wrap symbols and column markers are drawn \
+     from the View menu.";
 
 /// `Highlight` 页 2026-11-19 搬去 live 页（`settings_live_highlight`）：
 /// caret line 一行接成真勾选，原先「Text.HighlightCaretLine parses to no action」

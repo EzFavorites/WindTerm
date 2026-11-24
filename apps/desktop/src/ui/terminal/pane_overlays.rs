@@ -90,6 +90,8 @@ pub(super) fn paint_overlays(
     geom: GridGeom,
     bin: bool,
     toggles: OverlayToggles,
+    // 与正文 / margin 同源的一帧折行配置（查找高亮与光标都按段表定位）。
+    wrap_cfg: term_app::wrap::WrapConfig,
 ) {
     // 拆回两个局部的名字：下面几段各用其中一项，`hide_cursor_typing` 还要往下
     // 传给 `view::paint_cursor`。这样函数体的读法与加这个结构体之前一字不差。
@@ -99,8 +101,7 @@ pub(super) fn paint_overlays(
     let start_x = geom.start.x;
     let start_y = geom.start.y;
     // 与正文 / margin 同一套段表口径（纯函数，同输入同输出）。
-    let wrap_cols = term_app::wrap::effective_wrap_cols(image_cols, tab.word_wrap);
-    let segment_table = term_app::wrap::segments_from_image(image, wrap_cols, tab.word_wrap);
+    let segment_table = term_app::wrap::segments_for_wrap(image, wrap_cfg);
     let cell_w = geom.cell.x;
     let cell_h = geom.cell.y;
 
@@ -258,6 +259,7 @@ pub(super) fn paint_overlays(
             Vec2::new(cell_w, cell_h),
             to_color32(palette.default_fg),
             hide_cursor_typing,
+            wrap_cfg,
         );
     }
 }

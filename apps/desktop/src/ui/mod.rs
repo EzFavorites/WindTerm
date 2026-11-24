@@ -225,6 +225,9 @@ pub struct TerminalWindow {
     wrap_symbols: bool,
     /// 0 = 不画参考列；>0 = 参考列号。
     column_marker_col: usize,
+    /// `Wrap ▸ Wrap mode / Wrap column`（`prefs.wrap_mode` / `wrap_column`）的运行期副本。
+    /// 构造时读一次，Wrap 页改完写回并同步；六个终端消费者都从它取同一份配置。
+    wrap_settings: term_app::wrap::WrapSettings,
     /// I-AC：补全偏好的运行期副本。设置页改完立刻写回这里供键盘漏斗每帧
     /// 读取，落盘仍走 `settings_live::save_prefs` 那一个入口。
     /// 与 `caret_style` / `wrap_symbols` 同一写法：不每帧读盘。

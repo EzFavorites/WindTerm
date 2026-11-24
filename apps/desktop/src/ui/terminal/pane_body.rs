@@ -50,6 +50,8 @@ pub(super) fn paint_body(
     geom: GridGeom,
     hex: HexParams,
     alt_row_bg: bool,
+    // 本帧折行配置：窗口级 mode / column + 当前标签的软折开关，六消费者同源。
+    wrap_cfg: term_app::wrap::WrapConfig,
     bin: bool,
 ) {
     let image = &tab.view;
@@ -160,10 +162,10 @@ pub(super) fn paint_body(
         // 本批不优化：下一批 reflow 会把「拼逻辑行 → 重折 → 缓存」一起重构，
         // 现在先做局部优化等于给马上要拆的代码加一层缓存。留在这里是为了让它
         // 是一个**写下来的**已知项，而不是一个没人知道的秘密。
-        // 软换行开关决定折行度量：关 → 恒等映射（image.cols、不裁 padding，
-        // 零像素变化）；开 → 折到 wrap column（默认 40）并裁行尾 padding。
-        let wrap_cols = wrap::effective_wrap_cols(image.cols.max(1), tab.word_wrap);
-        let segments = wrap::segments_from_image(image, wrap_cols, tab.word_wrap);
+        // 段表唯一入口：关 → 恒等映射（image.cols、不裁 padding，零像素变化）；
+        // 开 → 同一份 mode / column 折行并裁行尾 padding。与 margin / 查找 /
+        // 选区命中 / 预览 / 指针命中读同一张表，折点不可能各自漂移。
+        let segments = wrap::segments_for_wrap(image, wrap_cfg);
         let segments = segments.rows.as_slice();
         // 彩虹括号：按嵌套深度算括号颜色。关时传空表（零开销、零像素变化）。
         // 深度用会话的 bracket_pairs（出厂 ()[]{}），与 Pair 导航同口径。

@@ -120,6 +120,8 @@ pub mod scrollbar;
 #[cfg(test)]
 mod scrollbar_tests;
 pub mod wrap;
+// 按词折行 + 可调列宽：与 wrap.rs 同属纯层，拆文件是为了守住单文件 500 行门禁。
+pub mod wrap_word;
 
 // ── `planned`：已实现、已测试，但**没有任何生产读者** ──────────────────────
 //

@@ -327,6 +327,19 @@ pub struct Prefs {
     /// 出厂 `false`。与 `mar` 那一列不同：这里画在正文的最右一列，不占 margin。
     #[serde(default)]
     pub view_wrap_symbols: bool,
+    /// `Wrap ▸ Wrap mode`：0 = 按字符折行（出厂/接线前行为）、1 = 按词折行
+    /// （折点回退到空白边界，不劈词）。越界值由 `WrapMode::from_u8` 回落 0。
+    ///
+    /// 这是**全局默认**：设置页改完立刻写回窗口副本供每帧段表读取，开/关软折
+    /// 仍是每标签的 `Tab.word_wrap`（Mode ▸ Word Wrap）。
+    #[serde(default)]
+    pub wrap_mode: u8,
+    /// `Wrap ▸ Wrap column`：0 = Window edge（出厂口径；开软折时回落默认 40），
+    /// 非 0 = 用户指定的折行列宽（设置页夹进 8..=512，消费端再被内核列宽夹住）。
+    ///
+    /// 与 `wrap_mode` 同一层：设置页写盘 + 同步窗口副本，六个终端消费者读同一份。
+    #[serde(default)]
+    pub wrap_column: usize,
     /// `View ▸ White Spaces` 的五档**互斥**模式，按枚举文件序编号：
     ///
     /// | 值 | 模式 | 画什么 |
@@ -713,6 +726,9 @@ impl Default for Prefs {
             view_column_marker: 0,
             view_indent_guides: false,
             view_wrap_symbols: false,
+            // Wrap 页两项真控件：出厂 char + 0（接线前行为，零像素变化）。
+            wrap_mode: 0,
+            wrap_column: 0,
             view_whitespace: 0,
             text_highlight_caret_line: false,
             text_highlight_caret_word: false,
