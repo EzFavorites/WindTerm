@@ -111,6 +111,25 @@ impl TerminalWindow {
                     ));
                 }
             });
+            // 官网 page/Rename-Session：名字从独立的输入框取，控制行仍由
+            // `Command::line()` 统一转义，和 Rename Window/Pane 同一条安全路径。
+            ui.horizontal(|ui| {
+                ui.label("Session name:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.tmux_session_name)
+                        .hint_text("work"),
+                );
+                if !self.tmux_session_name.trim().is_empty()
+                    && ui.button("Rename Session").clicked()
+                {
+                    actions.push(Action::TmuxCommand(
+                        term_app::tmux::Command::RenameSession(
+                            self.tmux_session_name.trim().to_string(),
+                        )
+                        .line(),
+                    ));
+                }
+            });
             // 带目标的反向命令只从**解析出来的窗格集合**里选，绝不手填窗格号：
             // 08-tmux-integration.md 要求用窗格号集合做目标校验，否则容易误注入。
             if tmux_panes.is_empty() {

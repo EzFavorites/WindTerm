@@ -420,7 +420,7 @@ pub struct TerminalWindow {
     /// 窗口级单例会让「A 标签在跑 tmux，B 标签却判定 active」串线。
     /// 这里只留面板自己的日志 / 输入 / 命令块索引。
     tmux_log: Vec<String>,
-    tmux_input: String, tmux_send: String, tmux_pane_name: String,
+    tmux_input: String, tmux_send: String, tmux_pane_name: String, tmux_session_name: String,
     tmux_blocks: Vec<term_app::blocks::Block>,
     /// R11：菜单触发的选区操作，等本帧算出事实窗口后再落地。
     ///

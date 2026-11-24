@@ -87,26 +87,24 @@ impl TerminalWindow {
         // 预览底色先算：`tab` 借走 self 后再调 window_bg_color() 会撞 E0502。
         let window_bg = self.window_bg_color(); ui.painter().rect_filled(rect, 0.0, window_bg);
         // `tab` 马上从 `self` 借走；鼠标事件掩码是 Copy 值，先拷出来再用。
-        let mouse_events = self.mouse_events;
+        let mouse_events = self.mouse_events; let mut sync_bytes: Option<Vec<u8>> = None;
 
         // 同步输入要写「其它」标签，而那一刻 `tab` 还借在手上，
         // 所以先把这批按键攒下来，等借用结束后再扇出去。
-        let mut sync_bytes: Option<Vec<u8>> = None;
+
         // 本帧因回车完成的命令行先攒着——`tab` 借在手上时不能碰
         // `self.command_history`，等借用结束后统一写入窗口级历史。
-        let mut completed_lines: Vec<String> = Vec::new();
         // 粘贴（Cmd+V / 右键 / 中键三条路径最后都落到 `Event::Paste`）连同
         // 「此刻在哪一屏」一起攒着：门控要读 `snapshot.alt`，而落地要等 `tab`
         // 的借用结束（`commit_paste` / `pending_paste` 都要借整个窗口）。
-        let mut paste: Option<(String, bool)> = None;
-        // 折叠列点击攒到 `tab` 借用结束后再落地（`apply_fold` 要借整个窗口）。
-        let mut pending_fold: Option<term_app::vocab::FoldCmd> = None;
+        // Vim p/P 与折叠列点击也各攒一个意图：前者复用 Cmd+V 漏斗，后者要借整个窗口。
+        let mut paste: Option<(String, bool)> = None; let mut completed_lines: Vec<String> = Vec::new();
+        let mut vim_paste: Option<super::vim_apply::VimPaste> = None; let mut pending_fold: Option<term_app::vocab::FoldCmd> = None;
         // 录制器那一格先克隆出来：下面 `tab` 会把 `self` 整块借走。
         // 补全的候选源在借用标签之前取好——历史 / QuickBar 都挂在窗口上，
         // 与 `tab` 借的 `self.tabs` 是不同字段，先克隆出来后面就不必再碰窗口。
         // 总开关关着时这两张表保持空，一帧只多两次 Vec::new()。
-        let completion_enabled = self.completion.enabled;
-        let completion_scope = system_of(self);
+        let completion_enabled = self.completion.enabled; let completion_scope = system_of(self);
         let (completion_history, completion_quick) = completion_popup::prepare_sources(
             completion_enabled,
             &self.command_history,
@@ -546,7 +544,7 @@ impl TerminalWindow {
             });
 
             // Vim 本地模式：纯解析 → 已有视口 / 选区 API，不产生任何 PTY 字节。
-            super::vim_apply::drain(&mut tab.viewport, &tab.view, &tab.snapshot, &mut tab.selections, &tab.config, &mut tab.vim, vim_keys, ui.ctx());
+            vim_paste = super::vim_apply::drain(&mut tab.viewport, &tab.view, &tab.snapshot, &mut tab.selections, &tab.config, &mut tab.vim, vim_keys, ui.ctx());
 
             // Cmd+C：写剪贴板。egui 不提供读接口，粘贴走 Event::Paste（Cmd+V）。
             // 读哪一份取决于**这块区域**：面板里复制的就是面板里选中的那段。
@@ -716,6 +714,12 @@ impl TerminalWindow {
         // 才能写 `self.pending_paste` / `self.command_history`。三条入口
         // （Cmd+V / 右键 Paste / 中键）最后都汇到这一个 `Event::Paste`，
         // 所以门控只加这一处就全覆盖——别分头去三处各改一遍。
+        // Vim 的 p/P 也汇到这里：`p` 粘完回远端，`P` 粘完仍留在本地模式。
+        let mut vim_restore_local = false;
+        if let Some(v) = vim_paste { if !v.remote {
+            tab_of(&mut self.tabs, &mut self.shell_tabs, slot).map(|t| t.local_mode = false);
+            vim_restore_local = true;
+        } paste = Some((v.text, v.alt)); }
         if let Some((text, alt)) = paste {
             if crate::ui::dialogs::confirm_paste::paste_needs_confirm(
                 alt,
@@ -731,6 +735,7 @@ impl TerminalWindow {
                 self.commit_paste(slot, &text);
             }
         }
+        if vim_restore_local { tab_of(&mut self.tabs, &mut self.shell_tabs, slot).map(|t| t.local_mode = true); }
         // 把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
         let history_scope = system_of(self);
         for line in completed_lines {

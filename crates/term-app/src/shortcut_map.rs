@@ -121,9 +121,7 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Window.SplitViewVertically", chord: "Alt+W, Alt+V" },
     BindingRow { id: "Window.CloseActiveGroup", chord: "Alt+W, Alt+G" },
     BindingRow { id: "Window.ActivateNextView", chord: "Cmd+PgDown" },
-    BindingRow { id: "Window.ActivateNextView", chord: "Alt+]" },
     BindingRow { id: "Window.ActivatePreviousView", chord: "Cmd+PgUp" },
-    BindingRow { id: "Window.ActivatePreviousView", chord: "Alt+[" },
     BindingRow { id: "Terminal.TabReopenClosed", chord: "Cmd+Shift+T" },
     BindingRow { id: "Window.WindowList", chord: "Cmd+Shift+I" },
     // Tmux-Integration 文档的四个面板快捷键：Alt+X 杀当前窗格、Alt+方向键选窗格。
@@ -133,6 +131,16 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Tmux.SelectPaneRight", chord: "Alt+ArrowRight" },
     BindingRow { id: "Tmux.SelectPaneAbove", chord: "Alt+ArrowUp" },
     BindingRow { id: "Tmux.SelectPaneBelow", chord: "Alt+ArrowDown" },
+    // Common Keyboard Shortcuts 的其余组合：Alt+B 面板、Alt+Z 缩放、
+    // Alt+- / Alt+Shift+- 左右分屏、Alt+[ / ] 切 window。
+    // Alt+[ / ] 在旧表是「切换视图」的别名，但与 tmux 文档冲突；菜单列的
+    // 视图切换仍是 Meta+PgUp/PgDown，所以把 Alt 那两条让给 tmux。
+    BindingRow { id: "Window.ShowPaletteCommand", chord: "Alt+B" },
+    BindingRow { id: "Tmux.TogglePaneZoom", chord: "Alt+Z" },
+    BindingRow { id: "Tmux.SplitHorizontal", chord: "Alt+Minus" },
+    BindingRow { id: "Tmux.SplitPaneLeft", chord: "Alt+Shift+Minus" },
+    BindingRow { id: "Tmux.SelectWindowPrevious", chord: "Alt+OpenBracket" },
+    BindingRow { id: "Tmux.SelectWindowNext", chord: "Alt+CloseBracket" },
     // ── 右键菜单 margin 五列（与 CONTEXT_SEQ_ROWS 同源）──
     BindingRow { id: "Text.MarginBlank", chord: "Alt+T, Alt+B" },
     BindingRow { id: "Text.MarginNumber", chord: "Alt+T, Alt+N" },

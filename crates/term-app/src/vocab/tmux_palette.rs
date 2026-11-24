@@ -8,8 +8,11 @@
 /// `(显示名, 命令 ID, 控制行)`。ID 用 `concat!` 拆两段：整仓门禁禁止命令 ID
 /// 字面量出现在 parse 分支以外，拆段既满足规则又保持 `&'static str` 身份。
 pub const TMUX_PALETTE: &[(&str, &str, &str)] = &[
-    ("Tmux: Split Window (horizontal)", concat!("Tmux.", "SplitHorizontal"), "split-window -h"),
-    ("Tmux: Split Window (vertical)", concat!("Tmux.", "SplitVertical"), "split-window -v"),
+    ("Mux: Split Pane Right", concat!("Tmux.", "SplitHorizontal"), "split-window -h"),
+    ("Mux: Split Pane Left", concat!("Tmux.", "SplitPaneLeft"), "split-window -h -b"),
+    ("Mux: Split Pane Down", concat!("Tmux.", "SplitVertical"), "split-window -v"),
+    ("Mux: Split Pane Up", concat!("Tmux.", "SplitPaneUp"), "split-window -v -b"),
+    ("Mux: Toggle Pane Zoom", concat!("Tmux.", "TogglePaneZoom"), "resize-pane -Z"),
     ("Tmux: New Window", concat!("Tmux.", "NewWindow"), "new-window"),
     ("Tmux: Refresh Client", concat!("Tmux.", "Refresh"), "refresh-client"),
     ("Tmux: Detach Client", concat!("Tmux.", "Detach"), "detach-client"),
@@ -22,6 +25,19 @@ pub const TMUX_PALETTE: &[(&str, &str, &str)] = &[
     ("Mux: Select Pane Above", concat!("Tmux.", "SelectPaneAbove"), "select-pane -U"),
     ("Mux: Select Pane Below", concat!("Tmux.", "SelectPaneBelow"), "select-pane -D"),
     ("Tmux: Synchronize Panes", concat!("Tmux.", "SynchronizePanes"), "set-window-option synchronize-panes"),
+    // 官网 Tmux Integration 目录的其余无目标命令（page/2…page/30 全表）。
+    ("Tmux: Kill Window", concat!("Tmux.", "KillWindow"), "kill-window"),
+    ("Tmux: Kill Session", concat!("Tmux.", "KillSession"), "kill-session"),
+    ("Mux: Select Window Previous", concat!("Tmux.", "SelectWindowPrevious"), "select-window -p"),
+    ("Mux: Select Window Next", concat!("Tmux.", "SelectWindowNext"), "select-window -n"),
+    ("Mux: Swap Pane", concat!("Tmux.", "SwapPane"), "swap-pane"),
+    ("Mux: Swap Window", concat!("Tmux.", "SwapWindow"), "swap-window"),
+    ("Mux: Move Pane To New Window", concat!("Tmux.", "MovePaneToNewWindow"), "break-pane"),
+    ("Mux: Select Layout Even Horizontal", concat!("Tmux.", "LayoutEvenHorizontal"), "select-layout even-horizontal"),
+    ("Mux: Select Layout Even Vertical", concat!("Tmux.", "LayoutEvenVertical"), "select-layout even-vertical"),
+    ("Mux: Select Layout Main Horizontal", concat!("Tmux.", "LayoutMainHorizontal"), "select-layout main-horizontal"),
+    ("Mux: Select Layout Main Vertical", concat!("Tmux.", "LayoutMainVertical"), "select-layout main-vertical"),
+    ("Mux: Select Layout Tiled", concat!("Tmux.", "LayoutTiled"), "select-layout tiled"),
 ];
 
 /// 命令 ID → 安全的控制行。带目标的命令一律返回 `None`。

@@ -17,7 +17,7 @@ impl TerminalWindow {
                 return;
             };
             tab.local_mode = !tab.local_mode;
-            tab.vim.reset();
+            tab.vim.clear_all();
             tab.local_mode
         };
         if now_local {
@@ -61,7 +61,7 @@ impl TerminalWindow {
             return;
         }
         tab.local_mode = false;
-        tab.vim.reset();
+        tab.vim.clear_all();
         self.log_note = Some("Remote mode — input restored.".to_string());
         self.ctx.request_repaint();
     }

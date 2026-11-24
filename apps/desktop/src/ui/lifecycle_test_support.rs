@@ -290,7 +290,7 @@ pub(in crate::ui) fn window_with(
         tmux_log: Vec::new(),
         tmux_input: String::new(),
         tmux_send: String::new(),
-        tmux_pane_name: String::new(),
+        tmux_pane_name: String::new(), tmux_session_name: String::new(),
         tmux_blocks: Vec::new(),
         pending_select: None,
         connector: None,
