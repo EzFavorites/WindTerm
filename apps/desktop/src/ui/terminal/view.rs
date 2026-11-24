@@ -512,9 +512,7 @@ pub fn paint_cursor(
         return;
     }
 
-    let snap = &tab.snapshot;
-    let cr = snap.cursor.0.min(snap.rows.saturating_sub(1));
-    let cc = snap.cursor.1.min(snap.cols.saturating_sub(1));
+    let snap = &tab.snapshot; let cr = snap.cursor.0.min(snap.rows.saturating_sub(1)); let cc = snap.cursor.1.min(snap.cols.saturating_sub(1));
     // `cursor.0` 是**网格行**（0 = 屏首），不是屏内下标：折叠后两者不再相等。
     // 查不到 = 光标那一行被折叠收起，此时**不画光标**是正确行为而非退化——那一行
     // 用户看不见，硬按 `cr` 画会把它浮在别的行上，等于指着另一行说「光标在这」。
@@ -523,13 +521,11 @@ pub fn paint_cursor(
     };
     // 软折后光标列 cc 可能落在逻辑行的第 2+ 段：用段表反查所在段，
     // y = 段序号、x = 段内列。关软折时段表恒等（段 0 = 整行），与旧行为逐像素相同。
-    let wrap_cols = term_app::wrap::effective_wrap_cols(tab.view.cols.max(1), tab.word_wrap);
-    let segments = term_app::wrap::segments_from_image(&tab.view, wrap_cols, tab.word_wrap);
+    let wrap_cols = term_app::wrap::effective_wrap_cols(tab.view.cols.max(1), tab.word_wrap); let segments = term_app::wrap::segments_from_image(&tab.view, wrap_cols, tab.word_wrap);
     let Some(seg_idx) = segments.cell_to_segment(line_idx, cc) else {
         return;
     };
-    let seg = &segments.rows[seg_idx];
-    let local_col = cc - seg.start_col;
+    let seg = &segments.rows[seg_idx]; let local_col = cc - seg.start_col;
     let cell_rect = Rect::from_min_size(
         pos2(
             origin.x + (local_col as f32) * cell.x,
