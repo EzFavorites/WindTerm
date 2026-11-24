@@ -68,6 +68,9 @@ pub(in crate::ui) mod tab_slot;
 /// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
 /// 搬走的这一块本来就是自由函数，行为一行未改。
 mod ip_hover;
+/// 官网 #47/#48/#49 三个内置触发器的悬停浮层（hex / 时间戳 / 压缩包）：
+/// 只展示换算结果，不写 PTY、不改选区。纯检测与换算在 `term_app::trigger_builtins`。
+mod builtin_hover;
 mod pane_pointer;
 /// 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
 ///
