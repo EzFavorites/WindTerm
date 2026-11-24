@@ -244,7 +244,7 @@ pub(in crate::ui) fn next(err: &SshError, password_auth: bool) -> Next {
 ///
 /// `term` 跟着会话走（用户可能选了 `xterm`），尺寸先给 80×24，
 /// 真正的尺寸在 tab 建立后由 `handle.resize ` 逐帧纠正。
-pub(in crate::ui) fn options_for(
+pub(crate) fn options_for(
     config: &SessionConfig,
     auth: SshAuth,
     policy: HostKeyPolicy,

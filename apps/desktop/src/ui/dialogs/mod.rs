@@ -86,6 +86,9 @@ mod settings_pages_view;
 // 都要在造窗口时拿到同一份（各自现算会变成两份真相）。
 pub(in crate::ui) mod shortcuts;
 mod ssh;
+// Sysmon 的远端采样要复用这份「SessionConfig + 凭据 → SshOptions」拼装，
+// 所以纯逻辑模块对 ui/ 内可见；绘制 / 状态仍在 ssh.rs、ssh_connect.rs。
+pub(in crate::ui) mod ssh_ask;
 pub(in crate::ui) mod ssh_connect;
 pub(in crate::ui) mod vault;
 /// ：文件传输的路径输入弹层（发要文件、收要目录）。

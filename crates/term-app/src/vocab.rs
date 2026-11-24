@@ -204,6 +204,13 @@ pub enum ShellAction {
     /// 两条动作共用 `set_panel_visible` 那一张表，`toggle()` 只是它的
     /// 「先读再置反」包装——不新增第二条写入路径。
     SetPanel(PanelId, bool),
+    /// Sysmon 读数条的**监控源**开关（本机 ↔ 远端）。
+    ///
+    /// 与面板开关同属窗口 chrome，但**没有命令 ID 字符串**：它是细带上那枚
+    /// R 方块的内部动作，不进菜单 / 脚本 API / capability 库存，因此不增减
+    /// 任何冻结的 ID 计数。状态写在 `ViewState::sysmon_remote`，唯一的写点在
+    /// `shell::reduce`。
+    ToggleSysmonRemote,
     ToggleFocusMode,
     ToggleFullScreen,
     ToggleAlwaysOnTop,

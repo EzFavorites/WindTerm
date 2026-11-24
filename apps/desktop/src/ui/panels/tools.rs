@@ -267,7 +267,7 @@ fn sysmon_chip(
     painter.text(rect.center(), egui::Align2::CENTER_CENTER, label, font.clone(), fg);
 }
 
-pub(in crate::ui) fn draw_sysmon(_win: &TerminalWindow, ui: &mut egui::Ui) {
+pub(in crate::ui) fn draw_sysmon(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let scale = &term_core::theme::CHROME_SCALE;
     let strip = crate::theme::chrome(scale.tab); // #333333
     let light = crate::theme::chrome(scale.text); // #BBBBBB
@@ -333,6 +333,29 @@ pub(in crate::ui) fn draw_sysmon(_win: &TerminalWindow, ui: &mut egui::Ui) {
         x += 8.0 * k + gap;
     }
 
+    // 第四枚方块 R 才是「从哪台机器取数」的开关：本机 ↔ 远端。它与细带上那枚
+    // 走同一个 `ShellAction`（因而同一位 `ViewState`），没有第二份可失同步的状态。
+    let remote_on = win.view.sysmon_remote;
+    let r_colour = if remote_on {
+        egui::Color32::from_rgb(0x00, 0x9E, 0x00)
+    } else {
+        button
+    };
+    let r_centre = egui::pos2(x + chip * 0.5, cy);
+    sysmon_chip(p, r_centre, "R", r_colour, if remote_on { dark } else { light }, &font, chip);
+    if ui
+        .interact(
+            egui::Rect::from_center_size(r_centre, egui::vec2(chip, chip)),
+            egui::Id::new("sysmon_col_remote"),
+            egui::Sense::click(),
+        )
+        .clicked()
+    {
+        win.dispatch_action(term_app::action::Action::Shell(
+            term_app::shell::ShellAction::ToggleSysmonRemote,
+        ));
+    }
+
     // 下行：`[T] 21:49  [C] 11.9%  [M] 23.00/23.63 GiB`。
     ui.add_space(2.0 * k);
     let body = ui
@@ -372,6 +395,42 @@ pub(in crate::ui) fn draw_sysmon(_win: &TerminalWindow, ui: &mut egui::Ui) {
         sysmon_mem_text(reading.mem_used_kb, reading.mem_total_kb),
         sysmon_mem_colour(),
     );
+
+    // 第三行只在远端开关打开时出现：这是第二块 readout，不挤占基线的 T/C/M。
+    // 没有 exec 结果时三项全画 `—`（而不是 0% / 0 GiB / 0s）。
+    if remote_on {
+        let remote = if crate::ui::harness::fixture_mode() {
+            None
+        } else {
+            crate::sysmon_remote::reading()
+        };
+        ui.add_space(2.0 * k);
+        let row = ui
+            .allocate_exact_size(egui::vec2(width, row_h), egui::Sense::hover())
+            .0;
+        let p = ui.painter();
+        p.rect_filled(row, 2.0, strip);
+        let (cpu, mem, up) = match remote {
+            Some(r) => (
+                term_session::sysmon::fmt_pct(r.cpu_pct),
+                sysmon_mem_text(r.mem_used_kb, r.mem_total_kb),
+                term_session::sysmon::fmt_uptime(r.uptime_secs),
+            ),
+            None => ("—".to_string(), "—".to_string(), "—".to_string()),
+        };
+        let cy = row.center().y;
+        let mut x = row.left() + pad;
+        let mut draw = |label: &str, text: &str, colour: egui::Color32| {
+            let centre = egui::pos2(x + chip * 0.5, cy);
+            sysmon_chip(p, centre, label, colour, dark, &font, chip);
+            x += chip + 4.0 * k;
+            p.text(egui::pos2(x, cy), egui::Align2::LEFT_CENTER, text, font.clone(), colour);
+            x += p.layout_no_wrap(text.to_string(), font.clone(), colour).size().x + gap;
+        };
+        draw("R", &cpu, sysmon_system_colour());
+        draw("M", &mem, sysmon_mem_colour());
+        draw("U", &up, light);
+    }
 }
 
 // Transfer 面板**不在这里**：它画的是传输队列（`transfer_panel.rs`）。

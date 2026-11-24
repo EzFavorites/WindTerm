@@ -838,6 +838,9 @@ impl TerminalWindow {
             self.draw_component_demo(ctx, comp);
             return;
         }
+        // 远端 Sysmon：开关开着才可能发起一次采样；节流 / 工作线程在 sysmon_remote
+        // 里，这里只做每帧的参数准备，不阻塞、不碰用户 PTY。
+        self.sync_remote_sysmon(ctx);
         // 关闭确认弹窗：键盘模态 + 系统关闭请求的拦截，必须赶在所有事件
         // 消费者之前（见 `dialogs::confirm`）。
         self.confirm_pre_update(ctx);

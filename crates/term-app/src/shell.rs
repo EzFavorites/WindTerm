@@ -86,6 +86,11 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
             vec![]
         }
         ShellAction::TogglePanel(panel) => toggle(state, panel),
+        // R 方块只翻「从哪台机器取数」，不碰细带展开位：两个开关必须能独立回程。
+        ShellAction::ToggleSysmonRemote => {
+            state.sysmon_remote = !state.sysmon_remote;
+            vec![]
+        }
         // 置位版：给脚本的 `app_panel_set` 用（端口 / 队列 / 采集 / 动词
         // 四段都已接）。幂等——设成同值不改变任何字段，调用方可以放心重发；
         // `toggle` 是它的取反包装。
@@ -336,6 +341,18 @@ mod tests {
             reduce(&mut state, ShellAction::TogglePanel(id));
             assert_eq!(state, before, "{} 连翻两次没回到原状", id.name());
         }
+    }
+
+    /// R 方块：源码开关能来回翻，且不影响细带展开位（两个独立开关）。
+    #[test]
+    fn sysmon_remote_toggle_is_involutive_and_independent_of_the_strip() {
+        let mut state = ViewState::default();
+        let before = state.clone();
+        reduce(&mut state, ShellAction::ToggleSysmonRemote);
+        assert!(state.sysmon_remote);
+        assert_eq!(state.show_pane_sysmon, before.show_pane_sysmon);
+        reduce(&mut state, ShellAction::ToggleSysmonRemote);
+        assert_eq!(state, before, "连翻两次必须回到出厂态");
     }
 
     /// 置位版（`SetPanel`）：幂等，且「置成取反值」与 `TogglePanel` 结果相同。

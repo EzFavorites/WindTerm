@@ -4,10 +4,14 @@
 //! 命令，经 `term_session::sysmon_parse` 的纯函数解析后写进全局快照；界面侧
 //! [`reading`] 只做一次短锁，不持有 `Child` / channel / 进程句柄。
 //!
-//! 为什么不开控制面的 `open_exec`：面板监控的是**宿主进程所在的这台机器**，
+//! 为什么不开控制面的 `open_exec`：这一路监控的是**宿主进程所在的这台机器**，
 //! 与任何一条 SSH 会话无关。借用户的会话通道采样会把 `top` 输出灌进别人的
 //! scrollback（见 `term-session/src/sysmon.rs` 模块头）。这里在宿主进程另起
 //! 短命命令，输出只进模型，也不碰 PTY。
+//!
+//! 远端那一路由 `sysmon_remote` 负责：它走 `term_ssh::exec_capture` 的第二条
+//! 非交互 exec 通道，字节进内存快照、不进用户 PTY / scrollback，最后复用本文件的
+//! `Reading` 与 term-session 的纯解析器。两路互不覆盖，界面按开关选一路读。
 //!
 //! 三列的显示开关也放这里（原子位掩码）：它是进程级监控器的列配置，不是某个
 //! 窗口的投影态。界面切换只是一次 `fetch_xor`，没有第二份可失同步的状态。
@@ -103,7 +107,9 @@ fn sample_once() -> Reading {
         .args(["-l", "2", "-n", "0"])
         .output()
         .ok()
-        .map(|out| parse_darwin_cpu(&String::from_utf8_lossy(&out.stdout)))
+        .map(|out| {
+            term_session::sysmon_parse::parse_top_darwin_cpu(&String::from_utf8_lossy(&out.stdout))
+        })
         .unwrap_or(0.0);
     let (used, total) = Command::new("vm_stat")
         .output()
@@ -177,27 +183,9 @@ fn sample_once() -> Reading {
     }
 }
 
-/// macOS `top -l2` 的**最后一帧** `CPU usage:` 才是瞬时值。解析层
-/// `parse_top_darwin` 刻意不碰它（首帧是累计平均，怕上层当实时值），
-/// 这里补那一半：`busy = 100 - idle`。
-#[cfg(target_os = "macos")]
-fn parse_darwin_cpu(text: &str) -> f32 {
-    let mut busy = None;
-    for line in text.lines() {
-        let Some(rest) = line.find("CPU usage:").map(|i| &line[i..]) else {
-            continue;
-        };
-        for piece in rest.split(',') {
-            let Some(value) = piece.trim().strip_suffix("% idle") else {
-                continue;
-            };
-            if let Ok(idle) = value.trim().parse::<f32>() {
-                busy = Some((100.0 - idle).clamp(0.0, 100.0));
-            }
-        }
-    }
-    busy.unwrap_or(0.0)
-}
+// macOS 瞬时 CPU 的解析在 term-session 的纯解析层
+// （`parse_top_darwin_cpu`）：本地 top 与远端 exec 两路共用一份，
+// 这里不再留第二套 `split(',')`。
 
 #[cfg(test)]
 mod tests {
@@ -214,14 +202,11 @@ mod tests {
         assert_eq!(COLUMNS.load(Ordering::Relaxed), before);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn darwin_cpu_uses_the_last_cpu_usage_frame() {
-        let text = "CPU usage: 5.0% user, 10.0% sys, 85.0% idle\n\
-                    \n\
-                    CPU usage: 6.25% user, 12.50% sys, 81.25% idle\n";
-        assert!((parse_darwin_cpu(text) - 18.75).abs() < 0.01);
-        // 没有 idle 列时不猜数。
-        assert_eq!(parse_darwin_cpu("Load Avg: 1.0\n"), 0.0);
+    fn the_shared_darwin_cpu_parser_is_used_by_the_host_path() {
+        // 本地与远端共用 term-session 那一处解析；这里只钉住「拿得到值」。
+        // 边界用例（最后一帧 / 缺 idle）在纯解析层的单测里。
+        let text = "CPU usage: 6.25% user, 12.50% sys, 81.25% idle\n";
+        assert!((term_session::sysmon_parse::parse_top_darwin_cpu(text) - 18.75).abs() < 0.01);
     }
 }

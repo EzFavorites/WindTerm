@@ -21,9 +21,12 @@
 
 use crate::ui::*;
 use eframe::egui;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use term_app::action::Action;
 use term_app::dock::PanelId;
 use term_app::shell::ShellAction;
+use term_core::session::Protocol;
 use term_core::theme::CHROME_SCALE;
 use term_session::sysmon::{fmt_bytes, fmt_uptime};
 
@@ -90,6 +93,26 @@ fn current_reading() -> crate::sysmon_sample::Reading {
     }
 }
 
+/// 远端读数：夹具里没有真会话，宁可画 `—`，不编假数字。
+fn remote_reading() -> Option<crate::sysmon_sample::Reading> {
+    if crate::ui::harness::fixture_mode() {
+        None
+    } else {
+        crate::sysmon_remote::reading()
+    }
+}
+
+/// R 方块的文字。`off` 时用 `—`：这是「没开远端」，不是「远端占用 0%」。
+fn remote_text(on: bool, reading: Option<&crate::sysmon_sample::Reading>) -> String {
+    if on {
+        reading.map_or_else(|| "—".to_string(), |r| {
+            term_session::sysmon::fmt_pct(r.cpu_pct)
+        })
+    } else {
+        "—".to_string()
+    }
+}
+
 /// 三段文字一次性算好：命中区宽度与绘制都读它，避免两帧采样不一致。
 fn readout_segments(reading: &crate::sysmon_sample::Reading) -> [Segment; 3] {
     let time = if reading.hhmm.is_empty() {
@@ -145,6 +168,51 @@ fn chip(
 }
 
 impl TerminalWindow {
+    /// 每帧调一次：开关开着且活动 tab 是**握着凭据的内置 SSH** 时，请求一次
+    /// 非阻塞远端采样。节流与「上一轮还在飞」由 `sysmon_remote::request` 自己管，
+    /// 这里只负责把 `SessionConfig` + 内存凭据拼成连接参数。
+    ///
+    /// 系统 `ssh` 子进程没有凭据副本、本地 shell 就是宿主，两者都不发命令，
+    /// 远端读数保持 `—`。夹具模式也绝不连网，截图才能逐字节稳定。
+    pub(in crate::ui) fn sync_remote_sysmon(&self, ctx: &egui::Context) {
+        static WAS_ON: AtomicBool = AtomicBool::new(false);
+        if !self.view.sysmon_remote {
+            if WAS_ON.swap(false, Ordering::Relaxed) {
+                crate::sysmon_remote::clear();
+            }
+            return;
+        }
+        WAS_ON.store(true, Ordering::Relaxed);
+        if crate::ui::harness::fixture_mode() {
+            return;
+        }
+        let Some(tab) = self.tabs.get(self.active_slot()) else {
+            return;
+        };
+        if tab.config.protocol != Protocol::Ssh || !tab.config.builtin_ssh || tab.session.is_none() {
+            return;
+        }
+        let Some(auth) = tab.auth.clone() else {
+            return;
+        };
+        // 与连接时同一份参数拼装（ProxyJump / 代理链 / 主机密钥），不另写一套；
+        // 会话已经连上，TOFU 允许沿用那次已接受的主机。
+        let opts = match crate::ui::dialogs::ssh_ask::options_for(
+            &tab.config,
+            auth,
+            term_ssh::HostKeyPolicy::Tofu,
+        ) {
+            Ok(opts) => opts,
+            Err(_) => return,
+        };
+        let ctx = ctx.clone();
+        crate::sysmon_remote::request(
+            opts,
+            &tab.config.system,
+            Arc::new(move || ctx.request_repaint()),
+        );
+    }
+
     /// 画这条细带。`pane_salt`：分屏时每片 pane 一份 `egui::Id`，全窗传 `None`
     /// 保持原来的 `"sysmon_bar"` 一字不变。
     pub(in crate::ui) fn draw_sysmon_bar(&mut self, ui: &mut egui::Ui, pane_salt: Option<u64>) {
@@ -176,18 +244,97 @@ impl TerminalWindow {
             resp
         };
 
+        // 展开态左端多一枚 R 方块：它是监控源开关，有独立的命中区与 ID，
+        // 与「点读数条收起细带」互不抢。收起态不画，基线一个像素都不动。
+        let remote = expanded.then(remote_reading).flatten();
+        let r_text = remote_text(self.view.sysmon_remote, remote.as_ref());
+        let r_rect = if expanded {
+            Some(remote_chip_rect(ui, rect, hit, &r_text))
+        } else {
+            None
+        };
+        let r_id = match pane_salt {
+            Some(p) => egui::Id::new(("sysmon_remote", p)),
+            None => egui::Id::new("sysmon_remote"),
+        };
+        let r_resp = r_rect.map(|r| ui.interact(r, r_id, egui::Sense::click()));
+        let r_detail = remote.map_or_else(String::new, |r| {
+            format!(
+                "\nRemote uptime: {}\nRemote net: {}/{}",
+                fmt_uptime(r.uptime_secs),
+                fmt_bytes(r.net_rx_bytes),
+                fmt_bytes(r.net_tx_bytes)
+            )
+        });
+
         if let Some(segs) = segs {
             self.draw_sysmon_readout(ui, rect, &segs, resp.hovered());
         } else {
             self.draw_sysmon_button(ui, rect, resp.hovered(), self.tr("Sysmon"));
         }
+        if let (Some(rr), Some(hover)) = (r_rect, r_resp.as_ref().map(|x| x.hovered())) {
+            self.draw_remote_chip(ui, rr, self.view.sysmon_remote, &r_text, hover);
+        }
 
-        if resp.hovered() {
+        if resp.hovered() || r_resp.as_ref().is_some_and(|x| x.hovered()) {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
         }
         if resp.clicked() {
             self.dispatch_action(Action::Shell(ShellAction::TogglePanel(PanelId::Sysmon)));
         }
+        if r_resp.as_ref().is_some_and(|x| x.clicked()) {
+            self.dispatch_action(Action::Shell(ShellAction::ToggleSysmonRemote));
+        }
+        if let Some(resp) = r_resp {
+            resp.on_hover_text(format!(
+                "Remote Sysmon: {}{}",
+                if self.view.sysmon_remote { "on" } else { "off" },
+                r_detail
+            ));
+        }
+    }
+
+    /// 一枚 R 方块 + 远端 CPU 读数，贴在三段读数条左侧。
+    fn draw_remote_chip(
+        &self,
+        ui: &mut egui::Ui,
+        rect: egui::Rect,
+        on: bool,
+        text: &str,
+        hovered: bool,
+    ) {
+        let p = ui.painter();
+        p.rect_filled(
+            rect,
+            2.0,
+            crate::theme::chrome(if hovered {
+                CHROME_SCALE.hover
+            } else {
+                CHROME_SCALE.tab
+            }),
+        );
+        let font = egui::FontId::monospace(FONT_PT);
+        let dark = crate::theme::chrome(CHROME_SCALE.line);
+        let colour = if on {
+            system_colour()
+        } else {
+            crate::theme::chrome(CHROME_SCALE.text)
+        };
+        chip(
+            p,
+            egui::pos2(rect.left() + CHIP * 0.5, rect.center().y),
+            "R",
+            colour,
+            dark,
+            &font,
+        );
+        p.text(
+            egui::pos2(rect.left() + CHIP + 4.0, rect.center().y),
+            egui::Align2::LEFT_CENTER,
+            text,
+            font,
+            colour,
+        );
     }
 
     /// 收起态：右端一枚**无边框**的 `Sysmon` 文字按钮。hover 只出底色
@@ -272,6 +419,22 @@ fn readout_rect_for(ui: &egui::Ui, rect: egui::Rect, segs: &[Segment]) -> egui::
     readout_rect(rect, segments_width(ui, segs).max(READOUT_W))
 }
 
+/// R 方块的矩形：贴在读数条左边，宽度随读数文字走；窄窗时仍留在细带内。
+fn remote_chip_rect(ui: &egui::Ui, bar: egui::Rect, strip: egui::Rect, text: &str) -> egui::Rect {
+    let font = egui::FontId::monospace(FONT_PT);
+    let text_w = ui
+        .painter()
+        .layout_no_wrap(text.to_string(), font, egui::Color32::WHITE)
+        .size()
+        .x;
+    let w = CHIP + 4.0 + text_w + GAP;
+    let left = (strip.left() - w - 2.0).max(bar.left());
+    egui::Rect::from_min_max(
+        egui::pos2(left, strip.top()),
+        egui::pos2(left + w, strip.bottom()),
+    )
+}
+
 /// 收起态按钮的矩形：按 `Sysmon` 文字自然宽度 + 左右留白，右对齐。
 fn button_rect(ui: &egui::Ui, rect: egui::Rect, label: &str) -> egui::Rect {
     let font = crate::ui::type_scale::body();
@@ -308,6 +471,16 @@ mod tests {
         assert!(long.left() < fixture.left(), "长读数要往左撑开");
         assert_eq!(long.right(), fixture.right(), "右沿必须钉死");
         assert!(long.width() <= rect.width());
+    }
+
+    #[test]
+    fn remote_text_never_invents_a_reading() {
+        let none = crate::sysmon_sample::Reading::default();
+        assert_eq!(remote_text(false, Some(&none)), "—", "关着就不报数");
+        assert_eq!(remote_text(true, None), "—", "采不到就是没有");
+        assert_eq!(remote_text(true, Some(&none)), "0.0%", "真采到的 0 才是 0");
+        let live = crate::sysmon_sample::Reading { cpu_pct: 37.5, ..none };
+        assert_eq!(remote_text(true, Some(&live)), "37.5%");
     }
 
     #[test]

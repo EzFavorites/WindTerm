@@ -3,6 +3,32 @@
 //!
 //! 所有函数都只读字符串、返回 `Option`，零 IO、零墙钟（采样与当前时刻由宿主给）。
 
+/// macOS `top -l2 -n0` 的**最后一帧** CPU 占用（整机平均，0..=100）。
+///
+/// `parse_top_darwin` 刻意不碰 `CPU usage:`：首帧是开机累计平均，当实时值会
+/// 长期糊在一个数上，因此那一半留给这里——取最后一帧的 `idle`，`busy =
+/// 100 - idle`。没有 idle 列就返回 0（「还没采到」，不是「空载」）。
+///
+/// 纯字符串函数：宿主采样（本地命令与远端 exec 通道）共用这一份，不允许
+/// 各自再写一遍 `split(',')`。
+pub fn parse_top_darwin_cpu(text: &str) -> f32 {
+    let mut busy = None;
+    for line in text.lines() {
+        let Some(rest) = line.find("CPU usage:").map(|i| &line[i..]) else {
+            continue;
+        };
+        for piece in rest.split(',') {
+            let Some(value) = piece.trim().strip_suffix("% idle") else {
+                continue;
+            };
+            if let Ok(idle) = value.trim().parse::<f32>() {
+                busy = Some((100.0 - idle).clamp(0.0, 100.0));
+            }
+        }
+    }
+    busy.unwrap_or(0.0)
+}
+
 /// Linux `/proc/uptime` 的首个浮点秒数。
 pub fn parse_uptime_linux(text: &str) -> Option<u64> {
     let first = text.split_whitespace().next()?;
@@ -69,6 +95,15 @@ pub fn parse_net_darwin(text: &str) -> Option<(u64, u64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn darwin_cpu_uses_only_the_last_frame_and_never_invents_a_value() {
+        let text = "CPU usage: 5.0% user, 10.0% sys, 85.0% idle\n\
+                    \n\
+                    CPU usage: 6.25% user, 12.50% sys, 81.25% idle\n";
+        assert!((parse_top_darwin_cpu(text) - 18.75).abs() < 0.01);
+        assert_eq!(parse_top_darwin_cpu("Load Avg: 1.0\n"), 0.0);
+    }
 
     #[test]
     fn uptime_and_boottime_parsers_ignore_garbage() {

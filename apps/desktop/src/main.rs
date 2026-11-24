@@ -43,6 +43,8 @@ mod session_open;
 mod sysopen;
 // Sysmon 读数条的采样宿主：系统命令在 ui/ 之外跑，界面只读纯值。
 mod sysmon_sample;
+// 远端 Sysmon：独立 exec 通道取远端文本，复用同一套纯解析器；不碰用户 PTY。
+mod sysmon_remote;
 // 把文件交给系统默认程序（预览窗的「用外部程序打开」）与远端预览的
 // 临时落点。放在 `ui/` 之外是要求：拉起进程不是画。
 mod open_with;

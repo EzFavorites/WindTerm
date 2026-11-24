@@ -124,6 +124,13 @@ pub struct ViewState {
     /// Sysmon 已不是停靠面板，此位只由底部那条细带的按钮翻
     /// （点按钮 ↔ 点读数条），夹具 `--demo sysmon` 也派发同一 `TogglePanel`。
     pub show_pane_sysmon: bool,
+    /// Sysmon 的**远端采样开关**：开时读数条读 `sysmon_remote` 的第二 exec 通道
+    /// 快照（活动标签是内置 SSH 才有数据），关时只读宿主本机。
+    ///
+    /// 它不进命令 ID 表（没有菜单 / 脚本字符串入口）：翻转只有界面上那一枚 R 方块，
+    /// 走内部的 `ShellAction::ToggleSysmonRemote`。与 `show_pane_sysmon`（细带展开位）
+    /// 分开——收起细带不该顺手关掉用户选的监控源。
+    pub sysmon_remote: bool,
     /// 「脚本」停靠面板：在**当前活动标签页的会话**上跑脚本库的 Rhai 脚本。
     /// 默认关着，靠齿轮菜单勾选打开。面板体在
     /// `apps/desktop/src/ui/panels/script_panel.rs`，执行线程复用 `script_run`。
@@ -252,6 +259,7 @@ impl Default for ViewState {
             show_pane_shell: true,
             show_pane_transfer: false,
             show_pane_sysmon: false,
+            sysmon_remote: false,
             show_pane_script: false,
             full_screen: false,
             always_on_top: false,
@@ -321,5 +329,7 @@ mod tests {
             && s.show_pane_sender
             && s.show_pane_shell);
         assert!(!s.show_pane_session && !s.show_pane_transfer && !s.show_pane_sysmon);
+        // 出厂读本机，不主动开第二条连接（远端 exec 要等用户明确点 R）。
+        assert!(!s.sysmon_remote);
     }
 }
