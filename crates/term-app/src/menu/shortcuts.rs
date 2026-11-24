@@ -18,41 +18,27 @@ pub struct Shortcut {
 
 /// v0.1 出厂绑定。`Cmd` 在 Win/Linux 上归一为 Ctrl（见 `app::shortcuts`）。
 ///
-/// # 与 `shortcut_text`（菜单右侧那一列）的关系：**两条数据源，已知对不上**
+/// # 与菜单展示列的关系：**已对齐，真相在 `shortcut_map`**
 ///
-/// 这两张表指的是同一件事（哪个键叫出哪条命令），但它们各自照不同的依据抄：
-/// 本表是 v0.1 的出厂绑定，`shortcut_text` 是 2026-11-08 照视觉基线逐项抄的
-/// 快捷键列。**视觉基线优先**——菜单要按 2.6.1 保真，图上写什么就写什么，
-/// 所以本表**不**向它对齐，五条已知分歧原样留着：
+/// 旧实现把同一件事抄成三张表，其中本表与菜单列有 7 条对不上（见
+/// `menu_check_tests.rs` 的历史清单）。2026-11-24 起展示与派发都只认
+/// `shortcut_map::DEFAULT_BINDINGS`，本表降级为用户覆盖迁移用的「旧下标
+/// → 命令 ID」兼容门面，弦必须与菜单列一致，否则
+/// `the_two_shortcut_tables_do_not_contradict_each_other` 立刻红。
 ///
-/// | 命令 | 本表 | 菜单列 |
-/// |---|---|---|
-/// | `Window.Close` | `Cmd+W` | `Meta+Shift+Q` |
-/// | `Window.SplitViewHorizontally` | `Cmd+Shift+T` | `Alt+W, Alt+H` |
-/// | `Window.LockScreen` | `Cmd+Shift+L` | `Meta+Alt+L` |
-/// | `Window.ShowPaletteCommand` | `Cmd+Shift+P` | `Alt+;` |
-/// | `Window.ShowPaletteAnything` | `Cmd+Shift+O` | `Alt+S` |
-///
-/// 这张清单**只许减不许增**：新写一条对不上的键，`menu_check_tests.rs` 的
-/// `KNOWN_CHORD_DISAGREEMENTS` 断言会立刻红；真修好一条也要去那张表里删掉，
-/// 否则同样红（清单是精确集合，不是许可额度）。改哪一边都行，但改完要一起改表。
-///
-/// 为什么先不对齐：**单段绑定今天就在派发**（`dialogs::shortcuts` 的
-/// `handle_global_shortcuts` 读的就是本表，`Cmd+W` → `Window.Close` 全链路通），
-/// 但派发只认单弦；而菜单列是用户唯一看得见的一列，它对齐视觉基线这件事
-/// 比两表自洽更重要。要动这张表，得先定哪一边是真相，再连
-/// `KNOWN_CHORD_DISAGREEMENTS` 一起改——那是独立一刀。
-///
-/// **两段式键不在这张表里**（它一个 `Chord` 都放不下），在
-/// `DEFAULT_SHORTCUT_SEQS`；那张表直到 2026-11-11 才接上派发。
+/// 对齐过的 7 条：`Window.Close`、`SplitViewHorizontally`、`LockScreen`、
+/// `ShowPaletteCommand`、`ShowPaletteAnything` 与两条视图切换的 Alt 别名。
+/// 两段式键不在这张表里（一个 `Chord` 放不下），真绑定在
+/// `DEFAULT_SHORTCUT_SEQS`，展示列则以 `DEFAULT_BINDINGS` 的第一行为准；
+/// 测试对两段式行改用 `DEFAULT_SHORTCUT_SEQS` 比对，不会把它当成分歧。
 pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
     Shortcut {
-        chord: "Cmd+Shift+P",
+        chord: "Alt+;",
         id: "Window.ShowPaletteCommand",
         label: "Command Palette",
     },
     Shortcut {
-        chord: "Cmd+Shift+O",
+        chord: "Alt+S",
         id: "Window.ShowPaletteAnything",
         label: "Palette: Anything",
     },
@@ -95,12 +81,12 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         label: "Address Bar",
     },
     Shortcut {
-        chord: "Cmd+Shift+L",
+        chord: "Cmd+Alt+L",
         id: "Window.LockScreen",
         label: "Lock Screen",
     },
     Shortcut {
-        chord: "Cmd+W",
+        chord: "Cmd+Shift+Q",
         id: "Window.Close",
         label: "Close Tab",
     },
@@ -128,16 +114,6 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         chord: "Meta+PgDown",
         id: "Window.ActivateNextView",
         label: "Next View",
-    },
-    Shortcut {
-        chord: "Alt+[",
-        id: "Window.ActivatePreviousView",
-        label: "Previous View (Alt)",
-    },
-    Shortcut {
-        chord: "Alt+]",
-        id: "Window.ActivateNextView",
-        label: "Next View (Alt)",
     },
     Shortcut {
         chord: "Cmd+Shift+I",

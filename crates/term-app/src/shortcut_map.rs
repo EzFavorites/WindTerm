@@ -126,9 +126,24 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Window.ActivatePreviousView", chord: "Alt+[" },
     BindingRow { id: "Terminal.TabReopenClosed", chord: "Cmd+Shift+T" },
     BindingRow { id: "Window.WindowList", chord: "Cmd+Shift+I" },
+    // Tmux-Integration 文档的四个面板快捷键：Alt+X 杀当前窗格、Alt+方向键选窗格。
+    // 都是无目标命令，作用对象是 tmux 的当前窗格（由 tmux 自己解析）。
+    BindingRow { id: "Tmux.KillPaneActive", chord: "Alt+X" },
+    BindingRow { id: "Tmux.SelectPaneLeft", chord: "Alt+ArrowLeft" },
+    BindingRow { id: "Tmux.SelectPaneRight", chord: "Alt+ArrowRight" },
+    BindingRow { id: "Tmux.SelectPaneAbove", chord: "Alt+ArrowUp" },
+    BindingRow { id: "Tmux.SelectPaneBelow", chord: "Alt+ArrowDown" },
     // ── 右键菜单 margin 五列（与 CONTEXT_SEQ_ROWS 同源）──
     BindingRow { id: "Text.MarginBlank", chord: "Alt+T, Alt+B" },
     BindingRow { id: "Text.MarginNumber", chord: "Alt+T, Alt+N" },
+    // View ▸ Folds 六条（金图 13-view-folds-submenu.png）：显示列与派发共用本表。
+    // `Ctrl` 是字面 Ctrl（原图 Unfold 那条就是 Ctrl+Alt+=，不是 Meta）。
+    BindingRow { id: "View.Fold", chord: "Cmd+Alt+Minus" },
+    BindingRow { id: "View.Unfold", chord: "Ctrl+Alt+Equal" },
+    BindingRow { id: "View.FoldInside", chord: "Cmd+9" },
+    BindingRow { id: "View.UnfoldInside", chord: "Cmd+0" },
+    BindingRow { id: "View.FoldAll", chord: "Cmd+Alt+OpenBracket" },
+    BindingRow { id: "View.UnfoldAll", chord: "Cmd+Alt+CloseBracket" },
     BindingRow { id: "Text.MarginFoldColumn", chord: "Alt+T, Alt+F" },
     BindingRow { id: "Text.MarginSymbol", chord: "Alt+T, Alt+S" },
     BindingRow { id: "Text.MarginTimestamp", chord: "Alt+T, Alt+T" },
@@ -146,9 +161,16 @@ pub fn display_chord(chord: &str, platform: Platform) -> String {
                 .split('+')
                 .map(|token| {
                     if token.eq_ignore_ascii_case("Cmd") {
-                        platform.primary_label()
-                    } else {
-                        token
+                        return platform.primary_label();
+                    }
+                    // 解析层的键名（shortcuts.rs 的 KEY_NAMES）与菜单列的原版
+                    // 写法不同：前者写 Minus/OpenBracket，原图写 -/[。
+                    match token {
+                        "Minus" => "-",
+                        "Equal" => "=",
+                        "OpenBracket" => "[",
+                        "CloseBracket" => "]",
+                        _ => token,
                     }
                 })
                 .collect::<Vec<_>>()

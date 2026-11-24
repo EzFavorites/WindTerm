@@ -62,6 +62,16 @@ pub(super) fn line_end(image: &ScreenImage, row: i64) -> usize {
     }
 }
 
+/// 当前行第一个非空白字形的起始列（Vim `^`）；整行空白时退回 0。
+pub(super) fn line_first_non_blank(image: &ScreenImage, row: i64) -> usize {
+    image.line_at(row).map_or(0, |line| {
+        glyphs(&line.cells)
+            .iter()
+            .find(|g| !g.ch.is_whitespace())
+            .map_or(0, |g| g.from)
+    })
+}
+
 pub(super) fn content_len(cells: &[Cell]) -> usize {
     let gs = glyphs(cells);
     gs.iter()

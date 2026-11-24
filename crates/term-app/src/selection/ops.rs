@@ -11,7 +11,8 @@ use term_core::osc133::CommandBlock;
 use crate::vocab::{Cmd, Op, SetOp};
 use super::geometry::{
     caret, char_next, char_next_in_row, char_prev, char_prev_in_row, clamp_col, clamp_row,
-    command_rows, content_len, document_end, indentation_target, line_end, nearest_above,
+    command_rows, content_len, document_end, indentation_target, line_end, line_first_non_blank,
+    nearest_above,
     nearest_below, page, pair_end_with, pair_next_with, pair_prev_with, pair_start_with,
     paragraph_next, paragraph_prev, scope_rows, stuttered_page, window_start, last_row, Pairs,
 };
@@ -87,6 +88,11 @@ pub fn apply_with_pairs(
         Op::ToDocumentStart => extend(current, head, Pos::new(window_start(image), 0)),
         Op::ToDocumentEnd => extend(current, head, document_end(image)),
         Op::ToLineHome => extend(current, head, Pos::new(head.row, 0)),
+        Op::ToLineFirstNonBlank => extend(
+            current,
+            head,
+            Pos::new(head.row, line_first_non_blank(image, head.row)),
+        ),
         Op::ToLineEnd => extend(current, head, Pos::new(head.row, line_end(image, head.row))),
         Op::CharPrev => extend(current, head, char_prev(image, head)),
         Op::CharNext => extend(current, head, char_next(image, head)),

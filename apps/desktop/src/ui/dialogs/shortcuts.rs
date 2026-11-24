@@ -360,15 +360,16 @@ mod tests {
     }
 
     #[test]
-    fn command_palette_shortcut_is_cmd_shift_p() {
-        let p = term_app::shortcuts::chord(true, false, true, false, "P");
-        // ui/ 不得出现命令 ID 字面量，连测试里也不行。
-        // 用数据层的查询函数反查，比写字面量更经得起菜单改名。
-        let id = term_app::menu::shortcut_for("Cmd+Shift+P").unwrap();
+    fn command_palette_shortcut_matches_the_menu_column() {
+        // 原版菜单列的是 Alt+;（见 shortcut_map 的单一绑定表），不是旧的 Cmd+Shift+P。
+        // ui/ 不得出现命令 ID 字面量，连测试里也不行，所以用数据层反查。
+        let id = term_app::menu::shortcut_for("Alt+;").unwrap();
         assert_eq!(term_app::capability::describe(id).feature, Some(term_app::action::FeatureId::Palette));
-        assert!(term_app::menu::DEFAULT_SHORTCUTS
-            .iter()
-            .any(|s| s.id == id && term_app::shortcuts::matches(s.chord, p)));
+        let shown = term_app::shortcut_map::default_display(id);
+        assert_eq!(
+            term_app::shortcuts::parse_chord(shown),
+            term_app::shortcuts::parse_chord("Alt+;"),
+        );
     }
 
     /// 运行期表里的每一段，`key_name` 都必须折得出来。

@@ -380,5 +380,9 @@ mod tests {
 mod check_tests;
 
 #[cfg(test)]
+#[path = "menu_check_shortcut_tests.rs"]
+mod check_shortcut_tests;
+
+#[cfg(test)]
 #[path = "menu_context_ids_tests.rs"]
 mod context_ids_tests;

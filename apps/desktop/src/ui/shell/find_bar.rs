@@ -33,9 +33,13 @@
 //!
 //! # 未接线的图标
 //!
-//! `.*`（正则）/ `≡` / `I` / `⇄▾` / `Find All` 在视觉基线里是亮的，但本仓没有
-//! 对应能力：正则要引入引擎（`term-core` 目前零 regex 依赖）、`Find All` 要有
-//! 结果列表面板。按一贯做法——**画在原位、点击不假装有效**，悬停说明未接线。
+//! `≡` / `I` / `⇄▾` / `Find All` 在视觉基线里是亮的，但本仓没有对应能力：
+//! `Find All` 要有结果列表面板，另三个是编辑态/范围选择。按一贯做法——
+//! **画在原位、点击不假装有效**，悬停说明未接线。
+//!
+//! `.*`（正则）已接线：`term-core::find` 用 `regex` 编译表达式，字符列与
+//! 字形坐标同源；语法错时图标和输入框边框转成红色，悬停给出编译错误，
+//! 而不是让「0 / N」静默地像搜不到。
 
 use crate::ui::tr::t;
 use eframe::egui;
@@ -117,6 +121,15 @@ pub fn draw_find_bar(
     let line = crate::theme::chrome(CHROME_SCALE.border);
     let text_c = crate::theme::chrome(CHROME_SCALE.text);
     let font = egui::TextStyle::Button.resolve(ui.style());
+    // 正则语法错的**可见**反馈：边框 + `.*` 图标同时转红，悬停给出原因。
+    // 编译只在查询/正则位变化时随这一帧的绘制做一次，结果复用给提示文本。
+    let regex_error = if find_state.regex && !find_state.query.is_empty() {
+        term_core::find::validate_regex(&find_state.query).err()
+    } else {
+        None
+    };
+    let invalid_c = egui::Color32::from_rgb(0xE0, 0x6C, 0x6C);
+    let border_c = if regex_error.is_some() { invalid_c } else { line };
 
     // 上下各一条 1 点边线：视觉基线里它与快捷栏的分界就靠这两条线。
     ui.painter().line_segment(
@@ -178,7 +191,7 @@ pub fn draw_find_bar(
     // `shrink(0.5)`：1 点描边画在整数边界上会被抗锯齿摊成两行半亮的线，
     // 与视觉基线那种干脆的一像素不同（Tunnels 对话框那轮踩过一次）。
     ui.painter()
-        .rect_stroke(field.shrink(0.5), 0.0, egui::Stroke::new(1.0, line));
+        .rect_stroke(field.shrink(0.5), 0.0, egui::Stroke::new(1.0, border_c));
 
     // 文本编辑区：左侧留 6 点内边距，右侧让开图标组。
     let icons_left = field.right() - ICON_R_PAD - CYCLE_W - CYCLE_GAP - ICON_W * 5.0;
@@ -223,20 +236,18 @@ pub fn draw_find_bar(
     } else if resp.hovered() {
         ui.painter().rect_filled(r, 0.0, hover_bg);
     }
+    let icon_c = if regex_error.is_some() { invalid_c } else { text_c };
     let g = ui
         .painter()
-        .layout_no_wrap(".*".to_owned(), font.clone(), text_c);
+        .layout_no_wrap(".*".to_owned(), font.clone(), icon_c);
     ui.painter()
-        .galley(r.center() - g.size() / 2.0, g, text_c);
-    // 表达式写错时给出明确提示——匹配的 0/N  silent 失败最容易让人以为
-    // 「搜不到」，其实是正则语法错。只在激活且查询非空时校验。
-    let regex_hint = if find_state.regex && !find_state.query.is_empty() {
-        match term_core::find::validate_regex(&find_state.query) {
-            Ok(()) => "Regular expression (on)".to_string(),
-            Err(e) => format!("Regular expression — invalid pattern: {e}"),
-        }
-    } else {
-        "Regular expression".to_string()
+        .galley(r.center() - g.size() / 2.0, g, icon_c);
+    // 表达式写错时给出明确提示——匹配的 0/N 静默失败最容易让人以为
+    // 「搜不到」，其实是正则语法错。校验结果在上面已为边框/图标算过。
+    let regex_hint = match &regex_error {
+        Some(e) => format!("Regular expression — invalid pattern: {e}"),
+        None if find_state.regex => "Regular expression (on)".to_string(),
+        None => "Regular expression".to_string(),
     };
     if resp.on_hover_text(regex_hint).clicked() {
         dispatch(Action::Find(FindAction::ToggleRegex));

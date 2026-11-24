@@ -103,6 +103,13 @@ impl TerminalWindow {
                         term_app::tmux::Command::Refresh.line(),
                     ));
                 }
+                // 官方 page/5：`Tmux: Synchronize Panes` 切换当前 window 的输入广播。
+                // 面板给同名的可点入口，命令面板里也有一条同语义的 Mux/Tmux 条目。
+                if ui.button("Synchronize").clicked() {
+                    actions.push(Action::TmuxCommand(
+                        term_app::tmux::Command::SynchronizePanes.line(),
+                    ));
+                }
             });
             // 带目标的反向命令只从**解析出来的窗格集合**里选，绝不手填窗格号：
             // 08-tmux-integration.md 要求用窗格号集合做目标校验，否则容易误注入。
@@ -110,6 +117,15 @@ impl TerminalWindow {
                 ui.label("No panes parsed yet — feed a %output / %layout line first.");
             } else {
                 ui.label("Panes (from control output):");
+                // 官方 page/3 的 Rename Pane：名字单独一个输入框，窗格号只能从
+                // 解析出的集合里取。和 `RenameWindow` 共用一条安全转义路径。
+                ui.horizontal(|ui| {
+                    ui.label("Pane name:");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.tmux_pane_name)
+                            .hint_text("build"),
+                    );
+                });
                 // 发给窗格的文本：先按快捷栏同一套规则解转义（`\n`/`\x03`…），
                 // 再由 `send_text` 决定走 `-l` 引号路径还是控制字节的十六进制路径。
                 // 这是那条一直只有单测构造、没有生产调用者的安全 API 的真入口。
@@ -134,6 +150,17 @@ impl TerminalWindow {
                         if ui.button(format!("Kill %{pane}")).clicked() {
                             actions.push(Action::TmuxCommand(
                                 term_app::tmux::Command::KillPane(*pane).line(),
+                            ));
+                        }
+                        if !self.tmux_pane_name.trim().is_empty()
+                            && ui.button(format!("Rename %{pane}")).clicked()
+                        {
+                            actions.push(Action::TmuxCommand(
+                                term_app::tmux::Command::RenamePane {
+                                    pane: *pane,
+                                    name: self.tmux_pane_name.trim().to_string(),
+                                }
+                                .line(),
                             ));
                         }
                         if !self.tmux_send.is_empty() && ui.button(format!("Send %{pane}")).clicked() {

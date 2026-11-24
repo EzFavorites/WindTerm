@@ -1005,6 +1005,9 @@ pub enum Op {
     ToDocumentStart,
     ToDocumentEnd,
     ToLineHome,
+    /// Vim `^`：跳到当前行第一个非空白字符。终端里没有 Vim 的光标对象，
+    /// 这条仍按选区头的绝对行取字形，保证与 `Home` / `End` 同一坐标系。
+    ToLineFirstNonBlank,
     ToLineEnd,
     CharPrev,
     CharNext,

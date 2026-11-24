@@ -13,6 +13,15 @@ pub const TMUX_PALETTE: &[(&str, &str, &str)] = &[
     ("Tmux: New Window", concat!("Tmux.", "NewWindow"), "new-window"),
     ("Tmux: Refresh Client", concat!("Tmux.", "Refresh"), "refresh-client"),
     ("Tmux: Detach Client", concat!("Tmux.", "Detach"), "detach-client"),
+    // 官方四篇 Tmux-Integration 文档的面板入口（显示名照文档逐字抄）：
+    // Kill / Rename / Select 用 `Mux:` 前缀，Synchronize 用 `Tmux:` 前缀。
+    // 全部无目标：作用于当前窗格/当前 window，不需要先解析窗格号。
+    ("Mux: Kill Pane", concat!("Tmux.", "KillPaneActive"), "kill-pane"),
+    ("Mux: Select Pane Left", concat!("Tmux.", "SelectPaneLeft"), "select-pane -L"),
+    ("Mux: Select Pane Right", concat!("Tmux.", "SelectPaneRight"), "select-pane -R"),
+    ("Mux: Select Pane Above", concat!("Tmux.", "SelectPaneAbove"), "select-pane -U"),
+    ("Mux: Select Pane Below", concat!("Tmux.", "SelectPaneBelow"), "select-pane -D"),
+    ("Tmux: Synchronize Panes", concat!("Tmux.", "SynchronizePanes"), "set-window-option synchronize-panes"),
 ];
 
 /// 命令 ID → 安全的控制行。带目标的命令一律返回 `None`。

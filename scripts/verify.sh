@@ -689,7 +689,6 @@ crates/term-app/src/i18n/zh.rs
 crates/term-core/src/grid.rs
 crates/term-script/src/compat.rs
 crates/term-script/src/workspace.rs
-crates/term-app/src/menu_check_tests.rs
 crates/term-app/src/menu_submenus.rs"
 # 统一成空格分隔：case 的 `" $f "` 边界只认空格，换行会让匹配静默失效。
 SZ_DEBT=$(printf '%s %s' "$DESK_SZ_DEBT" "$CRATES_SZ_DEBT" | tr '\n' ' ')

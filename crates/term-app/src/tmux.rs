@@ -219,12 +219,28 @@ impl ControlMode {
 
 /// 本地 → 远端的反向控制命令（`tmux -CC` 里发给会话的那些字符串）。
 /// 纯字符串生成，投影层负责写进 PTY。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PaneDir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     SplitHorizontal,
     SplitVertical,
     SelectPane(u32),
+    /// 文档里的「Alt+方向键 / Mux: Select Pane Left…」：无目标，作用于当前窗格。
+    SelectPaneDirection(PaneDir),
     KillPane(u32),
+    /// `Mux: Kill Pane`：无目标时 tmux 自己杀当前窗格，不需要我们先解析窗格号。
+    KillPaneActive,
+    /// `Mux: Rename Pane`：带目标的窗格重命名（名称来自面板输入框，安全转义）。
+    RenamePane { pane: u32, name: String },
+    /// `Tmux: Synchronize Panes`：tmux 的 window 选项，省略值即切换。
+    SynchronizePanes,
     NewWindow,
     SelectWindow(u32),
     RenameWindow(String),
@@ -248,7 +264,21 @@ impl Command {
             Command::SplitHorizontal => "split-window -h".to_string(),
             Command::SplitVertical => "split-window -v".to_string(),
             Command::SelectPane(id) => format!("select-pane -t %{id}"),
+            Command::SelectPaneDirection(dir) => {
+                let flag = match dir {
+                    PaneDir::Left => 'L',
+                    PaneDir::Right => 'R',
+                    PaneDir::Up => 'U',
+                    PaneDir::Down => 'D',
+                };
+                format!("select-pane -{flag}")
+            }
             Command::KillPane(id) => format!("kill-pane -t %{id}"),
+            Command::KillPaneActive => "kill-pane".to_string(),
+            Command::RenamePane { pane, name } => {
+                format!("rename-pane -t %{pane} {}", quote_if_needed(&no_control(name)))
+            }
+            Command::SynchronizePanes => "set-window-option synchronize-panes".to_string(),
             Command::NewWindow => "new-window".to_string(),
             Command::SelectWindow(id) => format!("select-window -t @{id}"),
             Command::RenameWindow(name) => format!("rename-window {}", quote_if_needed(&no_control(name))),
@@ -474,6 +504,26 @@ mod tests {
         assert_eq!(Command::Detach.line(), "detach-client");
         assert_eq!(Command::Refresh.line(), "refresh-client");
         assert_eq!(Command::Resize { cols: 80, rows: 24 }.line(), "refresh-client -C 80x24");
+    }
+
+    #[test]
+    fn the_four_documented_pane_features_have_their_control_lines() {
+        // Kill Pane（page/2）：无目标即当前窗格；带目标仍走面板的窗格集合校验。
+        assert_eq!(Command::KillPaneActive.line(), "kill-pane");
+        assert_eq!(Command::KillPane(3).line(), "kill-pane -t %3");
+        // Rename Pane（page/3）：名称与窗格号都不能成为第二条命令。
+        assert_eq!(Command::RenamePane { pane: 2, name: "build".into() }.line(), "rename-pane -t %2 build");
+        assert_eq!(
+            Command::RenamePane { pane: 2, name: "a b; c\nd".into() }.line(),
+            "rename-pane -t %2 \"a b; c d\"",
+        );
+        // Select Pane（page/4）：方向键不依赖解析出的窗格号。
+        assert_eq!(Command::SelectPaneDirection(PaneDir::Left).line(), "select-pane -L");
+        assert_eq!(Command::SelectPaneDirection(PaneDir::Right).line(), "select-pane -R");
+        assert_eq!(Command::SelectPaneDirection(PaneDir::Up).line(), "select-pane -U");
+        assert_eq!(Command::SelectPaneDirection(PaneDir::Down).line(), "select-pane -D");
+        // Synchronize Panes（page/5）：省略值 = tmux 自己切换该 window 选项。
+        assert_eq!(Command::SynchronizePanes.line(), "set-window-option synchronize-panes");
     }
 
     #[test]
