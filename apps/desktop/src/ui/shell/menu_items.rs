@@ -63,6 +63,8 @@ fn live_check(win: &TerminalWindow, id: &str) -> bool {
         // Remote Mode 勾的是「当前可输入」= 不在本地只读态。与 Local Mode
         // 共用同一份 `Tab.local_mode`，中间没有第二份镜像状态。
         Some(Action::Shell(ShellAction::SetRemoteMode)) => !win.local_mode_on(),
+        // Word Wrap 勾的是活动标签的 Tab.word_wrap，与 toggle_word_wrap 共用同一位。
+        Some(Action::Shell(ShellAction::ToggleWordWrap)) => win.word_wrap_on(),
         Some(Action::Shell(ShellAction::HexBase(base))) => win.active_hex().base == base,
         Some(Action::Shell(ShellAction::HexColumns(columns))) => {
             win.active_hex().columns == columns

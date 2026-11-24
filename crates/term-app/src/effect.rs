@@ -156,6 +156,10 @@ pub enum Effect {
     ToggleLocalMode,
     /// `Mode ▸ Remote Mode`：把活动标签的 `Tab.local_mode` 清成 false。
     SetRemoteMode,
+    /// `Text.ToggleWordWrap`：翻投影层 `Tab.word_wrap` 一位，不落盘。
+    /// 生效值不在 reducer 手上（只有全局 `ViewState`），落地在
+    /// `apps/desktop/src/ui/effects/mode.rs::toggle_word_wrap`。
+    ToggleWordWrap,
     /// 2026-11-17：隧道总线开关切一下（菜单栏 `Tunnels` 下拉）。
     ///
     /// 落地是 `TerminalWindow::set_tunnels_enabled`：关 → 停掉全部在跑的隧道，

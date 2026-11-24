@@ -169,6 +169,12 @@ pub struct Tab {
     /// 照常敲，进 `ViewState` 就变成整窗只读。**不落盘**——与 `debug` 同款：
     /// 只读是临时查看态，重启后一律回到可输入，否则用户会以为终端坏了。
     pub(in crate::ui) local_mode: bool,
+    /// `Text.ToggleWordWrap`：本标签是否把逻辑行按 wrap column 软折成多段。
+    ///
+    /// 与 `mode` / `debug` / `local_mode` 同类：只表达「用户点了」，显示态属于
+    /// **每个标签**——同一窗口里一个标签软折、另一个不折，进 `ViewState` 就
+    /// 变成整窗一份。**不落盘**：重开标签一律回到出厂（关），与另三个开关同款。
+    pub(in crate::ui) word_wrap: bool,
     /// 本标签当前**折起来**的区间集合，坐标是历史绝对行（`HistoryRow`）。
     ///
     /// 归 tab 而不是 `ViewState`：与 `mode` / `hex` / `marks` 同一条理由——同一个

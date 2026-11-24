@@ -272,9 +272,11 @@ mod tests {
         // → 已接线 217→218、占位 5→4、总数 222 不变。
         // 同日：`Window.SetRemoteMode` 接线（退出只读，勾改 Live）
         // → 已接线 218→219、占位 4→3、总数 222 不变。
+        // 2026-11-24：`Text.ToggleWordWrap` 接线（软换行，段表按位现算）
+        // → 已接线 219→220、占位 3→2、总数 222 不变。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 219, "已接线命令数变化需显式确认");
-        assert_eq!(planned, 3, "占位命令数变化需显式确认");
+        assert_eq!(implemented, 220, "已接线命令数变化需显式确认");
+        assert_eq!(planned, 2, "占位命令数变化需显式确认");
         assert_eq!(inventory().len(), 222);
     }
 
@@ -585,6 +587,9 @@ mod tests {
             // `apps/desktop`。归 `FeatureId::Bin`：它换的是「怎么看字节」，
             // 不是窗口 chrome。
             "Text.ToggleHexEdit",
+            // 2026-11-24：软换行。读者是投影层 `Tab.word_wrap`——段表每帧
+            // 按这一位现算（`wrap::segments_for`），点了真的多出可视段。
+            "Text.ToggleWordWrap",
             // 2026-11-14：调试覆盖层。读者是 `apps/desktop/src/ui/terminal/
             // pane_overlays.rs` 的 `if !bin && tab.debug` —— 它去调
             // `ui/terminal/debug_paint.rs::paint`，点了屏幕上的像素**真的变**：
@@ -769,9 +774,10 @@ mod tests {
         // `Window.GotoSymbol`——仍然解析不了（符号表要先有「符号」这个概念），
         // 且它不在任何已接线的能力族里。
         // `Window.GotoSymbol` 2026-11-23 已接线（符号表 = OSC 133 命令块）；
-        // `Window.SetRemoteMode` 同日接线。这里改用仍未接线的
-        // `Text.ToggleWordWrap`（软换行需内核 reflow）钉住置灰这一侧。
-        assert_eq!(describe("Text.ToggleWordWrap").state, CapState::Planned);
+        // `Window.SetRemoteMode` 同日接线；`Text.ToggleWordWrap` 2026-11-24
+        // 接线。这里改用仍未接线的 `Text.ToggleVirtualSpace`（已删除的编辑器
+        // 语义）钉住置灰这一侧。
+        assert_eq!(describe("Text.ToggleVirtualSpace").state, CapState::Planned);
     }
 
     /// 2026-11-14：折叠族九条**逐条**钉住「可点 + 归属」。

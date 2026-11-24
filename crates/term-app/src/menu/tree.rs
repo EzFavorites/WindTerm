@@ -738,7 +738,7 @@ pub fn menus() -> Vec<Menu> {
                 Item::Check {
                     label: "Word Wrap",
                     id: "Text.ToggleWordWrap",
-                    checked: CheckState::Fixed(true),
+                    checked: CheckState::Live,
                 },
                 Item::Check {
                     label: "Virtual Space",

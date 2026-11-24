@@ -454,6 +454,7 @@ impl TerminalWindow {
             // 所以本函数只负责翻它，别再在这里顺手改别的东西。
             Effect::ToggleLocalMode => self.toggle_local_mode(),
             Effect::SetRemoteMode => self.set_remote_mode(),
+            Effect::ToggleWordWrap => self.toggle_word_wrap(),
             // 2026-11-17 Tunnels：总线开关会真的停/起连接，所以必须先落内存
             // 再写盘——反过来的话，写盘失败会让屏幕与实际转发不一致。
             Effect::ToggleTunnels => {
@@ -591,6 +592,13 @@ impl TerminalWindow {
         self.tabs
             .get(self.active_slot())
             .is_some_and(|tab| tab.local_mode)
+    }
+
+    /// `Mode ▸ Word Wrap` 的勾：活动标签是否开着软换行。
+    pub(in crate::ui) fn word_wrap_on(&self) -> bool {
+        self.tabs
+            .get(self.active_slot())
+            .is_some_and(|tab| tab.word_wrap)
     }
 
     /// `View ▸ Hex Base / Hex Columns / Hex Group Chars` 的**唯一落地点**：

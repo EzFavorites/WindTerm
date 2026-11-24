@@ -162,6 +162,7 @@ pub(in crate::ui) fn tab_from(
             debug_log_active: false,
             vim: term_app::vim::VimState::default(),
             local_mode: false,
+            word_wrap: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
             // 控制模式状态机归本 tab，跨块行缓冲从空开始。
             tmux: term_app::tmux::ControlMode::default(),

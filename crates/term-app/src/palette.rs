@@ -240,11 +240,11 @@ mod tests {
     #[test]
     fn anything_shows_planned_items_but_they_are_not_executable() {
         let mut s = open(PaletteMode::Anything);
-        // 锁定一条确定未接线的项：Goto Symbol 已接线（符号表 = OSC 133 命令块），
-        // 这里的占位样本改用仍未接线的 `Text.ToggleWordWrap`。
+        // 锁定一条确定未接线的项：Goto Symbol / ToggleWordWrap 已接线，
+        // 这里的占位样本改用仍未接线的 `Text.ToggleVirtualSpace`（已删的编辑器语义）。
         let idx = entries(PaletteMode::Anything)
             .iter()
-            .position(|e| e.id == "Text.ToggleWordWrap")
+            .position(|e| e.id == "Text.ToggleVirtualSpace")
             .expect("菜单里应有该占位项");
         s.selected = idx;
         let e = selected_entry(&s).unwrap();

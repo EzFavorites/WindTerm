@@ -122,7 +122,8 @@ mod tests {
             // `Window.ToggleDebugMode` 也已移出：它翻 `Tab.debug`，读者是
             // `ui/terminal/pane_overlays.rs` 的 `if !bin && tab.debug` →
             // `debug_paint::paint`，屏幕上真的多出属性位 / 色号 / 宽字符标记。
-            "Text.ToggleWordWrap",
+            // `Text.ToggleWordWrap` 也已移出：它翻 `Tab.word_wrap`，段表每帧
+            // 按这一位现算（软折号时产生真多段），不再是没有读者的空 bool。
             "Text.ToggleVirtualSpace",
             "Text.ToggleMultipleCaret",
         ] {
@@ -671,7 +672,7 @@ mod tests {
         );
         let idx = palette_feature::entries(palette_feature::PaletteMode::Anything)
             .iter()
-            .position(|e| e.id == "Text.ToggleWordWrap")
+            .position(|e| e.id == "Text.ToggleVirtualSpace")
             .unwrap();
         s.command_palette.selected = idx;
         let effects = reduce(&mut s, Action::Palette(PaletteAction::Confirm), None);

@@ -165,16 +165,15 @@ pub struct SeqShortcut {
 /// 一个字都不许自己编：这是**同一件事的第三张手写表**，抄错就是「菜单写着
 /// A、按下去是 B」。
 ///
-/// 七条都在这里，**还没接线的只有一条**（`Text.ToggleWordWrap`
-/// `Alt+M, Alt+W`）：数据层登记「视觉基线上写了这个键」，投影层构造时再用
-/// `capability::is_implemented` 过滤——只在运行期装能真派发的那几条。
-/// 之所以在构造时过滤而不是在这里分开两张表：那样「菜单列有哪些两段式行」
-/// 与「这张表」就有了两个不同的集合，`menu_check_tests.rs` 得分别守两遍。
-/// （`ManageOneKeys` / `ManageTriggers` 2026-11-13 已接线，`is_implemented`
-/// 过滤让它们自动回到运行期表——这里不用改，是因为过滤是运行时判的。）
+/// 七条都在这里，**全部已接线**（最后一条 `Text.ToggleWordWrap`
+/// `Alt+M, Alt+W` 于 2026-11-24 接通）：数据层登记「视觉基线上写了这个键」，
+/// 投影层构造时仍用 `capability::is_implemented` 过滤——只装能真派发的那几条。
+/// 保留这道过滤不是为了当前（现在全接线），而是因为「菜单列有哪些两段式行」
+/// 与「这张表」必须是同一个集合，`menu_check_tests.rs` 只守一遍；若将来有项
+/// 回退成占位，过滤会把它自动拿出运行期表，不必在这里分两张表。
 ///
-/// **前缀不许白吞按键**：未接线的两段式键第一段若装进运行期表，按下去会
-/// 进前缀态却永远等不到后继动作，顺手搅浑同前缀的其他键序。
+/// **前缀不许白吞按键**：若某条两段式键未接线却装进运行期表，按下去会进前缀态
+/// 却永远等不到后继动作，顺手搅浑同前缀的其他键序——过滤正是为此保留的。
 pub const DEFAULT_SHORTCUT_SEQS: &[SeqShortcut] = &[
     SeqShortcut {
         chord: "Alt+M, Alt+H",
@@ -279,19 +278,19 @@ pub fn shortcut_for(chord_text: &str) -> Option<&'static str> {
 /// 1. **与 `DEFAULT_SHORTCUTS` 有五条分歧**（本列照视觉基线，绑定表是出厂值）。
 ///    清单在 `DEFAULT_SHORTCUTS` 的文档段里，断言是
 ///    `menu_check_tests.rs::KNOWN_CHORD_DISAGREEMENTS`。
-/// 2. **还有一条命令没接线，视觉基线上却标着键**：
-///    `Text.ToggleWordWrap`（`Alt+M, Alt+W`）。清单与断言见
-///    `menu_check_tests.rs::KNOWN_UNWIRED_SHORTCUTS`。
-///    已销账：`Application.NewWindow`（2026-11-15）、`Window.GotoSymbol`（2026-11-23，
-///    符号表就是 OSC 133 命令块）、`Window.SetRemoteMode`（2026-11-23，退出只读）。
+/// 2. **「标着键却没接线」这一类现已清空**：`KNOWN_UNWIRED_SHORTCUTS` 为空数组。
+///    历史上在此清单、现已销账的：`Application.NewWindow`（2026-11-15）、
+///    `Window.GotoSymbol`（2026-11-23，符号表 = OSC 133 命令块）、
+///    `Window.SetRemoteMode`（2026-11-23，退出只读）、`Text.ToggleWordWrap`
+///    （2026-11-24，软换行段表按位现算）。
 ///
 /// 第 2 类是本轮特别定过口径的：**照 2.6.1 保真优先**。视觉基线上写着
 /// `Meta+Shift+N`，菜单就该写着——把它删掉是拿保真度换整洁，方向错了。
 /// 用户点那一行本来就是置灰的（`capability::describe` 说它是 `Planned`），
 /// 「灰项 + 视觉基线上的键」是诚实的状态，而「少一列字」是对视觉基线的偏离。
-/// 哪天剩下的命令接线了，把 ID 从 `KNOWN_UNWIRED_SHORTCUTS` 里删掉即可
-/// （断言会因为你没删而红，这是有意的）。`Application.NewWindow` 就是这么
-/// 销账的：绑定表补一行、清单删一项，菜单列一个字没动。
+/// 哪天又有命令从占位变成已接线，把 ID 从 `KNOWN_UNWIRED_SHORTCUTS` 删掉即可
+/// （断言会因为你没删而红，这是有意的）。`Application.NewWindow` /
+/// `Text.ToggleWordWrap` 就是这么销账的：绑定表补一行、清单删一项，菜单列一个字没动。
 pub fn shortcut_text(id: &str) -> &'static str {
     crate::shortcut_map::default_display(id)
 }

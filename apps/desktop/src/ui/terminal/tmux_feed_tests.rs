@@ -52,6 +52,7 @@ fn bare_tab() -> Tab {
         vim: term_app::vim::VimState::default(),
         // 只读查看：这条夹具只想验 tmux 控制行，取出厂值（可输入）。
         local_mode: false,
+            word_wrap: false,
         raw: RawLog::new(),
         tmux: term_app::tmux::ControlMode::default(),
         tmux_pending: Vec::new(),

@@ -77,7 +77,9 @@ fn mode_menu_matches_the_reference_row_for_row() {
             "◻ Remote Mode",
             "Local Mode",
             "Hex Edit",
-            "✓ Word Wrap",
+            // Word Wrap 现在是 CheckState::Live：出厂关时真机画空框，
+            // 这里 `shape()` 只标占位符「◻」，不预计算运行期值。
+            "◻ Word Wrap",
             "☐ Virtual Space",
             "✓ Multiple Caret",
             "Focus Mode",
@@ -210,16 +212,17 @@ fn a_wired_command_must_read_live_state() {
             "Hide All",
             // Mode › Remote Mode：2026-11-23 接线后改 Live，勾由 `local_mode_on` 现读。
             "Remote Mode",
+            // Mode › Word Wrap：2026-11-24 接线改 Live，勾由 `word_wrap_on` 现读。
+            "Word Wrap",
         ],
         "读运行期状态的勾选行变了：它们必须与已接线命令一一对应"
     );
     assert_eq!(
         fixed_rows,
         vec![
-            // Mode：Remote Mode 2026-11-23 已接线改 Live，移出这张表；
-            // 余下三条仍没有运行期状态可读（口径表见 `menu.rs::Item::Check`），
-            // 勾是常数、行也置灰点不动。
-            "Word Wrap",
+            // Mode：Remote Mode（2026-11-23）与 Word Wrap（2026-11-24）已接线
+            // 改 Live，移出这张表；余下两条仍没有运行期状态可读（口径表见
+            // `menu.rs::Item::Check`），勾是常数、行也置灰点不动。
             "Virtual Space",
             "Multiple Caret",
         ],
@@ -370,12 +373,11 @@ fn or_none(items: &[String]) -> String {
 /// 这几条不是漏改：视觉基线（2.6.1）上它们就标着键，菜单按视觉基线保真，
 /// 删字是偏离视觉基线。行本来就是置灰点不动的（`capability::describe` 说 `Planned`），
 /// 「灰项 + 视觉基线上的键」是诚实的状态。命令接线那天，从这张表里删掉即可。
-const KNOWN_UNWIRED_SHORTCUTS: [&str; 1] = [
-    // `Application.NewWindow` 已删：2026-11-15 接线，并补进 `DEFAULT_SHORTCUTS`。
-    // `Window.GotoSymbol` 已接线（符号表 = OSC 133 命令块），2026-11-23 销账。
-    // `Window.SetRemoteMode` 已接线（Remote Mode = 退出只读），2026-11-23 销账。
-    "Text.ToggleWordWrap",
-];
+const KNOWN_UNWIRED_SHORTCUTS: [&str; 0] = [];
+// 曾在此清单的项，全部已接线销账：
+// `Application.NewWindow`（2026-11-15 删）、`Window.GotoSymbol`（2026-11-23，
+// 符号表 = OSC 133 命令块）、`Window.SetRemoteMode`（2026-11-23，退出只读）、
+// `Text.ToggleWordWrap`（2026-11-24，软换行段表按位现算）。
 
 /// 接线之后菜单那一列字不能是「看得见键、按下去不动」：绑定表必须有这一行。
 ///

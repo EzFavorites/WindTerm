@@ -75,6 +75,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         vim: term_app::vim::VimState::default(),
         // 只读查看：这条夹具只验斑马线，取出厂值（可输入、无冻结锚点）。
         local_mode: false,
+            word_wrap: false,
         raw: crate::ui::terminal::bin_spec::RawLog::new(),
         // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
         tmux: term_app::tmux::ControlMode::default(),

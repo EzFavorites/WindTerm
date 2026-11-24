@@ -50,6 +50,7 @@ pub(crate) fn shell_parse(id: &str) -> Option<ShellAction> {
         // `Item::Check { Live }`，勾读活动标签的 `Tab.local_mode`。
         "Window.SetLocalMode" => ShellAction::ToggleLocalMode,
         "Window.SetRemoteMode" => ShellAction::SetRemoteMode,
+        "Text.ToggleWordWrap" => ShellAction::ToggleWordWrap,
         "Window.ActivateNextView" => ShellAction::ActivateNextView,
         "Window.ActivatePreviousView" => ShellAction::ActivatePreviousView,
         "Terminal.CopySessionName" => ShellAction::CopySessionName,

@@ -341,6 +341,10 @@ pub enum ShellAction {
     /// 只把那一位清成 false（已经是远端态时是空操作），不落盘。它是菜单里
     /// `CheckState::Live` 的勾：勾上表示「当前是远端态」，由投影层现读。
     SetRemoteMode,
+    /// `Text.ToggleWordWrap`（`Mode ▸ Word Wrap`）：把活动标签的逻辑行按 wrap
+    /// column 软折成多段。与 `ToggleHexEdit` 同一套两层模型——只声明意图，
+    /// 生效值活在投影层 `Tab.word_wrap`，reducer 不碰；不落盘。
+    ToggleWordWrap,
     /// `View ▸ Hex Base`：一个字节用几进制写（2 / 7 / 8 / 10 / 16）。
     ///
     /// 与 `ToggleHexEdit` 同一类：reducer 只说「用户点了哪一档」，**不碰**

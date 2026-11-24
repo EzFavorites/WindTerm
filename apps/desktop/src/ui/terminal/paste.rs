@@ -78,6 +78,7 @@ mod tests {
             vim: term_app::vim::VimState::default(),
             // 只读查看：粘贴测试验的正是「能粘」，所以必须是可输入态。
             local_mode: false,
+            word_wrap: false,
             raw: crate::ui::terminal::bin_spec::RawLog::new(),
             // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
             tmux: term_app::tmux::ControlMode::default(),

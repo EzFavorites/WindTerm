@@ -65,4 +65,17 @@ impl TerminalWindow {
         self.log_note = Some("Remote mode — input restored.".to_string());
         self.ctx.request_repaint();
     }
+
+    /// `Text.ToggleWordWrap`：翻活动标签的 `Tab.word_wrap` 一位。
+    ///
+    /// 只记「用户点了」，不改段表、不碰内核、不落盘——段表每帧在 `pane.rs`
+    /// 按这一位现算（关 = 恒等映射、零像素；开 = 窄列 + 裁 padding）。
+    pub(in crate::ui) fn toggle_word_wrap(&mut self) {
+        let active = self.active_slot();
+        let Some(tab) = self.tabs.get_mut(active) else {
+            return;
+        };
+        tab.word_wrap = !tab.word_wrap;
+        self.ctx.request_repaint();
+    }
 }
