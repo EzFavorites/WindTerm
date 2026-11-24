@@ -222,11 +222,8 @@ pub struct TerminalWindow {
     /// （`prefs.view_wrap_symbols` / `view_column_marker`）。构造时读一次，
     /// Wrap 页改完写回 prefs 并同步这份副本；读者是 `Tab.marks` 的两段绘制。
     /// 与 `caret_style` 同一写法：不每帧读盘，否则拖动列号时会跳。
-    wrap_symbols: bool,
-    /// 0 = 不画参考列；>0 = 参考列号。
-    column_marker_col: usize,
-    /// `Wrap ▸ Wrap mode / Wrap column`（`prefs.wrap_mode` / `wrap_column`）的运行期副本。
-    /// 构造时读一次，Wrap 页改完写回并同步；六个终端消费者都从它取同一份配置。
+    wrap_symbols: bool, column_marker_col: usize,
+    /// `Wrap ▸ Wrap mode / Wrap column` 的运行期副本（构造时读一次，六个消费者共用）。
     wrap_settings: term_app::wrap::WrapSettings,
     /// I-AC：补全偏好的运行期副本。设置页改完立刻写回这里供键盘漏斗每帧
     /// 读取，落盘仍走 `settings_live::save_prefs` 那一个入口。

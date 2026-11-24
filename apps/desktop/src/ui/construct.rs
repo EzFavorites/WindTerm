@@ -305,9 +305,7 @@ impl TerminalWindow {
             global_proxy_host: prefs.global_proxy_host.clone(),
             global_proxy_port: prefs.global_proxy_port,
             tab_thumbnail_pct: prefs.tab_thumbnail_pct,
-            filer_rect: None,
-            path_picker: None,
-            upload_picker: None,
+            filer_rect: None, path_picker: None, upload_picker: None,
             clipboard_requests: Vec::new(),
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
