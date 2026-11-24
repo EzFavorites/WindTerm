@@ -16,6 +16,8 @@ mod margin;
 /// 而这些判据要能被没有窗口的单测钉死。
 mod highlights;
 mod history_scope;
+/// 彩虹括号：按嵌套深度给括号字自身上前景色（改 `Cell.fg`，与字下淡色底不同）。
+mod rainbow;
 mod vim_apply;
 mod marks;
 /// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。

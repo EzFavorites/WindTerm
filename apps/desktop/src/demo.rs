@@ -76,6 +76,8 @@ pub struct DemoSpec {
     /// `true` = 夹具开启软换行（把内容折到 wrap column）。与 `mode` 同类：
     /// 这是显示模式，夹具直接写 `tab.word_wrap`，不经过 reducer。
     pub word_wrap: bool,
+    /// `true` = 夹具开启彩虹括号，并换成含嵌套括号的字节流。
+    pub rainbow_brackets: bool,
 }
 
 /// hex 夹具的字节流派别。
@@ -111,6 +113,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// 软换行：与 SCROLL 完全同一字节流、同一选区、同一回看位置，唯一差别是
@@ -118,6 +121,13 @@ impl DemoSpec {
     /// 两者逐字节相同）。
     pub const WRAP: DemoSpec = DemoSpec {
         word_wrap: true,
+        ..DemoSpec::SCROLL
+    };
+
+    /// 彩虹括号：换成含嵌套括号的字节流并开启彩虹着色。
+    pub const RAINBOW: DemoSpec = DemoSpec {
+        rainbow_brackets: true,
+        sel: SelSpec::None,
         ..DemoSpec::SCROLL
     };
 
@@ -135,6 +145,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// 2026-11-17 Find 栏**空态**：栏开着、查询是空串。
@@ -160,6 +171,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// 回看 + 列选：三行同一段列，图上是竖着的一条带子。
@@ -176,6 +188,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// margin 夹具（2026-11-07）：不滚动、不选区，只把**边栏**摊开给人看。
@@ -192,6 +205,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// 底带夹具（2026-11-07）：一条带 + 标签条摊开在图里。不滚动、不选区——
@@ -209,6 +223,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// 字形样张：不滚动、不选区、不打开查找栏，画面里只有样张与标尺。
@@ -226,6 +241,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// hex 视图夹具（本轮 ②）：环里只有一段「刚收到的响应」，贴着尾巴看。
@@ -244,6 +260,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// hex 洪水夹具：环写满、`dropped > 0`，表头右侧出现「N bytes dropped」，
@@ -260,6 +277,7 @@ impl DemoSpec {
         preview_hover: None,
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// hover 预览夹具：回看 6 行（滚动条可见）+ 冻结点亮预览框。
@@ -277,6 +295,7 @@ impl DemoSpec {
         preview_hover: Some(0.5),
         sysmon: false,
         word_wrap: false,
+        rainbow_brackets: false,
     };
 
     /// Sysmon 展开夹具（2026-11-19）：贴底静态画面 + 派发 `TogglePanel(Sysmon)`。
@@ -291,6 +310,7 @@ impl DemoSpec {
         match name {
             "scroll" => Some(DemoSpec::SCROLL),
             "wrap" => Some(DemoSpec::WRAP),
+            "rainbow" => Some(DemoSpec::RAINBOW),
             "find" => Some(DemoSpec::FIND),
             // Find 栏空态（状态栏不染色那一半）。
             "findempty" => Some(DemoSpec::FIND_EMPTY),
@@ -344,6 +364,8 @@ pub struct Fixture {
     pub preview_hover: Option<f32>,
     /// 夹具要求的软换行开关；投影层直接写 `tab.word_wrap`（与 `mode` 同类）。
     pub word_wrap: bool,
+    /// 夹具要求的彩虹括号开关；投影层写 `tab.marks.rainbow_brackets`。
+    pub rainbow_brackets: bool,
 }
 
 impl Fixture {
@@ -399,6 +421,14 @@ pub fn demo_files() -> Vec<term_runtime::local_dir::Row> {
     }
     term_runtime::local_dir::sort_rows(&mut rows);
     rows
+}
+
+/// 彩虹括号夹具的字节流：每行含多层嵌套括号，开闭同深度应同色。
+/// 内容固定，跨机器稳定；只用于 `--demo rainbow` 基线。
+fn rainbow_bytes(rows: usize) -> Vec<Vec<u8>> {
+    (1..=(rows * 3))
+        .map(|i| format!("r{i:02} a(b(c)d)e [x{{y}}z] (p(q)r)(s)\r\n").into_bytes())
+        .collect()
 }
 
 /// 固定字节流：三屏普通行 + 一行带颜色/粗体/反显，覆盖 span 合批的分支。
@@ -559,6 +589,8 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
     let mut vt = Terminal::new(cols, rows, 10_000);
     let chunks = if spec.glyph {
         glyph_bytes(cols)
+    } else if spec.rainbow_brackets {
+        rainbow_bytes(rows)
     } else if spec.marks {
         margin_bytes(cols)
     } else {
@@ -653,6 +685,7 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
         // 覆盖真实指针的 `preview_hover_y`（生产路径恒 None）。
         preview_hover: spec.preview_hover,
         word_wrap: spec.word_wrap,
+        rainbow_brackets: spec.rainbow_brackets,
     }
 }
 

@@ -356,6 +356,10 @@ pub struct Prefs {
     pub text_highlight_current_fold: bool,
     #[serde(default)]
     pub text_highlight_current_pair: bool,
+    /// `Preferences ▸ Highlight ▸ Rainbow brackets`：按嵌套深度给 `()[]{}` 上色。
+    /// 出厂关（视觉基线不变），与同页其它高亮同款落盘 / 每标签一份。
+    #[serde(default)]
+    pub text_highlight_rainbow_brackets: bool,
     /// `Preferences ▸ Highlight ▸ Highlight the incremental search`：查找命中铺底色。
     ///
     /// 出厂 **`true`**，与同页其余四项不同——那四项是**还没做**，这一项是
@@ -714,6 +718,7 @@ impl Default for Prefs {
             text_highlight_caret_word: false,
             text_highlight_current_fold: false,
             text_highlight_current_pair: false,
+            text_highlight_rainbow_brackets: false,
             // 查找命中高亮出厂开：它本来就是无条件在画的效果，这里只是给它
             // 一个能关的开关（见字段注释）。与 serde 的 `default_true` 对齐。
             text_highlight_search: true,

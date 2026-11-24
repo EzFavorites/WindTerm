@@ -320,6 +320,8 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "all" ]; then
   # 软换行夹具：与 scroll 同一字节流、开启 Word Wrap，长行折到 wrap column。
   # 两张基线必须逐字节不同——这正是「开关有可见效果」的端到端判据。
   add_job 'check screenshot-wrap.png --demo wrap'
+  # 彩虹括号夹具：含嵌套括号的字节流 + 彩虹着色，括号按深度上色。
+  add_job 'check screenshot-rainbow.png --demo rainbow'
   add_job 'check screenshot-find.png --demo find'
   add_job 'check screenshot-word.png --demo word'
   add_job 'check screenshot-block.png --demo block'

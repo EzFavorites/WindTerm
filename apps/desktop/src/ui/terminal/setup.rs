@@ -98,6 +98,7 @@ pub(in crate::ui) fn marks_defaults(prefs: &term_runtime::prefs::Prefs) -> Marks
         prefs.text_highlight_caret_word,
         prefs.text_highlight_current_fold,
         prefs.text_highlight_current_pair,
+        prefs.text_highlight_rainbow_brackets,
     )
 }
 

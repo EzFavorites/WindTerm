@@ -237,6 +237,8 @@ impl TerminalWindow {
                     tab.mode = fixture.mode;
                     // 软换行夹具与 mode 同类：显示开关直接写 tab，不经过 reducer。
                     tab.word_wrap = fixture.word_wrap;
+                    // 彩虹括号夹具：开关写在 tab.marks（与设置页同一份状态）。
+                    tab.marks.rainbow_brackets = fixture.rainbow_brackets;
                     // hover 预览夹具把切好的历史快照灌进 tab 的预览槽，
                     // 并冻定轨道归一化位置（反算成绝对 y，稍后覆盖 `preview_hover_y`）。
                     tab.preview_screen = fixture.preview_screen;

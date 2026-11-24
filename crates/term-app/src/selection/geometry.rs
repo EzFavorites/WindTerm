@@ -426,6 +426,44 @@ fn pair_partners(stream: &[(Pos, char)], pairs: &Pairs) -> Vec<Option<usize>> {
     partner
 }
 
+/// 可见窗口里每个括号的嵌套深度，供彩虹括号按层上色。
+///
+/// 返回 `(位置, 深度)`，按阅读顺序（跨行连续）；同一对的开与闭得到**相同**
+/// 深度：`(a(b)c)` → 0,1,1,0。`partner == None` 的孤立 / 交叉不平衡括号深度记
+/// `usize::MAX` 作为「不着色」哨兵——它们没有真正的层，乱上色会误导。
+///
+/// 一趟栈：开括号（有 `closing`）取当前栈深、再压栈；闭括号先出栈、取弹出后的
+/// 栈深（即它所属的那一层）。种类不匹配的孤立括号由 `pair_partners` 过滤掉。
+/// 深度只在**可见窗口这一屏**上算（与 Pair 导航同口径）：视口上方未显示的外层
+/// 括号不计入，滚动时深度可能整体平移——这是已知取舍，不是 bug。
+pub fn bracket_depths(image: &ScreenImage, pairs: &Pairs) -> Vec<(Pos, usize)> {
+    let stream = brackets(image, pairs);
+    let partner = pair_partners(&stream, pairs);
+    let mut out = Vec::with_capacity(stream.len());
+    let mut open: Vec<usize> = Vec::new();
+    for (i, (pos, ch)) in stream.iter().enumerate() {
+        if partner[i].is_none() {
+            out.push((*pos, usize::MAX));
+            continue;
+        }
+        let mate = partner[i].expect("上面已过滤 None");
+        let depth = if pairs.closing(*ch).is_some() {
+            // 开括号：当前栈深就是自己的层，然后压栈。
+            let d = open.len();
+            open.push(i);
+            d
+        } else {
+            // 闭括号：弹出配对的开括号，弹出后栈深即这一对所在的层。
+            if open.last() == Some(&mate) {
+                open.pop();
+            }
+            open.len()
+        };
+        out.push((*pos, depth));
+    }
+    out
+}
+
 /// 括号流里第 `idx` 个括号的配对端下标；不平衡（种类对不上）则 `None`。
 fn match_index(stream: &[(Pos, char)], idx: usize, pairs: &Pairs) -> Option<usize> {
     pair_partners(stream, pairs).get(idx).copied().flatten()
@@ -774,6 +812,43 @@ mod tests {
         let stream = brackets(&crossed, &pairs);
         assert_eq!(match_index(&stream, 0, &pairs), None, "不平衡就不动");
         assert_eq!(match_index(&stream, 1, &pairs), None);
+    }
+
+    #[test]
+    fn bracket_depths_follow_nesting_and_mark_unbalanced_as_sentinel() {
+        let pairs = Pairs::default_pairs();
+        // 同一对的开与闭同深度：`(a(b)c)` → 0,1,1,0。
+        let img = image(&["(a(b)c)"], 8);
+        let depths: Vec<usize> = bracket_depths(&img, &pairs)
+            .into_iter()
+            .map(|(_, d)| d)
+            .collect();
+        assert_eq!(depths, vec![0, 1, 1, 0]);
+        // 交叉不平衡：`( [ ) ]` 四个都配不上 → 全是不着色哨兵。
+        let crossed = image(&["( [ ) ]"], 8);
+        assert!(
+            bracket_depths(&crossed, &pairs)
+                .into_iter()
+                .all(|(_, d)| d == usize::MAX)
+        );
+    }
+
+    #[test]
+    fn bracket_depths_span_lines_and_honour_custom_pairs() {
+        // 跨行嵌套：`(` 在第 0 行，`[` 与 `]` 在第 1 行，`)` 在第 2 行。
+        let img = image(&["(a", "b[c]d", "e)"], 8);
+        let got = bracket_depths(&img, &Pairs::default_pairs());
+        let depths: Vec<usize> = got.iter().map(|(_, d)| *d).collect();
+        assert_eq!(depths, vec![0, 1, 1, 0], "跨行时深度仍按嵌套层算");
+        // 自定义 `<>`：出厂表不认，深度全是哨兵；加了 `<>` 才认。
+        let custom = image(&["<a>"], 8);
+        assert!(
+            bracket_depths(&custom, &Pairs::default_pairs())
+                .into_iter()
+                .all(|(_, d)| d == usize::MAX)
+        );
+        let got = bracket_depths(&custom, &Pairs::parse("<>"));
+        assert_eq!(got.iter().map(|(_, d)| *d).collect::<Vec<_>>(), vec![0, 0]);
     }
 
     #[test]

@@ -262,7 +262,7 @@ fn a_wide_glyph_continuation_cell_is_not_whitespace() {
 /// 列标记的夹值：`0` = 关，其余夹进 `8..=512`。
 #[test]
 fn the_column_marker_is_clamped_into_eight_to_512() {
-    let from = |n: usize| MarksParams::from_prefs(false, n, false, false, 0, false, false, false, false).column_marker;
+    let from = |n: usize| MarksParams::from_prefs(false, n, false, false, 0, false, false, false, false, false).column_marker;
     assert_eq!(from(0), None, "0 是「老文件没这项」，也是「关」");
     assert_eq!(from(80), Some(80));
     assert_eq!(from(3), Some(8), "比 8 还窄的参考线没有意义");

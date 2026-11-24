@@ -119,6 +119,8 @@ pub(in crate::ui) struct MarksParams {
     pub caret_word: bool,
     pub current_fold: bool,
     pub current_pair: bool,
+    /// 括号按嵌套深度上彩虹色（字自身 fg，不是字下淡色底）。
+    pub rainbow_brackets: bool,
 }
 
 impl Default for MarksParams {
@@ -135,6 +137,7 @@ impl Default for MarksParams {
             caret_word: false,
             current_fold: false,
             current_pair: false,
+            rainbow_brackets: false,
         }
     }
 }
@@ -155,6 +158,7 @@ impl MarksParams {
         caret_word: bool,
         current_fold: bool,
         current_pair: bool,
+        rainbow_brackets: bool,
     ) -> Self {
         Self {
             line_endings,
@@ -166,6 +170,7 @@ impl MarksParams {
             caret_word,
             current_fold,
             current_pair,
+            rainbow_brackets,
         }
     }
 
@@ -180,6 +185,7 @@ impl MarksParams {
             || self.caret_word
             || self.current_fold
             || self.current_pair
+            || self.rainbow_brackets
     }
 
     /// 需要**逐行**画的那四项（列标记是整屏一条，光标行底色压在字形之下）。

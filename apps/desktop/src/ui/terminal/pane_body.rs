@@ -165,6 +165,18 @@ pub(super) fn paint_body(
         let wrap_cols = wrap::effective_wrap_cols(image.cols.max(1), tab.word_wrap);
         let segments = wrap::segments_from_image(image, wrap_cols, tab.word_wrap);
         let segments = segments.rows.as_slice();
+        // 彩虹括号：按嵌套深度算括号颜色。关时传空表（零开销、零像素变化）。
+        // 深度用会话的 bracket_pairs（出厂 ()[]{}），与 Pair 导航同口径。
+        let bracket_colors: Vec<(i64, usize, term_core::grid::Colour)> = if tab.marks.rainbow_brackets {
+            let pairs = term_app::selection::Pairs::parse(&tab.config.bracket_pairs);
+            term_app::selection::bracket_depths(image, &pairs)
+                .into_iter()
+                .filter(|(_, depth)| *depth != usize::MAX)
+                .map(|(pos, depth)| (pos.row, pos.col, super::rainbow::depth_color(depth)))
+                .collect()
+        } else {
+            Vec::new()
+        };
         view::paint_rows(
             painter,
             cache,
@@ -183,6 +195,7 @@ pub(super) fn paint_body(
             &word_cells,
             &pair_cells,
             &segments,
+            &bracket_colors,
         );
     }
 }

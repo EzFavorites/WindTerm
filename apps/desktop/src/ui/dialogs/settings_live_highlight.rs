@@ -37,9 +37,9 @@ use crate::ui::terminal::MarksParams;
 use crate::ui::*;
 use term_app::shell::MarksKnob;
 
-/// 页底说明：五项都已接真，各自的数据源不同。
-const HIGHLIGHT_NOTE: &str = "Caret line, word, fold and pair tints are per-tab; search matching is \
-     window-wide. All five apply immediately and are saved for new tabs. \
+/// 页底说明：六项都已接真，各自的数据源不同。
+const HIGHLIGHT_NOTE: &str = "Caret line, word, fold, pair and rainbow-bracket tints are per-tab; \
+     search matching is window-wide. All six apply immediately and are saved for new tabs. \
      To highlight arbitrary text patterns, use Tools ▸ Triggers (Highlight Text rules).";
 
 /// 查找命中那一行的悬停：它没有菜单项，说明里得交代「为什么只有设置页能改」。
@@ -67,6 +67,7 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let mut word = marks.caret_word;
         let mut fold = marks.current_fold;
         let mut pair = marks.current_pair;
+        let mut rainbow = marks.rainbow_brackets;
         let word_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the caret word", "", &mut word, true, UnderlineStyle::None)
             .on_hover_text("Tints every cell of the word under the cursor in the active tab.")
             .clicked();
@@ -76,18 +77,23 @@ pub(in crate::ui) fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         let pair_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Highlight the current pair", "", &mut pair, true, UnderlineStyle::None)
             .on_hover_text("Tints both ends of the bracket pair next to the cursor.")
             .clicked();
-        if word_changed || fold_changed || pair_changed {
-            // 三项一次写齐：逐个 set_marks 会用旧副本覆盖前一项。
+        let rainbow_changed = choice_row_resp(ui, ChoiceKind::Checkbox, "Rainbow brackets", "", &mut rainbow, true, UnderlineStyle::None)
+            .on_hover_text("Colours each bracket by its nesting depth.")
+            .clicked();
+        if word_changed || fold_changed || pair_changed || rainbow_changed {
+            // 四项一次写齐：逐个 set_marks 会用旧副本覆盖前一项。
             win.set_marks(|m| MarksParams {
                 caret_word: word,
                 current_fold: fold,
                 current_pair: pair,
+                rainbow_brackets: rainbow,
                 ..m
             });
             save_prefs(|prefs| {
                 prefs.text_highlight_caret_word = word;
                 prefs.text_highlight_current_fold = fold;
                 prefs.text_highlight_current_pair = pair;
+                prefs.text_highlight_rainbow_brackets = rainbow;
             });
         }
         // 第四行真勾选 ：窗口级副本当帧生效，同时落 prefs。
@@ -111,7 +117,7 @@ mod tests {
     #[test]
     fn every_row_is_live_and_the_note_names_all_sources() {
         assert!(HIGHLIGHT_NOTE.contains("Caret line"));
-        for source in ["word", "fold", "pair"] {
+        for source in ["word", "fold", "pair", "rainbow"] {
             assert!(HIGHLIGHT_NOTE.contains(source), "{source} 要在说明里点名");
         }
         assert!(!HIGHLIGHT_NOTE.contains("Not wired"), "不能再挂过期的灰显理由");

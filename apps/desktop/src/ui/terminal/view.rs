@@ -318,6 +318,7 @@ pub fn paint_rows(
     word_cells: &[(i64, usize)],
     pair_cells: &[(i64, usize)],
     segments: &[term_app::wrap::VisualRow],
+    bracket_colors: &[(i64, usize, term_core::grid::Colour)],
 ) {
     let active = selections.active_index();
     for (i, seg) in segments.iter().enumerate() {
@@ -334,7 +335,29 @@ pub fn paint_rows(
         let len = line.cells.len();
         let to = (seg.start_col + seg.width).min(len);
         let from = seg.start_col.min(to);
-        let cells = &line.cells[from..to];
+        // 彩虹括号：把括号 cell 的 fg 改成深度色，再送 cache.line。必须在 cache
+        // 之前 patch——hash_row 含 fg，开关切换 / 深度变化都会让缓存自然失效。
+        // 空表（关闭）时直接借用原切片，零拷贝、零像素变化。
+        let patched: Vec<term_core::grid::Cell>;
+        let cells: &[term_core::grid::Cell] = if bracket_colors.is_empty() {
+            &line.cells[from..to]
+        } else {
+            patched = line.cells[from..to]
+                .iter()
+                .enumerate()
+                .map(|(j, c)| {
+                    let abs_col = from + j;
+                    match bracket_colors
+                        .iter()
+                        .find(|(row, col, _)| *row == line.row && *col == abs_col)
+                    {
+                        Some((_, _, color)) => term_core::grid::Cell { fg: *color, ..*c },
+                        None => *c,
+                    }
+                })
+                .collect();
+            &patched
+        };
 
         // y 按**段序号**算：一行折成 n 段就占 n 行屏幕。今天段序号 == 行下标。
         let y = origin.y + (i as f32) * cell.y;

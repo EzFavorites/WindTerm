@@ -49,8 +49,8 @@ pub use ops::{
 };
 pub use words::{line_span_at, separators_or_default, word_at, word_at_with, DEFAULT_SEPARATORS};
 pub use geometry::{
-    pair_end, pair_end_with, pair_selection_at, pair_selection_at_with, pair_start, pair_start_with,
-    Pairs, DEFAULT_BRACKET_PAIRS,
+    bracket_depths, pair_end, pair_end_with, pair_selection_at, pair_selection_at_with, pair_start,
+    pair_start_with, Pairs, DEFAULT_BRACKET_PAIRS,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
