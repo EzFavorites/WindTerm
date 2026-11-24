@@ -89,7 +89,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
             auto_reconnect_blocked: false,
         // 折叠与输入行表出厂为空（空集合 = 渲染一屏不变，夹具不受影响）。
         folds: term_app::folds::Folds::new(),
-        input_rows: std::cell::RefCell::new(Vec::new()),
+        input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()),
         // N：恢复运行态字段（新建标签出厂 None）。
         restore_scroll_top: None,
         restore_history_len: None,

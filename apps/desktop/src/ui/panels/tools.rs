@@ -18,6 +18,7 @@
 //! Sender / Shell 四块由 `ViewState::default()` 打开。
 
 use crate::ui::*;
+use term_app::vocab::GotoAction;
 use eframe::egui;
 
 /// 摘要截断按字符数走，不切坏 UTF-8；超长补一个省略号。
@@ -105,15 +106,28 @@ pub(in crate::ui) fn draw_explorer(win: &mut TerminalWindow, ui: &mut egui::Ui) 
 /// 「面板坏了」。
 pub(in crate::ui) fn draw_outline(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let filter = win.panel_filter(term_app::dock::PanelId::Outline).to_string();
-    let Some(tab) = win.tabs.get(win.active_slot()) else {
-        return;
+    // 一次性把条目与预览所需的行快照取出来，随后释放 `win.tabs` 的借用：
+    // 下面既要 dispatch（借整个 win）又要画浮层，不能还挂着 tab 的不可变借。
+    let (items, screen_lines) = {
+        let Some(tab) = win.tabs.get(win.active_slot()) else {
+            return;
+        };
+        let texts = tab.command_texts.borrow();
+        let items = super::outline::outline_items(
+            &tab.snapshot.blocks,
+            &tab.view.lines,
+            tab.snapshot.history,
+            &filter,
+            &texts,
+        );
+        let screen_lines: Vec<(i64, String)> = tab
+            .view
+            .lines
+            .iter()
+            .map(|line| (tab.snapshot.history as i64 + line.row, line.text()))
+            .collect();
+        (items, screen_lines)
     };
-    let items = super::outline::outline_items(
-        &tab.snapshot.blocks,
-        &tab.view.lines,
-        tab.snapshot.history,
-        &filter,
-    );
     if items.is_empty() {
         if !filter.is_empty() {
             ui.label(
@@ -124,8 +138,41 @@ pub(in crate::ui) fn draw_outline(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         }
         return;
     }
+    let mut picked = None;
+    let mut hovered: Option<(i64, String)> = None;
     for (row, text) in items {
-        ui.label(format!("{row}  {text}"));
+        let resp = ui.add(egui::Button::new(format!("{row}  {text}")).frame(false));
+        if resp.hovered() {
+            hovered = Some((row, text));
+        }
+        if resp.clicked() {
+            picked = Some(row);
+        }
+    }
+    // 官网 page/19：悬停命令节点显示输出预览。浮层复用 term-app 的 goto 跳转
+    // 目标口径（绝对行），鼠标本身不改选区、不写 PTY。
+    if let Some((row, text)) = hovered {
+        let mut body = text;
+        if let Some(at) = screen_lines.iter().position(|(r, _)| *r == row) {
+            for (_, line) in screen_lines.iter().skip(at + 1).take(8) {
+                body.push('\n');
+                body.push_str(line.trim_end());
+            }
+        }
+        egui::Area::new(egui::Id::new("outline_symbol_preview"))
+            .order(egui::Order::Tooltip)
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-6.0, 6.0))
+            .show(ui.ctx(), |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut body.as_str())
+                        .desired_width(320.0)
+                        .desired_rows(4),
+                );
+            });
+    }
+    if let Some(row) = picked {
+        win.dispatch_action(Action::Goto(GotoAction::SelectSymbol(row)));
+        win.dispatch_action(Action::Goto(GotoAction::Confirm));
     }
 }
 

@@ -591,9 +591,7 @@ impl TerminalWindow {
                 completed_lines.extend(tab.input_line.feed(&key_bytes));
                 // 折叠的输入行表：回车那一行就是刚敲完的命令行（见
                 // `Tab::note_input_line`）。只在真的完成了一行时才记。
-                if completed_lines.len() > before {
-                    tab.note_input_line();
-                }
+                if completed_lines.len() > before { tab.note_input_line(); if let Some(r) = tab.cursor_abs_row() { for line in &completed_lines[before..] { tab.note_command_text(r.get(), line.clone()); } } }
                 if self.view.sync_input {
                     sync_bytes = Some(key_bytes.clone());
                 }

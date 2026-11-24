@@ -15,6 +15,7 @@ pub(in crate::ui) fn outline_items(
     lines: &[LineSlice],
     history: usize,
     filter: &str,
+    command_texts: &[(i64, String)],
 ) -> Vec<(i64, String)> {
     let needle = filter.trim().to_lowercase();
     let mut out = Vec::new();
@@ -33,10 +34,18 @@ pub(in crate::ui) fn outline_items(
     }
     for block in blocks {
         let abs = block.command_start;
-        let text = lines
+        // 已敲命令的正文缓存是权威源：滚出屏幕的命令仍在，不必去当前窗口找。
+        // 缓存缺失（老会话 / 从别处注入的块）才回退到事实窗口。
+        let text = command_texts
             .iter()
-            .find(|line| history as i64 + line.row == abs)
-            .map(|line| line.text().trim().to_string())
+            .find(|(row, _)| *row == abs)
+            .map(|(_, text)| text.trim().to_string())
+            .or_else(|| {
+                lines
+                    .iter()
+                    .find(|line| history as i64 + line.row == abs)
+                    .map(|line| line.text().trim().to_string())
+            })
             .unwrap_or_default();
         if text.is_empty() {
             continue;
@@ -71,13 +80,29 @@ mod tests {
             end: Some(1),
             exit: Some(0),
         }];
-        let items = outline_items(&blocks, &lines, 0, "");
+        let items = outline_items(&blocks, &lines, 0, "", &[]);
         assert_eq!(items.len(), 1);
         assert!(items[0].1.contains("echo hi"), "大纲列的是命令，不是 # 标题");
         // 没有块时才回退到 # 标题（无 OSC 133 的会话）。
-        let fallback = outline_items(&[], &lines, 0, "");
+        let fallback = outline_items(&[], &lines, 0, "", &[]);
         assert_eq!(fallback.len(), 1);
         assert!(fallback[0].1.contains("a heading"));
+    }
+
+    #[test]
+    fn a_command_scrolled_off_the_screen_is_still_outlined_from_the_cache() {
+        let blocks = vec![CommandBlock {
+            prompt_start: -50,
+            prompt_end: Some(-50),
+            command_start: -50,
+            end: Some(-49),
+            exit: Some(0),
+        }];
+        let cached = vec![(-50_i64, "echo offscreen".to_string())];
+        let items = outline_items(&blocks, &[], 10, "", &cached);
+        assert_eq!(items.len(), 1, "命令已滚出事实窗口，仍应在大纲里");
+        assert_eq!(items[0].0, -50);
+        assert!(items[0].1.contains("echo offscreen"));
     }
 
     #[test]
@@ -90,7 +115,7 @@ mod tests {
             end: Some(1),
             exit: None,
         }];
-        assert_eq!(outline_items(&blocks, &lines, 0, "hi").len(), 1);
-        assert!(outline_items(&blocks, &lines, 0, "zzz").is_empty());
+        assert_eq!(outline_items(&blocks, &lines, 0, "hi", &[]).len(), 1);
+        assert!(outline_items(&blocks, &lines, 0, "zzz", &[]).is_empty());
     }
 }

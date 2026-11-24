@@ -35,6 +35,7 @@ impl TerminalWindow {
                         &t.view.lines,
                         t.snapshot.history,
                         &needle,
+                        &t.command_texts.borrow(),
                     )
                 })
                 .unwrap_or_default();

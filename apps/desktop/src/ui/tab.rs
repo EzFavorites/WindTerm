@@ -194,6 +194,10 @@ pub struct Tab {
     /// 用 `RefCell` 的理由与 [`Tab::last_input_at`] 的 `Cell` 相同：[`Tab::write`]
     /// 有九处调用点，其中若干只有 `&self`。记一行输入不是会话状态，是一条观测值。
     pub(in crate::ui) input_rows: std::cell::RefCell<Vec<term_core::coords::HistoryRow>>,
+    /// 用户敲过并回显的命令文本（绝对行, 原文）。Outline 大纲要列"每一条敲过的
+    /// 命令"，而 `snapshot.blocks` 只给行号、文本得回当前屏找——滚出屏的命令就丢了。
+    /// 这份缓存跟着标签走，与 `input_rows` 同一类观测值，不进领域状态。
+    pub(in crate::ui) command_texts: std::cell::RefCell<Vec<(i64, String)>>,
     /// 这个标签从**创建那一刻**起收到的原始字节流（hex 视图的唯一数据源）。
     ///
     /// 与 `mode` 无关，这是本轮设计的关键：tap 在 `tab_from` 里无条件挂上，
@@ -332,6 +336,18 @@ impl Tab {
     ///
     /// `input_rows` 必须升序去重——折叠算块靠相邻两行的差，重复或倒序会让
     /// `blocks_from_inputs` 跳过整对，块就少了一个。
+    /// 记一条刚敲完的命令文本。同一行只记一次；上限防止长跑会话无界增长。
+    pub(in crate::ui) fn note_command_text(&self, row: i64, text: String) {
+        let mut cache = self.command_texts.borrow_mut();
+        if cache.last().is_some_and(|(r, _)| *r == row) {
+            return;
+        }
+        cache.push((row, text));
+        if cache.len() > 1024 {
+            cache.remove(0);
+        }
+    }
+
     fn push_input_row(&self, raw: i64) {
         let Some(row) = term_core::coords::HistoryRow::new(raw) else {
             return;
