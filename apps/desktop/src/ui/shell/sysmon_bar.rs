@@ -25,6 +25,7 @@ use term_app::action::Action;
 use term_app::dock::PanelId;
 use term_app::shell::ShellAction;
 use term_core::theme::CHROME_SCALE;
+use term_session::sysmon::{fmt_bytes, fmt_uptime};
 
 /// 细带高度（视觉基线 2× 图约 50px → 25pt）。
 pub(in crate::ui) const SYSMON_BAR_H: f32 = 25.0;
@@ -80,6 +81,9 @@ fn current_reading() -> crate::sysmon_sample::Reading {
             cpu_pct: 11.9,
             mem_used_kb: 24_117_248,
             mem_total_kb: 24_776_704,
+            uptime_secs: 12_345,
+            net_rx_bytes: 1_234_567_890,
+            net_tx_bytes: 98_765_432,
         }
     } else {
         crate::sysmon_sample::reading()
@@ -153,12 +157,24 @@ impl TerminalWindow {
 
         // 一次采样、一次文本测量：命中区与绘制共用同一份读数与同一条宽。
         // 同 id 一帧只能登记一次 ui.interact（第二次 egui 报 ID 撞车）。
-        let segs = expanded.then(|| readout_segments(&current_reading()));
+        let reading = current_reading();
+        let segs = expanded.then(|| readout_segments(&reading));
         let hit = match &segs {
             Some(segs) => readout_rect_for(ui, rect, segs),
             None => button_rect(ui, rect, self.tr("Sysmon")),
         };
         let resp = ui.interact(hit, id, egui::Sense::click());
+        // 官网 page/11 的 uptime / network 不挤占视觉基线的三段读数，放悬停详情。
+        let resp = if expanded {
+            resp.on_hover_text(format!(
+                "Uptime: {}\nNetwork down: {}\nNetwork up: {}",
+                fmt_uptime(reading.uptime_secs),
+                fmt_bytes(reading.net_rx_bytes),
+                fmt_bytes(reading.net_tx_bytes),
+            ))
+        } else {
+            resp
+        };
 
         if let Some(segs) = segs {
             self.draw_sysmon_readout(ui, rect, &segs, resp.hovered());

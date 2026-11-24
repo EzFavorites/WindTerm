@@ -27,6 +27,11 @@ pub struct Reading {
     pub mem_used_kb: u64,
     /// 物理内存总量（KiB）。
     pub mem_total_kb: u64,
+    /// 开机至今秒数（0 = 还没采到）。
+    pub uptime_secs: u64,
+    /// 网卡累计接收 / 发送字节（跳过 loopback）。
+    pub net_rx_bytes: u64,
+    pub net_tx_bytes: u64,
 }
 
 /// 采样间隔。兼容终端读数条是「越几秒跳一次」而不是逐帧刷新，2 秒既跟得上
@@ -107,11 +112,27 @@ fn sample_once() -> Reading {
             term_session::sysmon_parse::parse_vm_stat(&String::from_utf8_lossy(&out.stdout))
         })
         .unwrap_or((0, 0));
+    let uptime_secs = Command::new("sysctl")
+        .args(["-n", "kern.boottime"])
+        .output()
+        .ok()
+        .and_then(|out| term_session::sysmon_parse::parse_boottime_darwin(&String::from_utf8_lossy(&out.stdout)))
+        .and_then(|boot| SystemTime::now().duration_since(UNIX_EPOCH).ok().map(|now| now.as_secs().saturating_sub(boot)))
+        .unwrap_or(0);
+    let (net_rx_bytes, net_tx_bytes) = Command::new("netstat")
+        .args(["-ibn"])
+        .output()
+        .ok()
+        .and_then(|out| term_session::sysmon_parse::parse_net_darwin(&String::from_utf8_lossy(&out.stdout)))
+        .unwrap_or((0, 0));
     Reading {
         hhmm: hhmm(),
         cpu_pct: cpu,
         mem_used_kb: used,
         mem_total_kb: total,
+        uptime_secs,
+        net_rx_bytes,
+        net_tx_bytes,
     }
 }
 
@@ -133,11 +154,26 @@ fn sample_once() -> Reading {
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
         .unwrap_or_default();
     let (used, total) = term_session::sysmon_parse::parse_free(&text);
+    let uptime_secs = Command::new("cat")
+        .arg("/proc/uptime")
+        .output()
+        .ok()
+        .and_then(|out| term_session::sysmon_parse::parse_uptime_linux(&String::from_utf8_lossy(&out.stdout)))
+        .unwrap_or(0);
+    let (net_rx_bytes, net_tx_bytes) = Command::new("cat")
+        .arg("/proc/net/dev")
+        .output()
+        .ok()
+        .and_then(|out| term_session::sysmon_parse::parse_net_linux(&String::from_utf8_lossy(&out.stdout)))
+        .unwrap_or((0, 0));
     Reading {
         hhmm: hhmm(),
         cpu_pct: sample.cpu_pct,
         mem_used_kb: used,
         mem_total_kb: total,
+        uptime_secs,
+        net_rx_bytes,
+        net_tx_bytes,
     }
 }
 

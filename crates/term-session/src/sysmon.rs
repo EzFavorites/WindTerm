@@ -183,6 +183,38 @@ pub fn fmt_pct(v: f32) -> String {
     format!("{v:.1}%")
 }
 
+/// `"1d 2h 3m"` / `"4m 5s"`。0 秒（还没采到）给 `"—"`，不显示假的 0 秒。
+pub fn fmt_uptime(secs: u64) -> String {
+    if secs == 0 {
+        return "—".to_string();
+    }
+    let (days, rest) = (secs / 86_400, secs % 86_400);
+    let (hours, rest) = (rest / 3600, rest % 3600);
+    let (mins, secs) = (rest / 60, rest % 60);
+    if days > 0 {
+        format!("{days}d {hours}h {mins}m")
+    } else if hours > 0 {
+        format!("{hours}h {mins}m")
+    } else if mins > 0 {
+        format!("{mins}m {secs}s")
+    } else {
+        format!("{secs}s")
+    }
+}
+
+/// 字节数转 `"1.2 GiB"` / `"512 MiB"`；0 字节是合法读数（新机器不传数据）。
+pub fn fmt_bytes(bytes: u64) -> String {
+    const MIB: f64 = 1024.0 * 1024.0;
+    const GIB: f64 = 1024.0 * MIB;
+    if bytes as f64 >= GIB {
+        format!("{:.1} GiB", bytes as f64 / GIB)
+    } else if bytes as f64 >= MIB {
+        format!("{:.1} MiB", bytes as f64 / MIB)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
 /// `"1.2 GiB (37%)"`。`total_kb == 0` 时返回 `"—"`：这是「还没采到内存」，
 /// 不是「占用 0%」，所以既不做除法也不给 0%。
 pub fn fmt_mem(used_kb: u64, total_kb: u64) -> String {

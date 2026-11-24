@@ -283,6 +283,9 @@ pub(in crate::ui) fn draw_sysmon(_win: &TerminalWindow, ui: &mut egui::Ui) {
             // 23.00 / 23.63 GiB（视觉基线逐字值）。
             mem_used_kb: 24_117_248,
             mem_total_kb: 24_776_704,
+            uptime_secs: 12_345,
+            net_rx_bytes: 1_234_567_890,
+            net_tx_bytes: 98_765_432,
         }
     } else {
         crate::sysmon_sample::reading()

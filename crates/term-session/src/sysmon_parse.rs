@@ -7,6 +7,11 @@
 //! 不要在这里 spawn 进程或读环境变量——这一层只认字符串。命令由
 //! [`crate::sysmon`] 的常量给出，通道由上层开。
 
+// uptime / network 解析器拆出以守住 500 代码行门禁；公共 API 从本模块再导出。
+#[path = "sysmon_parse_extra.rs"]
+mod extra;
+pub use extra::*;
+
 use crate::sysmon::{Proc, Sample};
 
 /// 结果上限：进程表只留 CPU 最高的这些条，再多界面也画不下。
@@ -572,4 +577,5 @@ Swapouts:                                     0.
         let s = parse_top(text);
         assert!(close(s.cpu_pct, 15.0), "没有 id 列时退化为求和");
     }
+
 }
