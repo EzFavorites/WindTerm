@@ -16,6 +16,19 @@ use term_app::palette::{self, PaletteAction, PaletteMode, PaletteState};
 /// 一屏最多画几条：浮层不该盖住整个终端。
 const VISIBLE_ROWS: usize = 10;
 
+/// 计算器补全用的当前标识符片段：取表达式最后一段字母/数字/下划线。
+/// 返回 `(片段之前的文本, 片段)`，点击补全时把片段换成候选名即可。
+fn calc_fragment(input: &str) -> (&str, &str) {
+    let expr = term_app::calculator::expression(input);
+    let start = expr
+        .char_indices()
+        .rev()
+        .find(|(_, c)| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '$')))
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0);
+    (&expr[..start], &expr[start..])
+}
+
 /// 结果集比一屏长时，围绕选中项算窗口起点（纯函数，单独可测）。
 fn window_start(total: usize, selected: Option<usize>, visible: usize) -> usize {
     if total <= visible || visible == 0 {
@@ -61,6 +74,13 @@ fn draw_panel(
         input.push_str(&state.query);
     }
 
+    // 官网 page/24：查询以 `=` 开头时面板变计算器。求值是纯函数，
+    // 每帧现算、不缓存；这里只负责显示结果与补全，不另建第二份状态。
+    let calc = if term_app::calculator::is_calculator_query(input) {
+        Some(term_app::calculator::evaluate(term_app::calculator::expression(input)))
+    } else {
+        None
+    };
     let list = palette::filtered(state);
     let selected = if list.is_empty() {
         None
@@ -88,13 +108,22 @@ fn draw_panel(
         dispatch(Action::Palette(PaletteAction::Move(1)));
     }
     if enter {
-        dispatch(Action::Palette(PaletteAction::Confirm));
+        // 计算器模式的 Enter 把结果写进系统剪贴板并关窗——不碰 PTY，
+        // 也不假装「自动粘到终端」：是否写入由用户下一次粘贴决定。
+        if let Some(Ok(value)) = &calc {
+            ctx.copy_text(value.clone());
+        }
+        dispatch(Action::Palette(PaletteAction::Close));
         return;
     }
 
-    let (title, hint) = match state.mode {
+    let (title, hint) = if calc.is_some() {
+        ("Calculator", "Enter a formula, e.g. =sin(PI/2)")
+    } else {
+        match state.mode {
         PaletteMode::Command => (tr("Command Palette"), tr("Search commands")),
         PaletteMode::Anything => (tr("Palette Anything"), tr("Search all menu items")),
+        }
     };
 
     // 定宽不定高：结果集 0 项与 10 项不该是同一个高度。窗口外壳走 harness，
@@ -115,7 +144,60 @@ fn draw_panel(
             }
             ui.separator();
 
-            if list.is_empty() {
+            if let Some(result) = &calc {
+                // 结果显示与官方 GIF 同构：成功给值，失败给 `Invalid formula: …`。
+                // `Copy result` 是真按钮，Enter 也复制；不写 PTY、不造终端输入。
+                match result {
+                    Ok(value) => {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0x8D, 0xD3, 0x8D),
+                            format!("= {value}"),
+                        );
+                        if ui.button("Copy result").clicked() {
+                            ctx.copy_text(value.clone());
+                        }
+                    }
+                    Err(error) => {
+                        ui.colored_label(
+                            egui::Color32::from_rgb(0xE0, 0x6C, 0x6C),
+                            error.to_string(),
+                        );
+                    }
+                }
+                ui.separator();
+                // 先拷贝成 owned：下面点击补全要写 input，不能再借着它不放。
+                let (prefix, fragment) = {
+                    let (p, f) = calc_fragment(input);
+                    (p.to_string(), f.to_string())
+                };
+                let lower = fragment.to_ascii_lowercase();
+                let mut shown = 0;
+                for name in term_app::calculator::suggestions() {
+                    if shown >= 10 {
+                        break;
+                    }
+                    if !name.to_ascii_lowercase().starts_with(&lower) {
+                        continue;
+                    }
+                    shown += 1;
+                    let label = if term_app::calculator::is_function(name) {
+                        format!("{name}(…)")
+                    } else {
+                        (*name).to_string()
+                    };
+                    let note = term_app::calculator::description(name).unwrap_or("");
+                    if ui.button(format!("{label}  {note}")).clicked() {
+                        input.clear();
+                        input.push('=');
+                        input.push_str(&prefix);
+                        input.push_str(name);
+                        if term_app::calculator::is_function(name) {
+                            input.push('(');
+                        }
+                        dispatch(Action::Palette(PaletteAction::SetQuery(input.clone())));
+                    }
+                }
+            } else if list.is_empty() {
                 ui.label(tr("No matches"));
             } else {
                 let start = window_start(list.len(), selected, VISIBLE_ROWS);
@@ -154,6 +236,13 @@ fn draw_panel(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn calculator_fragment_splits_the_prefix_from_the_current_name() {
+        assert_eq!(calc_fragment("=sin(PI/2)"), ("sin(PI/2)", ""));
+        assert_eq!(calc_fragment("=sqrt(PI"), ("sqrt(", "PI"));
+        assert_eq!(calc_fragment("=max(1,2"), ("max(1,", "2"));
+    }
 
     #[test]
     fn short_result_sets_start_at_the_first_row() {

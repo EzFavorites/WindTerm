@@ -92,6 +92,7 @@ pub mod lock;
 pub mod log;
 pub mod margin;
 pub mod menu;
+pub mod calculator;
 pub mod mouse;
 pub mod onboarding;
 pub mod palette;
