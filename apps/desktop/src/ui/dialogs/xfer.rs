@@ -55,7 +55,7 @@ pub(in crate::ui) struct XferPrompt {
     pub path: String,
     /// 接收完成后是否用系统默认程序打开目标目录（X/Y/ZMODEM 文档都有此条）。
     pub open_after: bool,
-    /// 接收侧同名冲突策略（五档，见 `xfer_conflict::POLICIES`）。发送侧不用，
+    /// 接收侧同名冲突策略（官网 page/14 七档，见 `xfer_conflict::POLICIES`）。发送侧不用，
     /// 但同一张弹层结构保留这一格，确认时原样交给 `start_with_policy`。
     pub policy: crate::xfer_conflict::ConflictPolicy,
     /// 本地校验 / `start` 失败的原因。留着让用户改，弹层不关。
@@ -219,7 +219,7 @@ pub(in crate::ui) fn draw_prompt(ctx: &egui::Context, prompt: &mut XferPrompt) -
             let entered = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if receive {
                 ui.checkbox(&mut prompt.open_after, "Open download folder when done");
-                // 同名冲突策略：五档与 `xfer_conflict.rs` 共用一个清单，确认时
+                // 同名冲突策略：七档与 `xfer_conflict.rs` 共用一个清单，确认时
                 // 原样交给 `XferHandle::start_with_policy`。
                 egui::ComboBox::from_id_salt("xfer_conflict_policy")
                     .selected_text(crate::xfer_conflict::label(prompt.policy))
@@ -304,10 +304,27 @@ mod tests {
         // 取消没有东西可填：调用点的上一臂会直接 cancel，不该开空弹层。
         assert!(XferPrompt::from(XferCmd::Cancel).is_none());
 
-        // 冲突策略出厂 Overwrite（与内核默认一致），五档都能通过下拉选到。
+        // 冲突策略出厂 Overwrite（与内核默认一致），七档都能通过下拉选到。
         assert_eq!(receive.policy, crate::xfer_conflict::ConflictPolicy::Overwrite);
         assert_eq!(receive.policy, Default::default());
-        assert_eq!(crate::xfer_conflict::POLICIES.len(), 5);
+        assert_eq!(crate::xfer_conflict::POLICIES.len(), 7);
+        // 下拉的七档顺序照官网 page/14：Append / Resume 夹在 newer-and-longer 与 Rename 之间。
+        let labels: Vec<_> = crate::xfer_conflict::POLICIES
+            .iter()
+            .map(|(_, text)| *text)
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "Overwrite",
+                "Only if newer",
+                "Only if newer and longer",
+                "Append",
+                "Resume",
+                "Rename",
+                "Skip"
+            ]
+        );
     }
 
     #[test]

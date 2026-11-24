@@ -48,9 +48,12 @@
 //!    上的多次 `add_file`，每个文件之间有独立的 `FileDone` 边界。
 //! 2. **`ZCRCG` 连发**（`Config::streaming`）：同在 [`zmodem_config`] 打开，
 //!    发送方不再逐块等 `ZACK`。
-//! 3. **断点续传**（`ZSKIP` / `ZRPOS`）：内核自带，驱动层**不重复实现**——
-//!    本驱动每次都新建落盘文件（`truncate`），没有「本地已有前 N 字节」的语义，
-//!    也就没有可声明的续传起点（`Receiver::resume_from` 因此保持默认 0）。
+//! 3. **断点续传**（`ZRPOS`）：内核自带，驱动层**不重复实现**——显式续传入口
+//!    [`XferHandle::start_resume`] 把「本地已有前 N 字节」交给
+//!    `Receiver::resume_from`，落盘侧从该偏移续写。弹层上的 Append / Resume 两档
+//!    也走这条冲突策略通道：Append 原地追加（对端从 0 发），Resume 需要握手前就
+//!    知道文件名与长度；只有目录时无法安全协商，驱动明确拒绝并说明原因，
+//!    绝不静默按覆盖处理（见 [`Sink::open`]）。
 //! 4. **mtime / mode 落盘**：`Action` 是 X/Y/Z 共用的事件形状，放不下这两个字段；
 //!    内核把它们放在 `ZReceiver::file_mtime()` / `file_mode()` 访问器里。驱动在
 //!    动作产生那一刻取样（[`FileMeta`]），随 `FileStart` 一起交给 [`Sink`]，收尾时
@@ -230,7 +233,9 @@ impl XferHandle {
             XferKind::Receive,
             protocol,
             target,
-            Default::default(),
+            // 显式续传入口：策略也随之落在 Resume 档，让判据与协议层的 ZRPOS
+            // 用同一个口径（落盘方式见 `Sink::open`）。
+            crate::xfer_conflict::ConflictPolicy::Resume,
             offset,
         )
     }
@@ -732,14 +737,15 @@ impl Sink<'_> {
                 len: m.len(),
             }
         });
-        let path = match crate::xfer_conflict::decide(
+        let existing_len = existing.map(|e| e.len);
+        let (path, mode) = match crate::xfer_conflict::decide(
             &path,
             existing,
             meta.mtime,
             None,
             self.policy,
         ) {
-            crate::xfer_conflict::Decision::Write(path) => path,
+            crate::xfer_conflict::Decision::Write(path, mode) => (path, mode),
             crate::xfer_conflict::Decision::Skip => {
                 self.skipping = true;
                 self.mtime = meta.mtime;
@@ -747,19 +753,49 @@ impl Sink<'_> {
                 return Ok(());
             }
         };
+        // 起始偏移：显式续传入口（`start_resume`）已经把协议层设成 ZRPOS(N)，
+        // 它的通道优先，行为与改动前逐字节一致；否则按策略给出的落盘方式决定
+        // 「截断 / 追加」，这就是 Append 与 Resume 不只是假选项的落点。
+        let (truncate, offset) = if self.resume_offset > 0 {
+            (false, self.resume_offset)
+        } else {
+            match mode {
+                crate::xfer_conflict::WriteMode::Overwrite => (true, 0),
+                crate::xfer_conflict::WriteMode::Append => (false, existing_len.unwrap_or(0)),
+                crate::xfer_conflict::WriteMode::Resume { offset } => {
+                    if offset > 0 {
+                        // 弹层只给了目标目录：握手前拿不到对端将发的文件名与长度，
+                        // 无法请求 ZRPOS(offset)。此时若继续，不是覆盖就是接错位的
+                        // 半截文件——两者都是数据损坏。明确拒绝并说清原因。
+                        eprintln!(
+                            "· 拒绝以 Resume 档接收 {}：目标已有 {offset} 字节，但协议层没有续传起点",
+                            path.display()
+                        );
+                        return Err(format!(
+                            "Resume 档无法安全接收 {}：目标已有 {offset} 字节，接收弹层只给了目录，\
+                             握手前无法确定文件名与长度、也就无法请求 ZRPOS({offset})；\
+                             已拒绝覆盖，请改选 Append / Overwrite，或用显式续传入口。",
+                            path.display()
+                        ));
+                    }
+                    // 空文件没有可续的内容，等价于从头写。
+                    (true, 0)
+                }
+            }
+        };
         let mut file = OpenOptions::new()
             .create(true)
             .write(true)
-            .truncate(self.resume_offset == 0)
+            .truncate(truncate)
             .open(&path)
             .map_err(|e| format!("建不了文件 {}：{e}", path.display()))?;
-        if self.resume_offset > 0 {
+        if offset > 0 {
             let len = file
                 .metadata()
                 .map_err(|e| format!("读不了文件长度 {}：{e}", path.display()))?
                 .len();
-            if len != self.resume_offset {
-                file.set_len(self.resume_offset)
+            if len != offset {
+                file.set_len(offset)
                     .map_err(|e| format!("对齐续传长度失败 {}：{e}", path.display()))?;
             }
             file.seek(SeekFrom::End(0))
@@ -1218,6 +1254,124 @@ fn read_send_file(path: &Path) -> Result<SendFile, SendFilesError> {
 #[cfg(test)]
 mod tests {
     use super::resolve_name;
+    use super::{FileMeta, Sink};
+    use crate::xfer_conflict::ConflictPolicy;
+    use std::path::PathBuf;
+
+    /// 每个落盘用例一个独立临时目录，互不干扰。
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "desk-xfer-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn sink_in<'a>(
+        pool: &'a term_session::SessionPool,
+        dir: PathBuf,
+        policy: ConflictPolicy,
+        resume_offset: u64,
+    ) -> Sink<'a> {
+        Sink {
+            pool,
+            session: 0,
+            dir: Some(dir),
+            file: None,
+            mtime: None,
+            mode: None,
+            policy,
+            skipping: false,
+            resume_offset,
+        }
+    }
+
+    #[test]
+    fn append_policy_appends_the_whole_file_to_existing_content() {
+        let dir = temp_dir("append");
+        let target = dir.join("a.bin");
+        std::fs::write(&target, b"OLD").unwrap();
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Append, 0);
+            sink.open("a.bin", FileMeta::default()).unwrap();
+            sink.write(b"NEW").unwrap();
+            sink.close().unwrap();
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"OLDNEW");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn append_policy_on_a_missing_target_starts_fresh() {
+        let dir = temp_dir("append-new");
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Append, 0);
+            sink.open("fresh.bin", FileMeta::default()).unwrap();
+            sink.write(b"NEW").unwrap();
+            sink.close().unwrap();
+        }
+        assert_eq!(std::fs::read(dir.join("fresh.bin")).unwrap(), b"NEW");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_policy_without_a_protocol_offset_refuses_to_clobber() {
+        // 弹层只给了目录：握手前拿不到文件名与长度，Resume 档必须明确拒绝，
+        // 绝不能静默按覆盖写（那会丢掉目标里已有的 3 字节）。
+        let dir = temp_dir("resume-refuse");
+        let target = dir.join("a.bin");
+        std::fs::write(&target, b"OLD").unwrap();
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 0);
+            let err = sink.open("a.bin", FileMeta::default()).unwrap_err();
+            assert!(err.contains("Resume"), "{err}");
+            assert!(err.contains("ZRPOS"), "{err}");
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"OLD", "拒绝时目标必须原样保留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn resume_policy_with_an_empty_or_missing_target_starts_fresh() {
+        // 没有可续的旧内容：空文件与不存在的目标都从头写，不该误报拒绝。
+        let dir = temp_dir("resume-empty");
+        std::fs::write(dir.join("empty.bin"), b"").unwrap();
+        let pool = term_session::SessionPool::new();
+        for name in ["empty.bin", "missing.bin"] {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 0);
+            sink.open(name, FileMeta::default()).unwrap();
+            sink.write(b"NEW").unwrap();
+            sink.close().unwrap();
+            assert_eq!(std::fs::read(dir.join(name)).unwrap(), b"NEW", "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn explicit_resume_channel_still_appends_at_the_offset() {
+        // start_resume 的显式通道：协议层已回 ZRPOS(5)，落盘先补齐到 5 再追加。
+        let dir = temp_dir("resume-explicit");
+        std::fs::write(dir.join("part.bin"), b"abc").unwrap();
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 5);
+            sink.open("part.bin", FileMeta::default()).unwrap();
+            sink.write(b"XY").unwrap();
+            sink.close().unwrap();
+        }
+        let bytes = std::fs::read(dir.join("part.bin")).unwrap();
+        assert_eq!(bytes.len(), 7);
+        assert_eq!(&bytes[5..], b"XY");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_relative_traversal_is_flattened_to_its_basename() {
