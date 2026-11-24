@@ -15,6 +15,8 @@
 //! `&SftpSession` 与一个进度回调，不认识事件通道。
 
 pub mod blocking;
+/// 递归删除的纯计划（先文件后后序目录）；请求本身仍走既有的两条删除请求。
+pub mod delete;
 mod background;
 mod cancel;
 mod dest;
@@ -28,6 +30,7 @@ mod walk;
 pub use background::{Event, Request, SftpHandle, start_in_background};
 pub use blocking::{Client as BlockingClient, RemoteStat};
 pub use cancel::{CancelToken, Disposition, Stop, disposition};
+pub use delete::{DeleteStep, PlanError, plan_tree_delete};
 pub use entry::{Entry, format_size, join, mtime_secs, parent, sort_entries};
 pub use mutate::{MAX_MODE, check_mode, check_path, merge_permissions, sanitize_component};
 pub use error::SftpError;

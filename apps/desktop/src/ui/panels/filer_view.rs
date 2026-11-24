@@ -106,6 +106,8 @@ impl TerminalWindow {
         let rename_label = self.tr("Rename");
         let permissions_label = self.tr("Permissions");
         let delete_label = self.tr("Delete");
+        // 删整棵树是破坏性更大的一步：单独一项、只对目录出现、有自己的确认窗。
+        let delete_tree_label = self.tr("Delete tree");
         // 传输两项走中文硬编码：翻译表在 `crates/term-app/src/i18n.rs`，本轮
         // 的分工不许动那个 crate（另一支在同仓并行改设置页）。工具面板的正文本来
         // 也是中文硬编码，i18n 第二阶段统一时再把这两句搬进 `tr()`。
@@ -462,6 +464,17 @@ impl TerminalWindow {
                         op = Some(super::ops::FilerOp::Delete {
                             path: line.target.clone(),
                             is_dir: line.is_dir,
+                        });
+                        ui.close_menu();
+                    }
+                    if line.is_dir
+                        && ui
+                            .add_enabled(!sync_running, egui::Button::new(delete_tree_label))
+                            .clicked()
+                    {
+                        // 这里只立确认窗；真正的删除要等扫描结果到齐、用户再点一次。
+                        op = Some(super::ops::FilerOp::DeleteTree {
+                            path: line.target.clone(),
                         });
                         ui.close_menu();
                     }

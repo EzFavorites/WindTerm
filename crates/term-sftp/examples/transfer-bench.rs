@@ -17,6 +17,8 @@ use term_sftp::blocking::Client;
 use term_ssh::{AuthMethod, HostKeyPolicy, SshOptions};
 
 const CHUNK: usize = 1024 * 1024;
+/// 小文件组的单个载荷：4 KiB，足以越过 SFTP 分块的小端，又不至于把基准拖长。
+const SMALL_FILE_BYTES: usize = 4 * 1024;
 
 /// 取连接参数。返回错误而不是 `panic!`：4p（生产路径 panic 冻结，只许减不许增）
 /// 也扫 `crates/` 下的示例，而「缺环境变量」是**输入**问题，给一行能照做的
@@ -98,6 +100,125 @@ struct Row {
     ok: bool,
 }
 
+/// 小文件组的一行结果。三段各自计时：put / get 报 MB/s 与 files/s，
+/// tree-delete 报「每秒删掉多少步」（每次删除都是一次协议往返）。
+struct SmallRow {
+    count: usize,
+    bytes: u64,
+    put_secs: f64,
+    get_secs: f64,
+    delete_secs: f64,
+    put: f64,
+    get: f64,
+    delete_ops_per_sec: f64,
+    steps: usize,
+    ok: bool,
+}
+
+/// 跑一组「N 个小文件 put / get / tree-delete」。
+///
+/// 串行是**刻意的**：与界面同一条会话、同一套请求顺序，所以「先删文件后后序
+/// 删目录」在这里是被真服务端验过的，而不是只跑过纯函数单测。并行化要改
+/// `xfer_queue` 的 `max_parallel` 与设计文档，本轮保留差异，见
+/// `docs/page6-transfer-notes.md`。
+fn run_small_bench(
+    client: &Client,
+    work: &Path,
+    count: usize,
+) -> Result<SmallRow, Box<dyn std::error::Error>> {
+    let local_root = work.join("small-src");
+    // 清掉上一次残留（含 count 变小时多出来的文件），每轮形状一致。
+    let _ = fs::remove_dir_all(&local_root);
+    fs::create_dir_all(&local_root)?;
+    let mut names = Vec::with_capacity(count);
+    let mut hashes = Vec::with_capacity(count);
+    for i in 0..count {
+        let name = format!("f-{i:05}.bin");
+        let mut buf = vec![0u8; SMALL_FILE_BYTES];
+        for (j, byte) in buf.iter_mut().enumerate() {
+            *byte = ((i + j) % 251) as u8;
+        }
+        let path = local_root.join(&name);
+        fs::write(&path, &buf)?;
+        hashes.push(fingerprint(&path)?);
+        names.push(name);
+    }
+
+    // 远端根带 pid：上一次异常中断留下的目录不会混进这次的计时。
+    let remote = format!("{}/windterm-bench-small-{}", client.home(), std::process::id());
+    // 已存在就接着用：同名文件会被 put 覆盖，多的旧文件在 tree-delete 里一起收走。
+    // 真建不出来（权限）时 put 会给出带路径的原因，不必在这里抢着报错。
+    let _ = client.mkdir(&remote);
+
+    let bytes = SMALL_FILE_BYTES as u64 * count as u64;
+    let t = Instant::now();
+    for name in &names {
+        client.put(
+            &local_root.join(name).to_string_lossy(),
+            &format!("{remote}/{name}"),
+        )?;
+    }
+    let put_elapsed = t.elapsed();
+    let put = mb_per_sec(bytes, put_elapsed);
+
+    let down_root = work.join("small-dst");
+    let _ = fs::remove_dir_all(&down_root);
+    fs::create_dir_all(&down_root)?;
+    let t = Instant::now();
+    for name in &names {
+        client.get(
+            &format!("{remote}/{name}"),
+            &down_root.join(name).to_string_lossy(),
+        )?;
+    }
+    let get_elapsed = t.elapsed();
+    let get = mb_per_sec(bytes, get_elapsed);
+
+    // 用产品同款纯计划 + 既有删除请求收尾：这一步同时是「树删除真能删干净」
+    // 的服务端验证，不是只跑过单测的纸面顺序。
+    let listed = client.list(&remote)?;
+    let entries: Vec<term_sftp::ScannedEntry> = listed
+        .iter()
+        .map(|e| term_sftp::ScannedEntry {
+            rel: e.name.clone(),
+            is_dir: e.is_dir,
+            size: e.size,
+            mtime: e.mtime,
+        })
+        .collect();
+    let steps = term_sftp::plan_tree_delete(&remote, &entries)?;
+    let t = Instant::now();
+    for step in &steps {
+        match step {
+            term_sftp::DeleteStep::File(path) => client.remove_file(path)?,
+            term_sftp::DeleteStep::Dir(path) => client.remove_dir(path)?,
+        }
+    }
+    let delete_elapsed = t.elapsed();
+    let ok = hashes
+        .iter()
+        .zip(names.iter())
+        .all(|(want, name)| {
+            fingerprint(&down_root.join(name))
+                .map(|got| got == *want)
+                .unwrap_or(false)
+        })
+        && client.stat(&remote).is_err();
+    let secs = |d: Duration| d.as_secs_f64().max(f64::MIN_POSITIVE);
+    Ok(SmallRow {
+        count,
+        bytes,
+        put_secs: secs(put_elapsed),
+        get_secs: secs(get_elapsed),
+        delete_secs: secs(delete_elapsed),
+        put,
+        get,
+        delete_ops_per_sec: steps.len() as f64 / secs(delete_elapsed),
+        steps: steps.len(),
+        ok,
+    })
+}
+
 fn arg(name: &str, default: &str) -> String {
     let mut args = std::env::args();
     while let Some(a) = args.next() {
@@ -111,10 +232,11 @@ fn arg(name: &str, default: &str) -> String {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let size_mb: u64 = arg("--size-mb", "8").parse()?;
     let rounds: usize = arg("--rounds", "3").parse()?;
+    let small_count: usize = arg("--small-count", "128").parse()?;
     let out = PathBuf::from(arg("--out", "/tmp/windterm-transfer-report.md"));
     let work = PathBuf::from(arg("--work-dir", "/tmp/windterm-transfer-bench"));
-    if size_mb == 0 || rounds == 0 {
-        return Err("--size-mb 与 --rounds 都必须 > 0".into());
+    if size_mb == 0 || rounds == 0 || small_count == 0 {
+        return Err("--size-mb / --rounds / --small-count 都必须 > 0".into());
     }
 
     let src = make_payload(&work, size_mb)?;
@@ -149,6 +271,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         rows.push(Row { local, put, get, ok });
         eprintln!("[transfer-bench] round {round}/{rounds}: local {local:.2} / put {put:.2} / get {get:.2} MB/s, ok={ok}");
     }
+    eprintln!("[transfer-bench] small files: N={small_count} × {} B", SMALL_FILE_BYTES);
+    let small = run_small_bench(&client, &work, small_count)?;
+    eprintln!(
+        "[transfer-bench] small: put {:.2} MB/s / get {:.2} MB/s / tree-delete {:.1} ops/s, ok={}",
+        small.put, small.get, small.delete_ops_per_sec, small.ok
+    );
     let _ = client; // Drop 里挂断；显式引用避免被提前优化掉。
 
     let mean = |f: fn(&Row) -> f64| rows.iter().map(f).sum::<f64>() / rows.len() as f64;
@@ -222,6 +350,55 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "判回归看**中位数**而不是均值：均值会被某一轮的系统抖动拖偏（本机实测极差可达 4 倍）。\
          改进前后的两份报告要在同一台机器、同一载荷下比，且差异超过极差才算真差异。"
     )?;
+
+    writeln!(report)?;
+    writeln!(
+        report,
+        "## 小文件基准（{} 个 × {} KiB，put / get / tree-delete）",
+        small.count,
+        SMALL_FILE_BYTES / 1024
+    )?;
+    writeln!(report)?;
+    writeln!(report, "- 对端：{host}:{port} / {user}；同一条会话、**串行**（`xfer_queue.max_parallel = 1` 未改）")?;
+    writeln!(
+        report,
+        "- 载荷：{} 个确定性小文件，合计 {} KiB；FNV-1a 逐文件核对，并确认树根已删掉",
+        small.count,
+        small.bytes / 1024
+    )?;
+    writeln!(report, "- 被测：`Client::put` / `::get` 逐文件；tree-delete 走 `term_sftp::plan_tree_delete` 生成的既有 `remove_file` / `remove_dir` 步骤")?;
+    writeln!(report)?;
+    writeln!(report, "| 阶段 | 用时 | 吞吐 | 校验 |")?;
+    writeln!(report, "|:---|---:|---:|:---:|")?;
+    writeln!(
+        report,
+        "| put（{} files） | {:.3}s | {:.2} MB/s（{:.1} files/s） | {} |",
+        small.count,
+        small.put_secs,
+        small.put,
+        small.count as f64 / small.put_secs,
+        if small.ok { "✅" } else { "❌" }
+    )?;
+    writeln!(
+        report,
+        "| get（{} files） | {:.3}s | {:.2} MB/s（{:.1} files/s） | {} |",
+        small.count,
+        small.get_secs,
+        small.get,
+        small.count as f64 / small.get_secs,
+        if small.ok { "✅" } else { "❌" }
+    )?;
+    writeln!(
+        report,
+        "| tree-delete（{} steps） | {:.3}s | {:.1} ops/s | {} |",
+        small.steps,
+        small.delete_secs,
+        small.delete_ops_per_sec,
+        if small.ok { "✅" } else { "❌" }
+    )?;
+    writeln!(report)?;
+    writeln!(report, "小文件与小目录的瓶颈是**每步一次协议往返**，MB/s 会远低于上面的大载荷数字，这是正常现象；判回归请比较 files/s 与 ops/s。")?;
+    writeln!(report, "并行化会牵动 `xfer_queue` 的 `max_parallel` 与设计文档，本轮不做，登记在 `docs/page6-transfer-notes.md`。")?;
 
     if let Some(parent) = out.parent() {
         fs::create_dir_all(parent)?;

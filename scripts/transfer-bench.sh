@@ -8,6 +8,7 @@
 # 用法：
 #   bash scripts/transfer-bench.sh                          # 8 MiB × 3 轮，报告落 /tmp
 #   bash scripts/transfer-bench.sh --size-mb 32 --rounds 5  # 加大载荷 / 轮次
+#   bash scripts/transfer-bench.sh --small-count 256        # 小文件组的 N
 #   bash scripts/transfer-bench.sh --out docs/bench/transfer-report.md
 #   KEEP=1 bash scripts/transfer-bench.sh                   # 跑完留容器
 #   SKIP_BUILD=1 bash scripts/transfer-bench.sh             # 复用已有镜像
@@ -36,15 +37,17 @@ PASS=testerpass
 
 SIZE_MB=8
 ROUNDS=3
+SMALL_COUNT=128
 OUT=/tmp/windterm-transfer-report.md
 WORK=/tmp/windterm-transfer-bench
 while [ $# -gt 0 ]; do
     case "$1" in
         --size-mb) SIZE_MB=$2; shift 2 ;;
         --rounds)  ROUNDS=$2;  shift 2 ;;
+        --small-count) SMALL_COUNT=$2; shift 2 ;;
         --out)     OUT=$2;     shift 2 ;;
         --work-dir) WORK=$2;   shift 2 ;;
-        -h|--help) sed -n '2,17p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
         *) printf '未知参数: %s\n' "$1" >&2; exit 2 ;;
     esac
 done
@@ -106,13 +109,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-echo "跑基准：载荷 ${SIZE_MB} MiB × ${ROUNDS} 轮（本项目 term-sftp 客户端）" >&2
+echo "跑基准：载荷 ${SIZE_MB} MiB × ${ROUNDS} 轮 + 小文件 ${SMALL_COUNT} 个（本项目 term-sftp 客户端）" >&2
 # 必须 --release：debug 下 SFTP 的分块加密与拷贝没优化，测出来的是
 # 「编译器没做内联」而不是「传输层快不快」（实测 debug 会低一个数量级）。
 # 首次跑要先编译 release，慢是正常的；换代码后别用 SKIP_BUILD 绕过重建。
 cargo run --release --quiet --manifest-path "$ROOT/crates/term-sftp/Cargo.toml" \
     --example transfer-bench -- \
-    --size-mb "$SIZE_MB" --rounds "$ROUNDS" --out "$OUT" --work-dir "$WORK" || {
+    --size-mb "$SIZE_MB" --rounds "$ROUNDS" --small-count "$SMALL_COUNT" \
+    --out "$OUT" --work-dir "$WORK" || {
     echo "基准失败" >&2
     exit 1
 }

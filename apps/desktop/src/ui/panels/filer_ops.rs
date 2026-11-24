@@ -34,6 +34,54 @@ pub(in crate::ui) enum FilerOp {
     Chmod { path: String, mode: String },
     /// 删除一个文件或**空**目录。非空目录由服务端拒绝（我们不替它递归）。
     Delete { path: String, is_dir: bool },
+    /// 删除**整棵树**：先扫描清单，用户显式确认后才逐条发 `RemoveFile` /
+    /// `RemoveDir`。与 [`FilerOp::Delete`] 分开，是为了让破坏性更大的那一步
+    /// 有自己的确认文案，且**不经过**「删空目录」那条轻量路径。
+    DeleteTree { path: String },
+}
+
+/// 删整棵树前的扫描结果。跟着面板走，换会话 / 关面板时随 `Filer` 一起消失。
+///
+/// `entries: None` = 清单还没到（或扫描失败）；未到齐时确认按钮**必须不可点**，
+/// 否则「先删文件后删目录」就没有依据，只剩一条删根目录的失败请求。
+#[derive(Default)]
+pub(in crate::ui) struct TreeDeleteScan {
+    pub(in crate::ui) root: String,
+    pub(in crate::ui) entries: Option<Vec<term_sftp::ScannedEntry>>,
+    pub(in crate::ui) error: Option<String>,
+}
+
+impl TreeDeleteScan {
+    fn begin(root: String) -> Self {
+        Self {
+            root,
+            entries: None,
+            error: None,
+        }
+    }
+}
+
+impl Filer {
+    pub(in crate::ui) fn note_tree_delete_scan(
+        &mut self,
+        path: &str,
+        entries: Vec<term_sftp::ScannedEntry>,
+    ) {
+        if let Some(scan) = self.tree_delete.as_mut() {
+            if path == scan.root {
+                scan.entries = Some(entries);
+                scan.error = None;
+            }
+        }
+    }
+
+    pub(in crate::ui) fn fail_tree_delete_scan(&mut self, path: &str, message: &str) {
+        if let Some(scan) = self.tree_delete.as_mut() {
+            if path == scan.root {
+                scan.error = Some(message.to_string());
+            }
+        }
+    }
 }
 
 impl FilerOp {
@@ -44,6 +92,7 @@ impl FilerOp {
             FilerOp::Rename { .. } => "Rename",
             FilerOp::Chmod { .. } => "Permissions",
             FilerOp::Delete { .. } => "Delete",
+            FilerOp::DeleteTree { .. } => "Delete tree",
         }
     }
 
@@ -60,12 +109,15 @@ impl FilerOp {
                     format!("Delete the file {path}")
                 }
             }
+            FilerOp::DeleteTree { path } => {
+                format!("Delete the whole tree at {path} and everything inside it")
+            }
         }
     }
 
     /// 要不要输入框（删除只要确认，没有可填的东西）。
     pub(in crate::ui) fn wants_input(&self) -> bool {
-        !matches!(self, FilerOp::Delete { .. })
+        !matches!(self, FilerOp::Delete { .. } | FilerOp::DeleteTree { .. })
     }
 
     /// 确认按钮上写什么。删除必须写动词本身——「OK」在破坏性操作上太轻。
@@ -75,6 +127,7 @@ impl FilerOp {
             FilerOp::Rename { .. } => "Rename",
             FilerOp::Chmod { .. } => "Apply",
             FilerOp::Delete { .. } => "Delete",
+            FilerOp::DeleteTree { .. } => "Delete tree",
         }
     }
 
@@ -83,7 +136,7 @@ impl FilerOp {
         match self {
             FilerOp::NewFolder { name, .. } | FilerOp::Rename { name, .. } => name.clone(),
             FilerOp::Chmod { mode, .. } => mode.clone(),
-            FilerOp::Delete { .. } => String::new(),
+            FilerOp::Delete { .. } | FilerOp::DeleteTree { .. } => String::new(),
         }
     }
 }
@@ -174,7 +227,29 @@ pub(in crate::ui) fn plan(op: &FilerOp, input: &str) -> Result<OpRequest, String
         } else {
             OpRequest::RemoveFile { path: path.clone() }
         }),
+        // 整棵树不走「填个名字就发一条」的快路径：它要等的清单不在这里。
+        FilerOp::DeleteTree { .. } => {
+            Err("删除整棵树要先等扫描完成，再在确认窗里点「Delete tree」".to_string())
+        }
     }
+}
+
+/// 把扫描到的整棵树变成一串**已经排好序**的既有请求。
+///
+/// 纯函数：不碰 `SftpHandle`、不看弹层状态，所以「先文件后后序目录」能被单测
+/// 钉死。调用方只有在用户点了确认之后才允许拿它去发请求——这里故意不返回
+/// 「直接执行」的闭包，避免谁在右键回调里顺手绕过确认。
+pub(in crate::ui) fn plan_tree_delete(
+    root: &str,
+    entries: &[term_sftp::ScannedEntry],
+) -> Result<Vec<OpRequest>, term_sftp::delete::PlanError> {
+    Ok(term_sftp::delete::plan_tree_delete(root, entries)?
+        .into_iter()
+        .map(|step| match step {
+            term_sftp::DeleteStep::File(path) => OpRequest::RemoveFile { path },
+            term_sftp::DeleteStep::Dir(path) => OpRequest::RemoveDir { path },
+        })
+        .collect())
 }
 
 /// 这次操作改的是哪个目录下的东西——做完要刷新它。
@@ -183,7 +258,9 @@ pub(in crate::ui) fn refresh_dir(op: &FilerOp) -> String {
         FilerOp::NewFolder { dir, .. } => dir.clone(),
         FilerOp::Rename { from, .. } => term_sftp::parent(from).unwrap_or_else(|| "/".to_string()),
         FilerOp::Chmod { path, .. } => term_sftp::parent(path).unwrap_or_else(|| "/".to_string()),
-        FilerOp::Delete { path, .. } => term_sftp::parent(path).unwrap_or_else(|| "/".to_string()),
+        FilerOp::Delete { path, .. } | FilerOp::DeleteTree { path } => {
+            term_sftp::parent(path).unwrap_or_else(|| "/".to_string())
+        }
     }
 }
 
@@ -196,9 +273,21 @@ enum PromptAction {
 
 impl TerminalWindow {
     /// 右键菜单点了某一项：把弹层立起来。
+    ///
+    /// 删整棵树在这里**只发扫描请求**，一条删除都不发；清单回来后还要用户点
+    /// 确认才会落地。扫描与确认分离是为了让「你到底要删多少东西」可见。
     pub(in crate::ui) fn begin_filer_op(&mut self, op: FilerOp) {
         self.filer.op_input = op.seed();
         self.filer.op_error = None;
+        if let FilerOp::DeleteTree { path } = &op {
+            match self.filer.handle.as_ref() {
+                Some(handle) => {
+                    handle.scan_tree(path);
+                    self.filer.tree_delete = Some(TreeDeleteScan::begin(path.clone()));
+                }
+                None => self.filer.op_error = Some("文件面板还没连上，删不了整棵树".to_string()),
+            }
+        }
         self.filer.op = Some(op);
         self.ctx.request_repaint();
     }
@@ -216,11 +305,34 @@ impl TerminalWindow {
         // 标题只写动作名：正文已经把「改哪个路径」说清楚了，标题再抄一遍
         // 只会得到「New folder — Create a folder in /srv/www」这种重复。
         let title = op.heading().to_string();
+        // 删整棵树要先看清规模：扫描没回来时确认按钮不可点，失败时把服务端
+        // 原话留在窗里。判据只认当前 op 的那棵树，旧清单不能拿来删新目标。
+        let (tree_status, tree_ready) = match (&op, self.filer.tree_delete.as_ref()) {
+            (FilerOp::DeleteTree { path }, Some(scan)) if scan.root == *path => match &scan.error {
+                Some(e) => (format!("扫描失败：{e}"), false),
+                None => match &scan.entries {
+                    Some(entries) => {
+                        let files = entries.iter().filter(|e| !e.is_dir).count();
+                        let dirs = entries.len() - files;
+                        (
+                            format!("扫描完成：{files} 个文件、{dirs} 个目录（含根自身）"),
+                            true,
+                        )
+                    }
+                    None => ("正在扫描整棵树…".to_string(), false),
+                },
+            },
+            (FilerOp::DeleteTree { .. }, _) => ("正在扫描整棵树…".to_string(), false),
+            _ => (String::new(), true),
+        };
 
         DialogWindow::new(DialogId::FilerPrompt, &title).show(
             ctx,
             |ui| {
                 ui.label(op.body());
+                if matches!(op, FilerOp::DeleteTree { .. }) {
+                    ui.label(&tree_status);
+                }
                 ui.add_space(6.0);
                 let mut entered = false;
                 if op.wants_input() {
@@ -243,7 +355,8 @@ impl TerminalWindow {
                     if ui.button("Cancel").clicked() {
                         action = PromptAction::Cancel;
                     }
-                    if ui.button(op.confirm_label()).clicked() || (entered && op.wants_input()) {
+                    let confirm = ui.add_enabled(tree_ready, egui::Button::new(op.confirm_label()));
+                    if confirm.clicked() || (entered && op.wants_input()) {
                         action = PromptAction::Confirm;
                     }
                 });
@@ -255,19 +368,54 @@ impl TerminalWindow {
             PromptAction::None => {}
             PromptAction::Cancel => {
                 self.filer.op = None;
+                self.filer.tree_delete = None;
                 self.filer.op_input.clear();
                 self.filer.op_error = None;
             }
-            PromptAction::Confirm => match plan(&op, &self.filer.op_input) {
-                Ok(req) => {
-                    self.apply_filer_request(req, refresh_dir(&op));
-                    self.filer.op = None;
-                    self.filer.op_input.clear();
-                    self.filer.op_error = None;
+            PromptAction::Confirm => {
+                if let FilerOp::DeleteTree { path } = &op {
+                    // 唯一的落地入口就是这一次点击：扫描、右键、绘制都不发删除。
+                    let Some(mut scan) = self.filer.tree_delete.take() else {
+                        self.filer.op_error = Some("树清单还没到，什么也没有删除".to_string());
+                        return;
+                    };
+                    let Some(entries) = scan.entries.take() else {
+                        self.filer.tree_delete = Some(scan);
+                        self.filer.op_error = Some("树清单还没到，什么也没有删除".to_string());
+                        return;
+                    };
+                    if scan.root != *path {
+                        scan.entries = Some(entries);
+                        self.filer.tree_delete = Some(scan);
+                        self.filer.op_error = Some("树清单已经过期，什么也没有删除".to_string());
+                        return;
+                    }
+                    match plan_tree_delete(path, &entries) {
+                        Ok(reqs) => {
+                            self.apply_filer_requests(reqs, refresh_dir(&op));
+                            self.filer.op = None;
+                            self.filer.op_input.clear();
+                            self.filer.op_error = None;
+                        }
+                        Err(e) => {
+                            scan.entries = Some(entries);
+                            self.filer.tree_delete = Some(scan);
+                            self.filer.op_error = Some(e.to_string());
+                        }
+                    }
+                } else {
+                    match plan(&op, &self.filer.op_input) {
+                        Ok(req) => {
+                            self.apply_filer_requests(vec![req], refresh_dir(&op));
+                            self.filer.op = None;
+                            self.filer.op_input.clear();
+                            self.filer.op_error = None;
+                        }
+                        // 本地就说清楚的错，留在弹层上让人改，不打一个来回。
+                        Err(message) => self.filer.op_error = Some(message),
+                    }
                 }
-                // 本地就说清楚的错，留在弹层上让人改，不打一个来回。
-                Err(message) => self.filer.op_error = Some(message),
-            },
+            }
         }
     }
 
@@ -275,17 +423,21 @@ impl TerminalWindow {
     ///
     /// 两条消息走**同一条队列**，所以 `list` 一定在写之后执行——不需要等
     /// `Done` 事件回来再发（那样还得记住「刚才那个 Done 是哪个操作的」）。
-    fn apply_filer_request(&mut self, req: OpRequest, dir: String) {
+    fn apply_filer_requests(&mut self, reqs: Vec<OpRequest>, dir: String) {
         let Some(handle) = self.filer.handle.as_ref() else {
             self.filer.error = Some("文件面板还没连上，改动没有发出去".to_string());
             return;
         };
-        match req {
-            OpRequest::Mkdir { path } => handle.mkdir(path),
-            OpRequest::Rename { from, to } => handle.rename(from, to),
-            OpRequest::Chmod { path, mode } => handle.chmod(path, mode),
-            OpRequest::RemoveFile { path } => handle.remove_file(path),
-            OpRequest::RemoveDir { path } => handle.remove_dir(path),
+        // 全部走同一条会话的同一条请求通道，顺序即发出顺序；后台串行消费，
+        // 所以「先文件后目录」不会在通道里被重排（见 `background.rs` 模块头）。
+        for req in reqs {
+            match req {
+                OpRequest::Mkdir { path } => handle.mkdir(path),
+                OpRequest::Rename { from, to } => handle.rename(from, to),
+                OpRequest::Chmod { path, mode } => handle.chmod(path, mode),
+                OpRequest::RemoveFile { path } => handle.remove_file(path),
+                OpRequest::RemoveDir { path } => handle.remove_dir(path),
+            }
         }
         handle.list(dir);
         self.filer.loading = true;
@@ -404,5 +556,17 @@ mod tests {
             }),
             "/srv/www"
         );
+        assert_eq!(
+            refresh_dir(&FilerOp::DeleteTree {
+                path: "/srv/www/tree".to_string()
+            }),
+            "/srv/www"
+        );
     }
 }
+
+/// 删整棵树的单测拆到单独文件：`filer_ops.rs` 的**代码行**已经贴着 500 的门禁，
+/// 与其删注释 / 压缩断言，不如把这一块整体挪出来（与 `filer_sync_tests.rs` 同套路）。
+#[cfg(test)]
+#[path = "filer_ops_tree_tests.rs"]
+mod tree_tests;

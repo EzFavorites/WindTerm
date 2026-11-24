@@ -109,6 +109,9 @@ pub(in crate::ui) struct Filer {
     /// 本地校验没过时的那句话。**服务端**的错误仍然走 `error` 槽——
     /// 两者分开是因为一个是「你填错了」，一个是「远端不答应」。
     op_error: Option<String>,
+    /// 删整棵树时等的那份远端清单（`Some` = 扫描已发出，尚未确认 / 已取消）。
+    /// 清单缺位时确认按钮不可点，任何写请求都不发。见 `ops::TreeDeleteScan`。
+    tree_delete: Option<ops::TreeDeleteScan>,
     /// `Preferences ▸ Filer ▸ Show hidden items`：列本地目录时是否带上
     /// `.` 开头的条目（`.git` / `.env`）。
     ///
@@ -420,13 +423,20 @@ impl TerminalWindow {
                 term_sftp::Event::Scanned { path, entries } => {
                     // 只认自己等的那棵树（状态机内部按根路径比对）：扫描期间用户可能
                     // 已经切到别的目录又发起了一次，旧清单不能算进新计划。
-                    self.filer.note_scan_remote(&path, entries);
+                    // 删整棵树的扫描与同步的扫描互斥（右键 menu 在同步期间禁用），
+                    // 所以这里二选一，避免为两份清单各克隆一遍。
+                    if self.filer.tree_delete.is_some() {
+                        self.filer.note_tree_delete_scan(&path, entries);
+                    } else {
+                        self.filer.note_scan_remote(&path, entries);
+                    }
                 }
                 term_sftp::Event::Failed { path, message } => {
                     // 远端扫描 / 同步中某一步失败都走这一支（前者挂在树根上，后者挂在
                     // 那一步的远端路径上）。两个入口各自只认自己的路径，认不上就什么
                     // 也不做——同一支还要服务列目录与普通传输的失败。
                     self.filer.fail_scan_remote(&path, message.clone());
+                    self.filer.fail_tree_delete_scan(&path, &message);
                     self.filer.note_sync_failed(&path, &message);
                     // 队列先收：它要按「还有没有重试额度」决定这一项是回排队
                     // 还是终态。`path` 不在表里（列目录 / 写操作失败）时它什么也不做。
@@ -450,8 +460,9 @@ impl TerminalWindow {
                     self.filer.abort_sync(message.clone());
                     self.filer.error = Some(message);
                     self.filer.loading = false;
-                    // 会话没了，等着的预览也等不到了。
+                    // 会话没了，等着的预览 / 整棵树清单也等不到了。
                     self.filer.pending_preview = None;
+                    self.filer.tree_delete = None;
                     // 不再放回句柄：会话已经没了，留着它只会让人以为还能刷新。
                     // 队列里还在排队的项由 `pump_transfer` 按「没有句柄」逐条判掉。
                     self.pump_transfer(now);

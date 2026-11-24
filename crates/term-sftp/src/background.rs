@@ -85,8 +85,9 @@ pub enum Request {
     RemoveFile { path: String },
     /// 删一个**空**远端目录。
     ///
-    /// 不做递归删除：一个能一条请求清空整棵树的接口，误点的代价太大。
-    /// 要删树请在 UI 侧逐层确认后自己发请求（或将来单独设计，带显式确认）。
+    /// 不做递归删除：一条请求清空整棵树的接口，误点的代价太大。要删树由 UI
+    /// 先扫描、再让用户**显式确认**，然后按 [`crate::delete`] 的计划逐条发
+    /// `RemoveFile` / `RemoveDir`——本层不提供「无需确认」的递归入口。
     RemoveDir { path: String },
     /// 改远端权限位（`0o0000`–`0o7777`）。语义见 [`crate::mutate::merge_permissions`]。
     Chmod { path: String, mode: u32 },
