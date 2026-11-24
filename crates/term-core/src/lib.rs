@@ -53,6 +53,7 @@ pub mod onekey;
 pub mod grid;
 pub mod osc133;
 pub mod script_caps;
+pub mod send_escapes;
 pub mod session;
 pub mod session_runtime;
 pub mod surface;

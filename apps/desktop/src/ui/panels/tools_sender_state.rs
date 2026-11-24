@@ -241,6 +241,8 @@ pub(in crate::ui) enum PlanError {
     OddLength { line: usize, text: String },
     /// 偶数位但不是十六进制（`zz`、`0x41`）。
     NotHex { line: usize, text: String },
+    /// 文本模式的转义写错（`\x` 位数不够等）。
+    Escape { message: String },
 }
 
 impl PlanError {
@@ -251,6 +253,7 @@ impl PlanError {
                 format!("第 {line} 行 \"{text}\" 不是十六进制（需要偶数位）")
             }
             PlanError::NotHex { line, text } => format!("第 {line} 行 \"{text}\" 不是十六进制"),
+            PlanError::Escape { message } => format!("转义写错了：{message}"),
         }
     }
 }
@@ -304,7 +307,17 @@ fn hex_token(token: &str, line: usize) -> Result<Vec<u8>, PlanError> {
 ///   忽略掉，是个死开关）。
 pub(in crate::ui) fn plan(buf: &str, hex: bool, by_char: bool) -> Result<Vec<Piece>, PlanError> {
     if !hex {
-        return Ok(units(buf, false, by_char).into_iter().map(Piece::Text).collect());
+        return units(buf, false, by_char)
+            .into_iter()
+            .map(|unit| {
+                if !term_core::send_escapes::has_escape(&unit) {
+                    return Ok(Piece::Text(unit));
+                }
+                term_core::send_escapes::decode(&unit)
+                    .map(Piece::Bytes)
+                    .map_err(|e| PlanError::Escape { message: e.to_string() })
+            })
+            .collect();
     }
     if by_char {
         // 先按行定位（错在哪一行要说得准），再逐词解析，最后摊成「一字节一片」。
@@ -593,6 +606,24 @@ mod tests {
             Vec::<Piece>::new(),
             "全空白不该产生「发 0 字节」的片"
         );
+    }
+
+    /// 原版转义表在文本模式下生效：`\x03` / `\003` / `\cc` 都是 Ctrl+C。
+    #[test]
+    fn text_mode_decodes_the_documented_escape_table() {
+        assert_eq!(
+            plan(r"\x03", false, false).expect("转义"),
+            vec![Piece::Bytes(vec![0x03, 0x0A])]
+        );
+        assert_eq!(
+            plan(r"\003", false, false).expect("八进制"),
+            vec![Piece::Bytes(vec![0x03, 0x0A])]
+        );
+        assert_eq!(
+            plan(r"\cc", false, false).expect("控制字符"),
+            vec![Piece::Bytes(vec![0x03, 0x0A])]
+        );
+        assert!(plan(r"\x0", false, false).is_err(), "写错的转义不该发出去");
     }
 
     /// 文本路径**一位没变**：`plan` 在 `hex = false` 时就是 `units` 套一层。

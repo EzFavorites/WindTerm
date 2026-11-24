@@ -322,14 +322,21 @@ impl Tab {
     pub(in crate::ui) fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
         for action in &hit.actions {
             match action {
-                TriggerAction::SendText(s) => {
-                    self.write(s.as_bytes());
-                }
+                // 原版 Send text 支持与 Sender 同一张转义表（见 kingtoolbox-docs）：
+                // `\x03` / `\003` / `\cc` 都要能发 Ctrl+C。解码失败时不写半条命令。
+                TriggerAction::SendText(s) => match term_core::send_escapes::decode(s) {
+                    Ok(bytes) => { self.write(&bytes); }
+                    // 解析失败整条不写——半条命令比不发送更糟。
+                    Err(_) => {}
+                },
                 TriggerAction::SendLine(s) => {
-                    let mut line = String::with_capacity(s.len() + 1);
-                    line.push_str(s);
-                    line.push('\r');
-                    self.write(line.as_bytes());
+                    let mut text = s.clone();
+                    text.push('\r');
+                    match term_core::send_escapes::decode(&text) {
+                        Ok(bytes) => { self.write(&bytes); }
+                        // 解析失败整条不写——半条命令比不发送更糟。
+                    Err(_) => {}
+                    }
                 }
                 TriggerAction::Beep => {
                     self.write(&[0x07]);
