@@ -270,11 +270,12 @@ impl TerminalWindow {
                 self.draw_shortcuts(ctx);
             }
             comp::CompId::SessionLog => {
-                // 视觉基线定格 Shell / Logging 出厂态；用户 prefs 或上一次点击
-                // 都不该让这张组件基线漂移。
-                self.log_settings = dialogs::LogSettingsData::default();
-                self.view.show_log_settings = true;
-                self.draw_log_settings_dialog(ctx);
+                // 原版没有独立 Log 面板：它就是 New Session ▸ SSH ▸ Terminal ▸
+                // Logging 子页（`02-session-dialog/ssh/12-ssh-logging.png`）。
+                // 这里定格 Shell 协议 + Logging 页 + 出厂日志配置。
+                self.log_settings = dialogs::LogSettingsData::default(); self.view.show_log_settings = false;
+                self.new_session.protocol = term_core::session::Protocol::Shell; self.new_session.selected_page = 2; self.view.show_new_session = true;
+                self.draw_new_session_dialog(ctx);
             }
             comp::CompId::SshConnecting
             | comp::CompId::SshHostKey
