@@ -53,6 +53,19 @@ fn wheel_rows(wheel: f32, pointer_in_list: bool) -> i64 {
     (wheel / ROW_H).round() as i64
 }
 
+/// 官网 page/20：Filter 行按文件名子串过滤当前目录，随时可改。
+/// 大小写不敏感，显示名与真名都参与——目录尾斜杠不影响命中。
+pub(super) fn filter_lines(lines: &mut Vec<FileLine>, filter: &str) {
+    let needle = filter.trim().to_ascii_lowercase();
+    if needle.is_empty() {
+        return;
+    }
+    lines.retain(|line| {
+        line.name.to_ascii_lowercase().contains(&needle)
+            || line.raw_name.to_ascii_lowercase().contains(&needle)
+    });
+}
+
 impl TerminalWindow {
     /// 画面板。四块区域按实测高度切矩形，互不挤占：路径栏 / 表头 / 列表 /
     /// 底部状态行。切 child Ui 而不是靠 `item_spacing` 堆叠，是为了让底部状态行
@@ -72,6 +85,9 @@ impl TerminalWindow {
         let by_word = t(lang, "by");
 
         let mut lines = self.filer_lines();
+        // 先按 Filter 行收窄，再排序：底部计数与总大小都只算当前可见的文件。
+        let name_filter = self.panel_filter(PanelId::Filer).to_string();
+        filter_lines(&mut lines, &name_filter);
         sort_lines(&mut lines, self.filer.sort_by);
         let total: u64 = lines.iter().map(|l| l.size).sum();
         let count = lines.len();
@@ -539,6 +555,37 @@ impl TerminalWindow {
         if let Some(index) = open_at {
             self.open_filer_entry(index);
         }
+    }
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    fn row(name: &str) -> FileLine {
+        FileLine {
+            name: name.to_string(),
+            raw_name: name.trim_end_matches('/').to_string(),
+            is_dir: name.ends_with('/'),
+            is_symlink: false,
+            size: 0,
+            date: String::new(),
+            target: name.to_string(),
+        }
+    }
+
+    #[test]
+    fn filter_matches_file_names_case_insensitively_and_keeps_empty_query_a_noop() {
+        let mut rows = vec![row("readme.md"), row("src/"), row("notes.txt")];
+        filter_lines(&mut rows, "");
+        assert_eq!(rows.len(), 3, "空过滤词不该改列表");
+        filter_lines(&mut rows, "MD");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "readme.md");
+        let mut dirs = vec![row("src/"), row("notes.txt")];
+        filter_lines(&mut dirs, "src"); // 目录显示名带尾斜杠仍要命中
+        assert_eq!(dirs.len(), 1);
+        assert_eq!(dirs[0].name, "src/");
     }
 }
 

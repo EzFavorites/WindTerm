@@ -578,6 +578,8 @@ impl TerminalWindow {
     /// 目录进得去、本地文件立刻预览、远端文件先下载再预览。
     pub(in crate::ui) fn open_filer_entry(&mut self, index: usize) {
         let mut lines = self.filer_lines();
+        // 与 draw_filer 用同一份过滤词：filtered 列表的下标必须指到同一行。
+        view::filter_lines(&mut lines, self.panel_filter(PanelId::Filer));
         sort_lines(&mut lines, self.filer.sort_by);
         let Some(line) = lines.get(index) else {
             return;

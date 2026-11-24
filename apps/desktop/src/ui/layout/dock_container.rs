@@ -37,9 +37,10 @@ pub(in crate::ui) const FILTER_H: f32 = 29.0;
 // `shell::glyph::paint_cross`：几何中心就是盒子中心，那段兜底一起删掉。
 use crate::ui::shell::{paint_cross, paint_gear};
 
-/// 哪些带内面板有 Filter 行。Filer 用路径栏、Session 自带一条，都不在这里。
+/// 哪些带内面板有 Filter 行。Session 自带一条，不在这里；Filer 的 Filter
+/// 按官网 page/20 过滤当前目录的文件名（路径栏仍单独保留在面板内部）。
 pub(in crate::ui) fn has_filter(id: PanelId) -> bool {
-    matches!(id, PanelId::Explorer | PanelId::Outline)
+    matches!(id, PanelId::Explorer | PanelId::Outline | PanelId::Filer)
 }
 
 /// 这块面板的 chrome 占多高。父 `Ui` 要用这个矩形推进光标，否则
@@ -52,11 +53,12 @@ pub(in crate::ui) fn chrome_height(id: PanelId) -> f32 {
     }
 }
 
-/// 两个筛选框的跨帧缓冲。放在一个结构里，`TerminalWindow` 只多一个字段。
+/// 三个筛选框的跨帧缓冲。放在一个结构里，`TerminalWindow` 只多一个字段。
 #[derive(Default)]
 pub(in crate::ui) struct PanelFilters {
     explorer: String,
     outline: String,
+    filer: String,
 }
 
 impl PanelFilters {
@@ -64,6 +66,7 @@ impl PanelFilters {
         match id {
             PanelId::Explorer => Some(&mut self.explorer),
             PanelId::Outline => Some(&mut self.outline),
+            PanelId::Filer => Some(&mut self.filer),
             _ => None,
         }
     }
@@ -73,6 +76,7 @@ impl PanelFilters {
         match id {
             PanelId::Explorer => &self.explorer,
             PanelId::Outline => &self.outline,
+            PanelId::Filer => &self.filer,
             _ => "",
         }
     }
