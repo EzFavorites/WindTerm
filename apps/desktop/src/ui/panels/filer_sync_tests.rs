@@ -316,3 +316,20 @@ fn kept_errors_are_capped_so_a_total_failure_does_not_grow_without_bound() {    
         "留的是最早的那几条，不是最新的——第一句通常才是根因"
     );
 }
+#[test]
+fn bottom_bar_f8_follows_the_three_sync_phases_and_f9_never_turns_on() {
+    use super::super::sync_view::{footer_auto_sync_ready, footer_sync_ready};
+    // 空闲 → 扫描 → 审阅 → 执行 → 空闲：只有空闲那一格能再发起一趟。
+    assert!(footer_sync_ready(false, false, false, true, true));
+    assert!(!footer_sync_ready(true, false, false, true, true));
+    assert!(!footer_sync_ready(false, true, false, true, true));
+    assert!(!footer_sync_ready(false, false, true, true, true));
+    assert!(footer_sync_ready(false, false, false, true, true));
+    // 前置条件不成立时，即便同步状态是空的也不给点。
+    assert!(!footer_sync_ready(false, false, false, false, true));
+    assert!(!footer_sync_ready(false, false, false, true, false));
+    // 自动同步没有真实现，任何阶段都不许摆一个亮着的假开关。
+    for _ in 0..4 {
+        assert!(!footer_auto_sync_ready());
+    }
+}

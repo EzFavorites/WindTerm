@@ -329,6 +329,15 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Refresh" => "刷新",
         "Sort" => "排序",
         "No outline items" => "没有大纲条目",
+        // ── Filer 底栏三颗动作按钮 + 右键传输两项（键名照 windterm_en_zh.tsv）──
+        "Download" => "下载",
+        "Upload To Current Folder" => "上传到当前文件夹",
+        "Sync Terminal Folder" => "同步终端文件夹",
+        "Copy Directory Path To Terminal" => "将目录路径复制到终端",
+        "Automatically Sync Terminal Folder" => "自动同步终端文件夹",
+        // 灰显原因也取词：这两条在 TSV 里同样是原文字面。
+        "No session" => "无会话",
+        "Not available" => "不可用",
         // ── 关闭确认弹窗（关闭窗口 / 关闭会话）──
         "One or more sessions are opening," => "有会话正在打开，",
         "Do you want to close the current window?" => "要关闭当前窗口吗？",

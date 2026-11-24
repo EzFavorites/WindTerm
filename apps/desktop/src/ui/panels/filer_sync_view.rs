@@ -34,6 +34,25 @@ const MAX_LISTED: usize = 8;
 
 const DANGER: egui::Color32 = egui::Color32::from_rgb(0xE0, 0x6C, 0x6C);
 
+/// Filer 底栏 F8 按钮的纯判据。输入就是 `Filer::sync` 的三段状态加两条前置
+/// 条件（会话还连着、本地根可用）——不额外存第二份开关状态。
+pub(in crate::ui) fn footer_sync_ready(
+    scanning: bool,
+    review: bool,
+    running: bool,
+    connected: bool,
+    local_root_ok: bool,
+) -> bool {
+    connected && local_root_ok && !scanning && !review && !running
+}
+
+/// F9「自动同步」恒不可用：本仓没有后台轮询与对应偏好开关，画成可点的
+/// 拨杆会让人以为已经开了自动同步。要做成真自动，先补 `Prefs` 字段和
+/// 真正读它的每帧轮询，这里才允许改成返回 `true`。
+pub(in crate::ui) fn footer_auto_sync_ready() -> bool {
+    false
+}
+
 /// 审阅页里能点的事。先收集、后执行——绘制期间已经借了 `self.filer`。
 enum Action {
     None,

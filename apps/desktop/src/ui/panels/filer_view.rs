@@ -108,11 +108,9 @@ impl TerminalWindow {
         let delete_label = self.tr("Delete");
         // 删整棵树是破坏性更大的一步：单独一项、只对目录出现、有自己的确认窗。
         let delete_tree_label = self.tr("Delete tree");
-        // 传输两项走中文硬编码：翻译表在 `crates/term-app/src/i18n.rs`，本轮
-        // 的分工不许动那个 crate（另一支在同仓并行改设置页）。工具面板的正文本来
-        // 也是中文硬编码，i18n 第二阶段统一时再把这两句搬进 `tr()`。
-        let download_label = "下载到本地当前目录";
-        let upload_label = "上传到远端当前目录";
+        // 右键传输两项与目录同步都走翻译表：键名照 `windterm_en_zh.tsv`。
+        let download_label = t(lang, "Download");
+        let upload_label = t(lang, "Upload To Current Folder");
         // 传输判据的两项输入，画之前取一次：菜单里每行都要问「现在能不能传」。
         let connected = self.filer.handle.is_some();
         let remote_dir = self.filer.path.clone();
@@ -124,21 +122,37 @@ impl TerminalWindow {
         } else {
             sync_local.to_string_lossy().into_owned()
         };
-        let sync_label = "目录同步（本地 ↔ 远端）…";
+        let sync_label = t(lang, "Sync Terminal Folder");
         let sync_busy = self.filer.sync.is_some();
         // 执行阶段禁止对同一棵树做别的写操作：`SyncRun` 靠「同一时刻只有一步在飞」
         // 保证顺序与连坐，中途插进来的 mkdir / rename 会和同步那一步抢同一批事件
         // （`Done` / `Failed` 只带远端路径，认不出是谁的）。
         let sync_running = matches!(self.filer.sync, Some(super::sync::SyncState::Running(_)));
         let sync_blocker: Option<&'static str> = if !connected {
-            Some("会话已断开")
+            Some(t(lang, "Not connected to SFTP"))
         } else if sync_local_display.is_empty() {
-            Some("本地目录不可用")
+            Some(t(lang, "Not available"))
         } else if sync_busy {
-            Some("正在扫描…")
+            Some(t(lang, "Not available"))
         } else {
             None
         };
+        // 底栏 F8 与右键「目录同步」共用这三条前置条件 + `Filer::sync` 三段
+        // 状态；判据本身是纯函数，单测能穷举扫描 → 审阅 → 执行的流转。
+        let sync_ready = super::sync_view::footer_sync_ready(
+            matches!(self.filer.sync, Some(super::sync::SyncState::Scanning(_))),
+            matches!(self.filer.sync, Some(super::sync::SyncState::Review(_))),
+            sync_running,
+            connected,
+            !sync_local_display.is_empty(),
+        );
+        // F7：路径写给「当前标签」的终端，所以先问那个标签有没有活会话。
+        let path_tab = self.tabs.get(self.active_slot());
+        let path_block = super::ops::path_to_terminal_blocker(
+            &current_path,
+            path_tab.is_some_and(|tab| tab.session.is_some()),
+            path_tab.is_some_and(|tab| tab.local_mode),
+        );
 
         // 收集这一帧的动作，画完再落地：`self.filer` 与 lines 同时要用。
         let mut goto: Option<String> = None;
@@ -155,6 +169,8 @@ impl TerminalWindow {
         let mut multi_upload = false;
         // 右键菜单里点了「目录同步」（画完再落地）。
         let mut sync_now = false;
+        // 底栏 F7「把当前目录路径写进终端」（画完再落地）。
+        let copy_path;
         // 双击 / 右键「预览」选中的行（排序后整张表的下标，画完再落地）。
         let mut open_at: Option<usize> = None;
         let preview_label = self.tr("Preview");
@@ -494,13 +510,16 @@ impl TerminalWindow {
             crate::ui::type_scale::micro(),
             dim,
         );
-        foot_p.text(
-            egui::pos2(foot_rect.right() - 2.0, foot_rect.center().y),
-            egui::Align2::RIGHT_CENTER,
-            format!("{by_word} {}", t(lang, sort_by.label())),
-            crate::ui::type_scale::micro(),
-            dim,
+        let footer_clicks = self.draw_filer_footer_actions(
+            ui,
+            foot_rect,
+            &format!("{by_word} {}", t(lang, sort_by.label())),
+            path_block,
+            sync_ready,
+            sync_blocker,
         );
+        copy_path = footer_clicks.copy_path;
+        sync_now |= footer_clicks.sync_now;
 
         // ── 动作落地 ──
         if clear {
@@ -577,6 +596,11 @@ impl TerminalWindow {
         if sync_now {
             self.filer.begin_sync();
         }
+        // F7：写进当前会话的 PTY，不回车。无活动会话时按钮已经灰掉，
+        // 这里再守一次——菜单与按钮两条路都不能凭空写字节。
+        if copy_path {
+            self.copy_filer_path_to_terminal(&current_path);
+        }
         // 双击 / 右键「预览」的落地放在最后：`open_filer_entry` 会重算整张
         // 表并按排序后的下标取行，所以它必须在`lines`（本帧的快照）用完、
         // 且 `self.filer` 的路径栏缓冲已经写回之后再跑。
@@ -595,35 +619,8 @@ impl TerminalWindow {
 }
 
 #[cfg(test)]
-mod filter_tests {
-    use super::*;
-
-    fn row(name: &str) -> FileLine {
-        FileLine {
-            name: name.to_string(),
-            raw_name: name.trim_end_matches('/').to_string(),
-            is_dir: name.ends_with('/'),
-            is_symlink: false,
-            size: 0,
-            date: String::new(),
-            target: name.to_string(),
-        }
-    }
-
-    #[test]
-    fn filter_matches_file_names_case_insensitively_and_keeps_empty_query_a_noop() {
-        let mut rows = vec![row("readme.md"), row("src/"), row("notes.txt")];
-        filter_lines(&mut rows, "");
-        assert_eq!(rows.len(), 3, "空过滤词不该改列表");
-        filter_lines(&mut rows, "MD");
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].name, "readme.md");
-        let mut dirs = vec![row("src/"), row("notes.txt")];
-        filter_lines(&mut dirs, "src"); // 目录显示名带尾斜杠仍要命中
-        assert_eq!(dirs.len(), 1);
-        assert_eq!(dirs[0].name, "src/");
-    }
-}
+#[path = "filer_filter_tests.rs"]
+mod filter_tests;
 
 #[cfg(test)]
 #[path = "filer_wheel_tests.rs"]

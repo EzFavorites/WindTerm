@@ -19,6 +19,7 @@
 
 use super::*;
 use crate::ui::kit::window::{DialogId, DialogWindow};
+use term_core::vt::paste_bytes_for;
 
 /// 一次等着用户确认的写操作。
 ///
@@ -59,6 +60,43 @@ impl TreeDeleteScan {
             error: None,
         }
     }
+}
+
+/// F7「把当前目录路径写进终端」的本地判据。纯值，便于单测。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum PathToTerminalBlock {
+    /// 当前标签没有活着的会话——没地方写。
+    NoSession,
+    /// 只读查看（`Window ▸ Local Mode`）：键盘与工具面板都不许写 PTY。
+    ReadOnly,
+    /// 面板还不知道当前目录是什么。
+    EmptyPath,
+}
+
+/// 能不能把路径送给当前终端。灰显理由随之一起给出来，不画假按钮。
+pub(in crate::ui) fn path_to_terminal_blocker(
+    path: &str,
+    has_session: bool,
+    read_only: bool,
+) -> Option<PathToTerminalBlock> {
+    if !has_session {
+        Some(PathToTerminalBlock::NoSession)
+    } else if read_only {
+        Some(PathToTerminalBlock::ReadOnly)
+    } else if path.trim().is_empty() {
+        Some(PathToTerminalBlock::EmptyPath)
+    } else {
+        None
+    }
+}
+
+/// 真正送到 PTY 的文本：整条路径、**不回车**。
+///
+/// 原版 F7 只是把路径摆到命令行上让用户接着敲命令；替他按 Enter 会把
+/// 路径当成命令执行。编码仍走 `paste_bytes_for`（括号粘贴 / 控制字符过滤
+/// 与粘贴、Sender 同一份），不另造一条写 PTY 的漏斗。
+pub(in crate::ui) fn path_to_terminal_text(path: &str) -> String {
+    path.trim().to_string()
 }
 
 impl Filer {
@@ -444,126 +482,153 @@ impl TerminalWindow {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+/// 底栏三颗按钮的点击结果。先收集、后落地：绘制期间 `self.filer` 还借着。
+#[derive(Default)]
+pub(in crate::ui) struct FilerFooterClicks {
+    pub copy_path: bool,
+    pub sync_now: bool,
+}
 
-    fn op_new(dir: &str) -> FilerOp {
-        FilerOp::NewFolder {
-            dir: dir.to_string(),
-            name: String::new(),
+/// 底栏右侧那一段的宽度：排序文案 + 三颗按钮。
+const FOOT_ACTIONS_W: f32 = 78.0;
+const FOOT_BTN_W: f32 = 16.0;
+const FOOT_BTN_PITCH: f32 = 18.0;
+
+/// 三颗图标都用绘图原语画，不依赖夹具字体里有没有这些字形（同路径栏的 `⋮`）。
+fn paint_footer_icon(p: &egui::Painter, r: egui::Rect, kind: usize, color: egui::Color32) {
+    let stroke = egui::Stroke::new(1.0, color);
+    let c = r.center();
+    let line = |a: egui::Vec2, b: egui::Vec2| p.line_segment([c + a, c + b], stroke);
+    let circle = |radius: f32| {
+        p.circle(
+            c + egui::vec2(0.0, -1.0),
+            radius,
+            egui::Color32::TRANSPARENT,
+            stroke,
+        )
+    };
+    match kind {
+        // 文件夹 + 出箭头：Copy Directory Path To Terminal。
+        0 => {
+            p.rect_stroke(
+                egui::Rect::from_center_size(c + egui::vec2(-2.0, 1.0), egui::vec2(8.0, 6.0)),
+                1.0,
+                stroke,
+            );
+            line(egui::vec2(-1.0, 1.0), egui::vec2(6.0, -4.0));
+            line(egui::vec2(3.0, -4.0), egui::vec2(6.0, -4.0));
         }
-    }
-
-    #[test]
-    fn a_name_with_a_slash_is_refused_before_anything_is_sent() {
-        assert!(validate_name("logs").is_ok());
-        assert!(validate_name("my logs 2026").is_ok());
-        for bad in ["", "   ", ".", "..", "a/b"] {
-            assert!(validate_name(bad).is_err(), "{bad:?} 应当被拒");
+        // 定位钉：Sync Terminal Folder。
+        1 => {
+            circle(4.0);
+            line(egui::vec2(0.0, 3.0), egui::vec2(0.0, 7.0));
         }
-        // 中文与空格是合法名字——不要顺手把宽字符也拦了。
-        assert!(validate_name("日志 备份").is_ok());
-    }
-
-    #[test]
-    fn the_mode_parser_takes_three_and_four_digits_and_nothing_else() {
-        assert_eq!(parse_mode("755"), Ok(0o755));
-        assert_eq!(parse_mode("0755"), Ok(0o755));
-        assert_eq!(parse_mode(" 644 "), Ok(0o644));
-        assert_eq!(parse_mode("0o750"), Ok(0o750));
-        for bad in ["", "8", "abc", "7555x", "77777", "0x1f"] {
-            assert!(parse_mode(bad).is_err(), "{bad:?} 应当被拒");
+        // 靶心钉：Automatically Sync Terminal Folder（当前恒灰）。
+        _ => {
+            circle(5.0);
+            circle(2.0);
+            line(egui::vec2(0.0, 4.0), egui::vec2(0.0, 7.0));
         }
-    }
-
-    #[test]
-    fn joining_keeps_a_single_slash_even_at_the_root() {
-        assert_eq!(join_path("/home/deploy", "logs"), "/home/deploy/logs");
-        assert_eq!(join_path("/", "logs"), "/logs");
-        assert_eq!(join_path("/home/deploy/", "logs"), "/home/deploy/logs");
-    }
-
-    #[test]
-    fn planning_a_new_folder_turns_the_typed_name_into_one_absolute_path() {
-        let op = op_new("/srv/www");
-        assert_eq!(
-            plan(&op, " logs ").expect("合法名字"),
-            OpRequest::Mkdir {
-                path: "/srv/www/logs".to_string()
-            }
-        );
-        // 坏名字**不产生请求**——这样调用方就没机会先发出去再报错。
-        assert!(plan(&op, "a/b").is_err());
-    }
-
-    #[test]
-    fn renaming_stays_inside_the_same_directory() {
-        let op = FilerOp::Rename {
-            from: "/srv/www/old.conf".to_string(),
-            name: String::new(),
-        };
-        assert_eq!(
-            plan(&op, "new.conf").expect("合法名字"),
-            OpRequest::Rename {
-                from: "/srv/www/old.conf".to_string(),
-                to: "/srv/www/new.conf".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn deleting_a_folder_asks_for_remove_dir_and_a_file_for_remove_file() {
-        let dir = FilerOp::Delete {
-            path: "/srv/emptydir".to_string(),
-            is_dir: true,
-        };
-        let file = FilerOp::Delete {
-            path: "/srv/a.txt".to_string(),
-            is_dir: false,
-        };
-        assert_eq!(
-            plan(&dir, "").expect("删除不需要输入"),
-            OpRequest::RemoveDir {
-                path: "/srv/emptydir".to_string()
-            }
-        );
-        assert_eq!(
-            plan(&file, "").expect("删除不需要输入"),
-            OpRequest::RemoveFile {
-                path: "/srv/a.txt".to_string()
-            }
-        );
-        // 两个按钮文案必须不同：「Delete」对文件和空目录做的事不一样，
-        // 用户点之前该看得出来（非空目录会被服务端拒，这是有意的）。
-        assert!(dir.body().contains("empty folder"));
-        assert!(file.body().contains("file"));
-    }
-
-    #[test]
-    fn every_operation_refreshes_the_directory_it_touched() {
-        assert_eq!(
-            refresh_dir(&FilerOp::NewFolder {
-                dir: "/srv/www".to_string(),
-                name: String::new()
-            }),
-            "/srv/www"
-        );
-        assert_eq!(
-            refresh_dir(&FilerOp::Delete {
-                path: "/srv/www/a.txt".to_string(),
-                is_dir: false
-            }),
-            "/srv/www"
-        );
-        assert_eq!(
-            refresh_dir(&FilerOp::DeleteTree {
-                path: "/srv/www/tree".to_string()
-            }),
-            "/srv/www"
-        );
     }
 }
+
+impl TerminalWindow {
+    /// 画底栏右侧：排序文案 + F7 / F8 / F9 三颗图标按钮。
+    ///
+    /// 提示文案用金图上的英文原文走 `tr()`，`(F7)` 这类键名是数据。灰掉的
+    /// 那颗把原因写进 hover——只灰不说，用户会以为面板坏了。
+    pub(in crate::ui) fn draw_filer_footer_actions(
+        &self,
+        ui: &mut egui::Ui,
+        foot_rect: egui::Rect,
+        sort_label: &str,
+        path_block: Option<PathToTerminalBlock>,
+        sync_ready: bool,
+        sync_reason: Option<&'static str>,
+    ) -> FilerFooterClicks {
+        let s = &term_core::theme::CHROME_SCALE;
+        let dim = crate::theme::chrome(s.text).gamma_multiply(0.62);
+        let rect = egui::Rect::from_min_size(
+            egui::pos2(foot_rect.right() - FOOT_ACTIONS_W, foot_rect.top() + 2.0),
+            egui::vec2(FOOT_ACTIONS_W - 2.0, foot_rect.height() - 4.0),
+        );
+        ui.painter().text(
+            egui::pos2(rect.left() - 4.0, foot_rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            sort_label,
+            crate::ui::type_scale::micro(),
+            dim,
+        );
+        let copy_reason = path_block.map(|b| match b {
+            PathToTerminalBlock::NoSession => self.tr("No session"),
+            PathToTerminalBlock::ReadOnly | PathToTerminalBlock::EmptyPath => {
+                self.tr("Not available")
+            }
+        });
+        // F9 恒灰：没有后台轮询 / 偏好开关，画成可点的开关就是假开关。
+        let rows = [
+            (
+                self.tr("Copy Directory Path To Terminal"),
+                path_block.is_none(),
+                copy_reason,
+                "F7",
+            ),
+            (self.tr("Sync Terminal Folder"), sync_ready, sync_reason, "F8"),
+            (
+                self.tr("Automatically Sync Terminal Folder"),
+                false,
+                Some(self.tr("Not wired (placeholder)")),
+                "F9",
+            ),
+        ];
+        let mut clicks = FilerFooterClicks::default();
+        for (i, (label, enabled, reason, key)) in rows.into_iter().enumerate() {
+            let x = rect.right() - (rows.len() - i) as f32 * FOOT_BTN_PITCH;
+            let r = egui::Rect::from_min_size(
+                egui::pos2(x, rect.center().y - FOOT_BTN_W / 2.0),
+                egui::vec2(FOOT_BTN_W, FOOT_BTN_W),
+            );
+            paint_footer_icon(
+                ui.painter(),
+                r,
+                i,
+                if enabled { dim } else { dim.gamma_multiply(0.45) },
+            );
+            let hint = match reason {
+                Some(why) if !enabled => format!("{label} ({key}) — {why}"),
+                _ => format!("{label} ({key})"),
+            };
+            let resp = ui
+                .interact(r, egui::Id::new(("filer_footer_btn", i)), egui::Sense::click())
+                .on_hover_text(hint);
+            if enabled && resp.clicked() {
+                if i == 0 {
+                    clicks.copy_path = true;
+                } else if i == 1 {
+                    clicks.sync_now = true;
+                }
+            }
+        }
+        clicks
+    }
+
+    /// F7 落地：把当前 Filer 目录路径写进当前标签的 PTY。
+    /// 没有活会话 / 只读查看时一个字节也不发，返回 `false`。
+    pub(in crate::ui) fn copy_filer_path_to_terminal(&self, path: &str) -> bool {
+        let Some(tab) = self.tabs.get(self.active_slot()) else {
+            return false;
+        };
+        if path_to_terminal_blocker(path, tab.session.is_some(), tab.local_mode).is_some() {
+            return false;
+        }
+        let bytes = paste_bytes_for(&path_to_terminal_text(path), tab.snapshot.bracketed_paste);
+        tab.write(bytes.as_bytes())
+    }
+}
+
+#[cfg(test)]
+#[path = "filer_ops_tests.rs"]
+mod tests;
 
 /// 删整棵树的单测拆到单独文件：`filer_ops.rs` 的**代码行**已经贴着 500 的门禁，
 /// 与其删注释 / 压缩断言，不如把这一块整体挪出来（与 `filer_sync_tests.rs` 同套路）。
