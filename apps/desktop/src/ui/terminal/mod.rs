@@ -113,7 +113,7 @@ mod xfer_spec;
 
 pub(in crate::ui) use pane::draw_caret;
 pub(in crate::ui) use script::ScriptDialog;
-pub(in crate::ui) use setup::{ensure_view, make_tab, make_tab_with_channel};
+pub(in crate::ui) use setup::{ensure_view, make_tab, make_tab_with_channel, tab_from};
 pub(in crate::ui) use tab_slot::TabSlot;
 pub(in crate::ui) use view::LineCache;
 /// hex 的参数类型与档位表：`ui/mod.rs` 的字段、`ui/construct.rs` 的初值、

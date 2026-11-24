@@ -43,6 +43,8 @@ pub(in crate::ui) struct ScriptDialog {
     /// 预算档位：`false` = 交互档（30s / 100 万次操作），`true` = 批量档
     /// （10min / 5000 万次）。默认交互档——界面上的一次运行不该有能力跑十分钟。
     pub batch: bool,
+    /// 触发器经命令 ID 拉起的脚本走后台：同一会话的前台名额不受它影响。
+    pub background: bool,
 }
 
 impl ScriptDialog {
@@ -51,10 +53,20 @@ impl ScriptDialog {
     /// 两条入口（「运行脚本」菜单、按路径直接跑）都要它：只给 `path` 的话，
     /// 另一条路上的窗口会显示「no scripts in library」——那不是事实，是没填。
     pub(in crate::ui) fn opened(session: Option<SessionId>, path: impl Into<String>) -> Self {
+        Self::opened_with(session, path, false)
+    }
+
+    /// `background = true` 只给触发器入口用：不占用会话的前台脚本名额。
+    pub(in crate::ui) fn opened_background(session: Option<SessionId>, path: impl Into<String>) -> Self {
+        Self::opened_with(session, path, true)
+    }
+
+    fn opened_with(session: Option<SessionId>, path: impl Into<String>, background: bool) -> Self {
         Self {
             path: path.into(),
             library: super::script_library::library(),
             session,
+            background,
             ..Self::default()
         }
     }
@@ -580,8 +592,21 @@ impl TerminalWindow {
     /// 与「运行窗口」的区别只在**路径从哪来**：这里不填输入框，直接开跑——
     /// 用户按的是绑定好的键或按钮，再让他回头确认一次路径就是多余的。
     pub(in crate::ui) fn open_script_for_path(&mut self, path: &str) {
+        self.open_script(path, false);
+    }
+
+    /// 触发器的 `Script.RunFile:`：开运行窗口但按后台跑，不占前台名额。
+    pub(in crate::ui) fn open_script_for_path_background(&mut self, path: &str) {
+        self.open_script(path, true);
+    }
+
+    fn open_script(&mut self, path: &str, background: bool) {
         let session = self.tabs.get(self.active_slot()).and_then(|t| t.session);
-        self.script = Some(ScriptDialog::opened(session, path));
+        self.script = Some(if background {
+            ScriptDialog::opened_background(session, path)
+        } else {
+            ScriptDialog::opened(session, path)
+        });
         self.start_script();
         self.ctx.request_repaint();
     }
@@ -591,11 +616,19 @@ impl TerminalWindow {
         // 会话与路径先取出来：`script_run_options` 借的是整窗 `self`，之后才能
         // 拿 `dialog` 的可变借用。`who` 用脚本路径——「谁在跑」的提示要能对应到
         // 用户手上那个文件。
-        let (session, path, budget) = match self.script.as_ref() {
-            Some(dialog) => (dialog.session, dialog.path.trim().to_string(), dialog.budget()),
+        let (session, path, budget, background) = match self.script.as_ref() {
+            Some(dialog) => (
+                dialog.session,
+                dialog.path.trim().to_string(),
+                dialog.budget(),
+                dialog.background,
+            ),
             None => return,
         };
-        let options = self.script_run_options(&path).with_budget(budget);
+        let mut options = self.script_run_options(&path).with_budget(budget);
+        if background {
+            options = options.with_background();
+        }
         let Some(dialog) = self.script.as_mut() else {
             return;
         };

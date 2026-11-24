@@ -19,6 +19,7 @@ mod session_form;
 mod session_auth_page;
 mod session_form_body;
 pub(in crate::ui) mod session_nav;
+pub(in crate::ui) mod script_manager;
 // 会话页 `OneKey:` 行：候选来自 `prefs.onekeys` + 行内齿轮。
 mod session_onekey_row;
 mod session_modem_pages;

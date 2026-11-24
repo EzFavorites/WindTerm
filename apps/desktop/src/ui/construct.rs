@@ -381,9 +381,9 @@ impl TerminalWindow {
                 filer.show_hidden = prefs.filer_show_hidden;
                 filer
             },
-            script: None,
+            script: None, script_manager: None,
             // 脚本停靠面板：常驻状态（路径 / 在跑的线程 / 结果 / 错误）。
-            script_panel: crate::ui::panels::ScriptPanelState::default(),
+            script_panel: crate::ui::panels::ScriptPanel::default(),
             // 脚本新开会话的交接队列（ADR-0025 阶段 5）：出厂空队列，脚本线程往里
             // 推一条，`absorb_script_opened` 下一帧就把它变成标签页。
             script_opened: Default::default(),

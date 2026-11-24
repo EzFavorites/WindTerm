@@ -202,6 +202,9 @@ pub struct RunOptions {
     pub registry: Option<Arc<ScriptRunRegistry>>,
     /// 这个脚本叫什么（进了「谁在跑」的提示）。空串时按「未命名脚本」。
     pub who: String,
+    /// `true` = 前台运行（面板 / 编辑器 / 运行窗口），同一会话只许一条；
+    /// `false` = 触发器后台运行，不占会话的前台名额、彼此也不互斥。
+    pub foreground: bool,
 }
 
 impl RunOptions {
@@ -231,6 +234,7 @@ impl Default for RunOptions {
             budget: ScriptBudget::of(term_script::BudgetKind::Interactive),
             registry: None,
             who: String::new(),
+            foreground: true,
         }
     }
 }
@@ -252,6 +256,12 @@ impl RunOptions {
     /// 换预算档位（界面里的「Interactive / Batch」）。
     pub fn with_budget(mut self, budget: ScriptBudget) -> Self {
         self.budget = budget;
+        self
+    }
+
+    /// 触发器后台运行：不占用会话的前台脚本名额。
+    pub fn with_background(mut self) -> Self {
+        self.foreground = false;
         self
     }
 
@@ -323,8 +333,8 @@ impl ScriptRun {
         };
         // 互斥先占位，再干别的：读文件、起线程都要花时间，而「谁在跑」必须在
         // 第一帧就能报出来，否则连点两下会真的起来两条。
-        let lease = match &options.registry {
-            Some(registry) => {
+        let lease = match (&options.registry, options.foreground) {
+            (Some(registry), true) => {
                 let who = if options.who.trim().is_empty() {
                     "未命名脚本"
                 } else {
@@ -332,7 +342,7 @@ impl ScriptRun {
                 };
                 Some(registry.claim(id, who)?)
             }
-            None => None,
+            _ => None,
         };
         let notes = Arc::new(Mutex::new(Vec::new()));
         let cancel = CancelToken::new();
@@ -752,6 +762,44 @@ mod tests {
         assert_eq!(registry.holder(2).as_deref(), Some("b.rhai"));
         drop(b);
         assert_eq!(registry.busy_count(), 0);
+    }
+
+    #[test]
+    fn background_trigger_scripts_do_not_take_the_foreground_slot() {
+        let (pool, id) = pool_with_session();
+        let registry = Arc::new(ScriptRunRegistry::new());
+        let mut fg = ScriptRun::start(
+            pool.clone(),
+            id,
+            "sleep(80); 1".to_string(),
+            RunOptions::default().with_registry(Arc::clone(&registry), "fg.rhai"),
+        )
+        .expect("前台脚本");
+        // 触发器后台：同一会话可以并行多条，也不占前台名额。
+        let mut bg1 = ScriptRun::start(
+            pool.clone(),
+            id,
+            "sleep(60); 2".to_string(),
+            RunOptions::default()
+                .with_registry(Arc::clone(&registry), "bg1.rhai")
+                .with_background(),
+        )
+        .expect("后台脚本 1");
+        let mut bg2 = ScriptRun::start(
+            pool.clone(),
+            id,
+            "sleep(60); 3".to_string(),
+            RunOptions::default()
+                .with_registry(Arc::clone(&registry), "bg2.rhai")
+                .with_background(),
+        )
+        .expect("后台脚本 2");
+        assert_eq!(registry.holder(id).as_deref(), Some("fg.rhai"));
+        assert_eq!(registry.busy_count(), 1, "只有前台脚本占名额");
+        assert_eq!(wait(&mut bg1), Outcome::Done("2".to_string()));
+        assert_eq!(wait(&mut bg2), Outcome::Done("3".to_string()));
+        assert_eq!(wait(&mut fg), Outcome::Done("1".to_string()));
+        pool.close(id);
     }
 
     #[test]

@@ -99,6 +99,23 @@ pub const RECENT_SCRIPTS_MAX: usize = 10;
 ///
 /// 有 `f32` 字段（`font_size`），所以只派生 `PartialEq`：`Eq` 要求全序，
 /// 而 `0.1 + 0.2 != 0.3` 那种事会让它在浮点上撒谎。
+/// 脚本注册表里的一条：显示名 + 脚本文件路径 + 调用参数。
+///
+/// 只存元数据，不存脚本源码——源码始终在 `profile/scripts/*.rhai`，由编辑器
+/// 负责读写；这里按**名字**唯一（与 OneKey 同款），因为脚本面板和触发器都按
+/// 名字引用它。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScriptEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Prefs {
     /// 语言标签：`en` / `zh-CN`。空串 = 没设置过（用默认语言）。
@@ -561,6 +578,9 @@ pub struct Prefs {
     /// 在磁盘上一样，不需要区分。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_scripts: Vec<String>,
+    /// 脚本注册表（脚本配置管理页的落点）。空表 = 还没有注册任何脚本。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scripts: Vec<ScriptEntry>,
     /// 首次启动引导（Welcome → 探测 SSH 主机）是否已经走完，或者用户主动跳过。
     ///
     /// # 为什么是「已看过」而不是「首次运行」
@@ -743,6 +763,7 @@ impl Default for Prefs {
             recent_targets: Vec::new(),
             // ADR-0027：出厂 = 还没跑过脚本。
             recent_scripts: Vec::new(),
+            scripts: Vec::new(),
             // 出厂 = 还没走过首次启动引导。**这一项必须是 `false`**：
             // 出厂值写成 `true` 等于给所有新装机器关掉引导，而引导是本刀唯一的
             // 入口；写成随 `Default` 派生的 `false` 与 serde 默认一致，不需要特判。

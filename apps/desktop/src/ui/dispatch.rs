@@ -44,7 +44,7 @@ impl TerminalWindow {
         // 文件系统。所以在这里先看一眼前缀（命令 ID 的字面量在 `script_run.rs`，
         // 门禁要求 `ui/` 下不出现 ID 字面量）。
         if let Some(path) = crate::script_run::run_file_target(action_id) {
-            self.open_script_for_path(path);
+            self.open_script_for_path_background(path);
             return;
         }
         let Some(action) = Action::parse(action_id) else {

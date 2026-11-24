@@ -35,6 +35,9 @@ const SESSION_W: f32 = 180.0;
 pub(super) enum ScriptCmd {
     Run,
     Stop,
+    NewTab,
+    CloseTab,
+    OpenConfig,
     /// 清掉上一次的结果 / 错误（不清缓冲，也不停正在跑的那次）。
     Clear,
     OpenScripts,
@@ -74,8 +77,17 @@ pub(super) fn script_row(
         cmd = Some(ScriptCmd::Stop);
     }
     row.gap(ICON_GAP);
-    if row.icon("script_clear", Glyph::Cross, crate::theme::chrome(CHROME_SCALE.icon)) {
-        cmd = Some(ScriptCmd::Clear);
+    row.gap(ICON_GAP);
+    if row.icon("script_newtab", Glyph::Plus, crate::theme::chrome(CHROME_SCALE.icon)) {
+        cmd = Some(ScriptCmd::NewTab);
+    }
+    row.gap(ICON_GAP);
+    if row.icon("script_closetab", Glyph::Minus, crate::theme::chrome(CHROME_SCALE.icon)) {
+        cmd = Some(ScriptCmd::CloseTab);
+    }
+    row.gap(SEP_PAD);
+    if row.icon("script_config", Glyph::Cross, crate::theme::chrome(CHROME_SCALE.icon)) {
+        cmd = Some(ScriptCmd::OpenConfig);
     }
     row.gap(SEP_PAD);
     row.separator();

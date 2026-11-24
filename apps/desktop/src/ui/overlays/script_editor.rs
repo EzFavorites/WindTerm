@@ -223,13 +223,21 @@ impl TerminalWindow {
             .unwrap_or_default();
         let options = self.script_run_options(&who);
         let lang = self.view.lang;
+        let id = self.script_editor.as_ref().and_then(|s| s.session);
+        let read_only = id.is_some_and(|id| {
+            self.tabs.iter().any(|t| t.session() == Some(id) && t.local_mode)
+        });
         let Some(state) = self.script_editor.as_mut() else {
             return;
         };
-        let Some(id) = state.session else {
+        let Some(id) = id else {
             state.error = Some(t(lang, "This tab has no live session").to_string());
             return;
         };
+        if read_only {
+            state.error = Some("这条会话处于只读查看（Local mode），脚本不会执行".to_string());
+            return;
+        }
         match ScriptRun::start(pool, id, state.doc.text().to_string(), options) {
             Ok(run) => {
                 state.run = Some(run);

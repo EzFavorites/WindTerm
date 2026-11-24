@@ -27,6 +27,18 @@ impl TerminalWindow {
             for run in &self.logon_runs {
                 run.cancel();
             }
+            // 停靠面板与编辑器各有自己的运行句柄，也必须一起停；它们拿的是
+            // SessionPool，不经 Tab::write，不在这里取消就会绕过只读。
+            for tab in &mut self.script_panel.tabs {
+                if let Some(run) = tab.state.run.as_ref() {
+                    run.cancel();
+                }
+            }
+            if let Some(state) = self.script_editor.as_ref() {
+                if let Some(run) = state.run.as_ref() {
+                    run.cancel();
+                }
+            }
             self.log_note = Some(
                 "Local mode: this session is read-only — no input, no auto-scroll, triggers and \
                  scripts paused."

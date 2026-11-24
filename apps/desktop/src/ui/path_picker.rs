@@ -18,6 +18,8 @@ pub(in crate::ui) enum PathTarget {
     ProfileDir,
     /// Authentication 页的身份文件；`usize` 是平台页签下标，写回对应那一格。
     AuthIdentity(usize),
+    /// 脚本注册表里选择脚本文件。
+    ScriptPath,
 }
 
 pub(in crate::ui) struct PathPicker {
@@ -56,6 +58,11 @@ fn apply(win: &mut TerminalWindow, target: PathTarget, path: String) {
         PathTarget::ModemDownloadDir => win.new_session.modem_download_dir = path,
         PathTarget::ProfileDir => win.profile_choice.custom_dir = path,
         PathTarget::AuthIdentity(tab) => win.new_session.auth_identity[tab] = path,
+        PathTarget::ScriptPath => {
+            if let Some(edit) = win.script_manager.as_mut() {
+                edit.set_path(path);
+            }
+        }
     }
 }
 
@@ -67,6 +74,7 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     let title = match picker.target {
         PathTarget::BellSound => "Choose sound file",
         PathTarget::AuthIdentity(_) => "Choose identity file",
+        PathTarget::ScriptPath => "Choose script file",
         PathTarget::ModemUploadDir | PathTarget::ModemDownloadDir | PathTarget::ProfileDir => {
             "Choose directory"
         }

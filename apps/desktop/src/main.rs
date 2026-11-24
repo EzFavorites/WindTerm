@@ -35,6 +35,7 @@ mod script_human;
 mod script_proc;
 mod script_recorder;
 mod script_run;
+mod script_output;
 mod script_sftp;
 // 控制面开会话的唯一入口（腿 A 脚本 / 腿 B 桥接共用）：内置 SSH 的通道在这层
 // 注入，控制面本身不认识协议（ADR-0019）。

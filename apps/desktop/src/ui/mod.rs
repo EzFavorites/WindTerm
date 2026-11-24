@@ -466,10 +466,11 @@ pub struct TerminalWindow {
     /// 「运行脚本」窗口（`None` = 关着）。与 `connector` 同类：带线程句柄，
     /// 所以不进 `ViewState`。
     script: Option<terminal::ScriptDialog>,
+    script_manager: Option<crate::ui::dialogs::script_manager::ScriptManagerEdit>,
     /// 「脚本」停靠面板（齿轮菜单勾选打开的那块）。与 `script` 共用执行线程
     /// （`script_run::ScriptRun`），但它是**常驻**的：选脚本、点运行、看日志都在
     /// 面板里，不另开窗口。`ViewState` 只管「显不显示」（`show_pane_script`）。
-    script_panel: panels::ScriptPanelState,
+    script_panel: panels::ScriptPanel,
     /// ADR-0025 阶段 5：脚本新开的会话从**这里**回到窗口。
     ///
     /// 脚本线程没法直接往 `tabs` 里塞东西（那是 UI 线程的 `Vec<Tab>`），所以它
@@ -1130,12 +1131,9 @@ impl TerminalWindow {
         }
         // ：`Terminal.ManageTriggers` / `ManageOneKeys` 的落点是
         // **独立对话框**（兼容终端形态），不再借 Preferences 翻页。
-        if self.view.show_triggers {
-            self.draw_triggers_dialog(ctx);
-        }
-        if self.view.show_onekeys {
-            self.draw_onekeys_dialog(ctx);
-        }
+        if self.view.show_triggers { self.draw_triggers_dialog(ctx); }
+        if self.view.show_onekeys { self.draw_onekeys_dialog(ctx); }
+        self.draw_script_manager(ctx);
         if self.view.show_about {
             self.draw_about_dialog(ctx);
         }
