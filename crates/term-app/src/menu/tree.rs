@@ -177,7 +177,7 @@ pub fn menus() -> Vec<Menu> {
                 // 省略号都没有。省略号是当初照英文截图抄进菜单、又顺手抄进译文
                 // 表时加上的，2026-11-14 一并去掉（见 `i18n/zh.rs` 顶部注记）。
                 Item::Action {
-                    label: "Find...",
+                    label: "Find",
                     id: "Text.Find",
                 },
                 Item::Submenu {
@@ -206,7 +206,7 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Highlight Text...",
+                    label: "Highlight Text",
                     id: "Text.HighlightText",
                 },
             ],
@@ -369,15 +369,15 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Goto Session...",
+                    label: "Goto Session",
                     id: "Window.GotoSession",
                 },
                 Item::Action {
-                    label: "Goto Position...",
+                    label: "Goto Position",
                     id: "Window.GotoLine",
                 },
                 Item::Action {
-                    label: "Goto Symbol...",
+                    label: "Goto Symbol",
                     id: "Window.GotoSymbol",
                 },
                 Item::Separator,
@@ -449,11 +449,11 @@ pub fn menus() -> Vec<Menu> {
             label: "View",
             items: vec![
                 Item::Action {
-                    label: "Anything Palette...",
+                    label: "Anything Palette",
                     id: "Window.ShowPaletteAnything",
                 },
                 Item::Action {
-                    label: "Command Palette...",
+                    label: "Command Palette",
                     id: "Window.ShowPaletteCommand",
                 },
                 Item::Separator,
@@ -542,6 +542,11 @@ pub fn menus() -> Vec<Menu> {
                         Item::Check {
                             label: "Shell",
                             id: "Window.TogglePaneShell",
+                            checked: CheckState::Live,
+                        },
+                        Item::Check {
+                            label: "Script",
+                            id: "Window.TogglePaneScript",
                             checked: CheckState::Live,
                         },
                         Item::Check {
@@ -653,20 +658,20 @@ pub fn menus() -> Vec<Menu> {
                     label: "Window Opacity",
                     items: vec![
                         Item::Action {
-                            label: "Set Window Transparent",
+                            label: "Transparent",
                             id: "Application.SetWindowTransparent",
                         },
                         Item::Action {
-                            label: "Set Window Translucent",
+                            label: "Translucent",
                             id: "Application.SetWindowTranslucent",
                         },
                         Item::Action {
-                            label: "Set Window Opaque",
+                            label: "Opaque",
                             id: "Application.SetWindowOpaque",
                         },
                         Item::Separator,
                         Item::Action {
-                            label: "Set Window Opacity",
+                            label: "Window Opacity",
                             id: "Application.SetWindowOpacity",
                         },
                     ],
@@ -724,7 +729,7 @@ pub fn menus() -> Vec<Menu> {
                     id: "Window.ToggleFocusMode",
                 },
                 Item::Action {
-                    label: "Focus Mode Settings...",
+                    label: "Focus Mode Settings",
                     id: "Window.OpenFocusModeSettings",
                 },
                 Item::Action {
@@ -752,19 +757,19 @@ pub fn menus() -> Vec<Menu> {
                 // `Tunnel Settings` 是本实现多出的一行（隧道配置编辑器入口），
                 // 保留它是因为 `Terminal.ManageTunnels` 面板没有别的菜单入口。
                 Item::Action {
-                    label: "Sync Input...",
+                    label: "Sync Input",
                     id: "Terminal.SyncInput",
                 },
                 Item::Action {
-                    label: "OneKeys...",
+                    label: "OneKeys",
                     id: "Terminal.ManageOneKeys",
                 },
                 Item::Action {
-                    label: "Triggers...",
+                    label: "Triggers",
                     id: "Terminal.ManageTriggers",
                 },
                 Item::Action {
-                    label: "Tunnels...",
+                    label: "Tunnels",
                     id: "Terminal.ManageTunnels",
                 },
                 Item::Action {
@@ -801,7 +806,7 @@ pub fn menus() -> Vec<Menu> {
                         },
                         Item::Separator,
                         Item::Action {
-                            label: "Cancel Modem",
+                            label: "Cancel",
                             id: "Terminal.CancelModem",
                         },
                     ],
@@ -849,7 +854,7 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Action {
-                    label: "Windows Manager...",
+                    label: "Windows Manager",
                     id: "Window.WindowManager",
                 },
                 Item::Separator,

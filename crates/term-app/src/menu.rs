@@ -273,8 +273,8 @@ mod tests {
         let at = tool
             .items
             .iter()
-            .position(|i| label_of(i) == "Tunnels...")
-            .expect("Tool 逐项里要有 Tunnels...（金标准带省略号）");
+            .position(|i| label_of(i) == "Tunnels")
+            .expect("Tool 逐项里要有 Tunnels（翻译表原文不带省略号）");
         assert_eq!(
             label_of(&tool.items[at + 1]),
             "Tunnel Settings",

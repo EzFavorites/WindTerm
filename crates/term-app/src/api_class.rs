@@ -253,6 +253,7 @@ static CLASSES: &[(&str, ApiClass)] = &[
     ("Window.TogglePaneSender", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneSession", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneShell", ApiClass::Verb("app_panel_set")),
+    ("Window.TogglePaneScript", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneTransfer", ApiClass::Verb("app_panel_set")),
     ("Window.ToggleQuickBar", ApiClass::Interactive),
     ("Window.ToggleStatusBar", ApiClass::Interactive),

@@ -188,6 +188,7 @@ pub const DEFAULT_SHORTCUT_SEQS: &[SeqShortcut] = &[
     SeqShortcut { chord: "Alt+W, Alt+X", id: "Window.TogglePaneSender" },
     SeqShortcut { chord: "Alt+W, Alt+S", id: "Window.TogglePaneSession" },
     SeqShortcut { chord: "Alt+W, Alt+C", id: "Window.TogglePaneShell" },
+    SeqShortcut { chord: "Alt+W, Alt+P", id: "Window.TogglePaneScript" },
     SeqShortcut { chord: "Alt+W, Alt+T", id: "Window.TogglePaneTransfer" },
     // 右键菜单 margin 五列：菜单列与这里同源（CONTEXT_SEQ_ROWS），按下去真翻列。
     SeqShortcut {

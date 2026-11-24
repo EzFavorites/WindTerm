@@ -81,7 +81,7 @@ fn mode_menu_matches_the_reference_row_for_row() {
             "☐ Virtual Space",
             "✓ Multiple Caret",
             "Focus Mode",
-            "Focus Mode Settings...",
+            "Focus Mode Settings",
             "Full Screen",
             "Always On Top",
             "Lock Screen",
@@ -209,6 +209,7 @@ fn a_wired_command_must_read_live_state() {
             "Sender",
             "Session",
             "Shell",
+            "Script",
             "Transfer",
             // View 顶层唯一的勾选行（`Text.HighlightCaretLine`）
             "Highlight Caret Line",

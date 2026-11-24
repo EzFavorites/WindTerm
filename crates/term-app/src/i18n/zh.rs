@@ -110,6 +110,12 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Hex Group Chars" => "十六进制分组字符",
         // ── 搜索 ──
         "Find" => "查找",
+        "Script" => "脚本",
+        "Goto Position" => "转到位置",
+        "Transparent" => "透明",
+        "Translucent" => "半透明",
+        "Opaque" => "不透明",
+        "Window Opacity" => "窗口不透明度",
         "Find..." => "查找…",
         "Find Next" => "查找下一个",
         "Find Previous" => "查找上一个",

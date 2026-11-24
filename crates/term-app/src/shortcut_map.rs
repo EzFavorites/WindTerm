@@ -117,6 +117,7 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Window.TogglePaneSender", chord: "Alt+W, Alt+X" },
     BindingRow { id: "Window.TogglePaneSession", chord: "Alt+W, Alt+S" },
     BindingRow { id: "Window.TogglePaneShell", chord: "Alt+W, Alt+C" },
+    BindingRow { id: "Window.TogglePaneScript", chord: "Alt+W, Alt+P" },
     BindingRow { id: "Window.TogglePaneTransfer", chord: "Alt+W, Alt+T" },
     BindingRow { id: "Text.LineUp", chord: "Up" },
     BindingRow { id: "Text.LineDown", chord: "Down" },

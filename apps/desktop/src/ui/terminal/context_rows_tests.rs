@@ -155,7 +155,7 @@ fn the_transfer_binary_submenu_expands_the_same_tree_as_the_tool_menu() {
             "Receive YModem",
             "Receive ZModem",
             "|",
-            "Cancel Modem",
+            "Cancel",
         ],
         "与 Tool ▸ Transfer Binary 的分组必须是同一份"
     );

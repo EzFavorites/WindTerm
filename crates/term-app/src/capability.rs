@@ -275,9 +275,9 @@ mod tests {
         // 2026-11-24：`Text.ToggleWordWrap` 接线（软换行，段表按位现算）
         // → 已接线 219→220、占位 3→2、总数 222 不变。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 213, "已接线命令数变化需显式确认");
+        assert_eq!(implemented, 214, "已接线命令数变化需显式确认");
         assert_eq!(planned, 2, "占位命令数变化需显式确认");
-        assert_eq!(inventory().len(), 215);
+        assert_eq!(inventory().len(), 216);
     }
 
     #[test]
@@ -395,6 +395,7 @@ mod tests {
             "Window.TogglePaneSender",
             "Window.TogglePaneSession",
             "Window.TogglePaneShell",
+            "Window.TogglePaneScript",
             "Window.TogglePaneTransfer",
             // v0.1 工作台 15 条。读者是 `ui/center.rs` 的对应页面——
             // 每条命令打开一个有真实内容/动作的页面，不是同义开关；
