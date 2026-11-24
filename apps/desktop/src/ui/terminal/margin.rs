@@ -41,6 +41,24 @@ const MIN_NUMBER_COLS: usize = 3;
 /// 行号列最宽 6 格（99 万行以后就让它自己截断，不再把正文挤没）。
 const MAX_NUMBER_COLS: usize = 6;
 
+/// 折叠列鼠标修饰键 → 折叠命令（纯函数，可单测）。
+///
+/// - Ctrl/Cmd：全部块的开关（无折 → FoldAll，已有折 → UnfoldAll）。
+/// - Alt（递归）/ Shift（同类型）：本仓块平坦无嵌套、无类型概念，原版语义没有
+///   对应物——不假装支持，退回单块 ToggleAt。
+fn fold_cmd_for_modifiers(
+    mods: egui::Modifiers,
+    folds_empty: bool,
+    abs: term_core::coords::HistoryRow,
+) -> term_app::vocab::FoldCmd {
+    use term_app::vocab::FoldCmd;
+    if mods.ctrl || mods.command {
+        if folds_empty { FoldCmd::FoldAll } else { FoldCmd::UnfoldAll }
+    } else {
+        FoldCmd::ToggleAt(abs)
+    }
+}
+
 /// 一次算好、逐行复用：每帧只构造一次，行循环里不再做几何判断。
 pub(in crate::ui) struct MarginMetrics {
     /// 整个边栏占多宽（像素）。0 = 一列都没开，投影层连预留都不留。
@@ -103,8 +121,14 @@ impl MarginMetrics {
         }
     }
 
-    /// 折叠列上的单击产出哪条折叠命令。空白 / 列没开 / 不在本列 → `None`。
+    /// 折叠列上的鼠标点击产出哪条折叠命令。空白 / 列没开 / 不在本列 → `None`。
     /// 命中判据与 [`paint`] 画 `▸` 的那一格同源，只认真正的折叠头。
+    ///
+    /// 修饰键（原版 WindTerm 语义）：
+    /// - 无修饰 → `ToggleAt`：切换这一块。
+    /// - Ctrl → 全部块的 Fold/Unfold 开关：当前无折则 `FoldAll`，否则 `UnfoldAll`。
+    /// - Alt（递归）/ Shift（同类型）→ 本仓块平坦不嵌套、无类型概念，语义未定义，
+    ///   先退回 `ToggleAt`，在 hover / 日志里说明，不假装支持。
     #[allow(clippy::too_many_arguments)]
     pub(in crate::ui) fn fold_click_cmd(
         &self,
@@ -116,6 +140,7 @@ impl MarginMetrics {
         folds: &Folds,
         inputs: &[HistoryRow],
         resp: &egui::Response,
+        mods: egui::Modifiers,
     ) -> Option<term_app::vocab::FoldCmd> {
         if !self.fold_on || !resp.clicked() {
             return None;
@@ -130,7 +155,7 @@ impl MarginMetrics {
         let line = image.lines.get(row)?;
         let abs = HistoryRow::new(image.history as i64 + line.row)?;
         if folds.regions().iter().any(|r| r.start() == abs) || block_at(inputs, abs).is_some() {
-            Some(term_app::vocab::FoldCmd::ToggleAt(abs))
+            Some(fold_cmd_for_modifiers(mods, folds.is_empty(), abs))
         } else {
             None
         }
@@ -444,5 +469,23 @@ mod tests {
         assert!(!is_wrapped(&snap, 100));
         // 没有 OSC 133 集成时一个提示符都不该冒出来（不能猜）。
         assert!(!is_prompt(&snap, 100));
+    }
+
+    #[test]
+    fn fold_click_modifiers_choose_the_right_command() {
+        use term_app::vocab::FoldCmd;
+        let abs = HistoryRow::new(10).unwrap();
+        let none = egui::Modifiers::NONE;
+        let ctrl = egui::Modifiers { ctrl: true, ..Default::default() };
+        let alt = egui::Modifiers { alt: true, ..Default::default() };
+        let shift = egui::Modifiers { shift: true, ..Default::default() };
+
+        // 无修饰 / Alt / Shift：本仓均无对应语义，退回单块 ToggleAt。
+        assert_eq!(fold_cmd_for_modifiers(none, false, abs), FoldCmd::ToggleAt(abs));
+        assert_eq!(fold_cmd_for_modifiers(alt, false, abs), FoldCmd::ToggleAt(abs));
+        assert_eq!(fold_cmd_for_modifiers(shift, false, abs), FoldCmd::ToggleAt(abs));
+        // Ctrl：无折 → 全折，有折 → 全展开。
+        assert_eq!(fold_cmd_for_modifiers(ctrl, true, abs), FoldCmd::FoldAll);
+        assert_eq!(fold_cmd_for_modifiers(ctrl, false, abs), FoldCmd::UnfoldAll);
     }
 }

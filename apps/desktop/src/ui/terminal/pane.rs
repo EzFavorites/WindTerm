@@ -376,11 +376,12 @@ impl TerminalWindow {
             );
         }
 
-        // 折叠列的单击：点「▸」那一格切换该头对应的块（命中判据在 margin.rs）。
+        // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {
+            let mods = ui.input(|i| i.modifiers);
             pending_fold = margin_met.fold_click_cmd(
                 cell_w, rect.min, geom.start, geom.cell, image,
-                &tab.folds, &tab.fold_inputs(), &resp,
+                &tab.folds, &tab.fold_inputs(), &resp, mods,
             );
         }
 
