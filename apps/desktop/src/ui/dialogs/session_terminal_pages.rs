@@ -116,29 +116,49 @@ fn keyboard_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 /// 配置还是全局默认值，所以末尾有一行说明；等 per-session 字段落地再收掉。
 fn logging_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut dirty = false;
-    if let Some(i) = radio_choices(
-        ui,
-        "Log types:",
-        &["Log nothing", "Printable output", "All output"],
-        usize::from(win.log_settings.log_type.as_u8()),
-        true,
-        124.0,
-    ) {
-        win.log_settings.log_type = LogType::from_u8(i as u8);
-        dirty = true;
+    // 金标准 `12-ssh-logging.png`：三条完整文案竖排，每项一行；不是横排短标签。
+    ui.label("Log types:");
+    for (i, label) in ["Log nothing", "Log printable output", "Log all session output"]
+        .iter()
+        .enumerate()
+    {
+        let mut on = usize::from(win.log_settings.log_type.as_u8()) == i;
+        if choice_row_styled(
+            ui,
+            ChoiceKind::Radio,
+            label,
+            match i {
+                0 => "nothing",
+                1 => "printable",
+                _ => "all",
+            },
+            &mut on,
+            true,
+            UnderlineStyle::Dialog,
+        ) && on
+        {
+            win.log_settings.log_type = LogType::from_u8(i as u8);
+            dirty = true;
+        }
     }
     let enabled = win.log_settings.log_type.enabled();
     let overwrite = usize::from(win.log_settings.overwrite == Some(true));
-    if let Some(i) = radio_choices(
-        ui,
-        "Log options:",
-        &["Overwrite log file", "Append log file"],
-        overwrite,
-        enabled,
-        124.0,
-    ) {
-        win.log_settings.overwrite = Some(i == 0);
-        dirty = true;
+    ui.label("Log options:");
+    for (i, label) in ["Overwrite log file", "Append log file"].iter().enumerate() {
+        let mut on = overwrite == i;
+        if choice_row_styled(
+            ui,
+            ChoiceKind::Radio,
+            label,
+            if i == 0 { "Overwrite" } else { "Append" },
+            &mut on,
+            enabled,
+            UnderlineStyle::Dialog,
+        ) && on
+        {
+            win.log_settings.overwrite = Some(i == 0);
+            dirty = true;
+        }
     }
     ui.add_space(4.0);
     // 标题独占一行：金标准里这三条都是「标题在上、框在下」，不再塞进

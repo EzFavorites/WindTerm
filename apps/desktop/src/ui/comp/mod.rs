@@ -150,6 +150,7 @@ mod trig_sample;
 mod quick_fixtures;
 mod context_fixtures;
 mod reference_popup;
+mod fixture_data;
 mod menu_fixtures;
 mod submenu_fixtures;
 /// OneKeys 逐张出图夹具（`mod.rs` 行数上限）。
@@ -394,6 +395,7 @@ impl TerminalWindow {
                 self.draw_floating_panels(ctx);
             }
             comp::CompId::SessionTree => {
+                crate::ui::comp::fixture_data::seed_session_tree(self);
                 // 停靠态侧栏：无标题栏、无淡入的固定尺寸 Window。用 Window 而不是
                 // Area，是因为 Area 在夹具时钟（t=0）下停在淡入第一帧，整块内容
                 // 只有 ~30% 不透明度；`fade_in(false)` 是 harness 处理同一问题的既有做法。
@@ -414,28 +416,23 @@ impl TerminalWindow {
                     .show(ctx, |ui| {
                         ui.set_width(268.0);
                         ui.set_height(600.0);
+                        ui.add_space(21.0);
                         self.draw_panel_body(term_app::dock::PanelId::Sidebar, ui);
+                        crate::ui::comp::fixture_data::draw_session_tree_title(ui);
                     });
             }
             comp::CompId::Tunnels => {
-                self.view.show_tunnels = true;
-                self.draw_tunnel_manager(ctx);
+                // 金标准 `06-button-popups/09-tunnels-button-popup.png`：这不是
+                // 转发管理面板，而是工具条 Tunnels 按钮的两行下拉。
+                self.tunnels_enabled = true;
+                crate::ui::shell::draw_tunnels_popup_demo(self, ctx);
             }
             comp::CompId::TunnelSettings => {
-                // 夹具：先塞两条示例（一条本地转发、一条 SOCKS5），否则左列表
-                // 是空的、右栏一片留白，出图什么也核对不了。
+                // 金标准 `07-dialogs/tunnel-settings-empty.png`：左列表空、
+                // 右栏是未选状态下的出厂占位（Dynamic port allocation / 0）。
                 if self.tunnel_editor.is_none() {
-                    let mut a = term_core::tunnel::TunnelProfile::new("Local 5432");
-                    a.session = "demo".into();
-                    a.listen_port = 5432;
-                    a.dest_host = "db.internal".into();
-                    a.dest_port = 5432;
-                    let mut b = term_core::tunnel::TunnelProfile::new("Socks");
-                    b.kind = term_core::tunnel::TunnelKind::Socks5;
-                    b.session = "demo".into();
-                    b.listen_port = 1080;
                     self.tunnel_editor =
-                        Some(crate::ui::dialogs::tunnel_settings::Editor::new(vec![a, b]));
+                        Some(crate::ui::dialogs::tunnel_settings::Editor::new(Vec::new()));
                 }
                 let names = vec!["demo".to_string()];
                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("tunnel_session_names"), names));

@@ -229,10 +229,16 @@ fn list(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
 
 /// 右栏：六行字段 + `Status` 开关 + 两个勾选框。
 fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
-    let Some(cur) = ed.current().cloned() else {
-        return; // 没选中：右栏留空（视觉基线里选中才有内容）
-    };
-    let mut next = cur.clone();
+    // 金标准 `tunnel-settings-empty.png`：列表为空时右栏仍显示一份出厂占位
+    // （Name/Type/Session 空、Listen Port = Dynamic port allocation、Dest Port 0）。
+    let mut next = ed.current().cloned().unwrap_or_default();
+    if ed.current().is_none() {
+        next.name.clear();
+        next.session.clear();
+        next.dest_host.clear();
+        next.listen_port = 0;
+        next.dest_port = 0;
+    }
 
     text_row(ui, o, ROW_Y[0], "Name:", &mut next.name);
     kind_row(ui, o, ROW_Y[1], &mut next.kind);

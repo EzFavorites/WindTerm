@@ -150,6 +150,34 @@ fn tunnels_tool(
 ///
 /// 所以按实测坐标自绘：行高 28、文字距左 11、开关右端距右 11.5、
 /// 弹层外宽 165.5。视觉上仍与菜单行同一族（同一底色、同一悬停色、同一字体）。
+/// 组件夹具专用：把 Tunnels 工具按钮下拉直接摆在画布上（生产仍走 `tunnels_tool`）。
+pub(in crate::ui) fn draw_tunnels_popup_demo(win: &mut TerminalWindow, ctx: &egui::Context) {
+    egui::Area::new(egui::Id::new("comp_tunnels_popup"))
+        .fixed_pos(egui::pos2(4.0, 4.0))
+        .fade_in(false)
+        .order(egui::Order::Foreground)
+        .show(ctx, |ui| {
+            let margin = ui.spacing().menu_margin;
+            // 按钮（原图左上那颗带边框的 Tunnels）与下方两行弹层。
+            let btn = egui::Rect::from_min_size(
+                egui::pos2(4.0, 4.0),
+                egui::vec2(130.0, 26.0),
+            );
+            let p = ui.painter();
+            p.rect_filled(btn, egui::Rounding::same(4.0), crate::theme::chrome(term_core::theme::CHROME_SCALE.hover));
+            p.rect_stroke(btn, egui::Rounding::same(4.0), egui::Stroke::new(1.0, crate::theme::chrome(term_core::theme::CHROME_SCALE.border)));
+            p.text(btn.center(), egui::Align2::CENTER_CENTER, win.tr("Tunnels"), egui::TextStyle::Button.resolve(ui.style()), crate::theme::chrome(term_core::theme::CHROME_SCALE.text));
+            ui.add_space(30.0);
+            egui::Frame::none()
+                .fill(crate::ui::shell::popup_bg())
+                .stroke(egui::Stroke::new(1.0, crate::theme::chrome(term_core::theme::CHROME_SCALE.border)))
+                .inner_margin(margin)
+                .show(ui, |ui| {
+                    tunnels_menu_body(win, ui);
+                });
+        });
+}
+
 fn tunnels_menu_body(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     /// 弹层外宽（物理 331 → 逻辑 165.5）。
     const MENU_W: f32 = 165.5;

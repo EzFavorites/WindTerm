@@ -54,6 +54,7 @@ pub(in crate::ui) use menu_style::{
     SHORTCUT_COL,
 };
 pub(in crate::ui) use popup_lists::{draw_address_dropdown, draw_outline_menu, draw_shell_list};
+pub(in crate::ui) use menu_tools::draw_tunnels_popup_demo;
 // 真地址栏（`ui/address/rows.rs`）复用参考夹具那一套颜色与图标——单一份
 // 定义，两处画出来才是同一个组件。`draw_address_dropdown` 本身一个字节没动。
 pub(in crate::ui) use popup_lists::{
