@@ -29,6 +29,7 @@ mod reconnect;
 mod overlays;
 mod panels;
 mod path_picker;
+mod upload_picker;
 mod shell;
 mod tab;
 mod tab_hover; mod tab_thumbnail;
@@ -279,8 +280,9 @@ pub struct TerminalWindow {
     /// Preferences ▸ Proxy：全局默认代理的运行期副本。
     global_proxy_type: usize, global_proxy_host: String, global_proxy_port: u16,
     tab_thumbnail_pct: usize,
-    /// 上一帧文件面板的矩形：拖放时判断落在 Modem 还是 SFTP 上传。
-    filer_rect: Option<egui::Rect>, path_picker: Option<path_picker::PathPicker>,
+    /// 上一帧文件面板的矩形：拖放时判断落在 Modem 还是 SFTP 上传。单选路径弹层
+    /// 与 page/21 多选上传弹层（`None` = 没开）共用一行，别为它们加代码行。
+    filer_rect: Option<egui::Rect>, path_picker: Option<path_picker::PathPicker>, upload_picker: Option<upload_picker::UploadPicker>,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
     clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
@@ -908,7 +910,7 @@ impl TerminalWindow {
             }
         }
         lifecycle_events::poll(self, crate::now_secs(), &mut run_commands);
-        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self);
+        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self); upload_picker::draw(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。

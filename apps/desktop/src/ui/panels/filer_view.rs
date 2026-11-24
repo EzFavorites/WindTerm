@@ -149,6 +149,8 @@ impl TerminalWindow {
         let mut op: Option<super::ops::FilerOp> = None;
         // 右键菜单里选中的传输（同样画完再落地）。
         let mut xfer: Option<super::xfer::XferPick> = None;
+        // 右键菜单里点了「多选上传」（官网 page/21）：画完再开弹层。
+        let mut multi_upload = false;
         // 右键菜单里点了「目录同步」（画完再落地）。
         let mut sync_now = false;
         // 双击 / 右键「预览」选中的行（排序后整张表的下标，画完再落地）。
@@ -381,6 +383,22 @@ impl TerminalWindow {
                     xfer = Some(pick);
                     ui.close_menu();
                 }
+                // 官网 page/21：一次勾选多个本地文件/目录上传。入口放在右键菜单
+                // 而不是路径栏——那四颗按钮的几何是视觉基线，多一颗就得重冻。
+                // 两种源都能用：本地视图本就列着本地文件，远端视图也可以用本地
+                // 文件填远端当前目录（源由弹层自己列，不依赖这一行）。
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        blocker.is_ok() && !sync_running,
+                        egui::Button::new("选择多个本地文件上传…"),
+                    )
+                    .on_hover_text("勾选多个本地文件/目录，逐个上传到远端当前目录")
+                    .clicked()
+                {
+                    multi_upload = true;
+                    ui.close_menu();
+                }
                 if let Err(why) = blocker {
                     ui.label(egui::RichText::new(why).weak().small());
                 } else if sync_running {
@@ -545,6 +563,16 @@ impl TerminalWindow {
         if let Some(op) = op {
             self.begin_filer_op(op);
         }
+        if multi_upload {
+            // 起点取 Filer 的本地当前目录（面板可切 Source::Local），与用户眼前
+            // 那份列表同一处；空路径时退回家目录，不给一个打不开的弹层。
+            let start = if self.filer.local_path.as_os_str().is_empty() {
+                term_io::local_dir::home()
+            } else {
+                self.filer.local_path.clone()
+            };
+            self.open_upload_picker(start);
+        }
         // 只发起扫描，不改任何文件。汇总在下一帧由 `poll_sync` 写进状态行。
         if sync_now {
             self.filer.begin_sync();
@@ -555,6 +583,18 @@ impl TerminalWindow {
         if let Some(index) = open_at {
             self.open_filer_entry(index);
         }
+    }
+}
+
+impl TerminalWindow {
+    /// 多选上传的汇总回执。与右键单项上传共用 Filer 状态行那一个 `progress` 槽，
+    /// 不另开提示位；`view` 是 `filer` 的子模块，能写它的私有字段。
+    pub(in crate::ui) fn note_multi_upload(&mut self, notes: Vec<String>) {
+        self.filer.progress = Some(if notes.is_empty() {
+            "所选路径都已不存在，未入队".to_string()
+        } else {
+            notes.join("；")
+        });
     }
 }
 

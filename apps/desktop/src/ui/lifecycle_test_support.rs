@@ -240,6 +240,7 @@ pub(in crate::ui) fn window_with(
         tab_thumbnail_pct: 0,
         filer_rect: None,
         path_picker: None,
+        upload_picker: None,
         clipboard_requests: Vec::new(),
         clipboard_ask: None,
         triggers: Vec::new(),
