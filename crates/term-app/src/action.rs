@@ -663,6 +663,46 @@ mod tests {
     }
 
     #[test]
+    fn rename_pane_palette_entry_is_executable_without_a_control_line() {
+        use crate::vocab::tmux_palette::{RENAME_PANE_PROMPT_ID, TMUX_PALETTE};
+        let row = TMUX_PALETTE
+            .iter()
+            .find(|(label, _, _)| *label == "Mux: Rename Pane")
+            .expect("官网 page/3 的面板入口不能缺");
+        assert_eq!(row.1, RENAME_PANE_PROMPT_ID);
+        assert_eq!(row.2, "", "提示条目没有控制行");
+        let wired = palette_feature::entries(palette_feature::PaletteMode::Command);
+        assert!(
+            wired.iter().any(|e| e.id == RENAME_PANE_PROMPT_ID && e.implemented),
+            "面板条目必须可搜索且可执行"
+        );
+        let action = Action::parse(RENAME_PANE_PROMPT_ID).unwrap();
+        assert_eq!(action, Action::TmuxCommand(RENAME_PANE_PROMPT_ID.to_string()));
+        assert_eq!(
+            reduce(&mut ViewState::default(), action, None),
+            vec![Effect::TmuxCommand(RENAME_PANE_PROMPT_ID.to_string())]
+        );
+    }
+
+    #[test]
+    fn confirming_rename_pane_from_the_palette_reaches_the_prompt_effect() {
+        use crate::vocab::tmux_palette::RENAME_PANE_PROMPT_ID;
+        let mut s = ViewState::default();
+        reduce(
+            &mut s,
+            Action::Palette(PaletteAction::Open(palette_feature::PaletteMode::Command)),
+            None,
+        );
+        reduce(
+            &mut s,
+            Action::Palette(PaletteAction::SetQuery("Mux: Rename Pane".into())),
+            None,
+        );
+        let effects = reduce(&mut s, Action::Palette(PaletteAction::Confirm), None);
+        assert_eq!(effects, vec![Effect::TmuxCommand(RENAME_PANE_PROMPT_ID.to_string())]);
+    }
+
+    #[test]
     fn confirming_a_planned_item_is_a_no_op() {
         let mut s = ViewState::default();
         reduce(

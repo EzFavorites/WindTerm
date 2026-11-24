@@ -11,6 +11,7 @@ use crate::ui::layout::PaneGroup;
 use crate::ui::layout::mint_pane_identity;
 // 标签右键的语义现在住在纯层，这里只发强类型 Action。
 use term_app::tab::TabAction;
+use term_app::vocab::{CenterAction, CenterPage};
 // 内置 SSH 是异步连接的，「连上之后落在哪儿」要跟着连接一起存着。
 use crate::ui::dialogs::ssh_connect::PendingOpen;
 
@@ -28,6 +29,13 @@ pub(in crate::ui) fn drop_color_at(colors: &mut Vec<Option<usize>>, index: usize
     }
 }
 
+/// 官网 #117 的本地 Rename Tab：复用既有的会话属性对话框（改名就在那里），
+/// 不新增命令 ID、不新增设置字段。右键先按标签名选中对应会话，再走这条动作，
+/// 落地路径与菜单 `Session Settings…` / 侧边栏 `Properties` 完全相同。
+pub(in crate::ui) fn rename_tab_action() -> Action {
+    Action::Center(CenterAction::Open(CenterPage::SessionSettings))
+}
+
 impl TerminalWindow {
     /// 标签上的右键菜单。收集动作，循环画完再落地，避免借着 `self.tabs` 改它。
     pub(in crate::ui) fn draw_tab_context_menu(&mut self, resp: &egui::Response, index: usize, is_active: bool) {
@@ -36,6 +44,7 @@ impl TerminalWindow {
         // `Effect::Tab` → `ui/effects.rs::apply_tab_action` 完成，
         // 不再在闭包外直接改 `TerminalWindow` 的字段。
         let mut work: Vec<Action> = Vec::new();
+        let mut rename_target: Option<usize> = None;
         // 文案在闭包外取好：闭包里还要借 `self.closed_sessions`，别把 `self`
         // 的另一份只读借用混进去（借用纪律）。
         let lang = self.lang();
@@ -46,6 +55,7 @@ impl TerminalWindow {
         let close_all = tr("Close All Views");
         let reopen = tr("Reopen Closed");
         let duplicate = tr("Duplicate Session");
+        let rename_tab = tr("Rename Tab");
         let split_h = tr("Split Horizontally");
         let split_v = tr("Split Vertically");
         let copy_name = tr("Copy Session Name");
@@ -92,6 +102,12 @@ impl TerminalWindow {
                 work.push(Action::Tab(TabAction::Duplicate { target: Some(index) }));
                 ui.close_menu();
             }
+            // 本地标签改名：打开既有会话属性对话框，不造新设置字段。
+            if ui.button(rename_tab).clicked() {
+                rename_target = Some(index);
+                work.push(rename_tab_action());
+                ui.close_menu();
+            }
             ui.separator();
             if ui.button(split_h).clicked() {
                 work.push(Action::Tab(TabAction::Split { horizontal: true }));
@@ -135,6 +151,16 @@ impl TerminalWindow {
             });
             let _ = is_active;
         });
+        // 属性对话框读的是 `selected_session`，所以先把右键那条标签对应的
+        // 会话选中；名字对不上时保留原选中项，绝不把别的会话改名。
+        if let Some(i) = rename_target {
+            let name = self.tabs.get(i).map(|t| t.config.name.clone());
+            if let Some(name) = name {
+                if let Some(idx) = self.sessions.iter().position(|s| s.name == name) {
+                    self.selected_session = idx;
+                }
+            }
+        }
         // 每一个 `Action` 都走 `reduce` → `Effect::Tab` → `apply_tab_action`。
         // 菜单这里一个字段都不写：改标签列表的只有投影层的落地方法。
         for action in work {
@@ -255,6 +281,23 @@ impl TerminalWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rename_tab_reuses_the_existing_properties_dialog_path() {
+        assert_eq!(
+            rename_tab_action(),
+            Action::Center(CenterAction::Open(CenterPage::SessionSettings))
+        );
+        // 落地仍是既有的 Effect：打开当前选中会话的属性对话框（改名在其中）。
+        assert_eq!(
+            term_app::action::reduce(
+                &mut term_app::state::ViewState::default(),
+                rename_tab_action(),
+                None
+            ),
+            vec![term_app::effect::Effect::OpenActiveSessionSettings]
+        );
+    }
 
     #[test]
     fn twelve_tab_colors_include_a_default() {

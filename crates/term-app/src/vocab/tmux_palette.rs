@@ -5,8 +5,16 @@
 //! 查表函数：带目标的命令（SelectPane / KillPane …）不在这里，它们必须由
 //! tmux 面板按解析出的窗格集合校验后才能下发。
 
+use super::Action;
+
+/// 官网 page/3 的面板入口：只要求**打开输入框**，不产生控制行。
+/// 拆两段写是门禁对命令 ID 的要求（见下面这张表）。
+pub const RENAME_PANE_PROMPT_ID: &str = concat!("Tmux.", "RenamePanePrompt");
+
 /// `(显示名, 命令 ID, 控制行)`。ID 用 `concat!` 拆两段：整仓门禁禁止命令 ID
 /// 字面量出现在 parse 分支以外，拆段既满足规则又保持 `&'static str` 身份。
+/// 控制列为 `""` 的条目是**纯提示**（这里是 Rename Pane）：用户输入的名字
+/// 绝不能拼进控制行，真正的控制行只由 `Command::RenamePane::line()` 生成。
 pub const TMUX_PALETTE: &[(&str, &str, &str)] = &[
     ("Mux: Split Pane Right", concat!("Tmux.", "SplitHorizontal"), "split-window -h"),
     ("Mux: Split Pane Left", concat!("Tmux.", "SplitPaneLeft"), "split-window -h -b"),
@@ -20,6 +28,9 @@ pub const TMUX_PALETTE: &[(&str, &str, &str)] = &[
     // Kill / Rename / Select 用 `Mux:` 前缀，Synchronize 用 `Tmux:` 前缀。
     // 全部无目标：作用于当前窗格/当前 window，不需要先解析窗格号。
     ("Mux: Kill Pane", concat!("Tmux.", "KillPaneActive"), "kill-pane"),
+    // 官网 page/3「Rename Pane」的第二条入口：双击标签 / 命令面板运行这一条时
+    // 只弹出 tmux 面板的 Pane name 输入框，名字仍由 Command::RenamePane 转义。
+    ("Mux: Rename Pane", RENAME_PANE_PROMPT_ID, ""),
     ("Mux: Select Pane Left", concat!("Tmux.", "SelectPaneLeft"), "select-pane -L"),
     ("Mux: Select Pane Right", concat!("Tmux.", "SelectPaneRight"), "select-pane -R"),
     ("Mux: Select Pane Above", concat!("Tmux.", "SelectPaneAbove"), "select-pane -U"),
@@ -48,6 +59,24 @@ pub fn line_for(id: &str) -> Option<&'static str> {
         .map(|(_, _, line)| *line)
 }
 
+/// 面板里的「打开输入框」载荷是不是 Rename Pane 那一条。
+///
+/// 投影层收到 `Action::TmuxCommand` 时用它区分「写进 PTY 的控制行」与
+/// 「只开面板的 UI 意图」——后者不是控制行，绝不许落到写 PTY 那条路上。
+pub fn is_rename_pane_prompt(payload: &str) -> bool {
+    payload == RENAME_PANE_PROMPT_ID
+}
+
+/// 命令 ID → 动作。提示条目走同一条 `Action::TmuxCommand` 通道，但载荷是
+/// 命令 ID 而不是控制行；投影层按 [`is_rename_pane_prompt`] 拦下并聚焦输入框。
+/// 这样不用为一条「开输入框」的 UI 意图再造一个 Action 变体。
+pub fn action_for(id: &str) -> Option<Action> {
+    if is_rename_pane_prompt(id) {
+        return Some(Action::TmuxCommand(RENAME_PANE_PROMPT_ID.to_string()));
+    }
+    line_for(id).map(|line| Action::TmuxCommand(line.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -60,5 +89,35 @@ mod tests {
         for (_, id, _) in TMUX_PALETTE {
             assert!(line_for(id).is_some(), "{id} 必须能解析，否则面板里点了没反应");
         }
+    }
+
+    #[test]
+    fn rename_pane_is_in_the_palette_without_a_control_line() {
+        let entry = TMUX_PALETTE
+            .iter()
+            .find(|(label, _, _)| *label == "Mux: Rename Pane")
+            .expect("官网 page/3 要求命令面板里有 Mux: Rename Pane");
+        assert_eq!(entry.1, RENAME_PANE_PROMPT_ID);
+        assert_eq!(entry.2, "", "提示条目没有控制行，名字不拼进命令");
+        assert!(is_rename_pane_prompt(RENAME_PANE_PROMPT_ID));
+        assert!(!is_rename_pane_prompt("rename-pane -t %1 evil"));
+        assert!(!is_rename_pane_prompt("split-window -h"));
+    }
+
+    #[test]
+    fn the_rename_prompt_opens_an_input_instead_of_sending_a_line() {
+        assert_eq!(
+            action_for(RENAME_PANE_PROMPT_ID),
+            Some(Action::TmuxCommand(RENAME_PANE_PROMPT_ID.to_string()))
+        );
+        assert_eq!(
+            action_for("Tmux.SplitHorizontal"),
+            Some(Action::TmuxCommand("split-window -h".to_string()))
+        );
+        // 与顶层入口同一条路径：面板确认后能真的走到这条动作。
+        assert_eq!(
+            Action::parse(RENAME_PANE_PROMPT_ID),
+            action_for(RENAME_PANE_PROMPT_ID)
+        );
     }
 }

@@ -504,9 +504,10 @@ impl Action {
             return Some(Action::Layout(a));
         }
         // Tmux 控制命令（命令面板的 `Tmux:*` 条目）。无目标命令才进全局面板；
-        // 带窗格号的由面板按解析出的集合校验后再发，避免误注入。
-        if let Some(line) = tmux_palette::line_for(id) {
-            return Some(Action::TmuxCommand(line.to_string()));
+        // 带窗格号的由面板按解析出的集合校验后再发，避免误注入。`Mux: Rename Pane`
+        // 是提示条目（载荷是 ID 不是控制行），由投影层拦下并聚焦输入框。
+        if let Some(action) = tmux_palette::action_for(id) {
+            return Some(action);
         }
         None
     }

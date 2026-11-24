@@ -9,6 +9,13 @@
 use crate::ui::harness::AnchoredWindow;
 use crate::ui::*;
 use term_app::tmux::Event;
+use term_app::vocab::tmux_palette::is_rename_pane_prompt;
+
+/// Pane name 输入框的稳定 ID：命令面板派发的提示入口按它请求焦点。
+const PANE_NAME_ID: &str = "tmux_pane_name";
+fn pane_name_id() -> egui::Id {
+    egui::Id::new(PANE_NAME_ID)
+}
 
 impl TerminalWindow {
     /// 活跃 tab 的 tmux 控制模式状态。没有活跃标签（`tabs` 空）、活动身份
@@ -142,6 +149,7 @@ impl TerminalWindow {
                     ui.label("Pane name:");
                     ui.add(
                         egui::TextEdit::singleline(&mut self.tmux_pane_name)
+                            .id(pane_name_id())
                             .hint_text("build"),
                     );
                 });
@@ -267,7 +275,17 @@ impl TerminalWindow {
     /// 另一个硬闸：**控制模式没开就一剑不发**。否则用户没 attach、却从面板点了
     /// 「Split -h」，命令会直接注进正在跑的交互 shell——这是「点了没反应
     /// 比点了有坏处好」的加固。
-    pub(in crate::ui) fn tmux_send(&self, command: &str) {
+    pub(in crate::ui) fn tmux_send(&mut self, command: &str) {
+        // 官网 page/3 的命令面板入口：`Mux: Rename Pane` 是一条**提示**，不是
+        // 控制行。先拦下它——打开面板并把焦点交给 Pane name 输入框，一个字节
+        // 都不写 PTY。输入的名字仍由 `Command::RenamePane::line()` 转义后
+        // 从面板的 `Rename %N` 按钮下发（安全路径不变）。
+        if is_rename_pane_prompt(command) {
+            self.view.show_tmux = true;
+            self.ctx.memory_mut(|m| m.request_focus(pane_name_id()));
+            self.ctx.request_repaint();
+            return;
+        }
         // 硬闸现在读**活跃 tab** 的状态：越界 / 没有活跃标签一律不发，
         // 免得 A 标签在跑 tmux 却把控制行注进 B 标签的 shell。
         if !self.active_tab_tmux().is_some_and(|mode| mode.active) {
@@ -318,7 +336,30 @@ impl TerminalWindow {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use term_app::tmux::{ControlMode, Event};
+    use term_app::vocab::tmux_palette::RENAME_PANE_PROMPT_ID;
+
+    #[test]
+    fn rename_pane_prompt_opens_the_panel_and_focuses_the_name_input() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+        assert!(!win.view.show_tmux, "前提：面板出厂是关的");
+        win.tmux_send(RENAME_PANE_PROMPT_ID);
+        assert!(win.view.show_tmux, "命令面板的提示入口必须把面板打开");
+        assert_eq!(ctx.memory(|m| m.focused()), Some(pane_name_id()));
+    }
+
+    #[test]
+    fn rename_pane_line_keeps_its_escaping_path() {
+        let line = term_app::tmux::Command::RenamePane {
+            pane: 1,
+            name: "a b;c\"d".to_string(),
+        }
+        .line();
+        assert_eq!(line, "rename-pane -t %1 \"a b;c\\\"d\"");
+    }
 
     #[test]
     fn control_mode_degrades_to_idle_after_exit() {

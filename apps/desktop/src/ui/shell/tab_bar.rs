@@ -26,6 +26,7 @@
 use crate::ui::*;
 use crate::ui::layout::pane_group_name;
 use term_app::menu::{TabTool, TAB_NEW_TAB_ID, TAB_TOOLS};
+use term_app::vocab::tmux_palette::RENAME_PANE_PROMPT_ID;
 use term_core::theme::{CHROME_SCALE, ACCENT_BLUE};
 
 /// 活动标签顶部那条线：视觉基线 y=122..125（2× 图）→ 2pt、`#007CD2`。
@@ -88,6 +89,26 @@ fn tab_title_matches(title: &str, filter: &str) -> bool {
     needle.is_empty() || title.to_lowercase().contains(&needle)
 }
 
+/// 双击标签该派发什么。抽成纯函数是为了把判据钉在单测里：设置档决定
+/// 「双击有没有动作」，当前标签的 tmux 控制模式决定「是关标签还是改窗格名」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum TabDoubleClick {
+    None,
+    CloseTab,
+    RenamePane,
+}
+
+pub(in crate::ui) fn double_click_action(mode: usize, tmux_active: bool) -> TabDoubleClick {
+    if mode != 1 {
+        return TabDoubleClick::None;
+    }
+    if tmux_active {
+        TabDoubleClick::RenamePane
+    } else {
+        TabDoubleClick::CloseTab
+    }
+}
+
 impl TerminalWindow {
     pub(in crate::ui) fn draw_tabs(&mut self, ui: &mut egui::Ui) {
         let font = egui::TextStyle::Button.resolve(ui.style());
@@ -120,6 +141,7 @@ impl TerminalWindow {
 
         let mut x = band.left();
         let mut close_tab: Option<usize> = None;
+        let mut rename_pane: Option<usize> = None;
         for (i, (title, color)) in labels.iter().enumerate() {
             let is_active = self.active_slot() == i;
             // 省略只改**画出来的文本**：宽度仍由下面同一个公式、从（截断后的）
@@ -171,7 +193,12 @@ impl TerminalWindow {
             // 顺带激活：`Close` 档的语义是「关掉它」，先把焦点切过去再关会
             // 让另一条标签闪一下。
             if resp.double_clicked() && self.tab_double_click == 1 {
-                close_tab = Some(i);
+                // 官网 page/3：tmux 控制模式下的双击是「改窗格名」，不是关标签。
+                match double_click_action(self.tab_double_click, self.tabs[i].tmux.active) {
+                    TabDoubleClick::CloseTab => close_tab = Some(i),
+                    TabDoubleClick::RenamePane => rename_pane = Some(i),
+                    TabDoubleClick::None => {}
+                }
             } else if self.tab_middle_click == 1 && resp.middle_clicked() {
                 // 中键的语义固定为「关闭」：动作集里只有这一项，不做另一个
                 // 下拉。`middle_clicked` 与 `clicked` 正交，不会顺带激活。
@@ -331,6 +358,11 @@ impl TerminalWindow {
         if let Some(id) = dispatch {
             self.dispatch(id);
         }
+        if rename_pane.is_some() {
+            // 与命令面板里的 `Mux: Rename Pane` 是同一个 ID、同一条落地路径：
+            // 打开 tmux 面板并聚焦 Pane name 输入框。
+            self.dispatch(RENAME_PANE_PROMPT_ID);
+        }
         if let Some(i) = close_tab {
             // 标签栏 × 与菜单「Close」共用同一条关闭路径，右键
             // Reopen Closed 才能开回来。
@@ -482,6 +514,29 @@ mod tests {
         // 手改 prefs 写了 9：与 0 一样原样画，不 panic、不猜一档。
         let long = "abcdefghijklmnopqrstuvwxyz0123456789";
         assert_eq!(elide_title(long, 9), long);
+    }
+
+    #[test]
+    fn double_click_closes_a_plain_tab_and_renames_a_tmux_pane() {
+        // 设置档是「Close tab」时，普通标签仍是关闭（老行为一字不改），
+        // tmux 控制模式下的同一手势改走官网 page/3 的 Rename Pane 入口。
+        assert_eq!(double_click_action(1, false), TabDoubleClick::CloseTab);
+        assert_eq!(double_click_action(1, true), TabDoubleClick::RenamePane);
+        assert_eq!(
+            term_app::vocab::tmux_palette::TMUX_PALETTE
+                .iter()
+                .find(|(label, _, _)| *label == "Mux: Rename Pane")
+                .map(|(_, id, _)| *id),
+            Some(RENAME_PANE_PROMPT_ID)
+        );
+    }
+
+    #[test]
+    fn a_disabled_double_click_never_renames_or_closes() {
+        for mode in [0, 2, 9] {
+            assert_eq!(double_click_action(mode, false), TabDoubleClick::None, "mode={mode}");
+            assert_eq!(double_click_action(mode, true), TabDoubleClick::None, "mode={mode}");
+        }
     }
 
     #[test]
