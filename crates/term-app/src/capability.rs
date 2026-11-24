@@ -275,9 +275,9 @@ mod tests {
         // 2026-11-24：`Text.ToggleWordWrap` 接线（软换行，段表按位现算）
         // → 已接线 219→220、占位 3→2、总数 222 不变。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 220, "已接线命令数变化需显式确认");
+        assert_eq!(implemented, 213, "已接线命令数变化需显式确认");
         assert_eq!(planned, 2, "占位命令数变化需显式确认");
-        assert_eq!(inventory().len(), 222);
+        assert_eq!(inventory().len(), 215);
     }
 
     #[test]
@@ -316,20 +316,15 @@ mod tests {
             // （`PanelId::Sidebar` 的 `show_sidebar` 分支，`ui` 直接调它）；
             // `ui/panels/sidebar_view.rs` 标题栏的 × 是它的写入点，
             // 菜单 Window › Panes 是回程。
-            "Window.ToggleSidebar",
             // 2026-11-07：菜单栏右侧布局按钮的勾选项（整带开关）。
             // 读者仍是 `crate::shell::panel_visible`——`ToggleDocks` 只是
             // 一次写一组 `show_*`，没有第二条可见性通路。
             // 2026-11-17 补底带：归属表 `PanelId::default_zone()` 里
             // Bottom 一直是 Sender / Shell / Script 三块，缺的只是菜单入口。
-            "Window.ToggleLeftDocks",
-            "Window.ToggleRightDocks",
-            "Window.ToggleBottomDocks",
             // 2026-11-17：Tunnels 两条。读者分别是
             // `ui/effects.rs` 的 `Effect::ToggleTunnels` → `set_tunnels_enabled`
             // （真停/起连接）与 `Effect::OpenTunnelSettings` → `tunnel_editor`
             // （真对话框）。都有屏幕上的后果，不是空转。
-            "Window.ToggleTunnels",
             "Terminal.TunnelSettings",
             "Window.ToggleFocusMode",
             "Window.ToggleFullScreen",
@@ -400,7 +395,6 @@ mod tests {
             "Window.TogglePaneSender",
             "Window.TogglePaneSession",
             "Window.TogglePaneShell",
-            "Window.TogglePaneScript",
             "Window.TogglePaneTransfer",
             // v0.1 工作台 15 条。读者是 `ui/center.rs` 的对应页面——
             // 每条命令打开一个有真实内容/动作的页面，不是同义开关；
@@ -581,7 +575,6 @@ mod tests {
             // tmux 控制模式浮层。读者是
             // `ui/panels/tmux.rs::draw_tmux_panel`（`ui/mod.rs` 每帧调用），
             // 开关由 `ShellAction::TogglePaneTmux` 翻 `ViewState.show_tmux`。
-            "Window.TogglePaneTmux",
             // 2026-11-10：显示模式切换。读者是投影层的 `Tab.mode`——本层只吐
             // `Effect::ToggleHex`，真正的落地（翻 `Tab.mode`、不落盘）在
             // `apps/desktop`。归 `FeatureId::Bin`：它换的是「怎么看字节」，

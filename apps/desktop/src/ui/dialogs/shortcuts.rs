@@ -77,6 +77,8 @@ fn key_name(key: egui::Key) -> Option<&'static str> {
         // margin 五列右键键位 `Alt+T, Alt+B/N/F/S/T` 的后继：缺了就在
         // `if let Some(name)` 处静默丢掉，菜单写着键却永远按不响。
         K::B => "B", K::S => "S",
+        // View ▸ Bars / Panes 的两段式键后继：U/Q/E/X。
+        K::U => "U", K::Q => "Q", K::E => "E", K::X => "X",
         // `Alt+[` / `Alt+]` 视图切换：缺这两行时文档写的键在派发处被静默丢掉。
         K::OpenBracket => "OpenBracket", K::CloseBracket => "CloseBracket",
         // 2026-11-11：补 `M`。`Alt+M, Alt+H`（Hex 视图）与 `Alt+M, Alt+W`

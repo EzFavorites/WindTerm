@@ -476,13 +476,15 @@ pub fn menus() -> Vec<Menu> {
                 Item::Submenu {
                     label: "Bars",
                     items: vec![
-                        Item::Action {
-                            label: "Toggle Menu Bar",
+                        Item::Check {
+                            label: "Menu Bar",
                             id: "Window.ToggleMenuBar",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Status Bar",
+                        Item::Check {
+                            label: "Status Bar",
                             id: "Window.ToggleStatusBar",
+                            checked: CheckState::Live,
                         },
                         Item::Submenu {
                             label: "Toolbar",
@@ -499,86 +501,53 @@ pub fn menus() -> Vec<Menu> {
                             ],
                         },
                         Item::Separator,
-                        Item::Action {
-                            label: "Toggle Quick Bar",
+                        Item::Check {
+                            label: "Quick Bar",
                             id: "Window.ToggleQuickBar",
+                            checked: CheckState::Live,
                         },
                     ],
                 },
                 Item::Submenu {
                     label: "Panes",
                     items: vec![
-                        // 2026-11-07：整带开关。菜单栏右侧那个布局按钮的下拉
-                        // 就是这三条——同一个命令两个入口，不是两套实现。
-                        // 2026-11-17 补底带：原先只有左/右，底带（Sender /
-                        // Shell / Script）没有整带收起的入口。
-                        Item::Action {
-                            label: "Toggle Left Docks",
-                            id: "Window.ToggleLeftDocks",
-                        },
-                        Item::Action {
-                            label: "Toggle Right Docks",
-                            id: "Window.ToggleRightDocks",
-                        },
-                        Item::Action {
-                            label: "Toggle Bottom Docks",
-                            id: "Window.ToggleBottomDocks",
-                        },
-                        // 2026-11-17：隧道总线开关的第二个入口（菜单栏 Tunnels
-                        // 下拉是第一个）。关掉 = 全停、配置不丢。
-                        Item::Action {
-                            label: "Toggle Tunnels",
-                            id: "Window.ToggleTunnels",
-                        },
-                        Item::Separator,
-                        Item::Action {
-                            label: "Toggle Sidebar",
-                            id: "Window.ToggleSidebar",
-                        },
-                        Item::Action {
-                            label: "Toggle Pane Explorer",
+                        // 官网 `01-view-menu.png` 的 Panes 子菜单只有七行：各面板的
+                        // 真勾选框 + 快捷键。整带 / 隧道开关在布局按钮下拉里，
+                        // 不在这里重复，免得菜单比原版多出一串 Toggle 字样。
+                        Item::Check {
+                            label: "Explorer",
                             id: "Window.TogglePaneExplorer",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Pane Filer",
+                        Item::Check {
+                            label: "Filer",
                             id: "Window.TogglePaneFiler",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Pane Outline",
+                        Item::Check {
+                            label: "Outline",
                             id: "Window.TogglePaneOutline",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Pane Sender",
+                        Item::Check {
+                            label: "Sender",
                             id: "Window.TogglePaneSender",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Pane Session",
+                        Item::Check {
+                            label: "Session",
                             id: "Window.TogglePaneSession",
+                            checked: CheckState::Live,
                         },
-                        Item::Action {
-                            label: "Toggle Pane Shell",
+                        Item::Check {
+                            label: "Shell",
                             id: "Window.TogglePaneShell",
+                            checked: CheckState::Live,
                         },
-                        // 2026-11-17：脚本停靠面板早就在 `PanelId::ALL` 里（齿轮菜单
-                        // 遍历那张表，所以齿轮菜单里一直有 Script 行），但**公共的
-                        // `Window ▸ Panes` 里漏了它**——从菜单栏打不开。补上这一条，
-                        // 两个入口指向同一个 `TogglePanel(PanelId::Script)`。
-                        Item::Action {
-                            label: "Toggle Pane Script",
-                            id: "Window.TogglePaneScript",
-                        },
-                        Item::Action {
-                            label: "Toggle Pane Transfer",
+                        Item::Check {
+                            label: "Transfer",
                             id: "Window.TogglePaneTransfer",
-                        },
-                        // tmux 控制模式浮层的真实入口。
-                        // `01-window-menu.png` 没有展开 Panes 子菜单，
-                        // 这一组本来就是我们自己按 dock 面板命名的；
-                        // 加这一条不破坏视觉基线的可见结构，却让 `show_tmux`
-                        // 从「只有截图夹具设过」变成产品里点得到。
-                        Item::Action {
-                            label: "Tmux Control Mode",
-                            id: "Window.TogglePaneTmux",
+                            checked: CheckState::Live,
                         },
                     ],
                 },

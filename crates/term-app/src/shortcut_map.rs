@@ -107,6 +107,17 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     // （OSC 133 命令块）；Local Mode 对应 zk/zj，在 vim.rs 里解析。
     BindingRow { id: "Text.GotoPreviousCommand", chord: "Cmd+Shift+Left" },
     BindingRow { id: "Text.GotoNextCommand", chord: "Cmd+Shift+Right" },
+    // View ▸ Bars / Panes 的短标签 + 两段式快捷键（原版截图逐项抄）。
+    BindingRow { id: "Window.ToggleMenuBar", chord: "Alt+W, Alt+M" },
+    BindingRow { id: "Window.ToggleStatusBar", chord: "Alt+W, Alt+U" },
+    BindingRow { id: "Window.ToggleQuickBar", chord: "Alt+W, Alt+Q" },
+    BindingRow { id: "Window.TogglePaneExplorer", chord: "Alt+W, Alt+E" },
+    BindingRow { id: "Window.TogglePaneFiler", chord: "Alt+W, Alt+F" },
+    BindingRow { id: "Window.TogglePaneOutline", chord: "Alt+W, Alt+L" },
+    BindingRow { id: "Window.TogglePaneSender", chord: "Alt+W, Alt+X" },
+    BindingRow { id: "Window.TogglePaneSession", chord: "Alt+W, Alt+S" },
+    BindingRow { id: "Window.TogglePaneShell", chord: "Alt+W, Alt+C" },
+    BindingRow { id: "Window.TogglePaneTransfer", chord: "Alt+W, Alt+T" },
     BindingRow { id: "Text.LineUp", chord: "Up" },
     BindingRow { id: "Text.LineDown", chord: "Down" },
     BindingRow { id: "Terminal.SyncInput", chord: "Cmd+Shift+M" },

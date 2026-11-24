@@ -199,6 +199,17 @@ fn a_wired_command_must_read_live_state() {
             "2 Chars",
             "4 Chars",
             "8 Chars",
+            // View › Bars / Panes：原版是短名字 + 真勾选框，不再是 Toggle 字样
+            "Menu Bar",
+            "Status Bar",
+            "Quick Bar",
+            "Explorer",
+            "Filer",
+            "Outline",
+            "Sender",
+            "Session",
+            "Shell",
+            "Transfer",
             // View 顶层唯一的勾选行（`Text.HighlightCaretLine`）
             "Highlight Caret Line",
             // View › Symbols 四项
