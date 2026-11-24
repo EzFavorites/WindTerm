@@ -597,7 +597,8 @@ mod tests {    use super::*;
                 line: seg.line,
                 start_col: 0,
                 width: line.cells.len(),
-                continued: false,
+                soft_continued: false,
+                hard_continued: false,
             };
             assert_eq!(*seg, want, "第 {} 行折出了不止一段或不是整行", line.row);
         }

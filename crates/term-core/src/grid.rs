@@ -136,6 +136,30 @@ pub fn cells_text_range(cells: &[Cell], from: usize, to: usize) -> String {
     out
 }
 
+/// 一行的「字形 → 起始 cell 列」表，裁掉行尾空白。
+///
+/// `cols[i]` 是第 i 个字形的起始 cell 下标（宽字符占两格：字形格 + 占位格），
+/// 行尾的空格不是真内容、不参与——这是查找与软换行共用的唯一字形口径。
+/// 宽字符的占位格没有自己的字形，跳过。
+///
+/// 查找（`find::glyphs_and_cols`）、软换行（`wrap::glyph_widths`）、文本提取
+/// (`cells_text_range`) 三处都按这条规则数格子；口径分叉的症状是「查找按字形、
+/// 折行按 cell，各偏一列」，屏幕上只看到「折行位置怪怪的」，极难反推。
+pub fn glyph_columns(cells: &[Cell]) -> Vec<usize> {
+    let mut cols: Vec<usize> = Vec::with_capacity(cells.len());
+    for col in 0..cells.len() {
+        if col > 0 && cells[col - 1].wide {
+            continue; // 宽字符的延续格：没有字形
+        }
+        cols.push(col);
+    }
+    // 从最后一个字形往回裁行尾空白（占位格已被跳过，不会在这里）。
+    while cols.last().is_some_and(|&c| cells[c].ch.is_whitespace()) {
+        cols.pop();
+    }
+    cols
+}
+
 /// 整行文本（行尾空白已去掉）。
 pub fn cells_text(cells: &[Cell]) -> String {
     cells_text_range(cells, 0, cells.len())

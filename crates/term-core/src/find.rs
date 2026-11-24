@@ -207,19 +207,9 @@ pub fn find_matches_regex_in(
 ///
 /// 字面扫描与正则扫描共用这一份折叠，避免两套口径在高亮列上漂移。
 fn glyphs_and_cols(cells: &[Cell]) -> (Vec<usize>, Vec<char>) {
-    let mut cols: Vec<usize> = Vec::with_capacity(cells.len());
-    let mut chars: Vec<char> = Vec::with_capacity(cells.len());
-    for (col, cell) in cells.iter().enumerate() {
-        if col > 0 && cells[col - 1].wide {
-            continue; // 宽字符的延续格：没有字形
-        }
-        cols.push(col);
-        chars.push(cell.ch);
-    }
-    while matches!(chars.last(), Some(c) if c.is_whitespace()) {
-        chars.pop();
-        cols.pop();
-    }
+    // 起始列与行尾空白裁切统一走 `glyph_columns`；这里只补上每列的字符。
+    let cols = crate::grid::glyph_columns(cells);
+    let chars = cols.iter().map(|&c| cells[c].ch).collect();
     (cols, chars)
 }
 

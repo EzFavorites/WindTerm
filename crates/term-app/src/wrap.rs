@@ -63,16 +63,17 @@
 /// 一段屏幕行：来自哪个逻辑行、从该行第几列开始、占多少显示列。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct VisualRow {
-    /// 逻辑行下标（`wrap_lines` 输入里的位置）。
+    /// 逻辑行下标（`wrap_lines` 输入里的位置，即 `image.lines` 的下标）。
     pub line: usize,
-    /// 该逻辑行内的起始**显示列**。
-    ///
-    /// 注意不是 cell 下标：宽字符占两列，所以它可能跳过某个 cell 编号。
+    /// 该逻辑行内的起始**显示列**（cell 下标；宽字符的占位格算在内）。
     pub start_col: usize,
     /// 这一段占的显示列数（宽字符的后半格算在内）。
     pub width: usize,
-    /// 是否是同一逻辑行的后续段（首段为 `false`）。
-    pub continued: bool,
+    /// 软折续段：同一逻辑行的第 2+ 段（首段 `false`）。margin `~` 读这一根轴。
+    pub soft_continued: bool,
+    /// 硬折续行：该逻辑行本身是内核硬换行的续行（`is_continued(wraps, ...)`）。
+    /// 与 `soft_continued` 是**两根独立的轴**——不写回 `wraps`，也不互相推导。
+    pub hard_continued: bool,
 }
 
 /// 把一行按显示宽度切成若干段。返回每段的 `(起始显示列, 宽度)`。
@@ -87,7 +88,7 @@ pub fn split_row(display_width: usize, cols: usize) -> Vec<(usize, usize)> {
 /// 整屏映射：`row_widths` 每一项是「这一行的每列宽度」（1 或 2）。
 ///
 /// 逻辑行按顺序展开成屏幕行；`line` 是输入下标，`start_col` 是该行内的
-/// 显示列偏移（不是段内偏移），`continued` 标出续段。没有任何逻辑行被吞掉：
+/// 显示列偏移（不是段内偏移），`soft_continued` 标出软折续段。没有任何逻辑行被吞掉：
 /// 只要 `cols > 0`，每个输入（含空行）至少产出一段。
 pub fn wrap_lines(row_widths: &[Vec<u8>], cols: usize) -> Vec<VisualRow> {
     let mut rows = Vec::new();
@@ -98,11 +99,123 @@ pub fn wrap_lines(row_widths: &[Vec<u8>], cols: usize) -> Vec<VisualRow> {
                 line,
                 start_col,
                 width,
-                continued: i > 0,
+                soft_continued: i > 0,
+                hard_continued: false, // 由 `segments_for` 按 wraps 表回填
             });
         }
     }
     rows
+}
+
+/// 一段映射表：下标 = 可视行序号（画到第几行屏幕），内容由 [`wrap_lines`] 产出。
+///
+/// 它是软换行的**唯一公共段表**——正文、查找、选区命中、margin、回看都读同一份。
+/// 不进 `ScreenImage`（那是内核事实值类型，仓库已有拒绝给它加 `wraps` 的先例），
+/// 每帧在投影层算一次、显式传给消费者。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SegmentTable {
+    pub rows: Vec<VisualRow>,
+    /// 本帧折行用的列宽（软换行关时 == image.cols，恒等映射）。
+    pub cols: usize,
+}
+
+impl SegmentTable {
+    /// 逻辑行下标 `line_idx` 对应的段序号范围（`rows` 里 `seg.line == line_idx`）。
+    pub fn row_to_segments(&self, line_idx: usize) -> std::ops::Range<usize> {
+        let start = self.rows.partition_point(|s| s.line < line_idx);
+        let end = self.rows.partition_point(|s| s.line <= line_idx);
+        start..end
+    }
+
+    /// 内容 (逻辑行, cell 列) 落在哪一段；返回段序号。
+    /// 宽字符占位格上落点由调用方先规整；这里按 cell 区间判。
+    pub fn cell_to_segment(&self, line_idx: usize, col: usize) -> Option<usize> {
+        let range = self.row_to_segments(line_idx);
+        for i in range {
+            let seg = &self.rows[i];
+            if col >= seg.start_col && col < seg.start_col + seg.width {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    /// 把内容列夹进段内并转成段内相对列；落在段外返回 `None`。
+    /// 所有高亮绘制（选区 / 查找 / 词 / 括号）都用这一把尺子。
+    pub fn col_in_segment(&self, seg_idx: usize, col: usize) -> Option<usize> {
+        let seg = self.rows.get(seg_idx)?;
+        if col < seg.start_col || col >= seg.start_col + seg.width {
+            return None;
+        }
+        Some(col - seg.start_col)
+    }
+
+    /// 屏幕 (段序号, 段内列) → 内容 (逻辑行下标, 绝对 cell 列)，命中测试用。
+    pub fn screen_to_content(&self, seg_idx: usize, local_col: usize) -> Option<(usize, usize)> {
+        let seg = self.rows.get(seg_idx)?;
+        if local_col >= seg.width {
+            return None;
+        }
+        Some((seg.line, seg.start_col + local_col))
+    }
+}
+
+/// 由一屏 `LineSlice` 与折行列宽构造段表。
+///
+/// `soft_off` 时调用方传 `wrap_cols = image.cols` 且 `trim=false`，得到恒等映射
+/// （每条逻辑行恰好一段、col 从 0、width == cells.len()）——这是零像素基线的根据。
+/// `soft_on` 时传更窄的 `wrap_cols` 且 `trim=true`（裁行尾 padding）。
+pub fn segments_for(
+    lines_cells: &[Vec<term_core::grid::Cell>],
+    wrap_cols: usize,
+    trim: bool,
+    hard_continued: &[bool],
+) -> SegmentTable {
+    let row_widths: Vec<Vec<u8>> = if trim {
+        lines_cells.iter().map(|c| glyph_widths_trimmed(c)).collect()
+    } else {
+        lines_cells.iter().map(|c| glyph_widths(c)).collect()
+    };
+    let mut table = SegmentTable {
+        rows: wrap_lines(&row_widths, wrap_cols),
+        cols: wrap_cols,
+    };
+    // 回填硬折轴：`hard_continued[i]` 表示第 i 条逻辑行是内核硬折续行。
+    for seg in &mut table.rows {
+        seg.hard_continued = hard_continued.get(seg.line).copied().unwrap_or(false);
+    }
+    table
+}
+
+/// 可视行数 ↔ 内容行数换算（滚动 / 回看 / 预览用）。
+/// `segments` 按行聚合，给定前 `n` 条逻辑行投影出的可视段数。
+pub fn visual_rows_of_content(segments: &SegmentTable, content_rows: usize) -> usize {
+    segments
+        .rows
+        .iter()
+        .take_while(|s| s.line < content_rows)
+        .count()
+}
+
+pub fn content_rows_for_visual(segments: &SegmentTable, visual: usize) -> usize {
+    if visual == 0 {
+        return 0;
+    }
+    let mut iter = segments.rows.iter().enumerate();
+    let mut last_line = 0usize;
+    let mut seen = 0usize;
+    while let Some((i, seg)) = iter.next() {
+        if i >= visual {
+            break;
+        }
+        last_line = seg.line;
+        seen += 1;
+    }
+    if seen == 0 {
+        0
+    } else {
+        last_line + 1
+    }
 }
 
 /// 一行 `Cell` 的**按字形**显示宽度表，正是 [`wrap_lines`] 要的那份输入。
@@ -140,6 +253,20 @@ pub fn glyph_widths(cells: &[term_core::grid::Cell]) -> Vec<u8> {
         }
     }
     widths
+}
+
+/// 软换行开启时用的宽度表：**裁掉行尾 padding**。
+///
+/// 与 [`glyph_widths`] 的区别只在行尾：`LineSlice.cells` 恒为 cols 宽，右半是
+/// 内核补的空格格。若把它们算进折行宽度，一个只有 5 个字符的行、甚至空行，
+/// 在窄 wrap column 下都会被折成 n 段（视觉灾难）。查找与文本提取都把行尾
+/// 空格当非内容裁掉（`grid::glyph_columns`），软换行必须同口径。
+/// 关闭软换行时仍走 [`glyph_widths`]（padding 算列），保证零像素基线。
+pub fn glyph_widths_trimmed(cells: &[term_core::grid::Cell]) -> Vec<u8> {
+    let cols = term_core::grid::glyph_columns(cells);
+    cols.iter()
+        .map(|&c| if cells[c].wide { 2 } else { 1 })
+        .collect()
 }
 
 /// 贪心装箱：一格一格地往当前段里塞，塞不下就收段。
@@ -308,8 +435,8 @@ mod tests {
         assert_eq!(
             rows,
             vec![
-                VisualRow { line: 0, start_col: 0, width: 3, continued: false },
-                VisualRow { line: 1, start_col: 0, width: 2, continued: false },
+                VisualRow { line: 0, start_col: 0, width: 3, soft_continued: false, hard_continued: false },
+                VisualRow { line: 1, start_col: 0, width: 2, soft_continued: false, hard_continued: false },
             ]
         );
     }
@@ -319,7 +446,7 @@ mod tests {
         let rows = wrap_lines(&[widths("0123456789012345678901234")], 10);
         assert_eq!(segments(&rows), vec![(0, 10), (10, 10), (20, 5)]);
         assert_eq!(
-            rows.iter().map(|r| r.continued).collect::<Vec<_>>(),
+            rows.iter().map(|r| r.soft_continued).collect::<Vec<_>>(),
             vec![false, true, true]
         );
         assert!(rows.iter().all(|r| r.line == 0));
@@ -329,7 +456,7 @@ mod tests {
     fn wrap_lines_resets_continuation_at_each_logical_line() {
         let rows = wrap_lines(&[widths("abcdefghijkl"), widths("xyz")], 5);
         assert_eq!(
-            rows.iter().map(|r| (r.line, r.continued)).collect::<Vec<_>>(),
+            rows.iter().map(|r| (r.line, r.soft_continued)).collect::<Vec<_>>(),
             vec![(0, false), (0, true), (0, true), (1, false)]
         );
         assert_eq!(segments(&rows), vec![(0, 5), (5, 5), (10, 2), (0, 3)]);
@@ -340,8 +467,8 @@ mod tests {
         // 边界 5：空行在整屏映射里也要占一段 width 0。
         let rows = wrap_lines(&[widths(""), widths("a")], 10);
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[0], VisualRow { line: 0, start_col: 0, width: 0, continued: false });
-        assert_eq!(rows[1], VisualRow { line: 1, start_col: 0, width: 1, continued: false });
+        assert_eq!(rows[0], VisualRow { line: 0, start_col: 0, width: 0, soft_continued: false, hard_continued: false });
+        assert_eq!(rows[1], VisualRow { line: 1, start_col: 0, width: 1, soft_continued: false, hard_continued: false });
     }
 
     #[test]
@@ -370,7 +497,7 @@ mod tests {
         let rows = wrap_lines(&[widths("abc汉")], 4);
         assert_eq!(segments(&rows), vec![(0, 3), (3, 2)]);
         assert_eq!(
-            rows.iter().map(|r| r.continued).collect::<Vec<_>>(),
+            rows.iter().map(|r| r.soft_continued).collect::<Vec<_>>(),
             vec![false, true]
         );
     }
@@ -465,5 +592,55 @@ mod tests {
                 }
             }
         }
+    }
+
+    // ---- 阶段 0 gate：软换行能产出真多段 + 公共 helper ----
+
+    fn cells_of(text: &str, cols: usize) -> Vec<term_core::grid::Cell> {
+        let mut cells = vec![term_core::grid::Cell::default(); cols];
+        for (i, ch) in text.chars().take(cols).enumerate() {
+            cells[i].ch = ch;
+        }
+        cells
+    }
+
+    #[test]
+    fn narrow_wrap_column_with_trim_produces_more_segments_than_lines() {
+        // 整个方案的 gate：若这条不成立，接上去也是「恒等映射 → 像素不变」的
+        // 假接线（2026-11-14 回退的根因）。
+        let lines = vec![
+            cells_of("abcdefghij", 80), // 10 个有效字符 + 70 padding
+            cells_of("", 80),           // 空行
+            cells_of("xy", 80),         // 短行
+        ];
+        let hard = vec![false, false, false];
+        // 关：全 cols + 不裁 → 恒等，每条逻辑行恰好 1 段。
+        let off = segments_for(&lines, 80, false, &hard);
+        assert_eq!(off.rows.len(), lines.len());
+        assert!(off.rows.iter().all(|s| !s.soft_continued && s.width == 80));
+        // 开：窄列 + 裁 padding → 第 1 行折成 2 段，空行 1 段，短行 1 段 = 4 段。
+        let on = segments_for(&lines, 6, true, &hard);
+        assert_eq!(on.rows.len(), 4, "10 字符按 6 折成 2 段，另两行各 1 段");
+        assert_eq!(on.rows[0].width, 6);
+        assert_eq!(on.rows[1].width, 4, "第 2 段是剩余 4 字符，不是 padding");
+        assert!(on.rows[1].soft_continued);
+        assert_eq!(on.rows[2].width, 0, "空行仍占一段（width 0）");
+        assert_eq!(on.rows[3].width, 2, "短行 2 字符不被 padding 撑成多段");
+    }
+
+    #[test]
+    fn segment_table_helpers_map_both_directions() {
+        let lines = vec![cells_of("abcdefghij", 80), cells_of("kl", 80)];
+        let on = segments_for(&lines, 6, true, &[false, true]);
+        assert_eq!(on.row_to_segments(0), 0..2);
+        assert_eq!(on.row_to_segments(1), 2..3);
+        assert!(on.rows[2].hard_continued, "硬折轴按传入回填");
+        // 内容列 7 落在第 0 行的第 2 段（start_col=6,width=4）内。
+        let seg = on.cell_to_segment(0, 7).unwrap();
+        assert_eq!(seg, 1);
+        assert_eq!(on.col_in_segment(seg, 7), Some(1), "段内相对列 = 7-6");
+        assert_eq!(on.col_in_segment(seg, 3), None, "列 3 在第 1 段之外");
+        // 屏幕 (段 1, 段内列 1) → 内容 (行 0, 绝对列 7)。
+        assert_eq!(on.screen_to_content(1, 1), Some((0, 7)));
     }
 }
