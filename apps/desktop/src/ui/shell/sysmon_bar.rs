@@ -187,14 +187,22 @@ impl TerminalWindow {
             return;
         }
         let Some(tab) = self.tabs.get(self.active_slot()) else {
+            crate::sysmon_remote::clear();
             return;
         };
         if tab.config.protocol != Protocol::Ssh || !tab.config.builtin_ssh || tab.session.is_none() {
+            // 换了数据源就不能留上一台机器的数字——那是「看起来有数据」的假读数。
+            crate::sysmon_remote::clear();
             return;
         }
         let Some(auth) = tab.auth.clone() else {
+            crate::sysmon_remote::clear();
             return;
         };
+        if crate::sysmon_remote::target_for(&tab.config.system).is_none() {
+            crate::sysmon_remote::clear();
+            return;
+        }
         // 与连接时同一份参数拼装（ProxyJump / 代理链 / 主机密钥），不另写一套；
         // 会话已经连上，TOFU 允许沿用那次已接受的主机。
         let opts = match crate::ui::dialogs::ssh_ask::options_for(
@@ -203,7 +211,10 @@ impl TerminalWindow {
             term_ssh::HostKeyPolicy::Tofu,
         ) {
             Ok(opts) => opts,
-            Err(_) => return,
+            Err(_) => {
+                crate::sysmon_remote::clear();
+                return;
+            }
         };
         let ctx = ctx.clone();
         crate::sysmon_remote::request(
