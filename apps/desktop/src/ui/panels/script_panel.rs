@@ -28,7 +28,7 @@ use term_core::theme::CHROME_SCALE;
 
 use super::list_popup::list_popup;
 use super::script_panel_row::{script_row, ScriptCmd, SCRIPT_ROW_H};
-use super::script_panel_tabs::{draw_tabs, ScriptPanel, TAB_STRIP_H};
+use super::script_panel_tabs::{draw_tabs, TAB_STRIP_H};
 
 /// 工具行与正文之间的空隙（与 Sender 的 `BODY_GAP` 同值）。
 const BODY_GAP: f32 = 3.0;
@@ -510,6 +510,16 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
             egui::pos2(body.left(), body.bottom() - g.size().y - 2.0),
             g,
             c,
+        );
+    }
+    if strip_h > 0.0 {
+        draw_tabs(
+            win,
+            ui,
+            egui::Rect::from_min_size(
+                egui::pos2(full.left(), body.bottom()),
+                egui::vec2(full.width(), TAB_STRIP_H),
+            ),
         );
     }
 }

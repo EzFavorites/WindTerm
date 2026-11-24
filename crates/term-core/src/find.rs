@@ -142,10 +142,8 @@ pub fn find_previous(
 ///
 /// 与 [`find_matches_regex_in`] 用同一套 `regex` 语法（同一 builder 配置），
 /// 避免 UI 说合法、引擎却报错的口径漂移。UI 无需直接依赖 regex crate。
-pub fn validate_regex(pattern: &str) -> Result<(), String> {
-    regex::Regex::new(pattern)
-        .map(|_| ())
-        .map_err(|e| e.to_string())
+pub fn validate_regex(pattern: &str) -> Result<(), regex::Error> {
+    regex::Regex::new(pattern).map(|_| ())
 }
 
 /// 在事实窗口里用正则表达式查找，返回所有匹配。
