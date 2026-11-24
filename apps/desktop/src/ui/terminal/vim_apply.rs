@@ -177,6 +177,8 @@ fn motion_step<'a>(motion: Motion, seps: &'a str) -> Option<(Op, Cow<'a, str>)> 
         Motion::SentenceNext => step(Op::LineNext, seps),
         Motion::ParagraphPrev => step(Op::ParagraphPrev, seps),
         Motion::ParagraphNext => step(Op::ParagraphNext, seps),
+        Motion::PromptPrev => step(Op::CommandPrev, seps),
+        Motion::PromptNext => step(Op::CommandNext, seps),
     }
 }
 

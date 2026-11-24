@@ -35,6 +35,9 @@ pub enum Motion {
     SentenceNext,
     ParagraphPrev,
     ParagraphNext,
+    /// 官网 page/27：`zk` 上一个 prompt 行、`zj` 下一个 prompt 行。
+    PromptPrev,
+    PromptNext,
 }
 
 /// 解析出的完整动作。复制/粘贴带寄存器：`"` 是未命名寄存器，`+` 是系统
@@ -61,6 +64,7 @@ pub const CLIPBOARD_REGISTER: char = '+';
 pub struct VimState {
     count: usize,
     pending_g: bool,
+    pending_z: bool,
     pending_yank: bool,
     pending_register: bool,
     pending_find_char: Option<bool>,
@@ -73,6 +77,7 @@ impl Default for VimState {
         Self {
             count: 0,
             pending_g: false,
+            pending_z: false,
             pending_yank: false,
             pending_register: false,
             pending_find_char: None,
@@ -86,6 +91,7 @@ impl VimState {
     pub fn reset(&mut self) {
         self.count = 0;
         self.pending_g = false;
+        self.pending_z = false;
         self.pending_yank = false;
         self.pending_register = false;
         self.pending_find_char = None;
@@ -114,6 +120,20 @@ impl VimState {
     /// 喂一个字符。返回 `None` 表示还在等后续字符（数字、`g`、`y`、
     /// 寄存器名、`yt`/`yf` 的目标字符）。非法字符清掉未完序列。
     pub fn feed(&mut self, ch: char) -> Option<VimAction> {
+        if self.pending_z {
+            self.pending_z = false;
+            let out = match ch {
+                'k' => Motion::PromptPrev,
+                'j' => Motion::PromptNext,
+                _ => {
+                    self.reset();
+                    return None;
+                }
+            };
+            let count = self.count.max(1);
+            self.reset();
+            return Some(VimAction::Motion(out, count));
+        }
         if let Some(before) = self.pending_find_char {
             self.pending_find_char = None;
             let out = VimAction::YankToChar {
@@ -159,6 +179,10 @@ impl VimState {
             }
             'g' => {
                 self.pending_g = true;
+                None
+            }
+            'z' => {
+                self.pending_z = true;
                 None
             }
             '"' => {
@@ -223,6 +247,7 @@ impl VimState {
                 '+' | ')' => Motion::SentenceNext,
                 '{' => Motion::ParagraphPrev,
                 '}' => Motion::ParagraphNext,
+
                 _ => return None,
             }
         };
@@ -317,6 +342,14 @@ mod tests {
         assert_eq!(mot(feed_all("gE")), Some((Motion::WordEndBackBlank, 1)));
         assert_eq!(mot(feed_all("3ge")), Some((Motion::WordEndBack, 3)));
         assert_eq!(mot(feed_all("12G")), Some((Motion::LastLine, 12)));
+    }
+
+    #[test]
+    fn zk_and_zj_jump_between_prompt_lines_per_page_27() {
+        assert_eq!(mot(feed_all("zk")), Some((Motion::PromptPrev, 1)));
+        assert_eq!(mot(feed_all("zj")), Some((Motion::PromptNext, 1)));
+        assert_eq!(mot(feed_all("3zj")), Some((Motion::PromptNext, 3)));
+        assert_eq!(feed_all("zx"), None, "非法第二键要清掉挂起的 z");
     }
 
     #[test]

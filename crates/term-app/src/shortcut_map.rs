@@ -103,6 +103,10 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Window.GotoSession", chord: "Alt+O" },
     BindingRow { id: "Window.GotoSymbol", chord: "Alt+'" },
     BindingRow { id: "Window.GotoLine", chord: "Alt+G" },
+    // 官网 page/27：Remote Mode 下 Ctrl+Shift+←/→ 跳上/下一个 prompt 行
+    // （OSC 133 命令块）；Local Mode 对应 zk/zj，在 vim.rs 里解析。
+    BindingRow { id: "Text.GotoPreviousCommand", chord: "Cmd+Shift+Left" },
+    BindingRow { id: "Text.GotoNextCommand", chord: "Cmd+Shift+Right" },
     BindingRow { id: "Text.LineUp", chord: "Up" },
     BindingRow { id: "Text.LineDown", chord: "Down" },
     BindingRow { id: "Terminal.SyncInput", chord: "Cmd+Shift+M" },
