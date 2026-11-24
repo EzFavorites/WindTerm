@@ -267,10 +267,7 @@ pub(crate) fn tab_parse(id: &str) -> Option<TabAction> {
         "Terminal.TabSplit" => TabAction::Split { horizontal: true },
         "Terminal.TabCopyName" => TabAction::CopyName,
         "Terminal.TabCopyUrl" => TabAction::CopyUrl,
-        "Terminal.TabColor" => TabAction::Color {
-            target: None,
-            slot: None,
-        },
+        "Terminal.TabColor" => TabAction::Color { target: None, slot: None },
         _ => return None,
     })
 }
