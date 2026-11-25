@@ -107,6 +107,12 @@ PLIST
       codesign --force --deep --sign - "$APP" 2>/dev/null || true
     fi
 
+    # 随包附带可改造的 Rhai 示例（docs/scripting.md 引用的 5 个任务模板）。
+    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
+      mkdir -p "$APP/Contents/Resources/scripts"
+      cp -R "$ROOT/apps/desktop/resources/scripts/." "$APP/Contents/Resources/scripts/"
+    fi
+
     tar -czf "$OUT/$NAME-$VERSION-$PLATFORM.tar.gz" -C "$STAGE" "$NAME.app"
     ARTIFACT="$NAME-$VERSION-$PLATFORM.tar.gz"
     ;;
@@ -134,6 +140,11 @@ Categories=System;TerminalEmulator;
 Keywords=terminal;shell;ssh;sftp;
 DESKTOP
 
+    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
+      mkdir -p "$STAGE/scripts"
+      cp -R "$ROOT/apps/desktop/resources/scripts/." "$STAGE/scripts/"
+    fi
+
     tar -czf "$OUT/$NAME-$VERSION-$PLATFORM.tar.gz" -C "$STAGE" .
     ARTIFACT="$NAME-$VERSION-$PLATFORM.tar.gz"
     ;;
@@ -146,6 +157,12 @@ DESKTOP
     if [ -f "$ROOT/assets/icon.ico" ]; then
       cp "$ROOT/assets/icon.ico" "$STAGE/$NAME.ico"
     fi
+    # 同样随包附带脚本示例，免得 README 里的模板路径在 Windows 包里不存在。
+    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
+      mkdir -p "$STAGE/scripts"
+      cp -R "$ROOT/apps/desktop/resources/scripts/." "$STAGE/scripts/"
+    fi
+
     # Windows 没有 bundle 概念：一个 exe + 说明书就是全部。
     # zip 而不是 tar.gz——Windows 资源管理器原生认 zip，双击即可解压。
     #

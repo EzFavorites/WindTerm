@@ -194,7 +194,7 @@ pub mod tooltip {
     /// Text 模式的占位（视觉基线 `30`）。
     pub const HINT: [&str; 2] = ["E.g.:", "<font color=\"red\">${match}</font>"];
     /// Script 模式的占位（视觉基线 `31`）。
-    pub const SCRIPT_HINT: &str = "E.g.:\n(captures) => {\n  return `<font color=\"red\">${captures.match}</font>`;\n}";
+    pub const SCRIPT_HINT: &str = "E.g.:\nreturn \"echo ${match}\"";
     pub const FOOTER_PRIMARY: &str = "Next";
 }
 
