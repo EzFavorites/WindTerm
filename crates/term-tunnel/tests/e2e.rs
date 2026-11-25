@@ -283,7 +283,7 @@ fn wait_for_server(addr: SocketAddr) {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
             Ok(_) => return,
             Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => panic!("mock 服务端 30 秒内没起来：{e}"),
+            Err(e) => panic!("mock 服务端 10 秒内没起来：{e}"),
         }
     }
 }
@@ -306,6 +306,7 @@ fn ssh_options(addr: SocketAddr) -> SshOptions {
 /// 连上去、说一句话、读回同一句话。
 fn roundtrip(addr: SocketAddr, line: &[u8]) -> Vec<u8> {
     let mut stream = TcpStream::connect(addr).expect("连隧道端口");
+    // 30s 读上限只吸收全量门禁并发时的线程调度延迟（mock 服务端/隧道线程可能晚被调度），不是协议等待；实测已够，不要继续放宽。
     stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     stream.write_all(line).expect("写");
     let mut back = vec![0u8; line.len()];

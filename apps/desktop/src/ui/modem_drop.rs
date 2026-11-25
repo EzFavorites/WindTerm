@@ -24,6 +24,18 @@ fn upload_pick_for(local: &str, is_dir: bool) -> Option<XferPick> {
     })
 }
 
+/// 把拖进来的本地路径变成发送弹层里的 `target` 文本。
+///
+/// 只有**多条**路径才用 `;` 连接（那是 [`crate::xfer_run::collect_send_files`] 认识的
+/// 批处理写法）；单条路径原样传下去，不经过连接。路径名里带 `;` 是合法的，单条
+/// 时绝不能因为「拼接」这一步把它当成多文件语法处理。
+fn modem_path_text(paths: &[String]) -> String {
+    match paths {
+        [only] => only.clone(),
+        many => many.join(";"),
+    }
+}
+
 pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     if win.view.lock.locked {
         return;
@@ -67,7 +79,7 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     };
     win.dispatch_action(Action::Xfer(XferCmd::Send(protocol)));
     if let Some(prompt) = win.xfer_prompt.as_mut() {
-        prompt.path = paths.join(";");
+        prompt.path = modem_path_text(&paths);
     }
     ctx.request_repaint();
 }
@@ -95,5 +107,21 @@ mod tests {
     #[test]
     fn a_path_without_a_file_name_is_skipped() {
         assert!(upload_pick_for("/", false).is_none());
+    }
+
+    #[test]
+    fn a_single_path_with_semicolons_is_passed_verbatim() {
+        // 分号在文件名里合法：单条路径不参与 `;` 拼接，原串直接进弹层，
+        // 才不会被下游当成「两条都存在的路径」拆开。
+        let local = "/tmp/a;b;c.txt".to_string();
+        assert_eq!(modem_path_text(&[local.clone()]), local);
+    }
+
+    #[test]
+    fn only_multiple_paths_are_joined_with_semicolons() {
+        let a = "/tmp/a;b.txt".to_string();
+        let b = "/tmp/c.txt".to_string();
+        assert_eq!(modem_path_text(&[a.clone(), b.clone()]), format!("{a};{b}"));
+        assert_eq!(modem_path_text(&[]), "");
     }
 }

@@ -843,6 +843,25 @@ async fn transfer_and_report(
     }
 }
 
+/// 把一次树传输的结果收成终态事件：成功也要先确认没被取消。
+///
+/// `walk::run` 只在**逐文件传输**的边界查取消；空树（循环一次都不转）、以及取消
+/// 发生在最后一个文件收尾之后，都没有检查点。没有这一下，用户按了 Stop 仍会
+/// 收到一条 `Done`。失败分支不改写：真因比取消更值得上报。
+fn tree_outcome(
+    root: String,
+    result: Result<u64, TransferError>,
+    opts: &TransferOpts<'_>,
+) -> Event {
+    match result {
+        Ok(bytes) => match cancelled_tree(root.clone(), opts) {
+            Some(event) => event,
+            None => Event::Done { path: root, bytes },
+        },
+        Err(e) => stop_event(root, e),
+    }
+}
+
 /// 把一次传输的结果收成终态事件。**取消不等于失败**，所以分两支：
 /// 取消按处置表说清分片是留是删，失败保留分片等续传。
 fn stop_event(path: String, error: TransferError) -> Event {
@@ -893,6 +912,11 @@ async fn tree_and_report(
         Ok(p) => p,
         Err(message) => return Event::Failed { path: root, message },
     };
+    // 展开计划可能是一次远端 read_dir：期间用户按了 Stop，walk 的逐文件检查点
+    // 根本不会转到（空树尤其明显），这里补一道。
+    if let Some(event) = cancelled_tree(root.clone(), &opts) {
+        return event;
+    }
     let mut on_progress =
         |path: &str, transferred: u64, total: u64| reporter.progress(path, transferred, total);
     let mut on_file_done = |path: &str, bytes: u64| reporter.file_done(path, bytes);
@@ -909,32 +933,62 @@ async fn tree_and_report(
         file_done: &mut on_file_done,
     };
     let result = crate::walk::run(sftp, direction, &mut job).await;
-    match result {
-        Ok(bytes) => Event::Done { path: root, bytes },
-        Err(e) => stop_event(root, e),
-    }
+    tree_outcome(root, result, &opts)
 }
 
 #[cfg(test)]
 mod background_cancel_tests {
     use super::*;
 
-    /// 空树没有逐文件检查点：入口这一下是唯一能拦住「取消仍报 Done」的地方。
-    #[test]
-    fn a_cancelled_tree_reports_cancelled_even_when_the_plan_is_empty() {
-        let token = CancelToken::new();
-        let opts = TransferOpts {
+    fn opts_for(token: &CancelToken) -> TransferOpts<'_> {
+        TransferOpts {
             resume: false,
             preserve: false,
             preserve_dir: false,
             fix_invalid: false,
-            cancel: &token,
-        };
+            cancel: token,
+        }
+    }
+
+    /// 空树没有逐文件检查点：入口这一下是唯一能拦住「取消仍报 Done」的地方。
+    #[test]
+    fn a_cancelled_tree_reports_cancelled_even_when_the_plan_is_empty() {
+        let token = CancelToken::new();
+        let opts = opts_for(&token);
         assert!(cancelled_tree("/tree".to_string(), &opts).is_none());
         token.cancel();
         match cancelled_tree("/tree".to_string(), &opts) {
             Some(Event::Cancelled { path, kept: false }) => assert_eq!(path, "/tree"),
             other => panic!("取消该上报 Cancelled，实得 {other:?}"),
+        }
+    }
+
+    /// walk 已经成功返回（含空树、以及取消发生在最后一个文件之后）时，
+    /// 终态判据必须再看一次取消旗：绝不把 Cancelled 报成 Done。
+    #[test]
+    fn a_cancelled_tree_never_reports_done_after_the_walk() {
+        let token = CancelToken::new();
+        let opts = opts_for(&token);
+        match tree_outcome("/tree".to_string(), Ok(42), &opts) {
+            Event::Done { path, bytes } => {
+                assert_eq!(path, "/tree");
+                assert_eq!(bytes, 42);
+            }
+            other => panic!("没取消时成功仍报 Done，实得 {other:?}"),
+        }
+        token.cancel();
+        match tree_outcome("/tree".to_string(), Ok(42), &opts) {
+            Event::Cancelled { path, kept: false } => assert_eq!(path, "/tree"),
+            other => panic!("取消后不许报 Done，实得 {other:?}"),
+        }
+        // 真失败不能被取消旗盖掉：保留原始原因，用户才知道哪里坏了。
+        match tree_outcome(
+            "/tree".to_string(),
+            Err(TransferError::Failed("disk full".to_string())),
+            &opts,
+        ) {
+            Event::Failed { message, .. } => assert_eq!(message, "disk full"),
+            other => panic!("失败原因该原样上报，实得 {other:?}"),
         }
     }
 }

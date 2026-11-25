@@ -476,10 +476,10 @@ fn semicolon_separated_paths_expand_and_duplicate_names_are_refused() {
     );
 }
 
-/// `drive()` 把取样到的元数据挂到唯一的 `FileStart` 上；一次 `feed` 里出现多个
-/// `FileStart` 时宁可整批不带 mtime，也不能把文件 B 的时间串到文件 A 上。
+/// `drive()` 按动作逐条取样：合规的一帧一个 `FileStart` 原样带元数据；非合规
+/// 一帧多个时每条都拿到自己的样本，不再因为「有歧义」把整批时间戳抹掉。
 #[test]
-fn drive_attaches_meta_to_a_single_file_start_and_drops_it_when_ambiguous() {
+fn drive_samples_meta_once_per_file_start() {
     use term_xfer::Action;
 
     let meta = xfer_run::FileMeta {
@@ -496,7 +496,7 @@ fn drive_attaches_meta_to_a_single_file_start_and_drops_it_when_ambiguous() {
             Action::Data(vec![1, 2, 3, 4, 5]),
             Action::FileDone,
         ],
-        meta,
+        || meta,
     );
     assert_eq!(one.len(), 3);
     match &one[0] {
@@ -514,6 +514,13 @@ fn drive_attaches_meta_to_a_single_file_start_and_drops_it_when_ambiguous() {
     assert!(matches!(one[1], xfer_run::DriveAction::Data(_)));
     assert!(matches!(one[2], xfer_run::DriveAction::FileDone));
 
+    // 非合规对端把两个 ZFILE 塞进一帧：逐条取样，两个文件各拿各的，
+    // 不会像旧实现那样整批丢掉 mtime。
+    let second = xfer_run::FileMeta {
+        mtime: Some(1_700_000_001),
+        ..meta
+    };
+    let mut samples = [meta, second].into_iter();
     let two = xfer_run::drive(
         vec![
             Action::FileStart {
@@ -525,17 +532,17 @@ fn drive_attaches_meta_to_a_single_file_start_and_drops_it_when_ambiguous() {
                 size: Some(1),
             },
         ],
-        meta,
+        || samples.next().unwrap_or_default(),
     );
     assert_eq!(two.len(), 2);
-    for action in &two {
-        match action {
-            xfer_run::DriveAction::FileStart { meta: got, .. } => {
-                assert_eq!(*got, xfer_run::FileMeta::default(), "歧义时不能串味");
-            }
+    let got: Vec<_> = two
+        .iter()
+        .map(|action| match action {
+            xfer_run::DriveAction::FileStart { meta, .. } => *meta,
             other => panic!("这里只该有 FileStart，实际 {other:?}"),
-        }
-    }
+        })
+        .collect();
+    assert_eq!(got, [meta, second]);
 }
 
 /// ③a 收尾落盘：`Sink::close` 用标准库 `FileTimes` 把对端 mtime 写回文件；

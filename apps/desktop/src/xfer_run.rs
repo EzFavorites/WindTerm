@@ -473,7 +473,8 @@ trait Engine: Send {
     /// 内核在 `on_file_info` 里先写好 `mtime` / `mode` 再 push `Action::FileStart`，
     /// 所以「动作返回后立刻取样」拿到的就是这个文件的元数据。驱动的握手是
     /// 停等的（每个 `ZFILE` 后面跟着我们回的 `ZRPOS`，对端收到才继续），合规对端
-    /// 一次 `feed` 只会给出一个 `FileStart`；`drive()` 因此能把取样值安全带下去。
+    /// 一次 `feed` 只会给出一个 `FileStart`；`drive()` 按动作逐条取样，因此能
+    /// 把取样值安全带下去。
     fn file_meta(&self) -> FileMeta {
         FileMeta::default()
     }
@@ -672,28 +673,27 @@ pub(crate) enum DriveAction {
     Error(term_xfer::Error),
 }
 
-/// 把一批协议动作翻成驱动动作；`meta` 是**这一批动作产生时**的元数据快照。
+/// 把一批协议动作翻成驱动动作；`sample_meta` 是**逐条**取样的入口。
 ///
 /// 合规对端一次 `feed` 只给出一个 `FileStart`（每个 `ZFILE` 后面跟着我们回的
-/// `ZRPOS` / `ZRINIT`，对端要等它才继续）。若真遇到把多个 `ZFILE` 流水线塞进
-/// 一帧的对端，取样值只对应**最后**那个文件——这时宁可整批不带 mtime，也不能
-/// 把文件 B 的时间写到文件 A 上。
-pub(crate) fn drive(actions: Vec<Action>, meta: FileMeta) -> Vec<DriveAction> {
-    let file_starts = actions
-        .iter()
-        .filter(|action| matches!(action, Action::FileStart { .. }))
-        .count();
-    let meta = if file_starts > 1 {
-        FileMeta::default()
-    } else {
-        meta
-    };
+/// `ZRPOS` / `ZRINIT`，对端要等它才继续），所以采样一次就是全部。多个 `FileStart`
+/// 挤进同一帧是非合规对端的行为，但**不能因此把整批的时间戳都丢掉**：每个
+/// `FileStart` 都调用一次 `sample_meta()`，由取样方决定该给这一条什么元数据。
+/// `Send` / `Data` / `FileDone` 等动作不取样，避免无谓调用。
+pub(crate) fn drive(
+    actions: Vec<Action>,
+    mut sample_meta: impl FnMut() -> FileMeta,
+) -> Vec<DriveAction> {
     actions
         .into_iter()
         .map(|action| match action {
             Action::Send(bytes) => DriveAction::Send(bytes),
             Action::Data(bytes) => DriveAction::Data(bytes),
-            Action::FileStart { name, size } => DriveAction::FileStart { name, size, meta },
+            Action::FileStart { name, size } => DriveAction::FileStart {
+                name,
+                size,
+                meta: sample_meta(),
+            },
             Action::FileDone => DriveAction::FileDone,
             Action::Done => DriveAction::Done,
             Action::Error(err) => DriveAction::Error(err),
@@ -1015,25 +1015,25 @@ fn pump(
 fn begin(engine: &SharedEngine) -> Vec<DriveAction> {
     let mut guard = lock(engine);
     let actions = guard.begin();
-    drive(actions, guard.file_meta())
+    drive(actions, || guard.file_meta())
 }
 
 fn feed(engine: &SharedEngine, bytes: &[u8]) -> Vec<DriveAction> {
     let mut guard = lock(engine);
     let actions = guard.feed(bytes);
-    drive(actions, guard.file_meta())
+    drive(actions, || guard.file_meta())
 }
 
 fn timeout_step(engine: &SharedEngine) -> Vec<DriveAction> {
     let mut guard = lock(engine);
     let actions = guard.on_timeout();
-    drive(actions, guard.file_meta())
+    drive(actions, || guard.file_meta())
 }
 
 fn cancel_step(engine: &SharedEngine) -> Vec<DriveAction> {
     let mut guard = lock(engine);
     let actions = guard.cancel();
-    drive(actions, guard.file_meta())
+    drive(actions, || guard.file_meta())
 }
 
 fn lock(engine: &SharedEngine) -> std::sync::MutexGuard<'_, Box<dyn Engine>> {
@@ -1289,8 +1289,8 @@ fn read_send_file(path: &Path) -> Result<SendFile, SendFilesError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        drive, pump, resolve_name, zmodem_config, DriveAction, Engine, FileMeta, Progress, Sink,
-        ZRxEngine,
+        drive, pump, resolve_name, zmodem_config, Action, DriveAction, Engine, FileMeta, Progress,
+        Sink, ZRxEngine,
     };
     use crate::xfer_conflict::ConflictPolicy;
     use std::path::PathBuf;
@@ -1465,7 +1465,79 @@ mod tests {
             FrameEnd::ZCRCW,
             CrcKind::Crc16,
         ));
-        drive(engine.feed(&wire), engine.file_meta())
+        drive(engine.feed(&wire), || engine.file_meta())
+    }
+
+    #[test]
+    fn each_file_start_in_one_frame_gets_its_own_meta_sample() {
+        // 非合规对端把两个 ZFILE 塞进同一帧：旧实现数出 >1 个 FileStart 就把
+        // 整批 mtime 抹成默认值。现在按动作逐条取样，两个文件各拿各的样本，
+        // 非 FileStart 动作一次都不取样。
+        let first = FileMeta {
+            mtime: Some(1_700_000_001),
+            mode: Some(0o644),
+            size: Some(3),
+            resume: 0,
+        };
+        let second = FileMeta {
+            mtime: Some(1_700_000_002),
+            mode: Some(0o600),
+            size: Some(5),
+            resume: 2,
+        };
+        let mut samples = [first, second].into_iter();
+        let mut calls = 0;
+        let actions = vec![
+            Action::Send(vec![1]),
+            Action::FileStart {
+                name: "a.bin".to_string(),
+                size: Some(3),
+            },
+            Action::Data(b"abc".to_vec()),
+            Action::FileDone,
+            Action::FileStart {
+                name: "b.bin".to_string(),
+                size: Some(5),
+            },
+            Action::Data(b"de".to_vec()),
+        ];
+        let out = drive(actions, || {
+            calls += 1;
+            samples.next().unwrap_or_default()
+        });
+        assert_eq!(calls, 2, "只有两个 FileStart 取样");
+        let metas: Vec<FileMeta> = out
+            .iter()
+            .filter_map(|action| match action {
+                DriveAction::FileStart { meta, .. } => Some(*meta),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(metas, [first, second], "每个 FileStart 拿到独立样本");
+    }
+
+    #[test]
+    fn a_single_file_start_keeps_the_sampled_meta() {
+        // 合规对端仍是一次取样：mtime / size / 续传偏移原样进 FileStart。
+        let meta = FileMeta {
+            mtime: Some(42),
+            mode: Some(0o755),
+            size: Some(8),
+            resume: 3,
+        };
+        let actions = vec![Action::FileStart {
+            name: "only.bin".to_string(),
+            size: Some(8),
+        }];
+        let out = drive(actions, || meta);
+        match out.as_slice() {
+            [DriveAction::FileStart { name, size, meta: got }] => {
+                assert_eq!(name, "only.bin");
+                assert_eq!(*size, Some(8));
+                assert_eq!(*got, meta);
+            }
+            other => panic!("期望一个带元数据的 FileStart，实得 {other:?}"),
+        }
     }
 
     #[test]
