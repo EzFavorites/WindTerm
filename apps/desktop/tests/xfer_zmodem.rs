@@ -421,7 +421,7 @@ fn a_single_file_path_keeps_its_name_content_and_count() {
     let data = payload(321);
     std::fs::write(&file, &data).expect("写源文件");
 
-    let files = xfer_run::collect_send_files(&file).expect("展开单文件");
+    let files = xfer_run::collect_send_files(&file, false).expect("展开单文件");
     assert_eq!(files.len(), 1, "单文件只能排进一个 add_file");
     assert_eq!(files[0].name, "only.bin");
     assert_eq!(files[0].data, data);
@@ -440,7 +440,7 @@ fn a_directory_expands_to_a_sorted_batch_and_skips_subdirectories() {
     std::fs::write(dir.join("nested/inside.bin"), b"nested").expect("写子目录里的文件");
     std::fs::write(dir.join("b.bin"), b"BBB").expect("写 b");
 
-    let files = xfer_run::collect_send_files(&dir).expect("展开目录");
+    let files = xfer_run::collect_send_files(&dir, false).expect("展开目录");
     let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["a.bin", "b.bin", "c.bin"], "字典序 + 跳过子目录");
     assert_eq!(files[0].data, b"AAA");
@@ -458,7 +458,7 @@ fn semicolon_separated_paths_expand_and_duplicate_names_are_refused() {
     std::fs::write(&b, b"BBB").expect("写 b");
 
     let joined = PathBuf::from(format!("{};{}", a.display(), b.display()));
-    let files = xfer_run::collect_send_files(&joined).expect("展开多路径");
+    let files = xfer_run::collect_send_files(&joined, false).expect("展开多路径");
     let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
     assert_eq!(names, ["a.bin", "b.bin"]);
     assert_eq!(files[0].data, b"AAA");
@@ -469,18 +469,19 @@ fn semicolon_separated_paths_expand_and_duplicate_names_are_refused() {
     let dup = other.join("a.bin");
     std::fs::write(&dup, b"DUP").expect("写重名文件");
     let joined = PathBuf::from(format!("{};{}", a.display(), dup.display()));
-    let err = xfer_run::collect_send_files(&joined).expect_err("重名必须拒绝");
+    let err = xfer_run::collect_send_files(&joined, false).expect_err("重名必须拒绝");
     assert!(
         err.to_string().contains("重名"),
         "错误里要说清原因：{err}"
     );
 }
 
-/// 文件名里带分号的**单路径**：即便拆出来的碎片也全都是现存文件，整条路径
-/// 存在就必须优先当单路径，不能被误拆成一批（拖进来的单个文件就是这条路径）。
+/// 文件名里带分号的**拖放单路径**：即便拆出来的碎片也全都是现存文件，整条路径
+/// 存在就必须优先当单路径——这正是 `literal_single = true` 才有资格开的闸门。
+/// 同一份盘面在 `false` 下必须给出相反结论（见下一条 typed 用例）。
 #[test]
-fn a_single_path_with_semicolons_is_never_split_even_when_fragments_exist() {
-    let root = unique_dir("collect-semicolon");
+fn a_dropped_single_path_with_semicolons_is_never_split_even_when_fragments_exist() {
+    let root = unique_dir("collect-semicolon-literal");
     // 造出最刁钻的局面：`a;b` 本身是真文件，而 `a` / `b` 也都存在。
     let whole = root.join("a;b");
     let a = root.join("a");
@@ -489,10 +490,37 @@ fn a_single_path_with_semicolons_is_never_split_even_when_fragments_exist() {
     std::fs::write(&a, b"AAA").expect("写碎片 a");
     std::fs::write(&b, b"BBB").expect("写碎片 b");
 
-    let files = xfer_run::collect_send_files(&whole).expect("整条路径优先");
-    assert_eq!(files.len(), 1, "整条是存在的文件时不许拆成三份");
+    let files = xfer_run::collect_send_files(&whole, true).expect("整条路径优先");
+    assert_eq!(files.len(), 1, "拖放单条、整条是存在的文件时不许拆成三份");
     assert_eq!(files[0].name, "a;b");
     assert_eq!(files[0].data, b"WHOLE");
+}
+
+/// 同样的歧义盘面（整条路径与两条碎片都存在），用户**手动输入**时就是两条
+/// 路径。整条存在优先曾把这类 typed 输入吞成一个，这里把它钉住；同一盘面带
+/// 拖放事实则相反，两个结论只差 `literal_single` 这一个事实。
+#[test]
+fn a_typed_semicolon_path_sends_the_two_fragments_even_if_the_whole_exists() {
+    let root = unique_dir("collect-semicolon-typed");
+    let a = root.join("a");
+    let b = root.join("b");
+    std::fs::write(&a, b"AAA").expect("写碎片 a");
+    std::fs::write(&b, b"BBB").expect("写碎片 b");
+    // 整条 `<root>/a<root>/b` 也是真文件：靠一个叫 `a;` 的目录把后半段绝对路径
+    // 接回来，造出「整条存在 + 两条碎片也存在」的歧义盘面。
+    let whole = PathBuf::from(format!("{};{}", a.display(), b.display()));
+    std::fs::create_dir_all(whole.parent().unwrap()).expect("建歧义目录");
+    std::fs::write(&whole, b"WHOLE").expect("写干扰用的整条路径");
+    assert!(whole.exists(), "整条路径必须真的存在，才测得到闸门");
+
+    let files = xfer_run::collect_send_files(&whole, false).expect("typed 多文件");
+    let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, ["a", "b"], "手动输入的分号要发两个文件");
+    assert_eq!(files[0].data, b"AAA");
+    assert_eq!(files[1].data, b"BBB");
+
+    let kept = xfer_run::collect_send_files(&whole, true).expect("拖放单条整条优先");
+    assert_eq!(kept.len(), 1, "同一盘面带拖放事实就不拆");
 }
 
 /// `drive()` 把取样到的元数据挂到唯一的 `FileStart` 上；一次 `feed` 里出现多个

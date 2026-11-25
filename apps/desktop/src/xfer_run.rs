@@ -207,6 +207,9 @@ impl XferHandle {
     }
 
     /// 带同名冲突策略的入口；UI 重构完成后由设置页把选择传进来。
+    ///
+    /// 走这条路的调用方**没有**「这是一条拖放进来的单路径」这一事实，所以
+    /// `literal_single` 恒为 `false`：`;` 只按多文件语法判定（碎片都存在才拆）。
     pub fn start_with_policy(
         pool: Arc<SessionPool>,
         session: SessionId,
@@ -215,7 +218,35 @@ impl XferHandle {
         target: PathBuf,
         policy: crate::xfer_conflict::ConflictPolicy,
     ) -> Result<Self, String> {
-        Self::start_impl(pool, session, kind, protocol, target, policy, 0)
+        Self::start_impl(pool, session, kind, protocol, target, policy, 0, false)
+    }
+
+    /// 与 [`Self::start_with_policy`] 同源，多带一条**显式事实**：`target` 是
+    /// 拖进来的**一条**本地路径（可能真名里带 `;`）。
+    ///
+    /// 只有这个事实为真时 `send_target_paths` 才启用「整条路径存在就当单路径」
+    /// 的闸门。手动在弹层里输入的 `a;b` 走 [`Self::start_with_policy`]，永远按碎片
+    /// 判定——哪怕同目录恰好有个字面名叫 `a;b` 的文件，也不会把用户想发的两个
+    /// 文件吞成一个。事实由 UI 层（弹层）一路传到这里，不在驱动层靠路径形状猜。
+    pub fn start_with_literal(
+        pool: Arc<SessionPool>,
+        session: SessionId,
+        kind: XferKind,
+        protocol: XferProtocol,
+        target: PathBuf,
+        policy: crate::xfer_conflict::ConflictPolicy,
+        literal_single: bool,
+    ) -> Result<Self, String> {
+        Self::start_impl(
+            pool,
+            session,
+            kind,
+            protocol,
+            target,
+            policy,
+            0,
+            literal_single,
+        )
     }
 
     /// 断点续传：本地已有目标文件的前 `offset` 字节，协议层回 ZRPOS(offset)，
@@ -237,6 +268,7 @@ impl XferHandle {
             // 用同一个口径（落盘方式见 `Sink::open`）。
             crate::xfer_conflict::ConflictPolicy::Resume,
             offset,
+            false,
         )
     }
 
@@ -248,6 +280,7 @@ impl XferHandle {
         target: PathBuf,
         policy: crate::xfer_conflict::ConflictPolicy,
         resume_offset: u64,
+        literal_single: bool,
     ) -> Result<Self, String> {
         if pool.state(session).is_none() {
             return Err(format!("控制面里查不到这个会话（id={session}）"));
@@ -287,7 +320,8 @@ impl XferHandle {
             XferKind::Send => {
                 // 协议层是零 IO 的，盘只能在这里读；整读进内存是 `add_file` 的要求。
                 // 单文件走的就是原来那一次 `add_file`，线上字节逐字节不变。
-                let files = collect_send_files(&target).map_err(|err| err.to_string())?;
+                let files = collect_send_files(&target, literal_single)
+                    .map_err(|err| err.to_string())?;
                 if files.is_empty() {
                     return Err(format!(
                         "发送目标里没有可发送的普通文件：{}",
@@ -1208,11 +1242,15 @@ impl std::fmt::Display for SendFilesError {
 ///    顺序，排序让批处理可复现），跳过子目录；
 /// 3. `;` 分隔的多条路径 → 逐条按 1 / 2 展开。
 ///
-/// 只有「拆出来的每一段都是存在的路径」才当成多路径：路径名里带分号是合法的，
-/// 不该因为一个分号就把一条正常路径劈成两半。
-pub(crate) fn collect_send_files(target: &Path) -> Result<Vec<SendFile>, SendFilesError> {
+/// 是否启用「整条路径存在就当单路径」的闸门，由调用方的**显式事实**决定：
+/// `literal_single = true` 表示这条路径来自拖放（确实只有一条），才启用；
+/// 手动在弹层里输入的 `a;b` 传 `false`，始终按碎片判定。
+pub(crate) fn collect_send_files(
+    target: &Path,
+    literal_single: bool,
+) -> Result<Vec<SendFile>, SendFilesError> {
     let mut files = Vec::new();
-    for path in send_target_paths(target) {
+    for path in send_target_paths(target, literal_single) {
         expand_send_path(&path, &mut files)?;
     }
     // 同名文件落盘会互相覆盖：批处理里这是数据丢失，不如当场拒绝。
@@ -1226,7 +1264,16 @@ pub(crate) fn collect_send_files(target: &Path) -> Result<Vec<SendFile>, SendFil
 }
 
 /// 把输入路径拆成一条或多条；单路径时返回的仍是**原样的那条 `PathBuf`**。
-fn send_target_paths(target: &Path) -> Vec<PathBuf> {
+///
+/// `literal_single` 是「这一条来自拖放、确实只有一条」的显式事实，不是从路径
+/// 形状推出来的猜测。它只控制下面那道「整条存在优先」的闸门：
+///
+/// - `true`（拖放单条）：文件名里带 `;` 是合法的，`a;b` 本身是真文件时绝不拆；
+///   否则「碎片都存在」的启发式会在 `a`、`b` 恰好也在同目录时把它误拆成两条。
+/// - `false`（用户手动输入）：`;` 就是多文件语法，**只**看碎片是否都存在。
+///   哪怕同目录同时有 `a`、`b`、`a;b` 三个文件，输入 `a;b` 也要发 `a` 和 `b`——
+///   整条优先在这里会把 typed 的双文件歧义重新引回来，所以不对它开闸门。
+fn send_target_paths(target: &Path, literal_single: bool) -> Vec<PathBuf> {
     let single = || vec![target.to_path_buf()];
     let Some(text) = target.to_str() else {
         return single();
@@ -1234,12 +1281,7 @@ fn send_target_paths(target: &Path) -> Vec<PathBuf> {
     if !text.contains(';') {
         return single();
     }
-    // 整条就是一个存在的路径（文件名里带分号，例如拖进来的单文件）：绝不拆。
-    // 只靠下面「碎片都存在」的启发式不够——`a;b` 本身是真文件、而 `a` 与 `b`
-    // 也恰好都在同目录时，单路径会被误当成两条。整条优先是更稳的判据；代价是
-    // 这种同目录三者并存时 typed 的 `a;b` 会被解读成那一个字面文件，属于
-    // 无法两全的歧义，按「不替用户拆文件」的方向取舍。
-    if target.exists() {
+    if literal_single && target.exists() {
         return single();
     }
     let parts: Vec<PathBuf> = text
@@ -1304,8 +1346,8 @@ fn read_send_file(path: &Path) -> Result<SendFile, SendFilesError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        drive, pump, resolve_name, zmodem_config, Action, DriveAction, Engine, FileMeta, Progress,
-        Sink, ZRxEngine,
+        collect_send_files, drive, pump, resolve_name, zmodem_config, Action, DriveAction, Engine,
+        FileMeta, Progress, Sink, ZRxEngine,
     };
     use crate::xfer_conflict::ConflictPolicy;
     use std::path::PathBuf;
@@ -1326,6 +1368,50 @@ mod tests {
         ));
         std::fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    /// 拖进来的单条路径带 `literal_single=true`：整条 `a;b` 存在就不拆。
+    #[test]
+    fn a_dropped_single_path_with_semicolons_is_not_split() {
+        let dir = temp_dir("collect-literal");
+        let whole = dir.join("a;b");
+        std::fs::write(dir.join("a"), b"AAA").unwrap();
+        std::fs::write(dir.join("b"), b"BBB").unwrap();
+        std::fs::write(&whole, b"WHOLE").unwrap();
+
+        let files = collect_send_files(&whole, true).expect("整条路径优先");
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["a;b"], "拖放单条不许被拆成三份");
+        assert_eq!(files[0].data, b"WHOLE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 用户手动输入「两条绝对路径用 `;` 连接」：哪怕拼出来的整条路径本身也是
+    /// 真文件（最刁钻的歧义盘面），typed 侧也必须按碎片发两个文件；同一盘面
+    /// 带上拖放事实则整条优先。两份结论只由 `literal_single` 一个事实决定。
+    #[test]
+    fn a_typed_semicolon_input_sends_two_files_even_if_the_whole_exists() {
+        let dir = temp_dir("collect-typed");
+        let a = dir.join("a");
+        let b = dir.join("b");
+        std::fs::write(&a, b"AAA").unwrap();
+        std::fs::write(&b, b"BBB").unwrap();
+        // `a;b` 的歧义盘面：整条 `<dir>/a;<dir>/b` 也是存在的文件（靠一个叫 `a;`
+        // 的目录把后半段绝对路径再接回来），碎片 `a` / `b` 同样都存在。
+        let whole = PathBuf::from(format!("{};{}", a.display(), b.display()));
+        std::fs::create_dir_all(whole.parent().unwrap()).unwrap();
+        std::fs::write(&whole, b"WHOLE").unwrap();
+        assert!(whole.exists(), "歧义盘面的整条路径要真的存在");
+
+        let files = collect_send_files(&whole, false).expect("typed 多文件");
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"], "手动输入的分号就是两条路径");
+        assert_eq!(files[0].data, b"AAA");
+        assert_eq!(files[1].data, b"BBB");
+
+        let kept = collect_send_files(&whole, true).expect("拖放单条整条优先");
+        assert_eq!(kept.len(), 1, "同一盘面带拖放事实就不拆");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn sink_in<'a>(

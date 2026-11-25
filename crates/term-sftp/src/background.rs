@@ -847,41 +847,26 @@ async fn transfer_and_report(
             .await
         }
     };
-    final_outcome(path, result, &opts)
+    final_outcome(path, result)
 }
 
-/// 把一次传输（单文件或整棵树）的结果收成终态事件：**成功也要先确认没被取消**。
+/// 一次传输的终态：**成功就是 `Done`**，哪怕用户恰好在最后一刻按了 Stop。
 ///
-/// `transfer::download/upload` 与 `walk::run` 只在各自传输的边界查取消旗：取消
-/// 恰好落在最后一个文件收尾之后、我们发出 `Done` 之前时，那两个检查点都转不到。
-/// 没有末尾这一下复核，用户点了 Stop 仍会收到一条 `Done`。失败分支不改写——
-/// 真正的原因比取消更值得上报。
-fn final_outcome(path: String, result: Result<u64, TransferError>, opts: &TransferOpts<'_>) -> Event {
+/// `Ok(bytes)` 说明整份数据已经落盘，传输开始时造出来的分片已经被完整文件取代。
+/// 此时再报 `Cancelled { kept: false }` 既撒谎（文件并不处在「partial removed」状态），
+/// 又会让队列把它记成 `FailReason::Cancelled`。成功之后没有需要撤销的东西，所以这里
+/// **不复核**取消旗：空树与展开期那两个真正没有检查点的窗口，由 [`tree_and_report`]
+/// 里的显式 `cancelled_tree` 覆盖，不靠末尾这一下。
+///
+/// 若将来要在状态行提示「你按过 Stop」，也只能在已完成这一侧加提示位，不能退回
+/// `Cancelled { kept: … }` 那条会写 `FailReason::Cancelled` 的路。
+///
+/// 传输过程中真被取消（`TransferError::Cancelled`）仍走 [`stop_event`]，按处置表说清
+/// 分片是留是删；失败原因原样上报，不被取消旗盖掉。
+fn final_outcome(path: String, result: Result<u64, TransferError>) -> Event {
     match result {
-        Ok(bytes) => match cancelled_tree(path.clone(), opts) {
-            Some(event) => event,
-            None => Event::Done { path, bytes },
-        },
+        Ok(bytes) => Event::Done { path, bytes },
         Err(e) => stop_event(path, e),
-    }
-}
-
-/// 把一次树传输的结果收成终态事件：成功也要先确认没被取消。
-///
-/// `walk::run` 只在**逐文件传输**的边界查取消；空树（循环一次都不转）、以及取消
-/// 发生在最后一个文件收尾之后，都没有检查点。没有这一下，用户按了 Stop 仍会
-/// 收到一条 `Done`。失败分支不改写：真因比取消更值得上报。
-fn tree_outcome(
-    root: String,
-    result: Result<u64, TransferError>,
-    opts: &TransferOpts<'_>,
-) -> Event {
-    match result {
-        Ok(bytes) => match cancelled_tree(root.clone(), opts) {
-            Some(event) => event,
-            None => Event::Done { path: root, bytes },
-        },
-        Err(e) => stop_event(root, e),
     }
 }
 
@@ -956,7 +941,7 @@ async fn tree_and_report(
         file_done: &mut on_file_done,
     };
     let result = crate::walk::run(sftp, direction, &mut job).await;
-    final_outcome(root, result, &opts)
+    final_outcome(root, result)
 }
 
 #[cfg(test)]
@@ -986,31 +971,51 @@ mod background_cancel_tests {
         }
     }
 
-    /// 成功返回之后才按 Stop：末尾复核必须把 `Done` 改成 `Cancelled`。
+    /// 成功之后才按 Stop：整份文件已落盘，终态必须是 `Done`，不能写成
+    /// `Cancelled { kept: false }`（那会让 UI 显示 partial removed、队列记 Cancelled）。
     /// 单文件与整棵树共用这一条终态判据，所以两边都跑一遍。
     #[test]
-    fn a_cancelled_transfer_never_reports_done_after_success() {
+    fn a_stop_after_success_still_reports_done() {
         let token = CancelToken::new();
-        let opts = opts_for(&token);
-        match final_outcome("/tree".to_string(), Ok(42), &opts) {
+        token.cancel();
+        for path in ["/tree", "/single.bin"] {
+            match final_outcome(path.to_string(), Ok(42)) {
+                Event::Done { path: got, bytes } => {
+                    assert_eq!(got, path);
+                    assert_eq!(bytes, 42);
+                }
+                other => panic!("成功之后的取消该报 Done，实得 {other:?}"),
+            }
+        }
+    }
+
+    /// 未取消的成功、真取消、真失败三条分支互不串味。
+    #[test]
+    fn terminal_outcomes_keep_success_cancel_and_failure_apart() {
+        match final_outcome("/tree".to_string(), Ok(42)) {
             Event::Done { path, bytes } => {
                 assert_eq!(path, "/tree");
                 assert_eq!(bytes, 42);
             }
             other => panic!("没取消时成功仍报 Done，实得 {other:?}"),
         }
-        token.cancel();
-        for path in ["/tree", "/single.bin"] {
-            match final_outcome(path.to_string(), Ok(42), &opts) {
-                Event::Cancelled { path: got, kept: false } => assert_eq!(got, path),
-                other => panic!("取消后不许报 Done，实得 {other:?}"),
+        // 传输中真被取消：新目标 → 删分片（kept=false）；目标原已存在 → 留着（kept=true）。
+        for (pre_existing, want_kept) in [(false, false), (true, true)] {
+            match final_outcome(
+                "/single.bin".to_string(),
+                Err(TransferError::Cancelled { pre_existing }),
+            ) {
+                Event::Cancelled { path, kept } => {
+                    assert_eq!(path, "/single.bin");
+                    assert_eq!(kept, want_kept);
+                }
+                other => panic!("真取消该按处置表上报 Cancelled，实得 {other:?}"),
             }
         }
         // 真失败不能被取消旗盖掉：保留原始原因，用户才知道哪里坏了。
         match final_outcome(
             "/tree".to_string(),
             Err(TransferError::Failed("disk full".to_string())),
-            &opts,
         ) {
             Event::Failed { message, .. } => assert_eq!(message, "disk full"),
             other => panic!("失败原因该原样上报，实得 {other:?}"),

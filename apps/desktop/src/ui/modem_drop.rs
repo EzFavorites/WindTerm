@@ -30,14 +30,23 @@ fn upload_pick_for(local: &str, is_dir: bool) -> Option<XferPick> {
 /// 批处理写法）；单条路径原样传下去，不经过连接。路径名里带 `;` 是合法的，单条
 /// 时绝不能因为「拼接」这一步把它当成多文件语法处理。
 ///
-/// 注意：原样传下去还不够——下游 `send_target_paths` 的启发式也可能因为「碎片都
-/// 存在」再把一条真名带分号的路径劈开。那一侧另有一道「整条路径存在就当单路径」
-/// 的闸门，两处合起来才真正不误拆（见 `xfer_run.rs` 的 `send_target_paths`）。
+/// 注意：原样传下去还不够——下游 `send_target_paths` 的「碎片都存在」启发式也会
+/// 把一条真名带分号的路径劈开。那一侧有一道「整条路径存在就当单路径」闸门，但
+/// 它**只在**本函数下面给出的 `literal_single` 事实为真时才启用：拖进来的确实
+/// 只有一条，才不拆；手动输入的 `a;b` 仍是两条（见 `xfer_run.rs`）。
 fn modem_path_text(paths: &[String]) -> String {
     match paths {
         [only] => only.clone(),
         many => many.join(";"),
     }
+}
+
+/// 「拖进来的只有一条」这个事实，随弹层一路传到驱动层。
+///
+/// 不能靠「文本里有没有 `;`」反推：单条拖放路径的真名就可能带分号。来源只有
+/// 这里知道，所以显式传下去。
+fn modem_literal_single(paths: &[String]) -> bool {
+    matches!(paths, [_])
 }
 
 pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
@@ -84,6 +93,7 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     win.dispatch_action(Action::Xfer(XferCmd::Send(protocol)));
     if let Some(prompt) = win.xfer_prompt.as_mut() {
         prompt.path = modem_path_text(&paths);
+        prompt.literal_single = modem_literal_single(&paths);
     }
     ctx.request_repaint();
 }
@@ -127,5 +137,16 @@ mod tests {
         let b = "/tmp/c.txt".to_string();
         assert_eq!(modem_path_text(&[a.clone(), b.clone()]), format!("{a};{b}"));
         assert_eq!(modem_path_text(&[]), "");
+    }
+
+    #[test]
+    fn a_single_dropped_path_carries_the_literal_single_fact() {
+        // 单条拖放（哪怕真名带分号）要显式置位；多条拖放和零条都不能置位。
+        let single = "/tmp/a;b;c.txt".to_string();
+        assert!(modem_literal_single(&[single.clone()]));
+        // 复核：置位那一条仍是原样传递，不经过 `;` 拼接。
+        assert_eq!(modem_path_text(&[single]), "/tmp/a;b;c.txt");
+        assert!(!modem_literal_single(&["/tmp/a".into(), "/tmp/b".into()]));
+        assert!(!modem_literal_single(&[]));
     }
 }

@@ -53,6 +53,13 @@ pub(in crate::ui) struct XferPrompt {
     pub protocol: XferProtocol,
     /// 路径输入缓冲（跨帧：输入法的预编辑文本要活过一帧）。
     pub path: String,
+    /// 「这一条路径来自拖放，确实只有一条」的显式事实。
+    ///
+    /// 拖放可能落进一个真名里带 `;` 的文件（例如 `/tmp/a;b.txt`）。只有带着这个
+    /// 事实，驱动侧的 `send_target_paths` 才启用「整条路径存在就当单路径」闸门；
+    /// 用户手动输入的 `a;b` 保持 `false`，始终按多文件碎片判定。事实放在弹层上
+    /// 一路传到 `start_with_literal`，不在驱动层靠路径形状猜来源。
+    pub literal_single: bool,
     /// 接收完成后是否用系统默认程序打开目标目录（X/Y/ZMODEM 文档都有此条）。
     pub open_after: bool,
     /// 接收侧同名冲突策略（官网 page/14 七档，见 `xfer_conflict::POLICIES`）。发送侧不用，
@@ -111,6 +118,8 @@ impl XferPrompt {
             direction,
             protocol,
             path: String::new(),
+            // 菜单/自动触发打开的弹层都是用户手动填路径，不是拖放单条。
+            literal_single: false,
             open_after: false,
             policy: Default::default(),
             error: None,
@@ -296,6 +305,8 @@ mod tests {
         assert_eq!(send.direction, XferDirection::Send);
         assert_eq!(protocol_label(send.protocol), "XMODEM");
         assert!(send.path.is_empty());
+        // 菜单开出来的弹层是手动填路径：不带「拖放单条」这个事实。
+        assert!(!send.literal_single);
 
         let receive = XferPrompt::from(XferCmd::Receive(XferProtocol::Ymodem)).unwrap();
         assert_eq!(receive.direction, XferDirection::Receive);

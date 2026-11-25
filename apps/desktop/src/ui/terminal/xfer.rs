@@ -229,6 +229,9 @@ impl TerminalWindow {
         let protocol = prompt.protocol;
         // 接收弹层选的同名冲突策略原样交给驱动；发送侧不用，传默认档即可。
         let policy = prompt.policy;
+        // 拖放进来的单条路径才带这个事实（弹层由 modem_drop 置位）；手动输入
+        // 的 `a;b` 保持 false，驱动侧只按碎片判定，不启「整条存在优先」闸门。
+        let literal_single = prompt.literal_single;
         // 一次只跑一个：起第二个会把旧句柄丢掉，而它的 `Drop` 就是取消——
         // 用户会看到上一次传输莫名其妙停了。挡住，让他自己决定取消还是等。
         if let Some(job) = self.xfer.as_ref() {
@@ -242,13 +245,14 @@ impl TerminalWindow {
             self.xfer_prompt_error("这个标签没有活着的会话".to_string());
             return;
         };
-        match XferHandle::start_with_policy(
+        match XferHandle::start_with_literal(
             self.pool.clone(),
             session,
             kind,
             run_protocol(protocol),
             path.clone(),
             policy,
+            literal_single,
         ) {
             Ok(handle) => {
                 self.xfer = Some(XferJob {
