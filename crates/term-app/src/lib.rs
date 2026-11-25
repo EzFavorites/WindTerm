@@ -53,14 +53,15 @@
 //!   找文件与文本解析都在投影层，那里复用全仓唯一那份 ssh config 解析器，
 //!   本层只接收摊好的 `DetectedHost`，因此依赖表仍只有 `term-core`
 //!
-//! 以下三个**只在 `--features planned` 下编译**（理由见下方 `planned` 段）：
+//! 只有一个模块**只在 `--features planned` 下编译**（理由见下方 `planned` 段）：
 //!
-//! - `structure`：结构领域模型——折叠区间 / 多光标 / 作用域栈的不变量
-//! - `trigger`：触发器求值内核——事件 → 匹配 → 动作；跨 chunk 的尾巴、
-//!   冷却与一次性事件都在纯层，`now` 由宿主注入
+//! - `structure`：结构领域模型——作用域栈 / 多光标的不变量（折叠区间已在
+//!   默认面的 `folds`，结构模型本身仍无生产读者）
 //!
-//! `tmux_layout`（`%layout-change` 布局串 → 窗格矩形、PTY 尺寸双向换算）已于
-//! 2026-11-12 因真读者提回**默认编译面**，见下方 `tmux_layout` 段的注释。
+//! `trigger`（触发器求值内核——事件 → 匹配 → 动作；跨 chunk 的尾巴、冷却与
+//! 一次性事件都在纯层，`now` 由宿主注入）与 `tmux_layout`
+//! （`%layout-change` 布局串 → 窗格矩形、PTY 尺寸双向换算）都已因真读者提回
+//! **默认编译面**，见下方 `trigger` / `tmux_layout` 段的注释。
 
 pub mod action;
 // `address` 留在**默认编译面**上，不进 `--features planned`。
@@ -125,26 +126,24 @@ pub mod wrap_word;
 
 // ── `planned`：已实现、已测试，但**没有任何生产读者** ──────────────────────
 //
-// 这两个模块共约 800 行生产代码 + 34 条单测。2026-11-12 审查实测：
-// `term_app::structure` / `term_app::trigger` 两个模块路径，加上 crate 根那些
-// 再导出符号（`Matcher` / `Rule` / `Carets` …），在 `apps/` 与其余
-// `crates/` 里的外部引用**全为 0**。
+// 现在只剩 `structure` 一个模块。2026-11-12 审查实测时 `trigger` 也在清单里，
+// 但那次结论已经过期：`apps/desktop` 随后把触发器接进了真实路径——会话的
+// `apply_trigger` / 右键的规则编辑 / `ip_hover` 与 `builtin_hover` 的检测都直接
+// `use term_app::trigger`，桌面端还一度必须显式开 `planned` 才能编过。有真读者
+// 就必须回到默认编译面（与 `folds` / `tmux_layout` 同一规矩），否则默认 `cargo
+// test` 的绿色根本没覆盖用户真正点得到的那条路。
 //
-// 2026-11-14 订正：`FoldRegion` 与 `StructureError` 已搬去默认面上的 `folds`
-// （折叠有真实读者），因此它们不再属于这份清单；`structure` 里剩下的
-// `Carets` / `ScopeStack` / `StructureModel` 仍然零读者，继续挂在 `planned`。
-//
-// `tmux_layout` 原本是第四个，2026-11-12 因 Step 9 双向闭环测试
-// （`apps/desktop/tests/docker_tmux.rs` 直接 `use term_app::tmux_layout`）有了真读者，
-// 已提回默认编译面——它的 12 条单测现在默认会跑。
+// `structure` 里剩下的 `ScopeStack` / `StructureModel` 依然零读者，继续挂在
+// `planned`；`FoldRegion` / `StructureError` 早在 2026-11-14 就搬去默认面的
+// `folds`，不属于这份清单。
 //
 // 留在默认编译面上时，`cargo test` 的绿色在为无人调用的代码担保——而本 crate
 // 自己的规矩是「没有读者的字段不是预留，是第二步的假接口」（见 `state.rs` 开头）。
 // 所以用 feature 把「已接线」与「已实现但未接线」在**编译期**分开，与本 crate
 // 处理未接线命令的方式一致（返回 `None` 而不是占位变体）。
 //
-// 这不是删除：触发器与 tmux `%layout-change` 都还在路线图上，`--features
-// planned` 时全部回来。`scripts/verify.sh` 第 1 项会用该 feature 编一次，防烂。
+// 这不是删除：`structure` 仍在路线图上，`--features planned` 时回来。
+// `scripts/verify.sh` 第 1 项会用该 feature 编一次，防烂。
 
 #[cfg(feature = "planned")]
 pub mod structure;
@@ -153,16 +152,17 @@ pub mod structure;
 // `apps/desktop/tests/docker_tmux.rs` 直接 `use term_app::tmux_layout`（真机验证
 // `split-window -h` 后能解析出 2-pane 布局），有了真读者就不再是「无人调用」。
 // 后续产品侧 auto-feed / 尺寸双向也走这里。
-
 pub mod tmux_layout;
 
-#[cfg(feature = "planned")]
+// `trigger` 于本轮提回默认编译面：桌面端的 `ui/terminal/session.rs`、
+// `ui/dialogs/triggers/*`、`ui/terminal/ip_hover.rs` 等都是生产读者，
+// 显式开 `planned` 只是历史遗留。`trigger_regex` 是它内部唯一使用的简化正则，
+// 必须跟着一起进默认面；`trigger_builtins` / `trigger_queue` 早已在默认面。
 pub mod trigger;
 pub mod trigger_builtins;
 pub mod trigger_queue;
 
 // Trigger 的简化正则（分组 / 选择都不支持）；只在 `trigger` 内部使用。
-#[cfg(feature = "planned")]
 mod trigger_regex;
 
 pub use tmux_layout::{layout_to_size, parse_layout, resize_command, resize_pane_command, Layout, Node};
@@ -175,5 +175,4 @@ pub use address::{
     session_candidates, window_start, AddressKind, AddressProblem, AddressState, Candidate, Target,
 };
 
-#[cfg(feature = "planned")]
 pub use trigger::{validate, Hit, Matcher, Rule, TriggerAction, TriggerOn};

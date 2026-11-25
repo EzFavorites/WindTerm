@@ -310,3 +310,27 @@ fn margin_fold_column_is_wired_like_the_other_columns() {
         "Fold 列必须与其它四列一样是可点的 margin 开关"
     );
 }
+
+#[test]
+fn right_click_shortcuts_follow_the_real_platform() {
+    use term_app::shortcut_map::{KeyBindingMap, Platform};
+    let find = TERMINAL_ROWS.iter().find(|r| r.label == "Find").unwrap();
+    let clear = TERMINAL_ROWS.iter().find(|r| r.label == "Clear Screen").unwrap();
+    let save = VIEW_ROWS.iter().find(|r| r.label == "Save Session").unwrap();
+    let wrap = VIEW_ROWS.iter().find(|r| r.label == "Word Wrap").unwrap();
+    let mac = KeyBindingMap::new(&[], Platform::Macos);
+    let win = KeyBindingMap::new(&[], Platform::Windows);
+
+    // macOS 就是视觉基线的那份 Meta+ 写法，重冻不需要。
+    assert_eq!(shortcut_on_platform(find, &mac), "Meta+F");
+    assert_eq!(shortcut_on_platform(clear, &mac), "Meta+L");
+    assert_eq!(shortcut_on_platform(save, &mac), "Meta+S");
+
+    // 真平台是 Win/Linux 时，右键列与菜单栏一样写 Ctrl；没有命令 ID 的历史行
+    // （Clear Screen）也必须跟着主修饰键走，不能只修有 ID 的那几行。
+    assert_eq!(shortcut_on_platform(find, &win), "Ctrl+F");
+    assert_eq!(shortcut_on_platform(clear, &win), "Ctrl+L");
+    assert_eq!(shortcut_on_platform(save, &win), "Ctrl+S");
+    // 字面 Alt 两段键不是主修饰键，任何平台都照基线原样。
+    assert_eq!(shortcut_on_platform(wrap, &win), "Alt+M, Alt+W");
+}

@@ -26,17 +26,17 @@ term-core = { path = "../term-core" }
 
 [features]
 default = []
-# 已实现、已测试，但**没有生产读者**的模块（structure / trigger / trigger_regex，
-# 2026-11-12 移出 tmux_layout 后剩 800 余行生产代码 + 数条单测）。
+# 已实现、已测试，但**没有生产读者**的模块：现在只剩 `structure`。
 #
-# 2026-11-12 审查实测：这些模块路径与 crate 根的再导出符号，在 `apps/` 与其余
-# `crates/` 里的外部引用**全为 0**。留在默认编译面上时，`cargo test` 的绿色是
-# 在为无人调用的代码担保，而本 crate 的规矩是「没有读者的字段不是预留，是
-# 第二步的假接口」。
+# 2026-11-12 审查时 `trigger` / `trigger_regex` 也在清单里，但那个结论后来过期：
+# `apps/desktop` 把触发器接进了会话执行、规则编辑与 hover 检测等真实路径，
+# 桌面端甚至一度必须显式开 `planned` 才能编过。有真读者就回默认编译面——
+# 与 `folds` / `tmux_layout` 同一规矩；`trigger_regex` 作为 `trigger` 的内部
+# 依赖跟着一起回默认面。`apps/desktop` 因此不再需要显式开本 feature。
 #
-# 所以用 feature 把「已接线」与「已实现但未接线」分开：默认不编译不跑，
-# `--features planned` 时全部回来。`verify.sh` 第 1 项会编一次防烂。
+# `structure` 的 `ScopeStack` / `StructureModel` 仍零读者，默认不编译不跑，
+# `--features planned` 时回来。`verify.sh` 第 1 项会编一次防烂。
 #
-# `tmux_layout` 于 2026-11-12 提回默认面：B2 Step 9 双向闭环测试直接引用它
-# （`apps/desktop/tests/docker_tmux.rs`），有了真读者便不再属于「无人调用」。
+# 本 feature 与「已接线」无关：不能用它来决定某条命令是否可用，那由
+# `capability` 台账判断。留在默认面的代码必须真的有读者，否则就删。
 planned = []

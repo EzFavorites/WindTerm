@@ -31,7 +31,10 @@
 //! [`preserve_broken`]），再写新文件；连备份都做不到时**这一次就不写**。
 //! 保全只发生在写路径上——读仍然是零副作用的一件事。
 
+use crate::persist::{fingerprint_bytes, write_atomic_if_unchanged, AtomicWriteError};
 use serde::{Deserialize, Serialize};
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use term_core::command_history::CommandHistory;
@@ -1056,11 +1059,74 @@ fn prefs_path() -> Option<PathBuf> {
     Some(term_paths::profile_dir()?.join(PREFS_FILE))
 }
 
+// 本线程最后一次「亲眼看到」的每份 prefs 文件内容指纹。
+//
+// `load()` 记下读到的字节，`save()` 成功后记下写出的字节——两者都是这条
+// load-modify-save 链路上我们见过的版本。别的线程 / 进程各有自己的表，
+// 互不干扰，这正是「两个进程」的分界。写盘前的比较就是拿盘上现在的
+// 指纹问这张表：不一致说明有人在我们读完之后动过文件。
+thread_local! {
+    static SEEN: RefCell<HashMap<PathBuf, u64>> = RefCell::new(HashMap::new());
+    static LAST_SAVE_ERROR: Cell<Option<SaveError>> = const { Cell::new(None) };
+}
+
+fn remember(path: &Path, fingerprint: u64) {
+    SEEN.with(|seen| {
+        seen.borrow_mut().insert(path.to_path_buf(), fingerprint);
+    });
+}
+
+fn forget(path: &Path) {
+    SEEN.with(|seen| {
+        seen.borrow_mut().remove(path);
+    });
+}
+
+fn baseline(path: &Path) -> Option<u64> {
+    SEEN.with(|seen| seen.borrow().get(path).copied())
+}
+
+/// 写偏好失败的原因。`save()` 的 `bool` 只够调用方知道「没写成」，
+/// 这一种类型才说得出**为什么**——冲突时 UI 要提示用户重做那一项修改，
+/// 而不是笼统地说「保存失败」或（更糟）谎报成功。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SaveError {
+    /// 拿不到 profile 目录。
+    NoProfileDir,
+    /// 旧文件读不出来又备份不下，按既有规矩拒写。
+    PreserveFailed,
+    /// `load()` 之后盘上内容被别的进程 / 编辑器改过，这次改动需要重做。
+    Conflict,
+    /// 序列化失败或原子写失败。
+    Io,
+}
+
+impl SaveError {
+    /// 给用户看的一句话。刻意不写具体键名：我们只发现了「版本变了」，
+    /// 不知道对方改了哪一项，不能装作知道。
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::NoProfileDir => "拿不到配置目录，偏好没有保存",
+            Self::PreserveFailed => "旧配置读不出来且备份失败，为避免丢数据本次没有写入",
+            Self::Conflict => "配置已被其它进程或编辑器改过，请重新打开设置页再改一次",
+            Self::Io => "写盘失败，偏好没有保存",
+        }
+    }
+}
+
+/// 最近一次 [`save`] / [`save_to_path`] / [`save_checked`] 的失败原因；
+/// 成功时清空。本线程本地，和 [`SEEN`] 同一条边界——UI 在自己的线程上
+/// 写完就能取到，用来决定要不要弹「请重做」的提示。
+pub fn last_save_error() -> Option<SaveError> {
+    LAST_SAVE_ERROR.with(|e| e.get())
+}
+
 /// 读偏好。文件不存在 / 读不出来 / JSON 坏了都返回 `None`——调用方据此
 /// 保持默认值，不需要区分是哪一种失败（都不该拦住启动）。
 ///
 /// **读的宽容不等于写的宽容**：这三种失败对「能不能覆盖」的答案完全不同，
-/// 写路径会用 [`load_from_checked`] 再问一次（见 [`save`]）。
+/// 写路径会用 [`read_disk`] 再问一次（见 [`save`]）。读到这里时还会记下
+/// 这份字节的指纹，作为随后那次 save 的乐观锁基线。
 pub fn load() -> Option<Prefs> {
     prefs_path().and_then(|p| load_from(&p))
 }
@@ -1091,19 +1157,36 @@ pub fn exists() -> bool {
 /// 并返回 `false`：宁可让用户这一下改动不生效（下次打开设置页还看到旧值，
 /// 改动再点一次就是了），也不要把原文件换成出厂值。
 ///
+/// # 跨进程的 load-modify-save
+///
+/// 光保全坏文件还不够：两个进程都读到同一份**合法**的旧文件，各改一个键，
+/// 后写者会把先写者那一项整份盖回去，而且没有任何报错。所以写前再读一次
+/// 指纹，与本线程 `load()` / 上次成功 `save()` 记下的基线比对——不一致就是
+/// [`SaveError::Conflict`]，写被拒绝，用户重做即可，绝不静默回退。
+///
 /// 这一步的代价是每次写多读一遍这个几百字节的文件——设置页的写只在
 /// 「松手 / 点一下」时发生，不在每帧。
 pub fn save(prefs: &Prefs) -> bool {
-    let ok = match prefs_path() {
-        Some(path) => save_to(&path, prefs),
-        None => false,
+    save_checked(prefs).is_ok()
+}
+
+/// [`save`] 的显式错误版：调用方要按失败原因给不同提示时用这个
+/// （例如冲突要提示「请重新打开设置页改一次」，IO 失败只要重试）。
+pub fn save_checked(prefs: &Prefs) -> Result<(), SaveError> {
+    let outcome = match prefs_path() {
+        Some(path) => save_to_checked(&path, prefs),
+        None => Err(SaveError::NoProfileDir),
     };
-    // 偏好版本号：每次**成功**写盘推进一格。界面层每帧读一次差额，得到
-    // `AppSnapshot.prefs_rev`——脚本据此判断要不要重取偏好，不再拿到死状态。
-    if ok {
-        WRITE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    match &outcome {
+        Ok(_) => {
+            LAST_SAVE_ERROR.with(|e| e.set(None));
+            // 偏好版本号：每次**成功**写盘推进一格。界面层每帧读一次差额，得到
+            // `AppSnapshot.prefs_rev`——脚本据此判断要不要重取偏好，不再拿到死状态。
+            WRITE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        Err(e) => LAST_SAVE_ERROR.with(|last| last.set(Some(*e))),
     }
-    ok
+    outcome.map(|_| ())
 }
 
 static WRITE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1113,28 +1196,79 @@ pub fn write_generation() -> u64 {
     WRITE_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// 显式路径版的写盘，语义与 [`save`] 完全一致（同一套覆盖前保全）。
+/// 显式路径版的写盘，语义与 [`save`] 完全一致（同一套覆盖前保全与冲突检测）。
 ///
 /// 只给「解析 → 合并 → 写盘」这条链路的单测用：导入链路要验证坏文件被另存 /
 /// 写不进去时拒写，但单测不能去碰用户真实的 profile 目录。生产调用方仍然走
-/// [`save`]，保全逻辑全仓只有 [`save_to`] 这一份。
+/// [`save`]，保全逻辑全仓只有 [`save_to_checked`] 这一份。
 pub fn save_to_path(path: &Path, prefs: &Prefs) -> bool {
     save_to(path, prefs)
 }
 
 fn save_to(path: &Path, prefs: &Prefs) -> bool {
-    if !preserve_before_overwrite(path) {
-        return false;
+    match save_to_checked(path, prefs) {
+        Ok(_) => {
+            LAST_SAVE_ERROR.with(|e| e.set(None));
+            true
+        }
+        Err(e) => {
+            LAST_SAVE_ERROR.with(|last| last.set(Some(e)));
+            false
+        }
+    }
+}
+
+/// 一次读盘同时拿到解析结果与字节指纹：冲突检测与「覆盖前保全」必须看
+/// **同一份快照**，否则两次读之间正好被别人改掉时又会漏掉冲突。
+fn read_disk(path: &Path) -> (Option<u64>, Result<Prefs, LoadError>) {
+    if !path.is_file() {
+        return (None, Err(LoadError::Missing));
+    }
+    let Ok(raw) = std::fs::read(path) else {
+        return (None, Err(LoadError::Unreadable));
+    };
+    let fingerprint = fingerprint_bytes(&raw);
+    let parsed = std::str::from_utf8(&raw)
+        .map_err(|_| LoadError::Unreadable)
+        .and_then(|text| serde_json::from_str(text).map_err(|_| LoadError::Malformed));
+    (Some(fingerprint), parsed)
+}
+
+fn save_to_checked(path: &Path, prefs: &Prefs) -> Result<u64, SaveError> {
+    let (fingerprint, parsed) = read_disk(path);
+
+    // 乐观锁：盘上的内容必须还是我们见过的那一份。没基线（第一次写、
+    // 手改后从未 load 过的显式路径写）才跳过——那种调用方没有可过期的快照。
+    if let Some(want) = baseline(path) {
+        if fingerprint != Some(want) {
+            return Err(SaveError::Conflict);
+        }
+    }
+
+    // 覆盖前的保全沿用旧规矩：坏文件先逐字节另存，存不下就不写。
+    if matches!(parsed, Err(LoadError::Unreadable) | Err(LoadError::Malformed)) {
+        match preserve_broken(path) {
+            Some(backup) => record_recovery(&backup),
+            None => return Err(SaveError::PreserveFailed),
+        }
     }
     if let Some(parent) = path.parent() {
         if std::fs::create_dir_all(parent).is_err() {
-            return false;
+            return Err(SaveError::Io);
         }
     }
     let Ok(json) = serde_json::to_string_pretty(prefs) else {
-        return false;
+        return Err(SaveError::Io);
     };
-    crate::persist::write_atomic(path, json.as_bytes())
+    match write_atomic_if_unchanged(path, fingerprint, json.as_bytes()) {
+        Ok(new_fingerprint) => {
+            // 接下来同一进程再 save 时，基线上移到这次写出的字节。
+            remember(path, new_fingerprint);
+            Ok(new_fingerprint)
+        }
+        Err(AtomicWriteError::Conflict) => Err(SaveError::Conflict),
+        Err(AtomicWriteError::Io) => Err(SaveError::Io),
+    }
 }
 
 // ---- 覆盖前的保全 ----
@@ -1161,35 +1295,18 @@ enum LoadError {
     Malformed,
 }
 
-fn load_from_checked(path: &Path) -> Result<Prefs, LoadError> {
-    if !path.is_file() {
-        return Err(LoadError::Missing);
-    }
-    let raw = std::fs::read_to_string(path).map_err(|_| LoadError::Unreadable)?;
-    serde_json::from_str(&raw).map_err(|_| LoadError::Malformed)
-}
-
 /// 宽容版：界面只要「读到就用，读不到就用默认值」这一个动作。
-fn load_from(path: &Path) -> Option<Prefs> {
-    load_from_checked(path).ok()
-}
-
-/// 覆盖前的保全。返回 `true` = 可以安全覆盖。
 ///
-/// - 没有旧文件 → 没有东西可以丢，直接写；
-/// - 旧文件读得出来 → 它是一份合法的偏好，覆盖是用户明确要求的动作；
-/// - 旧文件读不出来 → 先另存一份；存不下就**不许写**（返回 `false`）。
-fn preserve_before_overwrite(path: &Path) -> bool {
-    match load_from_checked(path) {
-        Ok(_) | Err(LoadError::Missing) => true,
-        Err(LoadError::Unreadable) | Err(LoadError::Malformed) => match preserve_broken(path) {
-            Some(backup) => {
-                record_recovery(&backup);
-                true
-            }
-            None => false,
-        },
+/// 顺手记下这次**亲眼看到**的字节指纹：随后 `load-modify-save` 里的 save
+/// 就是拿它跟盘上内容比，发现别人动过就拒写（见 [`save_checked`]）。
+/// 文件不存在时清掉旧基线，免得上次保存的指纹把这次「从零开始」误判成冲突。
+fn load_from(path: &Path) -> Option<Prefs> {
+    let (fingerprint, parsed) = read_disk(path);
+    match fingerprint {
+        Some(fp) => remember(path, fp),
+        None => forget(path),
     }
+    parsed.ok()
 }
 
 /// 同一份坏内容最多试几个后缀名。正常情况下第一个就成功（或复用已有那份），
@@ -2057,7 +2174,7 @@ mod tests {
     // ---- 坏文件不许被静默覆盖（本仓唯一一条「写一下就不可逆丢数据」的路） ----
     //
     // 这几条是回归用例，不是既有行为的描述：把 `save_to` 开头那句
-    // `preserve_before_overwrite` 去掉，第一条会以「备份 0 份」失败 —— 那正是
+    // `save_to_checked` 里的坏文件保全去掉，第一条会以「备份 0 份」失败 —— 那正是
     // 修复之前用户丢掉整份 `prefs.json` 的时刻。
 
     #[test]
@@ -2092,7 +2209,7 @@ mod tests {
         let raw: [u8; 5] = [b'{', b'"', 0xFF, b'"', b'}'];
         std::fs::write(&path, raw).unwrap();
         assert_eq!(
-            load_from_checked(&path),
+            read_disk(&path).1,
             Err(LoadError::Unreadable),
             "前提：非 UTF-8 走的是「读不出来」这一支"
         );
@@ -2108,13 +2225,13 @@ mod tests {
         // 「文件坏了」当成「没有文件」照写（丢数据），要么把「没有文件」当成
         // 「文件坏了」拒写（第一次保存就永远存不下来）。
         let missing = tmp().with_file_name("nope.json");
-        assert_eq!(load_from_checked(&missing), Err(LoadError::Missing));
+        assert_eq!(read_disk(&missing).1, Err(LoadError::Missing));
         let broken = tmp();
         std::fs::write(&broken, "not json at all").unwrap();
-        assert_eq!(load_from_checked(&broken), Err(LoadError::Malformed));
+        assert_eq!(read_disk(&broken).1, Err(LoadError::Malformed));
         let unreadable = tmp();
         std::fs::write(&unreadable, [0xFF_u8, 0xFE]).unwrap();
-        assert_eq!(load_from_checked(&unreadable), Err(LoadError::Unreadable));
+        assert_eq!(read_disk(&unreadable).1, Err(LoadError::Unreadable));
     }
 
     #[test]
@@ -2423,5 +2540,65 @@ mod tests {
         assert!(Prefs::default().text_highlight_search, "出厂与缺键同一种画法");
         // 其余字段不连坐。
         assert_eq!(back.font_size, 15.0);
+    }
+
+    /// 两个进程各自 load 了同一份合法 prefs、各改一个键：后写者不许把先写者
+    /// 的键整份盖回去，也不许假装成功。本线程扮演进程 B（先读、后写），
+    /// 另一个线程扮演进程 A（中间读改并写）——线程本地的 SEEN 表就是进程边界。
+    #[test]
+    fn two_writers_on_different_keys_do_not_silently_regress() {
+        let path = tmp();
+        let base = Prefs {
+            language: "en".to_string(),
+            font_size: 12.0,
+            ..Prefs::default()
+        };
+        assert!(save_to(&path, &base));
+
+        // 进程 B 先读到基线（记下此刻的内容指纹）。
+        let mut b = load_from(&path).expect("B 读到了基线");
+        assert_eq!(b.language, "en");
+
+        // 进程 A 用自己那份快照改 language 并成功写盘。
+        let path_a = path.clone();
+        let a = std::thread::spawn(move || {
+            let mut a = load_from(&path_a).expect("A 读到了同一份基线");
+            a.language = "zh-CN".to_string();
+            assert!(save_to(&path_a, &a), "A 的基线是最新的，应当写成");
+        });
+        a.join().expect("A 线程不能 panic");
+
+        // B 改的只是另一个键，但它手里那份 prefs 已经过期：必须拒写并报出
+        // 明确原因，不能把 A 的 language 静默回退成 en。
+        b.font_size = 20.0;
+        assert!(!save_to(&path, &b), "过期基线必须拒写");
+        assert_eq!(last_save_error(), Some(SaveError::Conflict));
+        assert!(!SaveError::Conflict.message().is_empty(), "UI 要有可显示的原因");
+        let disk = load_from(&path).expect("盘上仍是 A 写下的合法偏好");
+        assert_eq!(disk.language, "zh-CN", "先写者的键不许被静默回退");
+        assert_ne!(disk.font_size, 20.0, "后写者的改动没有偷偷生效");
+        assert_eq!(disk.font_size, 12.0);
+    }
+
+    /// 冲突是显式错误；成功后错误必须清空，否则 UI 会在下一次正常的
+    /// 保存之后还挂着上次的「请重做」提示。
+    #[test]
+    fn save_error_is_explicit_and_cleared_by_a_success() {
+        let path = tmp();
+        let prefs = Prefs { language: "en".to_string(), ..Prefs::default() };
+        assert!(save_to(&path, &prefs));
+        assert_eq!(last_save_error(), None);
+        // 外部改了文件（模拟手改 / 另一个进程），本线程的基线过期。
+        std::fs::write(&path, r#"{"language":"zh-CN"}"#).unwrap();
+        assert!(!save_to(&path, &prefs));
+        assert_eq!(last_save_error(), Some(SaveError::Conflict));
+        assert_eq!(
+            SaveError::Conflict.message(),
+            "配置已被其它进程或编辑器改过，请重新打开设置页再改一次"
+        );
+        // 重新读一次再写：成功，错误清空。
+        let fresh = load_from(&path).unwrap();
+        assert!(save_to(&path, &fresh));
+        assert_eq!(last_save_error(), None);
     }
 }

@@ -27,11 +27,6 @@ use super::settings_pages_view::{
 use crate::ui::terminal::MarksParams;
 use crate::ui::*;
 
-/// 页底：哪些格真接、哪一格没有第二种渲染器，分别说清。
-const WRAP_LIVE_NOTE: &str = "Wrap mode, wrap column, wrap symbols, column markers and the marker \
-     column apply immediately and are saved. Soft wrapping is toggled per tab via Mode ▸ Word \
-     Wrap (or Alt+M, Alt+W). Marker style has one implementation.";
-
 /// `Wrap mode` / `Wrap column` 现在都是真控件：改完同步窗口副本并落盘。
 const WRAP_MODE_NOTE: &str = "Choose character or word wrapping and a wrap column here; both \
      apply immediately and are saved. Toggle soft wrapping per tab with Mode ▸ Word Wrap \
@@ -168,14 +163,6 @@ mod tests {
         let off = 0usize;
         let on = if off == 0 { 80 } else { off };
         assert_eq!(on, 80);
-    }
-
-    #[test]
-    fn the_page_note_describes_the_wired_and_display_only_rows() {
-        assert!(WRAP_LIVE_NOTE.contains("apply"));
-        assert!(WRAP_LIVE_NOTE.contains("Word Wrap"), "软换行入口要写清");
-        assert!(WRAP_LIVE_NOTE.contains("Wrap mode"), "两行真控件要写清");
-        assert!(WRAP_LIVE_NOTE.contains("Marker style"));
     }
 
     #[test]

@@ -25,7 +25,18 @@
 //! 现在统一走 [`unique_tmp`] / [`write_atomic`]：pid + 纳秒 + 进程内序号，
 //! 照 `term-ssh/src/known_hosts_admin.rs::write_atomic` 的范式，零新依赖。
 //! rename 失败会 `remove_file` 清掉临时文件，目录里不许留半截账本。
+//!
+//! # 跨进程 load-modify-save 的乐观锁
+//!
+//! 唯一临时名只保证「两次原子写不互相踩临时文件」，挡不住更常见的那次事故：
+//! 两个进程都 load 了旧 `prefs.json`，各自改一个键再 save，后写的那份把先写
+//! 的键整份盖回去（静默回退）。[`write_atomic_if_unchanged`] 在 rename 前再读
+//! 一次文件指纹，与调用方 load 时记下的基线比对；不一致就返回
+//! [`AtomicWriteError::Conflict`]，由 `prefs::save` 翻译成明确错误让 UI 提示用户
+//! 重做，绝不静默覆盖。
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -93,6 +104,57 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> bool {
         return false;
     }
     true
+}
+
+/// 文件当前**字节内容**的指纹；文件不存在 / 读不出来都是 `None`。
+///
+/// 用固定种子的 `DefaultHasher`（不是 `RandomState`）：同一进程里两次读同一份
+/// 字节必须得到同一个值，否则乐观锁永远判冲突。指纹只在本进程内比较，不落盘、
+/// 不跨进程交换，因此哈希算法的跨版本稳定性不是契约。
+pub(crate) fn file_fingerprint(path: &Path) -> Option<u64> {
+    std::fs::read(path).ok().as_deref().map(fingerprint_bytes)
+}
+
+/// 同一份字节的指纹。调用方已经读过一轮字节时用它，不必再读第二次文件
+/// （两次读之间的窗口正是乐观锁要防的东西）。
+pub(crate) fn fingerprint_bytes(bytes: &[u8]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// 只在 `path` 的当前内容等于 `expected` 时才原子写。
+///
+/// `expected = None` 表示调用方没有基线（例如第一次写、或手改文件读不出来），
+/// 此时退化为普通原子写。返回写完后新内容的指纹，调用方把它记成下一次的
+/// 基线；冲突与 IO 失败分开报，让 UI 能说出「有人改过，请重做」而不是
+/// 笼统的「保存失败」。
+///
+/// 注意这是**乐观检测**而不是事务：读指纹与 rename 之间仍有一个极短的窗口。
+/// 对 `prefs.json` 这种「用户点一下才写一次」的文件足够；真要串行化整段
+/// load-modify-save，得让调用方持有锁跨过 load 与 save，那是另一刀。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AtomicWriteError {
+    /// 基线已过期：盘上内容在 load 之后被别的进程（或用户手改）动过。
+    Conflict,
+    /// 临时文件写失败或 rename 失败。
+    Io,
+}
+
+pub(crate) fn write_atomic_if_unchanged(
+    path: &Path,
+    expected: Option<u64>,
+    bytes: &[u8],
+) -> Result<u64, AtomicWriteError> {
+    if let Some(want) = expected {
+        if file_fingerprint(path) != Some(want) {
+            return Err(AtomicWriteError::Conflict);
+        }
+    }
+    if !write_atomic(path, bytes) {
+        return Err(AtomicWriteError::Io);
+    }
+    Ok(fingerprint_bytes(bytes))
 }
 
 /// 测试用：列出目录里所有临时文件残留。只在 `cfg(test)` 下编译。
@@ -487,5 +549,34 @@ mod tests {
         let path = tmp_file().with_file_name(COMMAND_HISTORY_FILE);
         std::fs::write(&path, "not json").unwrap();
         assert!(load_command_history_from(&path).is_none());
+    }
+
+    #[test]
+    fn a_compare_and_swap_write_refuses_an_overwritten_baseline() {
+        let path = tmp_file().with_file_name("prefs.json");
+        let first = write_atomic_if_unchanged(&path, None, b"{\"language\":\"en\"}").unwrap();
+        assert_eq!(Some(first), file_fingerprint(&path), "指纹必须对应刚写下的字节");
+
+        // 基线吻合：正常推进。
+        let second =
+            write_atomic_if_unchanged(&path, Some(first), b"{\"language\":\"zh-CN\"}").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"{\"language\":\"zh-CN\"}");
+        assert_ne!(second, first);
+
+        // 基线过期（别人已经写进新内容）：拒写，且原文件内容一字不动。
+        assert_eq!(
+            write_atomic_if_unchanged(&path, Some(first), b"{\"font_size\":20.0}"),
+            Err(AtomicWriteError::Conflict)
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"{\"language\":\"zh-CN\"}");
+        assert!(tmp_leftovers(path.parent().unwrap()).is_empty(), "拒写不许留下临时文件");
+
+        // 文件被删掉也算基线过期（`Some` 期望的是那份内容，不是「不存在」）。
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            write_atomic_if_unchanged(&path, Some(second), b"{}"),
+            Err(AtomicWriteError::Conflict)
+        );
+        assert!(!path.exists());
     }
 }

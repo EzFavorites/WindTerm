@@ -85,10 +85,6 @@ fn thumbnail_index(pct: usize) -> usize {
     THUMBNAILS.iter().position(|v| *v == pct).unwrap_or(0)
 }
 
-/// 页底说明：所有行都当场生效。
-const TABS_NOTE: &str = "Activation after closing, hover activation, double-click, text elision, \
-     tab numbers, thumbnails and the middle / right click actions all apply immediately.";
-
 /// 一行**真下拉**：与灰显行共用 `field_row`（标签、字段框、行距都是同一份），
 /// 区别只有「控件能不能点」。
 ///
@@ -275,15 +271,6 @@ mod tests {
         assert_eq!(NUMBER_MODES[0], "No numbers");
         assert_eq!(MIDDLE_ACTIONS[0], "No action");
         assert_eq!(RIGHT_ACTIONS[0], "Tab context menu");
-    }
-
-    #[test]
-    fn the_page_note_claims_every_row_is_live() {
-        assert!(TABS_NOTE.contains("immediately"));
-        assert!(!TABS_NOTE.contains("subsystem"), "缩略图已接真");
-        assert!(!TABS_NOTE.contains("width algorithm"), "编号已接真");
-        assert!(!TABS_NOTE.contains("action set"), "中键/右键已接真");
-        assert!(!TABS_NOTE.contains("delay timer"), "悬停激活已接真");
     }
 
     #[test]

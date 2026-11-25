@@ -24,6 +24,7 @@
 use eframe::egui;
 use term_app::i18n::{t, Lang};
 use term_app::margin::MarginPart;
+use term_app::shortcut_map::KeyBindingMap;
 
 use crate::ui::shell::{
     apply_popup_style, draw_menu_row, menu_separator, rows_width, CheckCell, MenuRowState, RowLook,
@@ -133,6 +134,28 @@ const fn command_check(
 
 const fn swatches() -> Row {
     Row { swatches: true, ..disabled("", "", None) }
+}
+
+/// 右键行的快捷键**展示**文案，与菜单栏共用 [`KeyBindingMap`] 这一份事实。
+///
+/// 有命令 ID 的行直接问 `display`（含用户重绑，按当前平台写 `Ctrl` / `Meta`）；
+/// 视觉基线里 Clear / Zoom / Select All 等行没有绑定表条目（也不许为此新增
+/// 命令 ID），它们照基线记为 macOS 的 `Meta+`，这里只把主修饰键换成
+/// `Platform::primary_label()`——`display` 内部用的正是同一个入口，所以两处
+/// 不会因为各写一份 `if macos` 而分叉。`Meta` 与 `Ctrl` 都是 4 个字符，
+/// 固定快捷键列的宽度公式不需要改。
+fn shortcut_on_platform(r: &Row, map: &KeyBindingMap) -> String {
+    if let Some(id) = r.gate {
+        let shown = map.display(id);
+        if !shown.is_empty() {
+            return shown;
+        }
+    }
+    let label = map.platform().primary_label();
+    if label == "Meta" {
+        return r.shortcut.to_string();
+    }
+    r.shortcut.replace("Meta+", &format!("{label}+"))
 }
 
 const fn sep() -> Row {
@@ -388,11 +411,12 @@ pub(in crate::ui) fn draw_context_rows(
             Some(on) => CheckCell::Box(on),
             None => CheckCell::None,
         };
+        let shortcut = shortcut_on_platform(r, &win.shortcuts);
         let response = draw_menu_row(
             ui,
             text,
             acc,
-            r.shortcut,
+            &shortcut,
             RowLook { state, check, ..base },
             r.submenu,
         )
@@ -431,11 +455,12 @@ fn draw_children_row(
     let text = t(lang, r.label);
     let acc = if text == r.label { r.acc } else { Some(0) };
     let state = if live { MenuRowState::Enabled } else { MenuRowState::Disabled };
+    let shortcut = shortcut_on_platform(r, &win.shortcuts);
     let row = draw_menu_row(
         ui,
         text,
         acc,
-        r.shortcut,
+        &shortcut,
         RowLook { state, ..*base },
         true,
     )
