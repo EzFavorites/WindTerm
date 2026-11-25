@@ -64,10 +64,9 @@ impl TerminalWindow {
         } else {
             chrome(CHROME_SCALE.text)
         };
-        let left = match hit {
-            Some((n, total)) => format!("{} of {} {}", n, total, self.tr("Found")),
-            None => self.status_text(),
-        };
+        // 左区文案统一由 `status_text` 拼：查找命中不再独占错误提示，
+        // 错误也不再独占连接 / 隧道 / 日志 / 只读模式那一条。
+        let left = self.status_text();
         let tab = self.tabs.get(self.active_slot());
         let mode = match tab.map(|t| t.config.protocol) {
             Some(Protocol::Shell) | None => self.tr("Local Mode"),
@@ -206,34 +205,46 @@ impl TerminalWindow {
         }
     }
 
-    /// 左区：没有事件时永远只有一个词 `Ready`；有事件时换成那一条。
+    /// 左区：没有事件时永远只有一个词 `Ready`；有事件时念出那一条。
     /// 这些标签都由各自的功能模块从事实状态现算，状态栏只是念出来。
-    fn status_text(&self) -> String {
-        // 错误类提示有最高优先级：它在前台 Notice 里也有一份，状态栏这一路
-        // 也必须能念出来——否则连接 / 隧道 / 日志标签一在，「请重做」就永远
-        // 看不见（只断言 `log_note` 字段的测试发现不了这一层遮挡）。
-        if let Some(err) = self.error_notice_text() {
-            return err.to_string();
+    ///
+    /// 错误类提示**优先但不独占**：它与本该显示的标签拼在同一行，而不是
+    /// `return` 掉后者——否则连接 / 隧道 / 日志 / 只读模式被一条错误完全
+    /// 遮住，同样看不见（只断言 `log_note` 字段的测试发现不了这一层遮挡）。
+    /// 查找命中（`N of M Found`）同理，不能把前景错误抢掉。
+    pub(in crate::ui) fn status_text(&self) -> String {
+        let error = self.error_notice_text().map(str::to_string);
+        // 更高优先级的那一条：查找命中 → 连接 → 隧道 → 日志 → 只读模式。
+        let label = if let Some((n, total)) = self.find_hit() {
+            Some(format!("{} of {} {}", n, total, self.tr("Found")))
+        } else if let Some(label) = self.connecting_label() {
+            Some(label)
+        } else if let Some(label) = self.tunnel_label() {
+            Some(label)
+        } else if let Some(label) = self.log_label() {
+            Some(label)
+        } else if self.local_mode_on() {
+            // 只读查看是本窗口里持续存在的状态，排在一次性 `log_note` 之前
+            // ——「为什么打字没反应」比一条刚才的提示重要。文案与菜单项同名。
+            Some(self.tr("Local mode").to_string())
+        } else {
+            None
+        };
+        // 有 Error 时 `log_note` 通常就是同一条错误（commit_note 同时写两处），
+        // 不再当成第二个标签重复念一遍。
+        let base = label
+            .or_else(|| {
+                if error.is_some() {
+                    None
+                } else {
+                    self.log_note.clone()
+                }
+            })
+            .unwrap_or_else(|| self.tr("Ready").to_string());
+        match error {
+            Some(err) => format!("{err} · {base}"),
+            None => base,
         }
-        if let Some(label) = self.connecting_label() {
-            return label;
-        }
-        if let Some(label) = self.tunnel_label() {
-            return label;
-        }
-        if let Some(label) = self.log_label() {
-            return label;
-        }
-        // 2026-11-19：只读查看是本窗口里**持续存在**的状态，排在一次性
-        // `log_note` 之前——「为什么打字没反应」比一条刚才的提示重要。
-        // 文案与菜单项同名（`Window ▸ Local Mode`），用户能对上是哪一项。
-        if self.local_mode_on() {
-            return self.tr("Local mode").to_string();
-        }
-        if let Some(note) = &self.log_note {
-            return note.clone();
-        }
-        self.tr("Ready").to_string()
     }
 
     /// 截图 / 视觉基线夹具。判据收在 `harness::fixture_mode`，另外把
@@ -318,11 +329,111 @@ mod tests {
         let rendered = win.status_text();
         assert!(
             rendered.contains("请重新打开设置页再试一次"),
-            "状态栏左区必须念出错误，而不是 Local mode：{rendered:?}"
+            "状态栏左区必须念出错误：{rendered:?}"
+        );
+        assert!(
+            rendered.contains("Local mode"),
+            "错误优先但不独占，只读模式那一条不能整条消失：{rendered:?}"
         );
         // 普通提示随后写进单槽，也不该把前景错误从渲染里挤掉。
         win.log_note = Some("已复制".into());
-        assert!(win.status_text().contains("请重新打开设置页再试一次"));
+        let rendered = win.status_text();
+        assert!(rendered.contains("请重新打开设置页再试一次"));
+        assert!(rendered.contains("Local mode"), "渲染={rendered:?}");
+    }
+
+    /// 连接中标签：错误抢到优先级，但 `Connecting…` 仍要留在同一行。
+    #[test]
+    fn an_error_notice_is_concatenated_with_the_connecting_label() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(
+            pool.clone(),
+            &ctx,
+            vec![fake_tab(&pool, &ctx, 0, &closes)],
+        );
+        win.connector = Some(crate::ui::dialogs::Connector::new(
+            SessionConfig::new(Protocol::Ssh),
+            crate::ui::dialogs::ssh_connect::Step::NeedPassword {
+                reason: "需要密码".into(),
+            },
+        ));
+        assert!(win.connecting_label().is_some(), "前置条件：连接标签真的在");
+
+        win.commit_note(Some("偏好写盘冲突".into()));
+        let rendered = win.status_text();
+        assert!(rendered.contains("偏好写盘冲突"), "渲染={rendered:?}");
+        assert!(
+            rendered.contains("Waiting for a password"),
+            "连接标签不能被错误整条遮住：{rendered:?}"
+        );
+    }
+
+    /// 隧道标签同样不能被错误独占（failed 隧道也有状态栏文案）。
+    #[test]
+    fn an_error_notice_is_concatenated_with_the_tunnel_label() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(
+            pool.clone(),
+            &ctx,
+            vec![fake_tab(&pool, &ctx, 0, &closes)],
+        );
+        let session = win.tabs[0].config.name.clone();
+        win.tunnels = vec![crate::ui::panels::tunnels::RunningTunnel::failed(
+            "test-key".into(),
+            session,
+            "端口被占".into(),
+        )];
+        assert!(win.tunnel_label().is_some(), "前置条件：隧道标签真的在");
+
+        win.commit_note(Some("偏好写盘冲突".into()));
+        let rendered = win.status_text();
+        assert!(rendered.contains("偏好写盘冲突"), "渲染={rendered:?}");
+        assert!(
+            rendered.contains("Tunnel failed"),
+            "隧道标签不能被错误整条遮住：{rendered:?}"
+        );
+    }
+
+    /// 查找命中时 `N of M Found` 不许抢掉前景错误：`status_text` 级渲染断言。
+    #[test]
+    fn a_find_hit_still_renders_the_error_notice() {
+        use term_core::grid::{Cell, LineSlice, ScreenImage};
+
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(
+            pool.clone(),
+            &ctx,
+            vec![fake_tab(&pool, &ctx, 0, &closes)],
+        );
+        let mut cells = vec![Cell::default(); 16];
+        for (i, ch) in "wake up".chars().enumerate() {
+            cells[i].ch = ch;
+        }
+        win.tabs[0].view = ScreenImage {
+            cols: 16,
+            version: 1,
+            range: 0..1,
+            lines: vec![LineSlice { row: 0, cells }],
+            cursor: None,
+            history: 1,
+        };
+        win.view.find.visible = true;
+        win.view.find.query = "wake".into();
+        assert_eq!(win.find_hit(), Some((1, 1)), "前置条件：真的命中了");
+
+        win.commit_note(Some("偏好写盘冲突".into()));
+        let rendered = win.status_text();
+        assert!(rendered.contains("偏好写盘冲突"), "渲染={rendered:?}");
+        assert!(
+            rendered.contains("Found"),
+            "命中计数不能把错误挤掉：{rendered:?}"
+        );
     }
 
     #[test]

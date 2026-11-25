@@ -91,12 +91,12 @@ pub(in crate::ui) fn finish_actions(
     dispatch_all(win, run_commands);
 }
 
-/// 触发器转义写错的提示：帧末统一写进状态行，与工具面板 `Sender` 的 `note`
-/// 同一个落点。取走而不是克隆，保证同一条提示只显示一次。
+/// 触发器转义写错的提示：帧末统一交回窗口，与帧首的 `sync_prefs_rev` 走
+/// **同一个** `commit_note`。取走而不是克隆，保证同一条提示只显示一次；
+/// 错误类同时抬到前景 Notice，状态栏被连接 / 只读标签占住时也看得见。
+/// 过去直接写 `log_note`，转义错误既进不了前景条，还会吃掉帧首那条错误。
 fn flush_trigger_note(win: &mut TerminalWindow, note: &mut Option<String>) {
-    if let Some(text) = note.take() {
-        win.log_note = Some(text);
-    }
+    win.commit_note(note.take());
 }
 
 fn dispatch_all(win: &mut TerminalWindow, ids: Vec<String>) {

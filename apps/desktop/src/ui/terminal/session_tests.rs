@@ -20,6 +20,7 @@
 
 use crate::ui::lifecycle_test_support::{fake_tab, CloseCount};
 use std::sync::{Arc, Mutex};
+use term_core::session::SessionConfig;
 
 /// 把触发器写回会话的字节记下来，用来判定 Send Later 到底发没发。
 #[derive(Clone, Default)]
@@ -329,12 +330,12 @@ fn a_due_send_later_is_checked_even_after_the_session_is_gone() {
     super::session::set_test_now(None);
 }
 
-/// 断连边沿显式抽干队列并提示：会话已经不在，排着的发送既送不出去，
-/// 也不能留到下一条会话上诈尸。
+/// 断连边沿只丢**已到期**却发不出去的项并提示：会话已经不在，这条发送
+/// 既送不出去，也不能留到下一条会话上诈尸。未到期的计划不在此列。
 #[test]
-fn a_disconnect_edge_discards_pending_sends_and_reports_it() {
+fn a_disconnect_edge_discards_due_pending_sends_and_reports_it() {
     let (_sid, mut tab, tx) = tab_with_tap("discard-on-disconnect");
-    let rules = [later_rule("later-discard", "5")];
+    let rules = [later_rule("later-discard", "1")];
     let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
@@ -345,12 +346,100 @@ fn a_disconnect_edge_discards_pending_sends_and_reports_it() {
     // 模拟显式断开：`was_live` 还留着 true，下一帧就是断连边沿。
     tab.session = None;
     let mut note = None;
-    super::session::set_test_now(Some(101));
+    // 1s 后确实到期了，才该被丢；用 due(u64::MAX) 时未到期也会被抽干。
+    super::session::set_test_now(Some(102));
     tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &autofill, &mut note);
 
-    assert_eq!(tab.triggers.pending_count(), 0, "队列必须抽干，不能留给下一条会话");
+    assert_eq!(tab.triggers.pending_count(), 0, "到期项必须取走，不能留给下一条会话");
     let note = note.expect("丢弃必须上屏，不能静默");
     assert!(note.contains("丢弃"), "note={note:?}");
     assert!(note.contains("未送达"), "note={note:?}");
+    super::session::set_test_now(None);
+}
+
+/// 反面：没有自动重连的边沿也不许抽干**未到期**的 Send Later。
+/// 用户手动重连后它仍有机会落地；上一版 due(u64::MAX) 在这里会把未来项吃掉。
+#[test]
+fn a_not_yet_due_send_later_is_kept_on_a_non_auto_reconnect_disconnect() {
+    let (_sid, mut tab, tx) = tab_with_tap("keep-undue-on-disconnect");
+    let rules = [later_rule("later-keep", "5")];
+    let autofill = std::collections::HashMap::new();
+
+    super::session::set_test_now(Some(100));
+    tx.send(b"wake".to_vec()).expect("送一次输出");
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert_eq!(tab.triggers.pending_count(), 1);
+
+    tab.session = None;
+    let mut note = None;
+    super::session::set_test_now(Some(101));
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &autofill, &mut note);
+    assert_eq!(
+        tab.triggers.pending_count(),
+        1,
+        "未到期的项不属于「已到期但无会话可发」，不能抽干"
+    );
+    assert!(note.is_none(), "没丢东西就不该报丢弃：{note:?}");
+    super::session::set_test_now(None);
+}
+
+/// 自动重连的非 shell 会话：1 秒重连之后，命中时的 Send Later 仍要到期落地。
+/// 这是「断连边沿无条件抽干队列」那个 bug 的端到端判据——只看队列长度不够，
+/// 必须真的在新会话的通道上看到写出的字节。
+#[test]
+fn a_send_later_survives_a_one_second_auto_reconnect_and_fires() {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let writes = Writes::default();
+    let mk_ch = || WriteChannel {
+        writes: writes.clone(),
+        finished: false,
+    };
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        SessionConfig::new(term_core::session::Protocol::Ssh),
+        Box::new(mk_ch()),
+        egui::Id::new("later-across-reconnect"),
+        &ctx,
+    );
+    let old_sid = tab.session().expect("夹具带一条会话");
+    let (tx, rx) = std::sync::mpsc::channel();
+    tab.raw.attach(crate::hex_tap::HexTap::new(rx));
+    let rules = [later_rule("later-reconnect", "1")];
+    let autofill = std::collections::HashMap::new();
+
+    super::session::set_test_now(Some(100));
+    tx.send(b"wake".to_vec()).expect("送一次输出");
+    tab.poll(&rules, &mut Vec::new(), true, &[], &autofill);
+    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+
+    // 断开边沿：自动重连 + 非 shell → 队列原样留住，且按 1s 退避排重连。
+    // 断开必须发生在到期之前，否则静默期的 due 会先把它发出去（那时没有会话）。
+    tab.session = None;
+    let mut note = None;
+    tab.poll_with_note(&rules, &mut Vec::new(), true, &[], &autofill, &mut note);
+    assert_eq!(
+        tab.triggers.pending_count(),
+        1,
+        "短暂重连必须留住未到期的 Send Later"
+    );
+    assert!(note.is_none(), "没丢弃就不该报丢弃：{note:?}");
+    assert_eq!(tab.auto_reconnect_at, Some(101), "首次退避是 1 秒");
+
+    // 1 秒后重连：同槽位换一条新会话，假通道仍记到同一份 Writes。
+    let new_sid = tab.pool.open_with_channel(&tab.config, 80, 24, Box::new(mk_ch()));
+    tab.session = Some(new_sid);
+    assert_ne!(new_sid, old_sid, "重连换成新会话 id");
+
+    super::session::set_test_now(Some(101));
+    tab.poll(&rules, &mut Vec::new(), true, &[], &autofill);
+    crate::ui::lifecycle_test_support::eventually("重连后的 Send Later 写出", || {
+        writes
+            .0
+            .lock()
+            .map(|w| w.as_slice() == b"LATER")
+            .unwrap_or(false)
+    });
+    assert_eq!(tab.triggers.pending_count(), 0, "到期项必须被取走，不能重复发");
     super::session::set_test_now(None);
 }

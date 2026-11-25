@@ -84,3 +84,30 @@ fn ordinary_paste_never_carries_the_restore_flag() {
     assert!(local_mode(&win), "普通粘贴不翻转 local_mode：夹具是只读则仍是只读");
     assert_eq!(input(&win), "", "只读态普通粘贴本来就不会到达漏斗");
 }
+
+/// 真实调用形态：帧末 `finish_actions` 取走 `pending_ip_hit`，转义错误攒进
+/// 局部 note，再由 `flush_trigger_note` 交回窗口。过去它直接写 `log_note`，
+/// 错误进不了前景条；现在必须走 `commit_note`，两条通道都看得见。
+#[test]
+fn a_bad_escape_note_from_the_ip_hit_reaches_the_foreground_notice() {
+    let mut win = fixture(false);
+    win.pending_ip_hit = Some(term_core::trigger::Hit {
+        rule_id: "ip-hit".into(),
+        actions: vec![term_core::trigger::TriggerAction::SendText(r"\x0".into())],
+        matched: String::new(),
+    });
+    let slot = TabSlot::Main(win.tabs[0].identity);
+    finish_actions(&mut win, slot, None, None);
+
+    let note = win.log_note.as_deref().expect("转义错误不能静默丢掉");
+    assert!(note.contains("转义写错"), "note={note:?}");
+    assert!(
+        win.error_notice_text()
+            .is_some_and(|t| t.contains("转义写错")),
+        "flush_trigger_note 必须经 commit_note，错误同时进前景 Notice"
+    );
+    // 本帧的局部缓冲已经被 take 走：后续空提交不会再抬一次。
+    let before = win.error_notice_text().map(str::to_string);
+    win.commit_note(None);
+    assert_eq!(win.error_notice_text().map(str::to_string), before);
+}

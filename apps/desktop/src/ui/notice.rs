@@ -110,11 +110,25 @@ impl TerminalWindow {
         let Some(text) = note else {
             return;
         };
-        self.log_note = Some(text.clone());
+        // 已有错误时追加而不是替换：帧首（写盘冲突 / 迁移提示）与帧末
+        // （poll 的转义错误）两条都要留在状态栏单槽里，谁也别吃掉谁。
+        // 普通提示仍走直接赋值那条路（由各功能模块自己写 log_note）。
+        if self.error_notice_text().is_some() {
+            if let Some(prev) = self.log_note.as_mut() {
+                if !prev.contains(&text) {
+                    prev.push('\n');
+                    prev.push_str(&text);
+                }
+            } else {
+                self.log_note = Some(text.clone());
+            }
+        } else {
+            self.log_note = Some(text.clone());
+        }
         self.raise_error_notice(&text);
     }
 
-    /// 把一条错误类提示抬到前景条。
+    /// 把一条错误类提示抬到前景条；已有错误时**合并文本**而不是替换。
     ///
     /// 恢复 / 帧 panic 的通知优先，不被错误提示顶掉；同一句话也不重复抬，
     /// 否则用户点 × 之后下一帧又会冒出来。
@@ -126,14 +140,24 @@ impl TerminalWindow {
         {
             return;
         }
-        if self
-            .notice
-            .as_ref()
-            .is_some_and(|n| n.kind == NoticeKind::Error && n.text == text)
-        {
+        let incoming = Notice::error(text);
+        if incoming.text.is_empty() {
             return;
         }
-        self.notice = Some(Notice::error(text));
+        if let Some(existing) = self.notice.as_mut() {
+            if existing.kind == NoticeKind::Error {
+                // 已经含这句话就不重复抬（点 × 之后不能自己长回来）。
+                if existing.text.contains(&incoming.text) {
+                    return;
+                }
+                if !existing.text.is_empty() {
+                    existing.text.push('\n');
+                }
+                existing.text.push_str(&incoming.text);
+                return;
+            }
+        }
+        self.notice = Some(incoming);
     }
 
     /// 状态栏左区要念的错误提示。只有错误类越过其它标签的优先级。
@@ -293,6 +317,103 @@ mod tests {
         win.notice = None;
         win.commit_note(None);
         assert!(win.notice.is_none());
+    }
+
+    /// 两条错误先后落地（帧首 / 帧末）时合并文本，谁也别吃掉谁：单槽
+    /// `log_note` 与前景 Notice 两处都要能同时看到两条。
+    #[test]
+    fn two_error_notes_are_merged_instead_of_replacing_each_other() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(pool.clone(), &ctx, vec![fake_tab(&pool, &ctx, 0, &closes)]);
+
+        win.commit_note(Some("帧首：偏好写盘冲突".into()));
+        win.commit_note(Some("帧末：转义写错 \\x0".into()));
+
+        let merged = win
+            .error_notice_text()
+            .expect("两条错误都要留在前景条")
+            .to_string();
+        assert!(merged.contains("帧首：偏好写盘冲突"), "帧首被吃掉：{merged:?}");
+        assert!(merged.contains("帧末：转义写错"), "帧末被吃掉：{merged:?}");
+        let log = win.log_note.as_deref().expect("单槽也要拼起来");
+        assert!(log.contains("帧首") && log.contains("帧末"), "log_note={log:?}");
+        // 同一句重复抬不叠加；点 × 之后也不该自己长回来。
+        win.raise_error_notice("帧末：转义写错 \\x0");
+        assert_eq!(
+            win.error_notice_text().map(str::to_string),
+            Some(merged.clone())
+        );
+    }
+
+    /// 跨函数复核：帧首 `sync_prefs_rev` 的写盘错误与帧末 `poll` 的转义错误
+    /// 都经 `commit_note`，合并后前景条、状态栏、单槽三处都同时可见。
+    #[test]
+    fn a_frame_head_save_error_and_a_frame_end_poll_error_are_both_visible() {
+        crate::ui::lifecycle_test_support::with_temp_profile(|| {
+            let ctx = egui::Context::default();
+            let pool = std::sync::Arc::new(term_session::SessionPool::new());
+            let closes = CloseCount::default();
+            let mut win = window_with(pool.clone(), &ctx, vec![fake_tab(&pool, &ctx, 0, &closes)]);
+            let _ = crate::ui::dialogs::shortcuts::take_startup_migration_notice();
+
+            // 帧首：真实写盘冲突，交给 sync_prefs_rev 抬到窗口。
+            let mut prefs = term_profile::prefs::Prefs::default();
+            prefs.language = "en".into();
+            assert!(term_profile::prefs::save(&prefs));
+            let path = term_paths::profile_dir()
+                .expect("临时 profile 目录")
+                .join(term_profile::prefs::PREFS_FILE);
+            std::fs::write(&path, r#"{"language":"zh-CN"}"#).expect("伪造外部改动");
+            prefs.font_size = 20.0;
+            assert!(!term_profile::prefs::save(&prefs));
+            win.sync_prefs_rev(&ctx);
+            assert!(
+                win.error_notice_text()
+                    .is_some_and(|t| t.contains("请重新打开设置页")),
+                "帧首错误要先上屏"
+            );
+
+            // 帧末：lifecycle poll 的转义错误攒进本帧局部缓冲，再交回窗口。
+            let mut rule = Rule::default();
+            rule.id = "frame-end-escape".into();
+            rule.enabled = true;
+            rule.on = TriggerOn::BeforeConnect;
+            rule.actions = vec![TriggerAction::SendText(r"\x0".into())];
+            win.triggers = vec![rule];
+            win.lifecycle_events
+                .lock()
+                .expect("事件队列")
+                .push(TriggerOn::BeforeConnect);
+            let mut note = None;
+            crate::ui::lifecycle_events::poll(&mut win, 100, &mut Vec::new(), &mut note);
+            win.commit_note(note.take());
+
+            let merged = win
+                .error_notice_text()
+                .expect("两帧两条错误都要在前景条")
+                .to_string();
+            assert!(
+                merged.contains("请重新打开设置页"),
+                "帧首错误被帧末吃掉：{merged:?}"
+            );
+            assert!(merged.contains("转义写错"), "帧末错误被吃掉：{merged:?}");
+            let rendered = win.status_text();
+            assert!(
+                rendered.contains("请重新打开设置页"),
+                "状态栏也要念出帧首错误：{rendered:?}"
+            );
+            assert!(
+                rendered.contains("转义写错"),
+                "状态栏也要念出帧末错误：{rendered:?}"
+            );
+            let log = win.log_note.as_deref().expect("单槽也要拼起来");
+            assert!(
+                log.contains("请重新打开设置页") && log.contains("转义写错"),
+                "log_note={log:?}"
+            );
+        });
     }
 
     /// 语义坑：**一帧画好了不等于没出过错**。错一次、之后全好是最常见的情形，

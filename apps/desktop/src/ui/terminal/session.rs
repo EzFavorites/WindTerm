@@ -260,9 +260,10 @@ impl Tab {
             for hit in hits {
                 self.apply_trigger(hit, run_commands, note);
             }
-            // 断连边沿：排队中的 Send Condition / Send Later 显式取走并丢弃。
-            // 会话已不在，这些发送落不了地；静默留着会在下一条会话上诈尸。
-            self.discard_pending_sends(now, note);
+            // 断连边沿：只有「发不出去的已到期项」才丢。自动重连的非 shell
+            // 会话会马上回来，未到期的 Send Later 必须留着，否则重连后那条
+            // 发送就永远不会落地（见 `discard_pending_sends`）。
+            self.discard_pending_sends(now, note, auto_reconnect);
             // 掉线边沿：显式 Disconnect / 本地 shell / 已达上限都不排；
             // 其余按 1/2/4/8 秒退避，尝试次数在连上时清零。
             if auto_reconnect
@@ -449,17 +450,33 @@ impl Tab {
         }
     }
 
-    /// 断连边沿把排队的发送意图取走并丢弃，同时报一条提示。
+    /// 断连边沿处理排队的发送意图；只在确实送不出去时丢并报一条提示。
     ///
-    /// `Matcher::reset` 只清尾巴 / 冷却 / 一次性表，不清 trigger queue；会话
-    /// 已经不在，这些命中发不出去，留到下一次连接就会变成一条迟到的发送。
-    /// 这里用公开的事件 / 时钟入口把队列抽干，一条都不应用，并让用户知道
-    /// 「刚才排队的没送出去」。
-    pub(in crate::ui) fn discard_pending_sends(&mut self, now: u64, note: &mut Option<String>) {
+    /// `Matcher::reset` 只清尾巴 / 冷却 / 一次性表，不清 trigger queue，所以
+    /// 队列本身是跨边沿活着的。关键在**不能无条件抽干**：
+    ///
+    /// - 自动重连开着且不是 local shell：短暂掉线后还会回来，未到期的
+    ///   `Wait::Later` 与等提示符 / 换行的 `Wait::Ready` 都要原样留着，否则
+    ///   1 秒后重连，那条 Send Later 已经不在队列里，永远发不出去；
+    /// - 其它边沿（手动断开 / shell / 关了自动重连）：只取走**此刻已到期却
+    ///   无会话可发**的项，不碰还没到期的计划——它们留给可能的手动重连。
+    ///
+    /// 连上边沿的 `Matcher::reset` 不清队列（`term_app::trigger`），所以留下
+    /// 的命中能在新会话上正常落地。
+    pub(in crate::ui) fn discard_pending_sends(
+        &mut self,
+        now: u64,
+        note: &mut Option<String>,
+        auto_reconnect: bool,
+    ) {
+        if auto_reconnect && self.config.protocol != term_core::session::Protocol::Shell {
+            return;
+        }
         let mut dropped = self.triggers.on_prompt(now).len();
         dropped += self.triggers.on_line_break(now).len();
-        // `u64::MAX` 让所有 Send Later 都算到期，连未到期的也一并丢弃。
-        dropped += self.triggers.due(u64::MAX).len();
+        // 只收本刻到期的 Send Later。上一版用 `due(u64::MAX)` 把未来项也
+        // 抽干，正是「重连后 Send Later 消失」的根因。
+        dropped += self.triggers.due(now).len();
         if dropped > 0 && note.is_none() {
             *note = Some(format!("会话已断开，{dropped} 条待发送触发器已丢弃（未送达）"));
         }
