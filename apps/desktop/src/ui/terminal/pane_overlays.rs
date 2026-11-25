@@ -160,14 +160,14 @@ pub(super) fn paint_overlays(
         }
     }
 
-    // 常驻高亮。词表只在 `ViewState.center.highlights` 里，匹配复用
-    // `find_matches_in`（对事实窗口，字符列坐标与查找同一套），不自己扫字节——
-    // 中文词的列偏移不会算错（F2 / F3）。
+    // 常驻高亮。词表只在 `ViewState.center.highlights` 里，匹配走 term-app 的
+    // 缓存入口（对事实窗口，字符列坐标与查找同一套），不自己扫字节——
+    // 中文词的列偏移不会算错（F2 / F3）；同一个词跨帧不再每帧重编译正则。
     if !bin && !view.center.highlights.is_empty() {
         let words = view.center.highlights.clone();
         let hl = to_color32(Rgb::new(0x20, 0x90, 0x90)).gamma_multiply(0.35);
         for word in words {
-            for m in term_core::find::find_matches_in(image, &word, false, false) {
+            for m in term_app::find::find_matches_literal_cached(image, &word, false, false) {
                 let Some(line_idx) = screen_index_of(image, m.row) else {
                     continue;
                 };

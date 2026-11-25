@@ -57,25 +57,78 @@ fn reset_clears_both_shortcut_fields() {
 /// 启动期迁移的两类丢弃项必须汇总到提示，不能只躺在测试里。
 #[test]
 fn startup_migration_reports_dropped_and_rejected_bindings() {
-    let _ = take_startup_migration_notice();
+    with_temp_profile(|| {
+        let _ = take_startup_migration_notice();
 
-    // ① 越界旧下标（新字段为空时走迁移）。
-    let mut old = term_profile::prefs::Prefs::default();
-    old.shortcut_overrides = vec![(999, "Cmd+Q".into()), (1, "Cmd+F".into())];
-    let (_map, _seq) = build_runtime(&old);
-    let note = take_startup_migration_notice().expect("越界项必须汇总到启动提示");
-    assert!(note.contains("#999"), "{note}");
-    assert!(!note.contains("#1"), "合法下标的绑定不该报丢弃：{note}");
-    assert_eq!(take_startup_migration_notice(), None, "提示只上屏一次");
+        // ① 越界旧下标（新字段为空时走迁移）。
+        let mut old = term_profile::prefs::Prefs::default();
+        old.shortcut_overrides = vec![(999, "Cmd+Q".into()), (1, "Cmd+F".into())];
+        let (_map, _seq) = build_runtime(&old);
+        let note = take_startup_migration_notice().expect("越界项必须汇总到启动提示");
+        assert!(note.contains("#999"), "{note}");
+        assert!(!note.contains("#1"), "合法下标的绑定不该报丢弃：{note}");
+        assert!(note.contains("已清理"), "提示要说明已经清理：{note}");
+        assert_eq!(take_startup_migration_notice(), None, "提示只上屏一次");
 
-    // ② 冲突的用户绑定被 KeyBindingMap 回滚，也要一并报出来。
-    let mut fresh = term_profile::prefs::Prefs::default();
-    fresh.shortcut_bindings = vec![
-        ("Text.Find".into(), "Cmd+F".into()),
-        ("Text.FindNext".into(), "Cmd+F".into()),
-    ];
-    let (_map, _seq) = build_runtime(&fresh);
-    let note = take_startup_migration_notice().expect("冲突项必须汇总到启动提示");
-    assert!(note.contains("Text.FindNext"), "{note}");
-    assert_eq!(take_startup_migration_notice(), None);
+        // ② 冲突的用户绑定被 KeyBindingMap 回滚，也要一并报出来。
+        let mut fresh = term_profile::prefs::Prefs::default();
+        fresh.shortcut_bindings = vec![
+            ("Text.Find".into(), "Cmd+F".into()),
+            ("Text.FindNext".into(), "Cmd+F".into()),
+        ];
+        let (_map, _seq) = build_runtime(&fresh);
+        let note = take_startup_migration_notice().expect("冲突项必须汇总到启动提示");
+        assert!(note.contains("Text.FindNext"), "{note}");
+        assert_eq!(take_startup_migration_notice(), None);
+
+        // 清理写回后，旧下标字段不应残留。
+        let saved = term_profile::prefs::load().expect("清理必须写盘");
+        assert!(saved.shortcut_overrides.is_empty());
+        assert_eq!(
+            saved.shortcut_bindings,
+            vec![("Text.Find".into(), "Cmd+F".into())]
+        );
+    });
+}
+
+/// 被回滚的绑定必须在启动时剔除并写回：重启后既不重报提示，也不再参与冲突。
+#[test]
+fn rejected_bindings_are_cleaned_on_startup_and_not_reported_again() {
+    with_temp_profile(|| {
+        let _ = take_startup_migration_notice();
+
+        let mut prefs = term_profile::prefs::Prefs::default();
+        prefs.shortcut_bindings = vec![
+            ("Text.Find".into(), "Cmd+Shift+F".into()),
+            ("Text.Paste".into(), "Cmd+Shift+F".into()),
+            ("Window.WindowList".into(), "Cmd+L".into()),
+        ];
+        assert!(term_profile::prefs::save(&prefs));
+
+        let (map, _seq) = build_runtime(&prefs);
+        let note = take_startup_migration_notice().expect("首次启动必须报告清理");
+        assert!(note.contains("已清理"), "{note}");
+        assert!(note.contains("Text.Paste"), "{note}");
+        assert_eq!(map.rejected_user_bindings().len(), 1);
+
+        let saved = term_profile::prefs::load().expect("清理结果必须落盘");
+        assert_eq!(
+            saved.shortcut_bindings,
+            vec![
+                ("Text.Find".into(), "Cmd+Shift+F".into()),
+                ("Window.WindowList".into(), "Cmd+L".into()),
+            ],
+            "冲突项必须从 prefs 删除，而不是只在内存里回滚"
+        );
+
+        // 重启：重新读盘再构造一次，提示槽必须保持为空。
+        let reloaded = term_profile::prefs::load().expect("重启读盘");
+        let (map2, _seq2) = build_runtime(&reloaded);
+        assert!(map2.rejected_user_bindings().is_empty());
+        assert_eq!(
+            take_startup_migration_notice(),
+            None,
+            "已清理的绑定不得在下次重启重报"
+        );
+    });
 }

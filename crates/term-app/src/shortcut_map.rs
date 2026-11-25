@@ -293,6 +293,26 @@ pub fn reset_prefs_fields() -> (Vec<(String, String)>, Vec<(usize, String)>) {
     (Vec::new(), Vec::new())
 }
 
+/// 写盘前把被回滚的冲突绑定从用户绑定里剔除。
+///
+/// [`KeyBindingMap::new`] 只把冲突项记进 `rejected_user_bindings`：调用方若照原样
+/// 写回 prefs，下次重启会再次冲突、再报一次提示，而那条绑定永远不生效。剔除
+/// 规则放在数据层，UI 的启动时清理与重绑写口共用同一份口径。
+pub fn drop_rejected_bindings(
+    bindings: &[(String, String)],
+    rejected: &[(String, String)],
+) -> Vec<(String, String)> {
+    bindings
+        .iter()
+        .filter(|binding| {
+            !rejected
+                .iter()
+                .any(|r| r.0 == binding.0 && r.1 == binding.1)
+        })
+        .cloned()
+        .collect()
+}
+
 /// 两段按键是否是真前缀（差一段以上、且短的逐段等于长的开头）。
 ///
 /// 相等不算前缀：那是 [`KeyBindingMap::conflicts`] 的另一半判据。
@@ -353,7 +373,8 @@ impl KeyBindingMap {
         Self { rows, user_ids, rejected_user_bindings, platform }
     }
 
-    /// 被回滚的用户绑定：调用方写盘时应当把这些条目一并删掉，避免下次重启再冲突。
+    /// 被回滚的用户绑定：调用方写盘时应当用 [`drop_rejected_bindings`] 把这些
+    /// 条目一并删掉，避免下次重启再冲突（启动清理也走同一个写口规则）。
     pub fn rejected_user_bindings(&self) -> &[(String, String)] {
         &self.rejected_user_bindings
     }
@@ -567,6 +588,20 @@ mod tests {
         assert!(!map.user_bindings().iter().any(|(id, _)| id == "Text.Paste"));
         let pressed = shortcuts::parse_chord_seq("Cmd+Shift+F").unwrap();
         assert_eq!(map.dispatch(&pressed), Some("Text.Find"));
+    }
+
+    #[test]
+    fn dropped_rejected_bindings_do_not_conflict_again_on_restart() {
+        let user = vec![
+            ("Text.Find".to_string(), "Cmd+Shift+F".to_string()),
+            ("Text.Paste".to_string(), "Cmd+Shift+F".to_string()),
+            ("Window.WindowList".to_string(), "Cmd+L".to_string()),
+        ];
+        let map = KeyBindingMap::new(&user, Platform::Macos);
+        let kept = drop_rejected_bindings(&user, map.rejected_user_bindings());
+        assert_eq!(kept, vec![user[0].clone(), user[2].clone()]);
+        let restarted = KeyBindingMap::new(&kept, Platform::Macos);
+        assert!(restarted.rejected_user_bindings().is_empty());
     }
 
     #[test]

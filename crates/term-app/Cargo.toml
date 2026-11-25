@@ -23,6 +23,10 @@ edition = "2021"
 # 任何 crate 即判红），不再是「靠 grep 关键字猜」。
 [dependencies]
 term-core = { path = "../term-core" }
+# 字面查找在这里缓存编译结果（与 term-core 的 find_matches_regex_in 同一
+# RegexBuilder 配置）。regex 是纯计算库：无 IO / 墙钟 / 线程，边界仍由
+# verify.sh 4d 的「只许 term-core 一个内部 crate」守着。
+regex = "1"
 
 [features]
 default = []

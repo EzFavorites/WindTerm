@@ -8,7 +8,8 @@
 //! 重绑先构造候选映射、跑冲突检测，再经 `save_prefs` 写回 `shortcut_bindings`；
 //! 老 prefs 的 `shortcut_overrides`（数组下标）在 `build_runtime` 里一次性迁移，
 //! 走完整的 `migrate_legacy_with_report` 入口：越界下标与被回滚的冲突绑定
-//! 汇总成启动提示，经首帧的 `sync_prefs_rev` 上屏，不再静默丢弃。
+//! 汇总成启动提示，经首帧的 `sync_prefs_rev` 上屏，不再静默丢弃。被回滚的
+//! 冲突项在启动时就经写口剔除并写回 prefs，否则每次重启都会重报同一条提示。
 //!
 //! **两段式键**（`Alt+W, Alt+H`）同样来自映射层：`sequence_table` 从绑定派生
 //! 运行期表，纯层 `KeySeqState` 判定「这一击是前缀 / 命中 / 放过」。单段与
@@ -67,21 +68,29 @@ pub(in crate::ui) fn build_runtime(
     let map = KeyBindingMap::new(&migration.bindings, platform);
 
     // 两类丢弃项：越界的旧下标 + 与既有绑定冲突而被回滚的用户绑定。
-    // 它们过去只有测试读，用户看到的是「绑定莫名其妙没了」。
+    // 过去只报不删：提示每次重启都来一遍，那条绑定也永远不生效。现在按数据层
+    // 的统一规则剔除后写回，提示说明「已清理」，下一次启动自然不再重报。
+    let rejected = map.rejected_user_bindings();
+    if !rejected.is_empty() || !migration.dropped_indices.is_empty() {
+        let kept = term_app::shortcut_map::drop_rejected_bindings(&migration.bindings, rejected);
+        save_prefs(|p| {
+            let (bindings, overrides) =
+                term_app::shortcut_map::normalized_prefs_fields(&kept, &p.shortcut_overrides);
+            p.shortcut_bindings = bindings;
+            p.shortcut_overrides = overrides;
+        });
+    }
+
     let mut dropped: Vec<String> = migration
         .dropped_indices
         .iter()
         .map(|index| format!("#{index}"))
         .collect();
-    dropped.extend(
-        map.rejected_user_bindings()
-            .iter()
-            .map(|(id, chord)| format!("{id}={chord}")),
-    );
+    dropped.extend(rejected.iter().map(|(id, chord)| format!("{id}={chord}")));
     if !dropped.is_empty() {
         if let Ok(mut slot) = STARTUP_MIGRATION_NOTICE.lock() {
             *slot = Some(format!(
-                "快捷键迁移丢弃 {} 项：{}",
+                "快捷键迁移已清理 {} 项（冲突绑定已从 prefs 删除，重启不再重报）：{}",
                 dropped.len(),
                 dropped.join("，")
             ));

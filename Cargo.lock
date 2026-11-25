@@ -4728,6 +4728,7 @@ dependencies = [
 name = "term-app"
 version = "0.0.1-beta"
 dependencies = [
+ "regex",
  "term-core",
 ]
 

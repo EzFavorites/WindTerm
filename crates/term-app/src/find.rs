@@ -8,15 +8,20 @@
 //! F2 发现缓存槽必然过期：查找的输入从「整块快照」变成「当前事实窗口」，
 //! 而滚动会换窗口却不产生任何 `Action`，于是「3 / 7」会在回看后停在旧数字上。
 //! 补法不是「滚动时也写一次」，而是**把计数从状态里删掉**——它是
-//! `(query, 大小写, 窗口)` 的纯函数值，边界在 `matches()`，没有任何缓存。
+//! `(query, 大小写, 窗口)` 的纯函数值，边界在 `matches()`，不缓存结果。
+//! 2026-11-25：编译后的字面量正则按 `(query, 大小写)` 复用，属内部实现细节
+//! ——匹配结果仍由窗口现算，滚动换窗口不会被旧计数/旧结果污染。
 //!
 //! 状态里因此只剩三件事：开没开、搜什么、区分大小写；外加一个
 //! `current_match`（用户的「第几个」选择，按总数取模使用）。
 
 use crate::state::{FindDirection, FindState};
 use crate::vocab::Action;
-use term_core::find::{find_matches_in, find_matches_regex_in, find_matches_regex_multiline_in, Match};
-use term_core::grid::ScreenImage;
+use regex::Regex;
+use std::collections::HashMap;
+use std::sync::{Mutex, MutexGuard, OnceLock};
+use term_core::find::{find_matches_regex_in, find_matches_regex_multiline_in, Match};
+use term_core::grid::{glyph_columns, LineSlice, ScreenImage};
 
 pub use crate::vocab::FindAction;
 
@@ -88,17 +93,21 @@ pub struct FindResults {
 pub fn result_rows(state: &FindState, window: &ScreenImage) -> FindResults {
     let query = state.query.clone();
     let found = matches(state, window);
+    // 一次建好 row→行 索引：旧写法每条命中都扫一遍窗口行表，Find All 在大回看
+    // 里命中越多越慢（O(行数×命中数)）。
+    let line_index: HashMap<i64, &LineSlice> =
+        window.lines.iter().map(|line| (line.row, line)).collect();
     let rows = found
         .iter()
         .enumerate()
         .filter_map(|(index, m)| {
-            let line = window.lines.iter().find(|l| l.row == m.row)?;
+            let summary = line_index.get(&m.row)?.text();
             Some(FindResultRow {
                 index,
                 row: m.row,
                 col_start: m.col_start,
                 col_end: m.col_end,
-                summary: line.text(),
+                summary,
             })
         })
         .collect();
@@ -138,6 +147,147 @@ pub fn jump_plan(state: &FindState, total: usize, target: usize) -> Option<(Find
 }
 
 
+// ── 字面查找：编译结果按 (query, case_sensitive) 缓存 ──────────────
+//
+// `term_core::find::find_matches_in` 每次调用都 `regex::escape` + 编译一遍，
+// 而查找栏每帧都问一次、常驻高亮每个词都问一次。编译结果只取决于
+// `(query, case_sensitive)`，与窗口无关，所以在这一层缓存一次。缓存是内部实现
+// 细节：对外仍是「参数 → 结果」的纯函数，全路径不读墙钟。
+
+type LiteralCache = HashMap<(String, bool), Regex>;
+
+static LITERAL_REGEX_CACHE: OnceLock<Mutex<LiteralCache>> = OnceLock::new();
+
+/// 锁中毒时取回内部表继续用，不在生产路径新增 panic。
+fn literal_cache_lock() -> MutexGuard<'static, LiteralCache> {
+    let cache = LITERAL_REGEX_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// 查询逐字增长会留下大量一次性模式；超过上限就整表丢弃，下次按需重建。
+const LITERAL_CACHE_LIMIT: usize = 256;
+
+fn literal_regex(query: &str, case_sensitive: bool) -> Option<Regex> {
+    let key = (query.to_owned(), case_sensitive);
+    let mut cache = literal_cache_lock();
+    if let Some(re) = cache.get(&key) {
+        return Some(re.clone()); // regex::Regex 内部是 Arc，克隆不重编译。
+    }
+    // 与 `term_core::find::find_matches_regex_in` 同一 builder 配置，匹配口径
+    // （Unicode 简单大小写折叠）逐项一致。转义后的模式必定合法；意外失败只
+    // 返回空结果，不退回另一种口径、也不 panic。
+    let re = regex::RegexBuilder::new(&regex::escape(query))
+        .case_insensitive(!case_sensitive)
+        .build()
+        .ok()?;
+    if cache.len() >= LITERAL_CACHE_LIMIT {
+        cache.clear();
+    }
+    cache.insert(key, re.clone());
+    #[cfg(test)]
+    note_literal_compile(query, case_sensitive);
+    Some(re)
+}
+
+// 编译次数按 (query, case) 记在测试专用表里：测试并发跑时不依赖全局缓存长度，
+// 只认自己那个唯一查询串的编译次数。
+#[cfg(test)]
+static LITERAL_COMPILES: OnceLock<Mutex<HashMap<(String, bool), usize>>> = OnceLock::new();
+
+#[cfg(test)]
+fn note_literal_compile(query: &str, case_sensitive: bool) {
+    let cache = LITERAL_COMPILES.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut cache = cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache.entry((query.to_owned(), case_sensitive)).or_insert(0) += 1;
+}
+
+#[cfg(test)]
+fn literal_compiles_for(query: &str, case_sensitive: bool) -> usize {
+    let cache = LITERAL_COMPILES.get_or_init(|| Mutex::new(HashMap::new()));
+    let cache = cache.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.get(&(query.to_owned(), case_sensitive)).copied().unwrap_or(0)
+}
+
+/// 预建 row → 字形表。整词过滤与结果列表都按 row 取行，避免对每条命中
+/// 线性搜索窗口行表（大回看 × 多命中 = O(行数×命中数)）。
+fn row_glyphs(window: &ScreenImage) -> HashMap<i64, (Vec<usize>, Vec<char>)> {
+    window
+        .lines
+        .iter()
+        .map(|line| {
+            let cols = glyph_columns(&line.cells);
+            let chars = cols.iter().map(|&c| line.cells[c].ch).collect();
+            (line.row, (cols, chars))
+        })
+        .collect()
+}
+
+/// 字面查找入口：与 `term_core::find::find_matches_in` 同语义（同一转义、
+/// 同一大小写折叠、同一列坐标、同一整词边界），但复用编译好的正则。
+/// `pane_overlays` 的常驻高亮也走这里，每个词不再各编译一次。
+pub fn find_matches_literal_cached(
+    window: &ScreenImage,
+    query: &str,
+    case_sensitive: bool,
+    whole_word: bool,
+) -> Vec<Match> {
+    if query.is_empty() || window.cols == 0 {
+        return Vec::new();
+    }
+    let Some(re) = literal_regex(query, case_sensitive) else {
+        return Vec::new();
+    };
+    let mut matches = Vec::new();
+    for line in &window.lines {
+        let cols = glyph_columns(&line.cells);
+        if cols.is_empty() {
+            continue;
+        }
+        let text: String = cols.iter().map(|&c| line.cells[c].ch).collect();
+        // regex 给的是字节偏移，折叠表按字形索引：每个字节映射到包含它的字形。
+        let mut byte_to_char = vec![0usize; text.len() + 1];
+        for (idx, (start, ch)) in text.char_indices().enumerate() {
+            for b in start..start + ch.len_utf8() {
+                byte_to_char[b] = idx;
+            }
+        }
+        for m in re.find_iter(&text) {
+            if m.start() == m.end() {
+                continue; // 空匹配不画高亮。
+            }
+            let first = byte_to_char[m.start()];
+            let last = byte_to_char[m.end() - 1];
+            let col_start = cols[first];
+            let col_end = cols[last] + if line.cells[cols[last]].wide { 2 } else { 1 };
+            matches.push(Match::new(line.row, col_start, col_end));
+        }
+    }
+    if whole_word {
+        let index = row_glyphs(window);
+        matches.retain(|m| {
+            let Some((cols, chars)) = index.get(&m.row) else {
+                return false;
+            };
+            let Some(at) = cols.iter().position(|&c| c == m.col_start) else {
+                return false;
+            };
+            let len = cols[at..].iter().take_while(|&&c| c < m.col_end).count();
+            len > 0 && on_word_boundaries(chars, at, len)
+        });
+    }
+    matches
+}
+
+fn on_word_boundaries(chars: &[char], at: usize, len: usize) -> bool {
+    let before_ok = at == 0 || !is_word_char(chars[at - 1]);
+    let after_ok = at + len >= chars.len() || !is_word_char(chars[at + len]);
+    before_ok && after_ok
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
 /// 窗口内的全部匹配：`(query, 大小写, 窗口)` 的纯函数值。
 ///
 /// 「窗口」是用户此刻看得见的那一屏（含回看部分），所以贴在底部时
@@ -160,7 +310,7 @@ pub fn matches(state: &FindState, window: &ScreenImage) -> Vec<Match> {
             find_matches_regex_in(window, &state.query, state.case_sensitive).unwrap_or_default()
         }
     } else {
-        find_matches_in(window, &state.query, state.case_sensitive, state.whole_word)
+        find_matches_literal_cached(window, &state.query, state.case_sensitive, state.whole_word)
     }
 }
 
@@ -279,354 +429,7 @@ fn step(state: &mut FindState, window: Option<&ScreenImage>, delta: i64) {
     };
 }
 
+// 单测独立成文件：`find.rs` 的代码行不能再往上涨（4j 上限 500）。
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use term_core::grid::{Attrs, Cell, Colour, GridSnapshot, LineSlice, ScreenImage};
-
-    fn make_snap(text: &str) -> GridSnapshot {
-        let lines: Vec<&str> = text.lines().collect();
-        let rows = lines.len();
-        let cols = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0);
-        let mut cells = vec![Cell::default(); rows * cols];
-        for (r, line) in lines.iter().enumerate() {
-            for (c, ch) in line.chars().enumerate() {
-                cells[r * cols + c] = Cell {
-                    ch,
-                    fg: Colour::Default,
-                    bg: Colour::Default,
-                    attrs: Attrs::EMPTY,
-                    wide: false,
-                };
-            }
-        }
-        GridSnapshot {
-            cols,
-            rows,
-            cells,
-            cursor: (0, 0),
-            cursor_visible: true,
-            title: String::new(),
-            version: 1,
-            bytes_received: 0,
-            application_cursor_keys: false,
-            bracketed_paste: false,
-            mouse_reporting: false,
-            mouse_mode: term_core::mouse_report::MouseMode::Off,
-            mouse_encoding: term_core::mouse_report::MouseEncoding::X10,
-            alt: false,
-            history: 0,
-            blocks: Vec::new(),
-            row_times: Vec::new(),
-            wraps: Vec::new(),
-        }
-    }
-
-    /// 贴底窗口（行号 `0..rows`）。
-    fn window(text: &str) -> ScreenImage {
-        make_snap(text).to_screen_image()
-    }
-
-    /// 回看窗口：行号可为负，用来验证「搜的是看得见的那一段」。
-    fn window_from(lines: &[&str], cols: usize, start_row: i64) -> ScreenImage {
-        let lines: Vec<LineSlice> = lines
-            .iter()
-            .enumerate()
-            .map(|(i, text)| {
-                let mut cells = vec![Cell::default(); cols];
-                for (c, ch) in text.chars().take(cols).enumerate() {
-                    cells[c].ch = ch;
-                }
-                LineSlice {
-                    row: start_row + i as i64,
-                    cells,
-                }
-            })
-            .collect();
-        ScreenImage {
-            cols,
-            version: 1,
-            range: start_row..start_row + lines.len() as i64,
-            lines,
-            cursor: None,
-            history: start_row.unsigned_abs() as usize,
-        }
-    }
-
-    fn open_state() -> FindState {
-        let mut s = FindState::default();
-        reduce(&mut s, FindAction::Open, None);
-        s
-    }
-
-    fn counted(state: &FindState, win: &ScreenImage) -> usize {
-        matches(state, win).len()
-    }
-
-    #[test]
-    fn regex_toggle_changes_the_match_set_and_open_resets_it() {
-        let win = window_from(&["cat cot cut"], 12, 0);
-        let mut s = open_state();
-        s.query = "c.t".into();
-        // 字面模式：`c.t` 不含通配符，搜不到任何东西。
-        assert_eq!(counted(&s, &win), 0, "字面模式不该把 . 当通配符");
-        // 正则模式：一个模式命中三个词。
-        reduce(&mut s, FindAction::ToggleRegex, None);
-        assert!(s.regex);
-        assert_eq!(counted(&s, &win), 3, "正则模式 c.t 命中 cat/cot/cut");
-        // 语法错返回空集合而非 panic。
-        s.query = "[".into();
-        assert_eq!(counted(&s, &win), 0, "非法正则不该 panic，计为 0 个匹配");
-        // Open 必须把 regex 复位，否则新一次查找会带着上一次的口径。
-        reduce(&mut s, FindAction::Open, None);
-        assert!(!s.regex, "Open 应复位正则开关");
-    }
-
-    // ── 缺陷修复：栏关着时 Find Next / Previous 要有可见效果 ─────────
-
-    #[test]
-    fn find_next_with_the_bar_closed_opens_it_and_keeps_the_query() {
-        // 出厂 `FindState::default()` 里 `visible == false`（查找栏不绘制）。
-        // 修复前 `Next` 只挪 `current_match`，屏幕上看不见任何变化；
-        // 修复后必须先把栏打开，同时**保留已有查询**（Next ≠ 重新搜索）。
-        let mut s = FindState {
-            visible: false,
-            query: "abc".into(),
-            current_match: 3,
-            ..FindState::default()
-        };
-        reduce(&mut s, FindAction::Next, None);
-        assert!(s.visible, "栏关着时 Find Next 必须把查找栏打开");
-        assert_eq!(s.query, "abc", "Find Next 不得清空查询词");
-    }
-
-    #[test]
-    fn find_previous_with_the_bar_closed_opens_it_too() {
-        let mut s = FindState {
-            visible: false,
-            query: "abc".into(),
-            current_match: 3,
-            ..FindState::default()
-        };
-        reduce(&mut s, FindAction::Previous, None);
-        assert!(s.visible, "栏关着时 Find Previous 必须把查找栏打开");
-        assert_eq!(s.query, "abc", "Find Previous 不得清空查询词");
-    }
-
-    #[test]
-    fn parse_maps_the_three_menu_ids() {
-        assert_eq!(parse("Text.Find"), Some(FindAction::Open));
-        assert_eq!(parse("Text.FindNext"), Some(FindAction::Next));
-        assert_eq!(parse("Text.FindPrevious"), Some(FindAction::Previous));
-        assert_eq!(
-            parse("Text.FindNextSelection"),
-            Some(FindAction::SelectionNext)
-        );
-        assert_eq!(
-            parse("Text.FindPreviousSelection"),
-            Some(FindAction::SelectionPrev)
-        );
-        assert_eq!(parse("Text.Copy"), None);
-    }
-
-    #[test]
-    fn selection_find_opens_the_bar_and_resets() {
-        // SelectionNext / SelectionPrev 与 Open 同款复位：打开栏、清空旧查询、
-        // 回到第一个匹配。真正的「用选区当查询词」在投影层做（reducer 没有选区）。
-        let win = window("test");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("stale".into()), Some(&win));
-        reduce(&mut s, FindAction::SelectionNext, Some(&win));
-        assert!(s.visible);
-        assert!(s.query.is_empty());
-        assert_eq!(s.current_match, 0);
-        reduce(&mut s, FindAction::SelectionPrev, Some(&win));
-        assert!(s.visible);
-        assert!(s.query.is_empty());
-    }
-
-    #[test]
-    fn open_resets_every_field() {
-        let mut s = FindState {
-            query: "stale".into(),
-            case_sensitive: true,
-            current_match: 3,
-            ..FindState::default()
-        };
-        reduce(&mut s, FindAction::Open, None);
-        assert!(s.visible);
-        assert!(s.query.is_empty());
-        assert!(!s.case_sensitive);
-        assert_eq!(s.current_match, 0);
-        let win = window("test");
-        assert_eq!(counted(&s, &win), 0);
-    }
-
-    #[test]
-    fn set_query_counts_matches_from_the_window() {
-        let win = window("test line\ntest again\nno match");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        assert_eq!(counted(&s, &win), 2);
-        assert_eq!(s.current_match, 0);
-    }
-
-    #[test]
-    fn toggle_case_recounts() {
-        let win = window("Test\ntest");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        assert_eq!(counted(&s, &win), 2);
-        reduce(&mut s, FindAction::ToggleCase, Some(&win));
-        assert_eq!(counted(&s, &win), 1);
-        reduce(&mut s, FindAction::ToggleCase, Some(&win));
-        assert_eq!(counted(&s, &win), 2);
-    }
-
-    #[test]
-    fn next_wraps_around_the_match_set() {
-        let win = window("test\ntest\ntest");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        assert_eq!(s.current_match, 0);
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!(s.current_match, 1);
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!(s.current_match, 2);
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!(s.current_match, 0, "越过最后一个应回到第一个");
-    }
-
-    #[test]
-    fn previous_wraps_backwards() {
-        let win = window("test\ntest\ntest");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        reduce(&mut s, FindAction::Previous, Some(&win));
-        assert_eq!(s.current_match, 2, "从第一个往回应到最后一个");
-    }
-
-    #[test]
-    fn next_without_matches_is_a_stable_noop() {
-        let win = window("nothing here");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("zzz".into()), Some(&win));
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!((s.current_match, counted(&s, &win)), (0, 0));
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!((s.current_match, counted(&s, &win)), (0, 0));
-    }
-
-    #[test]
-    fn hidden_bar_never_counts() {
-        let win = window("test\ntest");
-        let mut s = FindState::default();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        assert_eq!(counted(&s, &win), 0, "不可见时不得统计，避免隐藏状态下算匹配");
-    }
-
-    #[test]
-    fn reduce_is_deterministic_for_the_same_inputs() {
-        let win = window("test\ntest");
-        let run = || {
-            let mut s = open_state();
-            reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-            reduce(&mut s, FindAction::Next, Some(&win));
-            s
-        };
-        assert_eq!(run(), run());
-    }
-
-    #[test]
-    fn close_clears_everything() {
-        let win = window("test\ntest");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("test".into()), Some(&win));
-        reduce(&mut s, FindAction::Close, Some(&win));
-        assert!(!s.visible);
-        assert!(s.query.is_empty());
-        assert_eq!(s.current_match, 0);
-    }
-
-    // ── F2：查找扩到回看缓冲 ────────────────────────────────
-
-    #[test]
-    fn matches_are_counted_in_the_visible_window_including_history() {
-        // 窗口覆盖 -3..1，其中两行历史、一行当前屏命中。
-        let win = window_from(&["hit a", "miss", "hit b", "hit c"], 12, -3);
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("hit".into()), Some(&win));
-        assert_eq!(counted(&s, &win), 3);
-        let rows: Vec<i64> = matches(&s, &win).iter().map(|m| m.row).collect();
-        assert_eq!(rows, vec![-3, -1, 0], "行号必须是内容绝对行号（含负数）");
-    }
-
-    #[test]
-    fn scrolling_changes_the_count_without_any_action() {
-        // 这是 F2 把计数删出状态的理由：窗口换了，计数就该跟着换。
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("hit".into()), None);
-        let top = window_from(&["hit", "hit"], 8, -6);
-        let bottom = window_from(&["nothing", "nothing"], 8, 0);
-        assert_eq!(counted(&s, &top), 2);
-        assert_eq!(counted(&s, &bottom), 0);
-        assert!(current_index(&s, 0).is_none());
-    }
-
-    #[test]
-    fn current_index_never_points_outside_the_set() {
-        // 在 5 个匹配里选了第 3 个，滚回只有 1 个匹配的窗口时不该越界。
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("hit".into()), None);
-        s.current_match = 3;
-        assert_eq!(current_index(&s, 5), Some(3));
-        assert_eq!(current_index(&s, 2), Some(1));
-        assert_eq!(current_index(&s, 1), Some(0));
-    }
-
-    /// 2026-11-17 `W`（Match Whole Word）进状态：开关本身是纯状态，
-    /// 但它换的是**匹配口径**——换口径必须回到第一个匹配，否则「第 3 个」
-    /// 那个索引会指向新集合里完全不同的地方。
-    #[test]
-    fn toggling_whole_word_resets_the_current_match() {
-        let win = window("foo foobar foo");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("foo".into()), Some(&win));
-        assert_eq!(matches(&s, &win).len(), 3, "关掉整词时三处都算");
-        reduce(&mut s, FindAction::Next, Some(&win));
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!(s.current_match, 2);
-
-        reduce(&mut s, FindAction::ToggleWholeWord, Some(&win));
-        assert!(s.whole_word);
-        assert_eq!(s.current_match, 0, "换口径要回到第一个");
-        assert_eq!(matches(&s, &win).len(), 2, "整词下 `foobar` 里那处不算");
-
-        reduce(&mut s, FindAction::ToggleWholeWord, Some(&win));
-        assert!(!s.whole_word);
-    }
-
-    /// `Open` 是「新开一次查找」：三个开关一起回出厂，与 `query` 一起清。
-    #[test]
-    fn opening_the_bar_clears_every_option() {
-        let mut s = open_state();
-        s.case_sensitive = true;
-        s.whole_word = true;
-        reduce(&mut s, FindAction::Open, None);
-        assert!(!s.case_sensitive && !s.whole_word);
-        assert!(s.query.is_empty());
-        assert_eq!(s.current_match, 0);
-    }
-
-    #[test]
-    fn set_query_goes_back_to_the_first_match() {
-        let win = window("hit\nhit\nhit");
-        let mut s = open_state();
-        reduce(&mut s, FindAction::SetQuery("hit".into()), Some(&win));
-        reduce(&mut s, FindAction::Next, Some(&win));
-        reduce(&mut s, FindAction::Next, Some(&win));
-        assert_eq!(s.current_match, 2);
-        reduce(&mut s, FindAction::SetQuery("hi".into()), Some(&win));
-        assert_eq!(s.current_match, 0, "新查询应从第一个匹配开始");
-    }
-}
+#[path = "find_tests.rs"]
+mod tests;
