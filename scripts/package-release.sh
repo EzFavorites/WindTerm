@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# 把一个 release 二进制打成可分发的产物。
+# 把一个 release 二进制按平台打成**用户可安装**的产物（mailcraft 的三平台口径）。
 #
-# 由 `.github/workflows/release.yml` 调用，**也可以本地跑**：同一条命令产出
-# 同一种包，否则「打包」就成了只有 CI 才知道的黑盒，本地没法验证包里的
-# 目录结构对不对。
+# 由 `.github/workflows/release.yml` 调用，也可以本地跑：同一条命令产出同一种包。
 #
 # 用法：
 #   scripts/package-release.sh <target-triple> <version> <binary> [outdir]
@@ -12,13 +10,15 @@
 #       target/aarch64-apple-darwin/release/term-desk dist
 #
 # 产物（按平台分支）：
-#   macOS   → WindTerm-<ver>-macos-<arch>.tar.gz   内含 WindTerm.app/（真 bundle，不是裸二进制）
-#   Linux   → WindTerm-<ver>-linux-<arch>.tar.gz   内含 windterm + .desktop + 图标
-#   Windows → WindTerm-<ver>-windows-<arch>.zip    内含 WindTerm.exe
+#   macOS   → WindTerm-<ver>-macos-<arch>.dmg        WindTerm.app + /Applications 链接
+#   Linux   → WindTerm-<ver>-linux-x86_64.deb        FHS 安装（dpkg -i）
+#              WindTerm-<ver>-linux-x86_64.zip       便携目录（解压即用）
+#   Windows → WindTerm-<ver>-windows-x86_64.msi      每用户安装器（WiX v5）
+#              WindTerm-<ver>-windows-x86_64.zip     便携目录
+# 每个产物都配一个 `<产物名>.sha256`。
 #
-# 为什么要重命名二进制：包名（`term-desk`）是 crate 名，用户看到的名字是产品名。
-# macOS 尤其不能省——`CFBundleExecutable` 必须与 `Contents/MacOS/` 下的文件名
-# 逐字一致，否则 Finder 双击只会得到「应用已损坏」。
+# 依赖：macOS 需 hdiutil（系统自带）；Linux 需 dpkg-deb；Windows 需 WiX v5
+# （`dotnet tool install -g wix --version 5.0.2` + WixToolset.UI.wixext）。
 set -euo pipefail
 
 TARGET="${1:?用法: package-release.sh <target-triple> <version> <binary> [outdir]}"
@@ -33,13 +33,10 @@ NAME="WindTerm"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
-# 平台标签：给用户看的，不是 triple。用 triple 会得到
-# `WindTerm-0.0.1-beta2-x86_64-unknown-linux-gnu.tar.gz` 这种没人想读的文件名。
 case "$TARGET" in
   aarch64-apple-darwin)     PLATFORM="macos-aarch64" ;;
   x86_64-apple-darwin)      PLATFORM="macos-x86_64" ;;
   x86_64-unknown-linux-gnu) PLATFORM="linux-x86_64" ;;
-  aarch64-unknown-linux-gnu) PLATFORM="linux-aarch64" ;;
   x86_64-pc-windows-msvc)   PLATFORM="windows-x86_64" ;;
   x86_64-pc-windows-gnu)    PLATFORM="windows-x86_64" ;;
   *)
@@ -50,41 +47,64 @@ esac
 
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
+ARTIFACTS=()
 
-# 所有平台共用：把 LICENSE 与 README 一起带上。发布产物里没有许可证文本，
+# 所有平台都带许可证、说明书与 Rhai 示例。发布产物里没有许可证文本，
 # 用户拿到的是一个无法确定授权状态的可执行文件——这不该靠「仓库里有」解决。
-cp "$ROOT/LICENSE" "$STAGE/LICENSE"
-cp "$ROOT/README.md" "$STAGE/README.md"
+common_docs() {
+  local dir="$1"
+  cp "$ROOT/LICENSE" "$dir/LICENSE"
+  cp "$ROOT/README.md" "$dir/README.md"
+  if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
+    mkdir -p "$dir/scripts"
+    cp -R "$ROOT/apps/desktop/resources/scripts/." "$dir/scripts/"
+  fi
+}
+
+winpath() {
+  # Git Bash 的 /tmp/... 路径 Windows 原生 exe 看不懂；交给 cygpath 转换。
+  if command -v cygpath >/dev/null 2>&1; then cygpath -w "$1"; else printf '%s' "$1"; fi
+}
+
+zip_dir() {
+  # 在 Git Bash 里 zip 不一定在，7-Zip 是 windows runner 预装的。
+  local src="$1" dst="$2"
+  if command -v zip >/dev/null 2>&1; then
+    (cd "$src" && zip -q -r "$dst" .)
+  elif command -v 7z >/dev/null 2>&1; then
+    (cd "$src" && 7z a -tzip -bso0 -bsp0 "$dst" . >/dev/null)
+  else
+    echo "既没有 zip 也没有 7z，无法产出 .zip" >&2
+    exit 1
+  fi
+}
+
+sha256_of() {
+  local f="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    (cd "$OUT" && sha256sum "$f" > "$f.sha256")
+  elif command -v shasum >/dev/null 2>&1; then
+    (cd "$OUT" && shasum -a 256 "$f" > "$f.sha256")
+  elif command -v openssl >/dev/null 2>&1; then
+    (cd "$OUT" && printf '%s  %s\n' "$(openssl dgst -sha256 "$f" | sed 's/.*= //')" "$f" > "$f.sha256")
+  else
+    echo "找不到 sha256sum / shasum / openssl，跳过校验和" >&2
+  fi
+}
 
 case "$TARGET" in
   *-apple-darwin)
     APP="$STAGE/$NAME.app"
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-
-    # `.app` 是自包含 bundle，下面只 `tar ... "$NAME.app"`，顶层那两份
-    # LICENSE/README 不会进包。把它们同时放进 Resources，用户解压后
-    # 仍能读到授权文本，而 CI 的 bundle 结构断言（MacOS/$NAME）不变。
-    cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
-    cp "$ROOT/README.md" "$APP/Contents/Resources/README.md"
-
+    common_docs "$APP/Contents/Resources"
     cp "$BIN" "$APP/Contents/MacOS/$NAME"
     chmod +x "$APP/Contents/MacOS/$NAME"
 
-    # 图标：`assets/icon.icns` 由 `scripts/gen-icon.py` 生成并提交。这里不现生成，
-    # 因为打包机上不一定有 python3 + Pillow，而图标是**构建输入**不是构建产物。
+    ICON_KEY=""
     if [ -f "$ROOT/assets/icon.icns" ]; then
       cp "$ROOT/assets/icon.icns" "$APP/Contents/Resources/$NAME.icns"
       ICON_KEY="<key>CFBundleIconFile</key><string>$NAME</string>"
-    else
-      ICON_KEY=""
     fi
-
-    # Info.plist 是本脚本唯一手写的「平台元数据」，逐项都有用途：
-    #   · CFBundleExecutable 必须等于 Contents/MacOS 下的文件名（否则打不开）
-    #   · LSMinimumSystemVersion 11.0：eframe 0.29 的 winit 走 AppKit，
-    #     10.x 上没验证过，不宣称支持
-    #   · NSHighResolutionCapable：不给 true 的话 Retina 上会是 2× 模糊
-    #   · CFBundleIdentifier 用反域名，LaunchServices 靠它区分不同 app
     cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -105,104 +125,126 @@ case "$TARGET" in
 </plist>
 PLIST
 
-    # 未签名的 .app 在别的机器上会被 Gatekeeper 拦（"无法验证开发者"）。
-    # CI 里没有开发者证书，所以这里**如实标注**而不是假装签过：ad-hoc 签名
-    # 不解决 Gatekeeper，只是让 macOS 不去抱怨「签名已损坏」。
-    # 真正分发需要 codesign + notarytool，那是 1.0.x 的独立工作。
+    # ad-hoc 签名：不解决 Gatekeeper，但避免「签名已损坏」；公证属 1.0.x。
     if command -v codesign >/dev/null 2>&1; then
       codesign --force --deep --sign - "$APP" 2>/dev/null || true
     fi
 
-    # 随包附带可改造的 Rhai 示例（docs/scripting.md 引用的 5 个任务模板）。
-    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
-      mkdir -p "$APP/Contents/Resources/scripts"
-      cp -R "$ROOT/apps/desktop/resources/scripts/." "$APP/Contents/Resources/scripts/"
-    fi
-
-    tar -czf "$OUT/$NAME-$VERSION-$PLATFORM.tar.gz" -C "$STAGE" "$NAME.app"
-    ARTIFACT="$NAME-$VERSION-$PLATFORM.tar.gz"
+    # DMG：一个 .app + /Applications 链接，拖进去即是安装。hdiutil create
+    # 不需要 Finder 脚本，CI 上可重复（mailcraft 的同一条路径）。
+    DMG_STAGE="$STAGE/dmg"
+    mkdir -p "$DMG_STAGE"
+    cp -R "$APP" "$DMG_STAGE/$NAME.app"
+    ln -s /Applications "$DMG_STAGE/Applications"
+    cp "$ROOT/LICENSE" "$DMG_STAGE/LICENSE"
+    cp "$ROOT/README.md" "$DMG_STAGE/README.md"
+    ARTIFACT="$NAME-$VERSION-$PLATFORM.dmg"
+    command -v hdiutil >/dev/null || { echo "macOS 打包需要 hdiutil" >&2; exit 1; }
+    hdiutil create -volname "$NAME" -srcfolder "$DMG_STAGE" -ov -format UDZO "$OUT/$ARTIFACT" >/dev/null
+    ARTIFACTS+=("$ARTIFACT")
     ;;
 
   *-linux-gnu)
-    cp "$BIN" "$STAGE/windterm"
-    chmod +x "$STAGE/windterm"
+    command -v dpkg-deb >/dev/null || { echo "Linux .deb 打包需要 dpkg-deb" >&2; exit 1; }
 
-    if [ -f "$ROOT/assets/icon.png" ]; then
-      cp "$ROOT/assets/icon.png" "$STAGE/windterm.png"
-    fi
-
-    # .desktop：Linux 上「装进应用菜单」靠它。Exec 用包内相对名，
-    # 因为包是免安装的 tar.gz——用户解压到哪都能直接把 .desktop 里的
-    # Exec 换成绝对路径，比写死 /usr/bin 更实际。
-    cat > "$STAGE/windterm.desktop" <<DESKTOP
+    # 便携包：解压即用，不写 /usr。
+    PORT="$STAGE/portable"
+    mkdir -p "$PORT"
+    cp "$BIN" "$PORT/windterm"
+    chmod +x "$PORT/windterm"
+    common_docs "$PORT"
+    [ -f "$ROOT/assets/icon.png" ] && cp "$ROOT/assets/icon.png" "$PORT/windterm.png"
+    cat > "$PORT/windterm.desktop" <<DESKTOP
 [Desktop Entry]
 Type=Application
 Name=WindTerm
-Comment=A terminal built on egui
+Comment=A local-first desktop terminal workbench
 Exec=windterm
 Icon=windterm
 Terminal=false
 Categories=System;TerminalEmulator;
 Keywords=terminal;shell;ssh;sftp;
 DESKTOP
+    ZIP_ART="$NAME-$VERSION-$PLATFORM.zip"
+    zip_dir "$PORT" "$OUT/$ZIP_ART"
+    ARTIFACTS+=("$ZIP_ART")
 
-    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
-      mkdir -p "$STAGE/scripts"
-      cp -R "$ROOT/apps/desktop/resources/scripts/." "$STAGE/scripts/"
-    fi
-
-    tar -czf "$OUT/$NAME-$VERSION-$PLATFORM.tar.gz" -C "$STAGE" .
-    ARTIFACT="$NAME-$VERSION-$PLATFORM.tar.gz"
+    # .deb：FHS 安装，dpkg -i 即可。
+    DEB_ROOT="$STAGE/deb"
+    mkdir -p "$DEB_ROOT/DEBIAN" \
+      "$DEB_ROOT/usr/bin" \
+      "$DEB_ROOT/usr/share/applications" \
+      "$DEB_ROOT/usr/share/doc/windterm" \
+      "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps"
+    install -m755 "$BIN" "$DEB_ROOT/usr/bin/windterm"
+    cp "$PORT/windterm.desktop" "$DEB_ROOT/usr/share/applications/windterm.desktop"
+    [ -f "$ROOT/assets/icon.png" ] && cp "$ROOT/assets/icon.png" "$DEB_ROOT/usr/share/icons/hicolor/256x256/apps/windterm.png"
+    cp "$ROOT/LICENSE" "$DEB_ROOT/usr/share/doc/windterm/copyright"
+    cp "$ROOT/README.md" "$DEB_ROOT/usr/share/doc/windterm/README.md"
+    cat > "$DEB_ROOT/DEBIAN/control" <<CONTROL
+Package: windterm
+Version: $VERSION
+Section: utils
+Priority: optional
+Architecture: amd64
+Maintainer: EzFavorites <windterm@local>
+Homepage: https://github.com/EzFavorites/WindTerm
+Description: Local-first desktop terminal workbench
+ WindTerm is a native terminal workbench for local shell, SSH, Telnet, TCP,
+ serial, SFTP, tunnels and Rhai scripting, built with Rust and egui.
+CONTROL
+    DEB_ART="$NAME-$VERSION-$PLATFORM.deb"
+    dpkg-deb --build --root-owner-group "$DEB_ROOT" "$OUT/$DEB_ART" >/dev/null
+    ARTIFACTS+=("$DEB_ART")
     ;;
 
   *-windows-*)
-    cp "$BIN" "$STAGE/$NAME.exe"
-    # 图标一并带走：本 exe **没有**把 .ico 编进 PE 资源（那要加 winres/embed-resource
-    # 构建依赖，属 1.0.x），所以资源管理器里显示的是默认图标。把 .ico 放在旁边，
-    # 用户做快捷方式时至少能手工指定——比让人以为「忘了带图标」诚实。
-    if [ -f "$ROOT/assets/icon.ico" ]; then
-      cp "$ROOT/assets/icon.ico" "$STAGE/$NAME.ico"
-    fi
-    # 同样随包附带脚本示例，免得 README 里的模板路径在 Windows 包里不存在。
-    if [ -d "$ROOT/apps/desktop/resources/scripts" ]; then
-      mkdir -p "$STAGE/scripts"
-      cp -R "$ROOT/apps/desktop/resources/scripts/." "$STAGE/scripts/"
-    fi
+    PORT="$STAGE/portable"
+    mkdir -p "$PORT"
+    cp "$BIN" "$PORT/$NAME.exe"
+    common_docs "$PORT"
+    [ -f "$ROOT/assets/icon.ico" ] && cp "$ROOT/assets/icon.ico" "$PORT/$NAME.ico"
+    ZIP_ART="$NAME-$VERSION-$PLATFORM.zip"
+    zip_dir "$PORT" "$OUT/$ZIP_ART"
+    ARTIFACTS+=("$ZIP_ART")
 
-    # Windows 没有 bundle 概念：一个 exe + 说明书就是全部。
-    # zip 而不是 tar.gz——Windows 资源管理器原生认 zip，双击即可解压。
-    #
-    # 为什么不是直接 `zip` 一条路：GitHub 的 windows runner 上本脚本跑在 Git Bash
-    # 里，而 Git for Windows **不带** zip（`tar` 倒是有）。7-Zip 是 runner 预装的，
-    # 因此退到 `7z a -tzip`。两条都不在才报错，并说清补哪个，而不是让 make 语法
-    # 错误糊过去。
-    ARTIFACT="$NAME-$VERSION-$PLATFORM.zip"
-    if command -v zip >/dev/null 2>&1; then
-      (cd "$STAGE" && zip -q -r "$OUT/$ARTIFACT" .)
-    elif command -v 7z >/dev/null 2>&1; then
-      (cd "$STAGE" && 7z a -tzip -bso0 -bsp0 "$OUT/$ARTIFACT" . >/dev/null)
+    # MSI：WiX v5，版本号只取数字部分（MSI 不接受 beta2 这类后缀）。
+    command -v wix >/dev/null || { echo "Windows .msi 打包需要 WiX v5（wix 不在 PATH）" >&2; exit 1; }
+    MSI_STAGE="$STAGE/msi"
+    mkdir -p "$MSI_STAGE"
+    cp "$BIN" "$MSI_STAGE/$NAME.exe"
+    cp "$ROOT/LICENSE" "$MSI_STAGE/LICENSE"
+    cp "$ROOT/README.md" "$MSI_STAGE/README.md"
+    if [ -f "$ROOT/LICENSE" ]; then
+      # WiX 的欢迎页需要一个 RTF 许可证；把 LICENSE 做最基本的 RTF 转义。
+      {
+        printf '{\\rtf1\\ansi\\deff0 {\\fonttbl{\\f0 Arial;}}\\f0\\fs18 '
+        sed -e 's/\\/\\\\/g' -e 's/{/\\{/g' -e 's/}/\\}/g' "$ROOT/LICENSE" | tr '\n' ' ' | sed 's/$/\\par/'
+        printf '}'
+      } > "$MSI_STAGE/license.rtf"
     else
-      echo "既没有 zip 也没有 7z，无法产出 .zip（runner 上装 7-Zip 或 p7zip）" >&2
-      exit 1
+      : > "$MSI_STAGE/license.rtf"
     fi
+    MSI_ART="$NAME-$VERSION-$PLATFORM.msi"
+    NUM_VERSION="${VERSION%%-*}"
+    wix build "$(winpath "$ROOT/packaging/windows/windterm.wxs")" -arch x64 \
+      -ext WixToolset.UI.wixext -ext WixToolset.Util.wixext \
+      -d "Version=$NUM_VERSION" \
+      -d "BinDir=$(winpath "$MSI_STAGE")" \
+      -d "IconPath=$(winpath "$ROOT/assets/icon.ico")" \
+      -d "LicenseRtf=$(winpath "$MSI_STAGE/license.rtf")" \
+      -o "$(winpath "$OUT/$MSI_ART")"
+    rm -f "$OUT/${MSI_ART%.msi}.wixpdb"
+    ARTIFACTS+=("$MSI_ART")
     ;;
 esac
 
-# 校验和：发布产物必须能被下游验证完整性。`sha256sum` 在 GNU coreutils（Linux）
-# 上叫这个名字，macOS 只有 `shasum`；Windows Git Bash 两个都没有时退到 `openssl`。
-# 输出格式用 `<hash>  <文件名>`（两个空格），`sha256sum -c` 能直接吃。
-if command -v sha256sum >/dev/null 2>&1; then
-  (cd "$OUT" && sha256sum "$ARTIFACT" > "$ARTIFACT.sha256")
-elif command -v shasum >/dev/null 2>&1; then
-  (cd "$OUT" && shasum -a 256 "$ARTIFACT" > "$ARTIFACT.sha256")
-elif command -v openssl >/dev/null 2>&1; then
-  (cd "$OUT" && printf '%s  %s\n' "$(openssl dgst -sha256 "$ARTIFACT" | sed 's/.*= //')" "$ARTIFACT" > "$ARTIFACT.sha256")
-else
-  echo "警告：找不到 sha256sum / shasum / openssl，跳过校验和" >&2
-fi
+for a in "${ARTIFACTS[@]}"; do
+  sha256_of "$a"
+done
 
-echo "打包完成：$OUT/$ARTIFACT"
-ls -lh "$OUT/$ARTIFACT" 2>/dev/null || true
-if [ -f "$OUT/$ARTIFACT.sha256" ]; then
-  echo "校验和：$(cat "$OUT/$ARTIFACT.sha256")"
-fi
+echo "打包完成，产物："
+for a in "${ARTIFACTS[@]}"; do
+  ls -lh "$OUT/$a"
+  [ -f "$OUT/$a.sha256" ] && echo "  $(cat "$OUT/$a.sha256")"
+done

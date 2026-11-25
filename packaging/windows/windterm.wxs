@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WindTerm 的 MSI（WiX v5）。由 scripts/package-release.sh 调用：
+
+    wix build windterm.wxs -arch x64 -ext WixToolset.UI.wixext \
+      -d Version=0.0.1 -d BinDir=<stage> -d IconPath=<icon.ico> \
+      -d LicenseRtf=<license.rtf> -o WindTerm-<ver>-windows-x86_64.msi
+
+  UpgradeCode 与组件 GUID 属于本项目，不要与其它产品共用：Windows Installer
+  把共享 UpgradeCode 的包当成同一个产品，会互相拒绝安装或静默卸载。
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package
+      Name="WindTerm"
+      Manufacturer="EzFavorites"
+      Version="$(var.Version)"
+      UpgradeCode="0A793183-169A-4314-95EC-DD6D79AA5BCC"
+      Scope="perUserOrMachine"
+      Compressed="yes"
+      Language="1033">
+    <SummaryInformation Description="WindTerm terminal workbench" Manufacturer="EzFavorites" />
+    <MajorUpgrade AllowDowngrades="yes" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="WindTermIcon" SourceFile="$(var.IconPath)" />
+    <Property Id="ARPPRODUCTICON" Value="WindTermIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/EzFavorites/WindTerm" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/EzFavorites/WindTerm/issues" />
+
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch WindTerm" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+    <Property Id="WixShellExecTarget" Value="[#WindTermExe]" />
+    <CustomAction Id="LaunchWindTerm" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec"
+        Impersonate="yes" Return="ignore" />
+    <UI>
+      <ui:WixUI Id="WixUI_Minimal" />
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchWindTerm"
+          Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+    <StandardDirectory Id="ProgramFiles6432Folder">
+      <Directory Id="INSTALLFOLDER" Name="WindTerm" />
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder" />
+
+    <Feature Id="Main" Title="WindTerm" Level="1">
+      <ComponentGroupRef Id="WindTermFiles" />
+    </Feature>
+  </Package>
+
+  <Fragment>
+    <ComponentGroup Id="WindTermFiles" Directory="INSTALLFOLDER">
+      <Component Id="WindTermApp" Guid="C5767F86-4A7B-4574-94EE-84DD60A0FA2C">
+        <File Id="WindTermExe" Source="$(var.BinDir)\WindTerm.exe" KeyPath="yes">
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="WindTerm"
+              Description="WindTerm terminal workbench" WorkingDirectory="INSTALLFOLDER"
+              Advertise="yes" Icon="WindTermIcon" IconIndex="0" />
+        </File>
+        <RegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\App Paths\WindTerm.exe"
+            Value="[#WindTermExe]" Type="string" />
+      </Component>
+      <Component Id="WindTermDocs" Guid="4182EDA4-4C6A-477E-A405-C61EFEC6D3C9">
+        <File Id="ReadmeFile" Source="$(var.BinDir)\README.md" KeyPath="yes" />
+        <File Id="LicenseFile" Source="$(var.BinDir)\LICENSE" />
+      </Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

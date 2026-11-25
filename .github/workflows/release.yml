@@ -1,4 +1,5 @@
-# 发布：推 v* 标签时构建四个平台的安装包，并创建一个 draft Release。
+# 发布：推 v* 标签时构建三个平台的安装包，并直接发布为 Pre-release。
+# 产物：macOS .dmg / Linux .deb + .zip / Windows .msi + .zip，各带 .sha256。
 #
 # 版本号的唯一来源是 apps/desktop/Cargo.toml 的 `version`；tag 只用于触发，
 # 不参与产物命名（tag 与 Cargo 版本不一致时打印警告，不阻断）。
@@ -96,6 +97,18 @@ jobs:
         with:
           key: ${{ matrix.label }}
 
+      - name: 安装 WiX v5（仅 Windows，生成 .msi）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
+          wix extension add -g WixToolset.Util.wixext/5.0.2
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+          export PATH="$HOME/.dotnet/tools:$PATH"
+          wix --version
+
       - name: 构建
         run: cargo build -p term-desk --release --locked --target "$TARGET"
 
@@ -115,30 +128,39 @@ jobs:
         run: |
           set -euo pipefail
           ls -l dist
-          n=$(ls dist | grep -cE '\.(tar\.gz|zip)$' || true)
-          if [ "$n" -ne 1 ]; then
-            echo "期望恰好 1 个分发包，实际 $n：$(ls dist)" >&2
-            exit 1
-          fi
           case "$TARGET" in
             *-apple-darwin)
-              tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/pkg-list.txt"
-              grep -qxF 'WindTerm.app/Contents/MacOS/WindTerm' "$RUNNER_TEMP/pkg-list.txt" \
-                || { echo ".app 里没有 Contents/MacOS/WindTerm" >&2; exit 1; }
-              grep -qxF 'WindTerm.app/Contents/Resources/LICENSE' "$RUNNER_TEMP/pkg-list.txt" \
-                || { echo ".app 里没有 Contents/Resources/LICENSE" >&2; exit 1; }
-              grep -qxF 'WindTerm.app/Contents/Resources/README.md' "$RUNNER_TEMP/pkg-list.txt" \
-                || { echo ".app 里没有 Contents/Resources/README.md" >&2; exit 1; }
-              ;;
-            *-windows-*)
-              ls dist/*.zip >/dev/null || { echo "没有 .zip" >&2; exit 1; }
+              DMG=$(ls dist/*.dmg 2>/dev/null | head -1)
+              [ -n "$DMG" ] || { echo "没有 .dmg" >&2; exit 1; }
+              MP=$(mktemp -d)
+              hdiutil attach -nobrowse -readonly "$DMG" -mountpoint "$MP" >/dev/null
+              [ -x "$MP/WindTerm.app/Contents/MacOS/WindTerm" ] \
+                || { echo ".dmg 里没有可执行的 WindTerm.app" >&2; hdiutil detach "$MP" >/dev/null; exit 1; }
+              [ -f "$MP/WindTerm.app/Contents/Resources/LICENSE" ] \
+                || { echo ".app 里没有 LICENSE" >&2; hdiutil detach "$MP" >/dev/null; exit 1; }
+              hdiutil detach "$MP" >/dev/null
               ;;
             *-linux-gnu)
-              tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/pkg-list.txt"
-              grep -qxF './windterm' "$RUNNER_TEMP/pkg-list.txt" \
-                || { echo "包里没有 ./windterm" >&2; exit 1; }
+              DEB=$(ls dist/*.deb 2>/dev/null | head -1)
+              ZIP=$(ls dist/*.zip 2>/dev/null | head -1)
+              [ -n "$DEB" ] || { echo "没有 .deb" >&2; exit 1; }
+              [ -n "$ZIP" ] || { echo "没有 .zip" >&2; exit 1; }
+              [ "$(dpkg-deb -f "$DEB" Package)" = "windterm" ] \
+                || { echo ".deb 的 control 不对" >&2; exit 1; }
+              dpkg-deb -c "$DEB" | grep -qE '[[:space:]]\./usr/bin/windterm$' \
+                || { echo ".deb 里没有 /usr/bin/windterm" >&2; exit 1; }
+              ;;
+            *-windows-*)
+              MSI=$(ls dist/*.msi 2>/dev/null | head -1)
+              ZIP=$(ls dist/*.zip 2>/dev/null | head -1)
+              [ -n "$MSI" ] || { echo "没有 .msi" >&2; exit 1; }
+              [ -n "$ZIP" ] || { echo "没有 .zip" >&2; exit 1; }
               ;;
           esac
+          for f in dist/*.dmg dist/*.deb dist/*.msi dist/*.zip; do
+            [ -e "$f" ] || continue
+            [ -s "$f.sha256" ] || { echo "缺少 $f.sha256" >&2; exit 1; }
+          done
           echo "产物校验通过：$(ls dist)"
 
       - uses: actions/upload-artifact@v4
@@ -166,14 +188,16 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          # draft：给发布者一次「看一遍再发」的机会。
-          draft: true
+          # 直接发布为 Pre-release：正式版在手动验证通过后再单独发。
+          draft: false
+          prerelease: true
           generate_release_notes: false
-          # 发布说明来自仓库的 CHANGELOG，否则 draft Release 只有文件、没有说明。
           body_path: CHANGELOG.md
           name: WindTerm ${{ needs.meta.outputs.version }}
           fail_on_unmatched_files: true
           files: |
-            dist/*.tar.gz
+            dist/*.dmg
+            dist/*.deb
+            dist/*.msi
             dist/*.zip
             dist/*.sha256

@@ -3,6 +3,14 @@
 本文件记录本项目面向用户的显著变更。格式沿用 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
 版本号与发布日期在实际发布时写入；未发布的内容留在 `[Unreleased]`。
 
+## [Unreleased]
+
+### Changed
+
+- 发布产物改为按平台分发：macOS `.dmg`、Linux `.deb` + 便携 `.zip`、
+  Windows `.msi` + 便携 `.zip`（均带 `.sha256`）。发布工作流直接产出 Pre-release，
+  不再先建草稿页。
+
 ## [0.0.1-beta2] - 2026-11-26
 
 ### Added
