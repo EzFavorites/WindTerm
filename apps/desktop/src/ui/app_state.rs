@@ -91,7 +91,17 @@ impl TerminalWindow {
     /// 旧快照，于是把成功当成失败。往返一次一帧，同帧只服务一个请求。
     pub(in crate::ui) fn drain_app_requests(&mut self) {
         let pending = match self.app_queue.lock() {
-            Ok(mut queue) if !queue.is_empty() => Some(queue.remove(0)),
+            Ok(mut queue) => loop {
+                if queue.is_empty() {
+                    break None;
+                }
+                let next = queue.remove(0);
+                // 已经被「停止」的请求直接丢：脚本侧早就报了 Cancelled，
+                // 再执行 panel_set / layout 就是用户点了停止面板还自己动。
+                if !next.is_stale() {
+                    break Some(next);
+                }
+            },
             // 中毒 = 界面线程持锁时崩过。把积压的请求全部丢掉：`PendingApp` 一
             // drop，回信通道就断，脚本侧拿到 `Disconnected` → `Busy`，比让它
             // 空等到 2 秒超时更快说出真相（也免得那条通道一直吊着）。
@@ -99,7 +109,6 @@ impl TerminalWindow {
                 poisoned.into_inner().clear();
                 None
             }
-            _ => None,
         };
         let Some(pending) = pending else {
             return;

@@ -15,6 +15,9 @@ pub(in crate::ui) const TAB_STRIP_H: f32 = 24.0;
 pub(in crate::ui) struct ScriptTab {
     pub no: u32,
     pub state: ScriptPanelState,
+    /// 用户点了关闭、但脚本还跑着：先 cancel，等 Outcome 到了才真摘掉页签。
+    /// 直接 `remove` 会把 `ScriptRun` 一起丢掉——租约提前放行，线程还在跑。
+    pub closing: bool,
 }
 
 /// Sender 形态的多页容器：每页互不打断，底部数字页签切换。
@@ -27,7 +30,7 @@ pub(in crate::ui) struct ScriptPanel {
 impl Default for ScriptPanel {
     fn default() -> Self {
         Self {
-            tabs: vec![ScriptTab { no: 0, state: ScriptPanelState::default() }],
+            tabs: vec![ScriptTab { no: 0, state: ScriptPanelState::default(), closing: false }],
             active: 0,
             next_no: 1,
         }
@@ -43,7 +46,7 @@ impl ScriptPanel {
         &mut self.tabs[i].state
     }
     pub fn add(&mut self) {
-        self.tabs.push(ScriptTab { no: self.next_no, state: ScriptPanelState::default() });
+        self.tabs.push(ScriptTab { no: self.next_no, state: ScriptPanelState::default(), closing: false });
         self.next_no += 1;
         self.active = self.tabs.len() - 1;
     }
@@ -51,7 +54,38 @@ impl ScriptPanel {
         if self.tabs.len() == 1 {
             return;
         }
-        self.tabs.remove(self.active);
+        let i = self.active.min(self.tabs.len() - 1);
+        if self.tabs[i].state.run.is_some() {
+            // 叫停但留住句柄：租约在 `ScriptRun` 上，丢了它等于让第二条插进来。
+            if let Some(run) = self.tabs[i].state.run.as_ref() {
+                run.cancel();
+            }
+            self.tabs[i].closing = true;
+            return;
+        }
+        self.tabs.remove(i);
+        if self.active >= self.tabs.len() {
+            self.active = self.tabs.len() - 1;
+        }
+    }
+    /// 结果已到、且标记过关闭的页签：这里才真摘掉（由 `poll_script_panel` 每帧调）。
+    pub fn drop_finished_closings(&mut self) {
+        let mut i = 0;
+        while i < self.tabs.len() {
+            if !self.tabs[i].closing || self.tabs[i].state.run.is_some() {
+                i += 1;
+                continue;
+            }
+            if self.tabs.len() == 1 {
+                // 容器不变量：`current()` 靠「至少一页」取下标。
+                self.tabs[0].closing = false;
+                break;
+            }
+            if i < self.active {
+                self.active -= 1;
+            }
+            self.tabs.remove(i);
+        }
         if self.active >= self.tabs.len() {
             self.active = self.tabs.len() - 1;
         }

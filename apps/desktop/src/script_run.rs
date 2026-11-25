@@ -13,6 +13,7 @@
 //! 结果直接出现在同一个屏幕上。两者共用引擎，但会话来源不同，所以不合并。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -101,10 +102,19 @@ fn lock<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 /// 忘了这回事，屏幕上却突然冒出一串命令。所以第二条当场报错，并说清是谁在跑。
 ///
 /// **不同会话之间不互斥**：批量场景本来就是并行跑多台主机。
+
+/// 后台脚本的并发上限。触发器可以被连着点很多次；没有上限就会把机器拖死。
+pub const MAX_BACKGROUND_RUNS: usize = 4;
+
 #[derive(Default)]
 pub struct ScriptRunRegistry {
-    /// 会话 → 正在跑的那个脚本的名字（给人看的那一句话）。
+    /// 会话 → 正在跑的那个前台脚本的名字（给人看的那一句话）。
     busy: Mutex<HashMap<SessionId, String>>,
+    /// 后台运行自己的名额：`(唯一序号, 名字)`。与 `busy` 分开，
+    /// 所以后台脚本既不占会话的前台名额，也不许无限并行。
+    background: Mutex<Vec<(u64, String)>>,
+    /// 后台租约的序号源（只在本登记簿内唯一）。
+    bg_seq: AtomicU64,
 }
 
 impl ScriptRunRegistry {
@@ -126,8 +136,40 @@ impl ScriptRunRegistry {
         busy.insert(id, who.to_string());
         Ok(Lease {
             registry: Arc::clone(self),
-            id,
+            kind: LeaseKind::Foreground(id),
         })
+    }
+
+    /// 占一个后台名额。与会话互斥无关，但总数封顶。
+    ///
+    /// 不返回 `Result<_, String>`：错误文案由调用方 `ScriptRun::start` 用它已有的
+    /// String 边界给出，别为「后台满了」再开一条全仓冻结的错误边界。
+    pub fn claim_background(self: &Arc<Self>, who: &str) -> Option<Lease> {
+        let who = if who.trim().is_empty() {
+            "未命名脚本"
+        } else {
+            who.trim()
+        };
+        let mut bg = lock(&self.background);
+        if bg.len() >= MAX_BACKGROUND_RUNS {
+            return None;
+        }
+        let seq = self.bg_seq.fetch_add(1, Ordering::Relaxed);
+        bg.push((seq, who.to_string()));
+        Some(Lease {
+            registry: Arc::clone(self),
+            kind: LeaseKind::Background(seq),
+        })
+    }
+
+    /// 后台名额满了时给人的那句解释（谁占着、上限多少）。
+    pub fn background_full_error(&self) -> String {
+        let bg = lock(&self.background);
+        let names = bg.iter().map(|(_, n)| n.as_str()).collect::<Vec<_>>().join("、");
+        let count = bg.len();
+        format!(
+            "后台脚本已经有 {count} 条在跑（最多 {MAX_BACKGROUND_RUNS} 条：{names}）。等一条结束再试。"
+        )
     }
 
     /// 谁占着 `id`（`None` = 空闲）。界面据此把「运行」按钮灰掉并显示原因。
@@ -135,21 +177,48 @@ impl ScriptRunRegistry {
         lock(&self.busy).get(&id).cloned()
     }
 
-    /// 此刻有几条会话在跑脚本。测试与状态栏用。
+    /// 此刻有几条会话在跑前台脚本。测试与状态栏用。
     pub fn busy_count(&self) -> usize {
         lock(&self.busy).len()
+    }
+
+    /// 此刻有几条后台脚本在跑（界面据此显示「后台脚本在跑」）。
+    pub fn background_count(&self) -> usize {
+        lock(&self.background).len()
+    }
+
+    /// 后台脚本的名字清单（错误提示里要说清是谁占着名额）。
+    pub fn background_names(&self) -> Vec<String> {
+        lock(&self.background)
+            .iter()
+            .map(|(_, name)| name.clone())
+            .collect()
     }
 
     fn release(&self, id: SessionId) {
         lock(&self.busy).remove(&id);
     }
+
+    fn release_background(&self, seq: u64) {
+        let mut bg = lock(&self.background);
+        if let Some(i) = bg.iter().position(|(s, _)| *s == seq) {
+            bg.remove(i);
+        }
+    }
 }
 
-/// 「这条会话被我占着」的凭据。**丢弃即放行**——包括脚本线程 panic、窗口被关、
-/// 用户点停止这些路径，都不需要谁记得手动摘牌。
+/// 一份租约占的是哪个名额。前台按会话，后台按唯一序号。
+#[derive(Clone, Copy)]
+enum LeaseKind {
+    Foreground(SessionId),
+    Background(u64),
+}
+
+/// 「这条会话 / 这个后台名额被我占着」的凭据。**丢弃即放行**——包括脚本线程
+/// panic、窗口被关、用户点停止这些路径，都不需要谁记得手动摘牌。
 pub struct Lease {
     registry: Arc<ScriptRunRegistry>,
-    id: SessionId,
+    kind: LeaseKind,
 }
 
 impl Lease {
@@ -162,7 +231,10 @@ impl Lease {
 
 impl Drop for Lease {
     fn drop(&mut self) {
-        self.registry.release(self.id);
+        match self.kind {
+            LeaseKind::Foreground(id) => self.registry.release(id),
+            LeaseKind::Background(seq) => self.registry.release_background(seq),
+        }
     }
 }
 
@@ -203,7 +275,7 @@ pub struct RunOptions {
     /// 这个脚本叫什么（进了「谁在跑」的提示）。空串时按「未命名脚本」。
     pub who: String,
     /// `true` = 前台运行（面板 / 编辑器 / 运行窗口），同一会话只许一条；
-    /// `false` = 触发器后台运行，不占会话的前台名额、彼此也不互斥。
+    /// `false` = 触发器后台运行，不占会话的前台名额，但受 `MAX_BACKGROUND_RUNS` 限制。
     pub foreground: bool,
 }
 
@@ -331,18 +403,21 @@ impl ScriptRun {
         let Some(session) = pool.session(id) else {
             return Err(format!("控制面里查不到这个会话（id={id:?}）"));
         };
-        // 互斥先占位，再干别的：读文件、起线程都要花时间，而「谁在跑」必须在
+        // 名额先占，再干别的：读文件、起线程都要花时间，而「谁在跑」必须在
         // 第一帧就能报出来，否则连点两下会真的起来两条。
-        let lease = match (&options.registry, options.foreground) {
-            (Some(registry), true) => {
-                let who = if options.who.trim().is_empty() {
-                    "未命名脚本"
-                } else {
-                    options.who.trim()
-                };
-                Some(registry.claim(id, who)?)
-            }
-            _ => None,
+        // 前台按会话互斥；后台不占会话名额，但自己有并发上限（见 `MAX_BACKGROUND_RUNS`）。
+        let who = if options.who.trim().is_empty() {
+            "未命名脚本"
+        } else {
+            options.who.trim()
+        };
+        let lease = match &options.registry {
+            Some(registry) if options.foreground => Some(registry.claim(id, who)?),
+            Some(registry) => match registry.claim_background(who) {
+                Some(lease) => Some(lease),
+                None => return Err(registry.background_full_error()),
+            },
+            None => None,
         };
         let notes = Arc::new(Mutex::new(Vec::new()));
         let cancel = CancelToken::new();
@@ -795,10 +870,15 @@ mod tests {
         )
         .expect("后台脚本 2");
         assert_eq!(registry.holder(id).as_deref(), Some("fg.rhai"));
-        assert_eq!(registry.busy_count(), 1, "只有前台脚本占名额");
+        assert_eq!(registry.busy_count(), 1, "只有前台脚本占会话名额");
+        assert_eq!(registry.background_count(), 2, "后台另有自己的名额");
+        // 前台与后台各占各的名额，互不顶替。
         assert_eq!(wait(&mut bg1), Outcome::Done("2".to_string()));
         assert_eq!(wait(&mut bg2), Outcome::Done("3".to_string()));
         assert_eq!(wait(&mut fg), Outcome::Done("1".to_string()));
+        drop(bg1);
+        drop(bg2);
+        assert_eq!(registry.background_count(), 0, "句柄一丢后台名额就还回来");
         pool.close(id);
     }
 
@@ -832,6 +912,75 @@ mod tests {
         assert_eq!(registry.holder(id).as_deref(), Some("slow.rhai"));
         drop(run);
         assert_eq!(registry.holder(id), None, "句柄一丢就该放行");
+        pool.close(id);
+    }
+
+    #[test]
+    fn background_runs_have_their_own_capped_lease() {
+        // 后台不占会话名额，但也不能无限并行：触发器连点十次会拖死机器。
+        let registry = Arc::new(ScriptRunRegistry::new());
+        let mut leases = Vec::new();
+        for i in 0..MAX_BACKGROUND_RUNS {
+            leases.push(
+                registry
+                    .claim_background(&format!("bg{i}.rhai"))
+                    .expect("名额"),
+            );
+        }
+        assert_eq!(registry.background_count(), MAX_BACKGROUND_RUNS);
+        assert!(registry.background_names().iter().any(|n| n == "bg0.rhai"));
+        assert!(
+            registry.claim_background("extra.rhai").is_none(),
+            "后台并发超额必须被拒"
+        );
+        let err = registry.background_full_error();
+        assert!(err.contains("最多"), "{err}");
+        assert!(err.contains("bg0.rhai"), "要说清谁占着：{err}");
+        leases.remove(0);
+        assert_eq!(registry.background_count(), MAX_BACKGROUND_RUNS - 1);
+        assert!(registry.claim_background("extra.rhai").is_some(), "让出来就能跑");
+    }
+
+    /// 面板 Stop 的那条链：cancel → `Outcome::Failed(取消)` → 句柄置空 → 租约释放。
+    /// 面板把句柄留到 Outcome 才置空；这里盯的就是「Outcome 到了才放行」。
+    #[test]
+    fn cancelling_a_run_yields_a_failed_outcome_then_frees_the_lease() {
+        let (pool, id) = pool_with_session();
+        let registry = Arc::new(ScriptRunRegistry::new());
+        let mut run = ScriptRun::start(
+            pool.clone(),
+            id,
+            "sleep(80); 1".to_string(),
+            RunOptions::default().with_registry(Arc::clone(&registry), "stop.rhai"),
+        )
+        .expect("起脚本");
+        assert_eq!(registry.holder(id).as_deref(), Some("stop.rhai"));
+
+        // 「停止」按钮只调 cancel，句柄还攥着（面板不会提前置 None）。
+        run.cancel();
+        assert!(run.is_cancelled());
+        assert_eq!(registry.holder(id).as_deref(), Some("stop.rhai"));
+
+        match wait(&mut run) {
+            Outcome::Failed { message, .. } => {
+                assert!(message.contains("取消"), "要说清是被取消的：{message}");
+            }
+            other => panic!("取消应当收场成 Failed：{other:?}"),
+        }
+        // 结果已到但句柄还在：租约仍占着，这是「先收 Outcome 再置空」的意义。
+        assert_eq!(registry.holder(id).as_deref(), Some("stop.rhai"));
+        drop(run);
+        assert_eq!(registry.holder(id), None, "句柄置空才释放租约");
+        assert!(
+            ScriptRun::start(
+                pool.clone(),
+                id,
+                "1".to_string(),
+                RunOptions::default().with_registry(Arc::clone(&registry), "next.rhai"),
+            )
+            .is_ok(),
+            "租约释放之后同会话应当能再跑"
+        );
         pool.close(id);
     }
 

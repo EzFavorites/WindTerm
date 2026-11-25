@@ -112,6 +112,8 @@ enum EditorAction {
     None,
     Close,
     Run,
+    /// 叫停：只 `cancel()`，句柄留到 `poll()` 收到 Outcome 再置空。
+    Stop,
     /// 存到当前路径（没有路径则退化为「另存为」）。
     Save,
     /// 打开「另存为」输入行。
@@ -199,6 +201,13 @@ impl TerminalWindow {
             EditorAction::None => {}
             EditorAction::Close => self.close_script_editor(),
             EditorAction::Run => self.run_editor_script(),
+            EditorAction::Stop => {
+                // 与运行窗口 / 面板一致：先叫停，句柄留到结果回来再置空。
+                if let Some(run) = self.script_editor.as_ref().and_then(|s| s.run.as_ref()) {
+                    run.cancel();
+                }
+                self.ctx.request_repaint();
+            }
             EditorAction::Save => self.save_editor(false),
             EditorAction::SaveAs => {
                 if let Some(state) = self.script_editor.as_mut() {
@@ -300,6 +309,9 @@ fn draw_editor(
                 *action = EditorAction::Run;
             }
         });
+        if running && ui.button(t(lang, "Stop")).clicked() {
+            *action = EditorAction::Stop;
+        }
         if ui.button(t(lang, "Save")).clicked() {
             *action = EditorAction::Save;
         }

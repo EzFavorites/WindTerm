@@ -66,6 +66,14 @@ impl AskModal {
         }
     }
 
+    /// 已经立着的模态框所属运行被取消时，也要撤掉它（不能等用户去点）。
+    pub(in crate::ui) fn is_stale(&self) -> bool {
+        match &self.pending {
+            Pending::Ask(ask) => ask.is_stale(),
+            Pending::Pick(pick) => pick.is_stale(),
+        }
+    }
+
     /// 标题与正文（两种请求共用一套文案位置）。
     fn title_and_body(&self, lang: Lang) -> (String, String) {
         match &self.pending {
@@ -168,14 +176,21 @@ pub(in crate::ui) fn poll(
     picks: &std::sync::Arc<std::sync::Mutex<Vec<PendingPick>>>,
 ) -> Option<AskModal> {
     // 问题优先于文件框：脚本是顺序执行的，先排进来的先答。
+    // 取之前先看取消令牌：被「停止」的请求连弹窗都不该再弹。
     if let Ok(mut queue) = asks.lock() {
-        if !queue.is_empty() {
-            return Some(AskModal::new(Pending::Ask(queue.remove(0))));
+        while !queue.is_empty() {
+            let next = queue.remove(0);
+            if !next.is_stale() {
+                return Some(AskModal::new(Pending::Ask(next)));
+            }
         }
     }
     if let Ok(mut queue) = picks.lock() {
-        if !queue.is_empty() {
-            return Some(AskModal::new(Pending::Pick(queue.remove(0))));
+        while !queue.is_empty() {
+            let next = queue.remove(0);
+            if !next.is_stale() {
+                return Some(AskModal::new(Pending::Pick(next)));
+            }
         }
     }
     None

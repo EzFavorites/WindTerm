@@ -21,6 +21,7 @@
 //! `recv_timeout` 轮询 [`term_script::CancelToken`]，醒来就报 `Cancelled`。
 
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, Mutex};
 
@@ -34,8 +35,18 @@ use crate::script_env::Envelope;
 /// 有界容量让「界面回了两次」（双击按钮之类的 bug）在第二发上失败，而不是
 /// 悄悄把第二个答案留在队列里喂给下一个问题。
 pub struct PendingAsk {
+    /// 队列内唯一序号：取消时据此只摘自己那一条。
+    pub seq: u64,
+    /// 所属运行的取消令牌：界面取之前先看一眼，取消的直接丢。
+    pub cancel: CancelToken,
     pub request: Ask,
     pub reply: SyncSender<Answer>,
+}
+
+impl PendingAsk {
+    pub fn is_stale(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
 }
 
 /// 界面与脚本线程之间的问题队列。
@@ -43,6 +54,42 @@ pub struct PendingAsk {
 /// 界面每帧 `pop()` 一个（已经有一个在显示时就不 pop），显示完把答案经
 /// `PendingAsk::reply` 送回。队列为空 = 没有脚本在等人。
 pub type AskQueue = Arc<Mutex<Vec<PendingAsk>>>;
+
+/// 脚本交给界面的一个文件框请求。
+pub struct PendingPick {
+    pub seq: u64,
+    pub cancel: CancelToken,
+    pub request: PickFile,
+    pub reply: SyncSender<Option<PathBuf>>,
+}
+
+impl PendingPick {
+    pub fn is_stale(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+}
+
+/// 每条请求一个号（与 `script_app` 各自的计数器即可，队列互不混用）。
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(1);
+fn next_seq() -> u64 {
+    NEXT_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
+fn drop_own_ask(queue: &AskQueue, seq: u64) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.retain(|pending| pending.seq != seq);
+}
+
+fn drop_own_pick(queue: &Arc<Mutex<Vec<PendingPick>>>, seq: u64) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.retain(|pending| pending.seq != seq);
+}
 
 /// 界面那条路的人机端口。
 pub struct UiHuman {
@@ -54,12 +101,6 @@ pub struct UiHuman {
     /// `notify` 的落点（界面每帧取走显示在状态栏）。`None` = 写 stderr。
     notes: Option<Arc<Mutex<Vec<String>>>>,
     cancel: CancelToken,
-}
-
-/// 脚本交给界面的一个文件框请求。
-pub struct PendingPick {
-    pub request: PickFile,
-    pub reply: SyncSender<Option<PathBuf>>,
 }
 
 impl UiHuman {
@@ -90,34 +131,53 @@ impl HumanChannel for UiHuman {
     }
 
     fn ask(&self, request: &Ask) -> Result<Answer, AskError> {
+        let seq = next_seq();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         // 队列中毒只说明别的线程持锁时崩过；问题本身还能排进去。
         match self.queue.lock() {
             Ok(mut queue) => queue.push(PendingAsk {
+                seq,
+                cancel: self.cancel.clone(),
                 request: request.clone(),
                 reply: tx,
             }),
             Err(poisoned) => poisoned.into_inner().push(PendingAsk {
+                seq,
+                cancel: self.cancel.clone(),
                 request: request.clone(),
                 reply: tx,
             }),
         }
-        self.wait_for_reply(&rx)
+        let answer = self.wait_for_reply(&rx);
+        if answer.is_err() {
+            // 取消 / 断线时脚本已经走了；问题若不摘掉，下一帧还会弹出来。
+            drop_own_ask(&self.queue, seq);
+        }
+        answer
     }
 
     fn pick_file(&self, request: &PickFile) -> Result<Option<PathBuf>, AskError> {
+        let seq = next_seq();
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
         match self.picks.lock() {
             Ok(mut queue) => queue.push(PendingPick {
+                seq,
+                cancel: self.cancel.clone(),
                 request: request.clone(),
                 reply: tx,
             }),
             Err(poisoned) => poisoned.into_inner().push(PendingPick {
+                seq,
+                cancel: self.cancel.clone(),
                 request: request.clone(),
                 reply: tx,
             }),
         }
-        match self.wait_for_reply(&rx) {
+        let answer = self.wait_for_reply(&rx);
+        if answer.is_err() {
+            drop_own_pick(&self.picks, seq);
+        }
+        match answer {
             // 用户点了「取消」→ `None`（不是错误：CRT 的文件框取消也是空串）。
             Ok(picked) => {
                 // 用户**亲手选了**这个路径 = 他同意脚本碰它。授权在这里追加，
@@ -485,5 +545,69 @@ mod tests {
         }
         cancel.cancel();
         assert_eq!(worker.join().expect("脚本线程"), Err(AskError::Cancelled));
+        assert!(
+            queue.lock().expect("队列锁").is_empty(),
+            "取消之后问题不该留在队列里，下一帧再弹一次"
+        );
+    }
+
+    #[test]
+    fn a_cancelled_pick_takes_itself_out_of_the_queue() {
+        let picks = Arc::new(Mutex::new(Vec::new()));
+        let cancel = CancelToken::new();
+        let human = UiHuman::new(
+            Default::default(),
+            Arc::clone(&picks),
+            None,
+            None,
+            cancel.clone(),
+        );
+        let worker = {
+            let human = Arc::new(human);
+            std::thread::spawn(move || {
+                human.pick_file(&PickFile::Open {
+                    title: String::new(),
+                    filter: String::new(),
+                    default: String::new(),
+                })
+            })
+        };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while picks.lock().expect("队列锁").is_empty() {
+            assert!(std::time::Instant::now() < deadline, "文件框没能进队");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        cancel.cancel();
+        assert_eq!(worker.join().expect("脚本线程"), Err(AskError::Cancelled));
+        assert!(picks.lock().expect("队列锁").is_empty());
+    }
+
+    #[test]
+    fn pending_requests_report_staleness_before_the_ui_drains_them() {
+        let cancel = CancelToken::new();
+        let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+        let ask = PendingAsk {
+            seq: next_seq(),
+            cancel: cancel.clone(),
+            request: Ask::Alert {
+                title: String::new(),
+                text: String::new(),
+            },
+            reply: tx,
+        };
+        let (tx, _rx) = std::sync::mpsc::sync_channel(1);
+        let pick = PendingPick {
+            seq: next_seq(),
+            cancel: cancel.clone(),
+            request: PickFile::Open {
+                title: String::new(),
+                filter: String::new(),
+                default: String::new(),
+            },
+            reply: tx,
+        };
+        assert!(!ask.is_stale() && !pick.is_stale());
+        cancel.cancel();
+        assert!(ask.is_stale() && pick.is_stale());
     }
 }

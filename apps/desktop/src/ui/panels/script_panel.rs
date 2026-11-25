@@ -224,10 +224,20 @@ impl TerminalWindow {
                 tab.state.run = None;
             }
         }
+        // 「关闭运行中的页签」是延迟到这里的：先 cancel，收到 Outcome 才真摘掉。
+        self.script_panel.drop_finished_closings();
     }
 
     /// 读文件 → 起线程。失败留在 `error` 里，不弹第二个窗口。
     fn run_script_panel(&mut self) {
+        // 关闭中的页签只是还没收到旧脚本的 Outcome：在上面再起一条，旧结果一到
+        // 页签就被摘掉，新句柄跟着丢，线程还在跑却没人管租约。
+        let idx = self.script_panel.active.min(self.script_panel.tabs.len() - 1);
+        if self.script_panel.tabs[idx].closing {
+            self.script_panel.current_mut().error =
+                Some("这个页签正在停止，等它结束再运行".to_string());
+            return;
+        }
         let Some(id) = self.script_panel.current_mut().session else {
             self.script_panel.current_mut().error = Some("这个 tab 没有活着的会话".to_string());
             return;
@@ -296,7 +306,14 @@ impl TerminalWindow {
     ) {
         match cmd {
             ScriptCmd::Run => self.run_script_panel(),
-            ScriptCmd::Stop => self.script_panel.current_mut().run = None,
+            ScriptCmd::Stop => {
+                // 只叫停，不摘句柄：句柄要留到 `poll_script_panel` 收到 Outcome
+                // 再置空，否则脚本线程还在跑、租约却已放行，下一条马上插进来。
+                // 与 `terminal/script.rs` 的 `ScriptAction::Stop` 同一套语义。
+                if let Some(run) = self.script_panel.current().run.as_ref() {
+                    run.cancel();
+                }
+            }
             ScriptCmd::NewTab => self.script_panel.add(),
             ScriptCmd::CloseTab => self.script_panel.close_active(),
             ScriptCmd::OpenConfig => self.open_script_manager(),
@@ -494,6 +511,14 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
     );
     p.galley(egui::pos2(body.left(), y), sg.clone(), sc);
     y += sg.size().y.max(line_h);
+    // 后台脚本不占会话名额，也就不会把「运行」按钮灰掉——那更要说一声有人在跑。
+    let bg = win.script_runs.background_count();
+    if bg > 0 {
+        let c = crate::theme::chrome(CHROME_SCALE.hint);
+        let g = p.layout_no_wrap(format!("后台脚本在跑（{bg}）"), crate::ui::type_scale::small(), c);
+        p.galley(egui::pos2(body.left(), y), g.clone(), c);
+        y += g.size().y.max(line_h);
+    }
     // 结果正文：返回值 / 失败原因，等宽多行（脚本自己排好的格式要保住）。
     let text = result_text(win.script_panel.current());
     if !text.is_empty() {
@@ -610,3 +635,7 @@ mod tests {
         assert_eq!(session_labels(&one), vec!["a", "b"]);
     }
 }
+
+#[cfg(test)]
+#[path = "script_panel_stop_tests.rs"]
+mod stop_tests;

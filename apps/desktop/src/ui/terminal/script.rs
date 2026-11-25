@@ -227,6 +227,10 @@ impl TerminalWindow {
     /// 一次只处理一个请求——脚本是顺序执行的，答案也该按序给。已经立着一个
     /// 模态框时不再取，否则「回车」会落到没显示的那一个上。
     pub(in crate::ui) fn poll_script_ask(&mut self, ctx: &egui::Context) {
+        // 脚本可能在模态框立着的时候被「停止」；那扇窗已经没人等回信了，撤掉。
+        if self.script_ask.as_ref().is_some_and(|modal| modal.is_stale()) {
+            self.script_ask = None;
+        }
         if self.script_ask.is_none() {
             self.script_ask = overlays::poll_ask(&self.script_asks, &self.script_picks);
         }
@@ -397,6 +401,8 @@ impl TerminalWindow {
         // 「最近用过」是窗口上的 MRU（`note_recent_script` 每次起跑都会更新它），
         // 先克隆一份：下面 `self.script.as_mut()` 已经把整窗借走了。
         let recent = self.script_recent.clone();
+        // 后台脚本不占会话名额，不会把 Run 灰掉，所以要在窗口里明说有人在跑。
+        let bg_running = self.script_runs.background_count();
         let Some(dialog) = self.script.as_mut() else {
             return;
         };
@@ -477,6 +483,11 @@ impl TerminalWindow {
                 ui.add_space(6.0);
                 // 结果用 monospace：脚本返回值可能是多行的，比例字体对不齐。
                 ui.add(egui::Label::new(egui::RichText::new(&status).monospace()).wrap());
+                if bg_running > 0 {
+                    ui.label(
+                        egui::RichText::new(format!("后台脚本在跑（{bg_running}）")).small(),
+                    );
+                }
             },
         );
 
@@ -756,6 +767,8 @@ mod tests {
             .lock()
             .expect("队列锁")
             .push(PendingAsk {
+                seq: 1,
+                cancel: term_script::CancelToken::new(),
                 request: term_script::Ask::Confirm {
                     title: "确认".to_string(),
                     text: "继续？".to_string(),
@@ -803,6 +816,8 @@ mod tests {
                     .lock()
                     .expect("队列锁")
                     .push(PendingAsk {
+                        seq: index as u64 + 1,
+                        cancel: term_script::CancelToken::new(),
                         request: term_script::Ask::Text {
                             title: String::new(),
                             prompt: format!("第 {index} 个"),

@@ -18,6 +18,7 @@
 //! 3. **100ms 轮询取消、2 秒封顶**：与 `UiHuman` 同一节拍；超时返回 `Timeout`，
 //!    **不自动重试**（重发一次置位是幂等的，但重发一次布局动作会连做两次）。
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -46,14 +47,43 @@ pub enum AppReply {
     Error(AppError),
 }
 
-/// 待答复的一次请求：请求 + 回信通道。
+/// 待答复的一次请求：请求 + 回信通道 + 所属运行的取消令牌。
 pub struct PendingApp {
+    /// 队列内唯一序号：脚本被取消时据此**只摘自己那一条**，不误删别的脚本。
+    pub seq: u64,
+    /// 所属运行是否已取消。界面 drain 前先看一眼，取消的请求直接丢。
+    pub cancel: CancelToken,
     pub request: AppRequest,
     pub reply: SyncSender<AppReply>,
 }
 
+impl PendingApp {
+    /// 界面取出来之后先问：这条请求还有人等回信吗？
+    pub fn is_stale(&self) -> bool {
+        self.cancel.is_cancelled()
+    }
+}
+
 /// 界面与脚本线程之间的请求队列。界面每帧 `remove(0)` 一条。
 pub type AppQueue = Arc<Mutex<Vec<PendingApp>>>;
+
+/// 每条请求一个号。用全局原子而不是队列长度：两条运行交错时长度会撞号。
+static NEXT_SEQ: AtomicU64 = AtomicU64::new(1);
+fn next_seq() -> u64 {
+    NEXT_SEQ.fetch_add(1, Ordering::Relaxed)
+}
+
+/// 取消后把**自己的**那条请求从队列里摘掉。
+///
+/// 不做这一步的话，脚本线程已经报 `Cancelled` 收场，请求却还躺在队列里，
+/// 下一帧界面照旧执行 `panel_set` / `layout`——用户点了停止，面板却自己动了。
+fn drop_own(queue: &AppQueue, seq: u64) {
+    let mut guard = match queue.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    guard.retain(|pending| pending.seq != seq);
+}
 
 /// 桌面宿主的端口实现。
 pub struct DeskApp {
@@ -73,6 +103,7 @@ impl DeskApp {
 
     /// 把请求交给界面并等回执。
     fn roundtrip(&self, request: AppRequest) -> Result<AppReply, AppError> {
+        let seq = next_seq();
         let (tx, rx) = sync_channel(1);
         match self.queue.lock() {
             // 队列非空 = 上一帧那条还没落地。**不排第二条**：
@@ -80,6 +111,8 @@ impl DeskApp {
             // 变得不可解释；脚本拿 `Busy` 自己决定要不要重试，比让它盲等 2 秒好。
             Ok(queue) if !queue.is_empty() => return Err(AppError::Busy),
             Ok(mut queue) => queue.push(PendingApp {
+                seq,
+                cancel: self.cancel.clone(),
                 request,
                 reply: tx,
             }),
@@ -92,12 +125,14 @@ impl DeskApp {
         let deadline = Instant::now() + Duration::from_secs(2);
         loop {
             if self.cancel.is_cancelled() {
+                drop_own(&self.queue, seq);
                 return Err(AppError::Cancelled);
             }
             match rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(reply) => return Ok(reply),
                 Err(RecvTimeoutError::Timeout) => {
                     if Instant::now() >= deadline {
+                        drop_own(&self.queue, seq);
                         return Err(AppError::Timeout);
                     }
                 }
@@ -153,9 +188,11 @@ mod tests {
     #[test]
     fn a_second_request_while_one_is_still_pending_reports_busy() {
         // 队列非空 → Busy（不排第二条）。
-        let (app, queue, _cancel) = headless();
+        let (app, queue, cancel) = headless();
         let (tx, _rx) = sync_channel(1);
         queue.lock().expect("队列锁").push(PendingApp {
+            seq: next_seq(),
+            cancel: cancel.clone(),
             request: AppRequest::Snapshot,
             reply: tx,
         });
@@ -207,5 +244,39 @@ mod tests {
         });
         assert!(matches!(app.snapshot(), Err(AppError::Busy)));
         grabber.join().expect("取队列线程");
+    }
+
+    #[test]
+    fn cancelling_takes_the_queued_request_out_before_the_ui_can_drain_it() {
+        // 「停止」之后脚本已经报 Cancelled，但请求若还躺在队列里，下一帧
+        // 界面照旧会 panel_set / layout。这里盯住「自己的那条被摘掉」。
+        let (app, queue, cancel) = headless();
+        let worker = std::thread::spawn(move || app.snapshot());
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while queue.lock().expect("队列锁").is_empty() {
+            assert!(Instant::now() < deadline, "请求没能进队");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        cancel.cancel();
+        assert!(matches!(worker.join().expect("脚本线程"), Err(AppError::Cancelled)));
+        assert!(
+            queue.lock().expect("队列锁").is_empty(),
+            "取消的请求不该留到下一帧被执行"
+        );
+    }
+
+    #[test]
+    fn a_pending_request_reports_staleness_from_its_cancel_token() {
+        let cancel = CancelToken::new();
+        let (tx, _rx) = sync_channel(1);
+        let pending = PendingApp {
+            seq: next_seq(),
+            cancel: cancel.clone(),
+            request: AppRequest::Snapshot,
+            reply: tx,
+        };
+        assert!(!pending.is_stale());
+        cancel.cancel();
+        assert!(pending.is_stale(), "界面 drain 前据此丢弃");
     }
 }
