@@ -4818,6 +4818,7 @@ dependencies = [
  "serde",
  "serde_json",
  "term-core",
+ "term-import",
  "term-paths",
  "term-store",
 ]

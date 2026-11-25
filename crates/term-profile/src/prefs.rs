@@ -1074,6 +1074,15 @@ pub fn save(prefs: &Prefs) -> bool {
     }
 }
 
+/// 显式路径版的写盘，语义与 [`save`] 完全一致（同一套覆盖前保全）。
+///
+/// 只给「解析 → 合并 → 写盘」这条链路的单测用：导入链路要验证坏文件被另存 /
+/// 写不进去时拒写，但单测不能去碰用户真实的 profile 目录。生产调用方仍然走
+/// [`save`]，保全逻辑全仓只有 [`save_to`] 这一份。
+pub fn save_to_path(path: &Path, prefs: &Prefs) -> bool {
+    save_to(path, prefs)
+}
+
 fn save_to(path: &Path, prefs: &Prefs) -> bool {
     if !preserve_before_overwrite(path) {
         return false;

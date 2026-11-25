@@ -367,20 +367,11 @@ fn detect_hosts() -> Vec<DetectedHost> {
         out.extend(parse_ssh_config(&text, &ssh_config.to_string_lossy()));
     }
 
-    // WindTerm 三处 `profiles/`（macOS / Linux / 老版本）。与
-    // `panels/sidebar.rs::import_text` 里的三个根一致——那是**找文件**的知识，
-    // 与解析无关；两份并列是刻意的：它们服务的入口不同（侧栏菜单 / 首次启动），
-    // 将来若第 4 个候选路径出现，两处都要加。
-    let mut dirs_seen: Vec<std::path::PathBuf> = Vec::new();
-    for candidate in [
-        home.join(".windterm").join("profiles"),
-        home.join("Library/Application Support/WindTerm/profiles"),
-        home.join(".config/WindTerm/profiles"),
-    ] {
-        if dirs_seen.contains(&candidate) {
-            continue;
-        }
-        dirs_seen.push(candidate.clone());
+    // 候选根目录统一由发现层给出：macOS app 包内 `.wind/profiles`、
+    // `profiles.config` 指针、三处用户根、Windows/Linux 常见位置。侧栏导入
+    // 走同一个函数，新增候选只改 `term_import::discovery` 一处（消除双写）。
+    // 发现层只枚举有限目录，不扫描全盘、不读会话内容。
+    for candidate in term_import::discovery::candidate_windterm_roots() {
         let Ok(entries) = std::fs::read_dir(&candidate) else {
             continue;
         };

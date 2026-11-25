@@ -25,11 +25,41 @@ pub struct ImportedSession {
     pub proxy_jump: Option<String>,
     /// `IdentityFile` / `PublicKeyFile`，只记路径不记内容。
     pub identity_file: Option<String>,
+    /// 本地 Shell 会话要启动的程序（原版 `session.target`）。
+    /// 只有 Shell 协议会填它；**绝不**顺手塞进 `host`。
+    pub shell_command: Option<String>,
+    /// 原版 `process.arguments`，Shell / Serial 都可能带。
+    pub shell_arguments: Option<String>,
+    /// 原版 `process.workingDirectory`。
+    pub working_dir: Option<String>,
+}
+
+impl Default for ImportedSession {
+    /// 缺省协议取 SSH：四种旧来源的解析器都显式写协议，这里只给
+    /// `..Default::default()` 一个新字段的补齐点，不替任何来源猜协议。
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            host: String::new(),
+            port: 0,
+            username: String::new(),
+            group: String::new(),
+            protocol: Protocol::Ssh,
+            proxy_jump: None,
+            identity_file: None,
+            shell_command: None,
+            shell_arguments: None,
+            working_dir: None,
+        }
+    }
 }
 
 impl ImportedSession {
     /// 落到会话库里的形状。密码一律不带；WINTERM/SSH 配置里的 `Password`
     /// 字段在解析阶段就没有被读进来。
+    ///
+    /// 三个新字段只在 `Some` 时写：`SessionConfig::new` 给 `shell_arguments`
+    /// 的出厂值（`-1 -1`）不该被导入器的一句 `unwrap_or_default()` 悄悄清掉。
     pub fn into_config(self) -> SessionConfig {
         let mut cfg = SessionConfig::new(self.protocol);
         cfg.name = self.name;
@@ -39,6 +69,15 @@ impl ImportedSession {
         cfg.group = self.group;
         cfg.proxy_jump = self.proxy_jump.unwrap_or_default();
         cfg.identity_file = self.identity_file.unwrap_or_default();
+        if let Some(v) = self.shell_command {
+            cfg.shell_command = v;
+        }
+        if let Some(v) = self.shell_arguments {
+            cfg.shell_arguments = v;
+        }
+        if let Some(v) = self.working_dir {
+            cfg.working_dir = v;
+        }
         cfg
     }
 }
@@ -139,6 +178,7 @@ fn flush(out: &mut Vec<ImportedSession>, f: &Fields, defaults: &Fields) {
             protocol: Protocol::Ssh,
             proxy_jump: f.proxy.clone().or_else(|| defaults.proxy.clone()),
             identity_file: f.identity.clone().or_else(|| defaults.identity.clone()),
+            ..Default::default()
         });
     }
 }
@@ -221,6 +261,72 @@ pub fn parse_windterm(text: &str) -> Vec<ImportedSession> {
     Vec::new()
 }
 
+/// 原版 WindTerm `terminal/user.sessions` 的解析（严格 JSON，一条数组记录一条会话）。
+///
+/// 与上面的宽松 [`parse_windterm`] 不是同一个格式：原版文件是**扁平键**的 JSON 数组
+/// （`session.protocol` / `session.target` / `process.arguments` …），真实记录**没有**
+/// `host` 键，所以旧解析器会把 9 条全读成 0 条。这里按 `session.protocol` 分流：
+///
+/// - `Shell`：`session.target` → [`ImportedSession::shell_command`]，`host` 保持空；
+/// - `Serial`（以及 SSH/Telnet/TCP）：`session.target` → `host`；
+/// - 不认识的协议：跳过，不替用户猜。
+///
+/// `process.arguments` / `process.workingDirectory` 落到新字段。密码类键**连读都不读**——
+/// 本函数只 `get` 上面这几个键，值里塞再多 `password` 也不会出现在输出里。
+pub fn parse_windterm_sessions(text: &str) -> Vec<ImportedSession> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let items = match value {
+        serde_json::Value::Array(items) => items,
+        // 单条记录也收：手改过的文件偶尔把数组写成单个对象。
+        serde_json::Value::Object(_) => vec![value],
+        _ => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for item in items {
+        let serde_json::Value::Object(map) = item else { continue };
+        let get = |key: &str| -> Option<String> {
+            match map.get(key) {
+                Some(serde_json::Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+                _ => None,
+            }
+        };
+        let protocol = match get("session.protocol").as_deref().unwrap_or_default() {
+            "Shell" | "shell" => Protocol::Shell,
+            "Serial" | "serial" => Protocol::Serial,
+            "SSH" | "Ssh" | "ssh" => Protocol::Ssh,
+            "Telnet" | "telnet" => Protocol::Telnet,
+            "Tcp" | "TCP" | "tcp" => Protocol::Tcp,
+            _ => continue,
+        };
+        let target = get("session.target").unwrap_or_default();
+        let name = get("session.label")
+            .or_else(|| get("session.target"))
+            .unwrap_or_default();
+        if name.is_empty() && target.is_empty() {
+            continue;
+        }
+        let group = get("session.group")
+            .filter(|g| !g.is_empty())
+            .unwrap_or_else(|| "Imported WindTerm".to_string());
+        let is_shell = protocol == Protocol::Shell;
+        out.push(ImportedSession {
+            name,
+            // **Shell 的目标绝不进 host**：它是要启动的程序，不是远端地址。
+            host: if is_shell { String::new() } else { target.clone() },
+            protocol,
+            group,
+            shell_command: if is_shell && !target.is_empty() { Some(target) } else { None },
+            shell_arguments: get("process.arguments"),
+            working_dir: get("process.workingDirectory"),
+            ..Default::default()
+        });
+    }
+    out
+}
+
 fn parse_windterm_json(text: &str) -> Vec<ImportedSession> {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
         return Vec::new();
@@ -271,6 +377,7 @@ fn collect_json(v: &serde_json::Value, out: &mut Vec<ImportedSession>) {
                         let p = get(&["identityFile", "privateKey", "IdentityFile"]);
                         if p.is_empty() { None } else { Some(p) }
                     },
+                    ..Default::default()
                 });
                 return;
             }
@@ -319,6 +426,7 @@ fn parse_windterm_ini(text: &str) -> Vec<ImportedSession> {
                 let p = pick(&["IdentityFile", "PrivateKey"]);
                 if p.is_empty() { None } else { Some(p) }
             },
+            ..Default::default()
         });
     };
 
@@ -376,6 +484,7 @@ pub fn parse_putty(text: &str) -> Vec<ImportedSession> {
                 let p = pick(&["PublicKeyFile", "IdentityFile"]);
                 if p.is_empty() { None } else { Some(p) }
             },
+            ..Default::default()
         });
     };
 
@@ -426,140 +535,12 @@ pub fn parse_shell_sessions(shells_text: &str, current: &str) -> Vec<ImportedSes
                 username: String::new(),
                 group: "Imported Shell Sessions".to_string(),
                 protocol: Protocol::Shell,
-                proxy_jump: None,
-                identity_file: None,
+                ..Default::default()
             }
         })
         .collect()
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SSH_CONFIG: &str = r#"
-# 全局默认
-Host *
-    User ops
-    IdentityFile ~/.ssh/id_ed25519
-
-Host prod-web
-    HostName 10.0.0.11
-    Port 2222
-    User deploy
-    ProxyJump bastion,jump2
-
-Host prod-db
-    HostName db.internal
-    User admin
-    IdentityFile /keys/db.pem
-
-Host legacy-*
-    HostName old.example.com
-
-Match host *.internal
-    ProxyJump mgmt
-"#;
-
-    #[test]
-    fn ssh_config_parses_real_hosts_wildcards_and_jump_chains() {
-        let got = parse_ssh_config(SSH_CONFIG);
-        assert_eq!(got.len(), 2, "通配符块与 Match 段都不该生成会话：{got:?}");
-        assert_eq!(got[0].name, "prod-web");
-        assert_eq!(got[0].host, "10.0.0.11");
-        assert_eq!(got[0].port, 2222);
-        assert_eq!(got[0].username, "deploy");
-        assert_eq!(got[0].proxy_jump.as_deref(), Some("bastion,jump2"));
-        assert!(got[0].identity_file.as_deref().unwrap().ends_with("id_ed25519"));
-        assert_eq!(got[1].name, "prod-db");
-        assert_eq!(got[1].username, "admin");
-        assert_eq!(got[1].identity_file.as_deref(), Some("/keys/db.pem"));
-        // 通配符块里的 User 作为默认值落到没有写 User 的块上。
-        assert_eq!(got[0].group, "Imported OpenSSH");
-    }
-
-    #[test]
-    fn ssh_config_works_with_equals_and_mixed_case() {
-        let got = parse_ssh_config("HOST=alpha\n  hostname=Alpha.Example\n  PORT=2022\n");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].host, "Alpha.Example");
-        assert_eq!(got[0].port, 2022);
-    }
-
-    #[test]
-    fn passwords_are_never_read() {
-        let got = parse_ssh_config("Host x\n  HostName x.example\n  Password hunter2\n");
-        assert_eq!(got.len(), 1);
-        assert!(format!("{:?}", got[0]).contains("x.example"));
-        assert!(!format!("{:?}", got[0]).contains("hunter2"));
-    }
-
-    #[test]
-    fn windterm_json_and_ini_both_import() {
-        let json = r#"{"sessions":[{"name":"wt-a","host":"a.example","port":2201,"user":"u","group":"Prod"}]}"#;
-        let got = parse_windterm(json);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].name, "wt-a");
-        assert_eq!(got[0].port, 2201);
-        assert_eq!(got[0].group, "Prod");
-
-        let ini = "[wt-b]\nHostName=b.example\nPort=2202\nUser=v\nPassword=secret\nGroup=Stage\n";
-        let got = parse_windterm(ini);
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].name, "wt-b");
-        assert_eq!(got[0].host, "b.example");
-        assert!(!format!("{:?}", got[0]).contains("secret"));
-    }
-
-    #[test]
-    fn putty_sessions_import_hostname_port_and_user() {
-        let got = parse_putty("[office]\nHostName=o.example\nPortNumber=2222\nUserName=bob\nProtocol=ssh\n");
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].name, "office");
-        assert_eq!(got[0].port, 2222);
-        assert_eq!(got[0].username, "bob");
-    }
-
-    #[test]
-    fn shell_sessions_put_current_shell_first_and_local_protocol() {
-        let got = parse_shell_sessions("/bin/zsh\n# comment\n/bin/bash\n/bin/zsh\n", "/bin/zsh");
-        assert_eq!(got.len(), 2);
-        assert_eq!(got[0].name, "zsh");
-        assert_eq!(got[0].protocol, Protocol::Shell);
-        assert_eq!(got[1].name, "bash");
-        assert!(got.iter().all(|s| s.host.is_empty()));
-    }
-
-    #[test]
-    fn inline_comments_do_not_swallow_the_value() {
-        // 行尾注释是手改文件里最常见的形态。`Port 2222 # bastion` 若把整串
-        // 交给 `parse::<u16>()`，端口会静默回落到 22——连得上、连错机器。
-        let got = parse_ssh_config(
-            "Host web   # 生产\n  HostName web.example  # 主入口\n  Port 2222  # 跳板\n  User = ops  # 运维\n",
-        );
-        assert_eq!(got.len(), 1);
-        assert_eq!(got[0].host, "web.example");
-        assert_eq!(got[0].port, 2222, "行尾注释不该把端口吃掉");
-        assert_eq!(got[0].username, "ops");
-        // 没有空白的 `#` 是值的一部分（私钥文件名里很常见），不许裁。
-        let got = parse_ssh_config("Host k\n  HostName k.example\n  IdentityFile /keys/id#2\n");
-        assert!(got[0].identity_file.as_deref().unwrap().ends_with("id#2"));
-    }
-
-    #[test]
-    fn garbage_never_panics_and_never_invents_sessions() {
-        assert!(parse_ssh_config("not a config at all\n").is_empty());
-        assert!(parse_windterm("{ broken json").is_empty());
-        assert!(parse_putty("").is_empty());
-        assert!(parse_shell_sessions("", "").is_empty());
-    }
-
-    #[test]
-    fn into_config_carries_jump_and_identity_but_no_password() {
-        let got = parse_ssh_config("Host x\n  HostName x.example\n  ProxyJump bastion\n  IdentityFile /k/x\n");
-        let cfg = got[0].clone().into_config();
-        assert_eq!(cfg.proxy_jump, "bastion");
-        assert_eq!(cfg.identity_file, "/k/x");
-        assert_eq!(cfg.protocol, Protocol::Ssh);
-    }
-}
+#[path = "sessions_tests.rs"]
+mod parse_tests;

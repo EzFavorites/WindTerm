@@ -36,5 +36,6 @@ pub mod layout_meta;
 pub mod layout_state;
 pub mod persist;
 pub mod prefs;
+pub mod prefs_import;
 pub mod quickbar;
 pub mod search;

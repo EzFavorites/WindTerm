@@ -18,8 +18,11 @@ pub(in crate::ui) fn uses_builtin_ssh(config: &SessionConfig) -> bool {
     config.protocol == Protocol::Ssh && config.builtin_ssh
 }
 
-/// 导入的**文本来源**由投影层决定（读哪个文件是 IO），解析全在
-/// `term_runtime::import_sessions` 的纯函数里。这里只负责「找到文件」。
+/// 导入的**文本来源**由投影层决定（读哪个文件是 IO），解析全在导入层的纯函数里
+/// （旧四种来源经 `term_runtime::import_sessions` 再导出，原版 `user.sessions`
+/// 直连 `term_import::sessions`）。这里只负责「找到文件」：
+/// 候选根目录统一来自 `term_import::discovery`，与首次引导共用一份口径
+/// （此前两处各写三行候选路径，改一处漏一处）。
 fn import_text(source: &str) -> Vec<String> {
     let home = dirs::home_dir();
     match source {
@@ -29,30 +32,30 @@ fn import_text(source: &str) -> Vec<String> {
             .into_iter()
             .collect(),
         "WindTerm" => {
-            // `profiles/` 目录里每份 `.wind` / `.json` 是一个会话导出。
-            let mut out = Vec::new();
-            let roots: Vec<std::path::PathBuf> = [
-                home.as_ref().map(|h| h.join(".windterm").join("profiles")),
-                home.as_ref().map(|h| h.join("Library/Application Support/WindTerm/profiles")),
-                home.as_ref().map(|h| h.join(".config/WindTerm/profiles")),
-            ]
-            .into_iter()
-            .flatten()
-            .collect();
-            for root in roots {
-                let Ok(entries) = std::fs::read_dir(&root) else { continue };
+            let roots = term_import::discovery::candidate_windterm_roots();
+            let mut paths: Vec<std::path::PathBuf> = Vec::new();
+            // 原版 `terminal/user.sessions`：扁平 JSON，9 条内置会话。
+            for root in &roots {
+                if let Some(p) = term_import::discovery::find_user_sessions_in(std::slice::from_ref(root)) {
+                    paths.push(p);
+                }
+            }
+            // 旧格式：`profiles/` 目录里每份 `.wind` / `.json` 是一个会话导出。
+            for root in &roots {
+                let Ok(entries) = std::fs::read_dir(root) else { continue };
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.extension().and_then(|e| e.to_str())
                         .is_some_and(|e| e == "wind" || e == "json")
                     {
-                        if let Ok(raw) = std::fs::read_to_string(&path) {
-                            out.push(raw);
-                        }
+                        paths.push(path);
                     }
                 }
             }
-            out
+            // 候选根有重叠（app 包 / 指针 / 用户根可能指向同一处），同一份文件只读一次。
+            paths.sort();
+            paths.dedup();
+            paths.into_iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect()
         }
         "PuTTY" => {
             // macOS 上的 PuTTY 会话落在 ~/.putty/sessions/<name>；Windows 注册表
@@ -112,7 +115,17 @@ impl TerminalWindow {
         for text in &texts {
             let mut batch = match source {
                 "OpenSSH" => term_runtime::import_sessions::parse_ssh_config(text),
-                "WindTerm" => term_runtime::import_sessions::parse_windterm(text),
+                "WindTerm" => {
+                    // 先认原版 `user.sessions`（按 session.protocol 分流）；认不出
+                    // 再退回旧的宽松 `.wind`/`.json` 解析。导入仍是一次显式动作，
+                    // 不建连接、不碰主题。
+                    let parsed = term_import::sessions::parse_windterm_sessions(text);
+                    if parsed.is_empty() {
+                        term_runtime::import_sessions::parse_windterm(text)
+                    } else {
+                        parsed
+                    }
+                }
                 "PuTTY" => term_runtime::import_sessions::parse_putty(text),
                 "Shell Sessions" => {
                     let shell = std::env::var("SHELL").unwrap_or_default();
