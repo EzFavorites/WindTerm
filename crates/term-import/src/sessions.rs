@@ -241,6 +241,50 @@ fn flush_owned(out: &mut Vec<ImportedSession>, f: Option<Fields>, defaults: &Fie
     }
 }
 
+/// 把 `session.target` 拆成 `(host, port, username)`。
+///
+/// 原版把三件事挤在一个串里：`user@host:port`，IPv6 则是
+/// `user@[2001:db8::1]:2222`。旧实现把整串塞进 `host`，于是导入出来的会话
+/// 「主机名」是 `deploy@10.0.0.11:2222`、端口还是出厂 22——连上去的是另一台
+/// 机器。这里只做词法拆分，不解析 DNS、不猜协议；端口缺省按协议给
+/// SSH=22 / Telnet=23 / TCP=0（TCP 的目标端口必须自带）。
+fn parse_target(
+    target: &str,
+    protocol: Protocol,
+    explicit_user: Option<String>,
+) -> (String, u16, String) {
+    let default_port = match protocol {
+        Protocol::Ssh => term_core::config::SSH_PORT,
+        Protocol::Telnet => term_core::config::TELNET_PORT,
+        _ => 0,
+    };
+    let mut rest = target.trim();
+    let mut username = explicit_user.unwrap_or_default();
+    if let Some((user, host)) = rest.split_once('@') {
+        if !user.is_empty() {
+            username = user.to_string();
+        }
+        rest = host;
+    }
+    if let Some(inside) = rest.strip_prefix('[') {
+        // 括号 IPv6：右括号之后才是 `:port`，冒号全在括号里属于地址。
+        if let Some((host, tail)) = inside.split_once(']') {
+            let port = tail
+                .strip_prefix(':')
+                .and_then(|p| p.parse().ok())
+                .unwrap_or(default_port);
+            return (host.to_string(), port, username);
+        }
+    }
+    if let Some((host, port)) = rest.split_once(':') {
+        if !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()) {
+            let port = port.parse().unwrap_or(default_port);
+            return (host.to_string(), port, username);
+        }
+    }
+    (rest.to_string(), default_port, username)
+}
+
 /// WindTerm `profiles/` 里的会话导出。格式未公开，这里同时认两种常见形态：
 /// JSON（对象/数组里含 `host` 键）与 INI（`[Section]` + `key=value`）。
 /// 密码类键一律不读。
@@ -312,10 +356,19 @@ pub fn parse_windterm_sessions(text: &str) -> Vec<ImportedSession> {
             .filter(|g| !g.is_empty())
             .unwrap_or_else(|| "Imported WindTerm".to_string());
         let is_shell = protocol == Protocol::Shell;
+        // SSH / Telnet / Tcp 的 target 是 `user@host:port`，必须拆开；Serial 的
+        // target 是设备路径、Shell 的 target 是要启动的程序，都不许拆、也不许进 host。
+        let (host, port, username) = if is_shell || protocol == Protocol::Serial {
+            (if is_shell { String::new() } else { target.clone() }, 0, String::new())
+        } else {
+            let explicit = get("session.username").or_else(|| get("session.user"));
+            parse_target(&target, protocol, explicit)
+        };
         out.push(ImportedSession {
             name,
-            // **Shell 的目标绝不进 host**：它是要启动的程序，不是远端地址。
-            host: if is_shell { String::new() } else { target.clone() },
+            host,
+            port,
+            username,
             protocol,
             group,
             shell_command: if is_shell && !target.is_empty() { Some(target) } else { None },

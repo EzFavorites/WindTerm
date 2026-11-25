@@ -221,15 +221,41 @@ mod tests {
         // 「已接线数 − 已接线的上下文命令数」，而不是全部已接线数。
         let all = entries(PaletteMode::Anything);
         let wired = entries(PaletteMode::Command);
-        let context_only_wired = crate::tab::CONTEXT_ONLY
-            .iter()
-            .filter(|id| capability::is_implemented(id))
-            .count();
         // 面板还额外收了 Tmux 的无目标控制命令：它们不在菜单树里，所以
         // 条目数 = 菜单清单 + 那几条（能力台账仍只统计菜单树，口径不变）。
         let extra = crate::vocab::tmux_palette::TMUX_PALETTE.len();
-        assert_eq!(all.len(), capability::inventory().len() + extra);
-        assert_eq!(wired.len() + context_only_wired, capability::counts().0 + extra);
+        // inventory() 还收了 `menu::bars` 的工具条 / 下拉入口，命令面板目前
+        // 只列菜单树 + 影子入口 + Tmux 命令。按 **id 集合** 比（不是按行数）：
+        // 菜单里允许同一命令两个入口，inventory() 按 id 去重。
+        let inventory = capability::inventory();
+        let panel_ids: std::collections::BTreeSet<&str> =
+            all.iter().map(|e| e.id).collect();
+        let tmux_ids: std::collections::BTreeSet<&str> = crate::vocab::tmux_palette::TMUX_PALETTE
+            .iter()
+            .map(|(_, id, _)| *id)
+            .collect();
+        let bars_only = inventory
+            .iter()
+            .filter(|c| !panel_ids.contains(c.id))
+            .count();
+        assert_eq!(inventory.len(), panel_ids.len() - tmux_ids.len() + bars_only);
+
+        let mut wired_ids: std::collections::BTreeSet<&str> =
+            wired.iter().map(|e| e.id).collect();
+        for id in crate::tab::CONTEXT_ONLY {
+            if capability::is_implemented(id) {
+                wired_ids.insert(id);
+            }
+        }
+        let bars_only_wired = inventory
+            .iter()
+            .filter(|c| c.is_implemented() && !panel_ids.contains(c.id))
+            .count();
+        assert_eq!(
+            wired_ids.len(),
+            capability::counts().0 - bars_only_wired + tmux_ids.len()
+        );
+        assert_eq!(extra, tmux_ids.len());
         assert!(all.iter().any(|e| !e.implemented));
         assert!(wired.iter().all(|e| e.implemented));
         assert!(wired.iter().any(|e| e.menu == "Tmux"), "Mux 命令要能被搜到");

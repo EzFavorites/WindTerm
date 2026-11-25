@@ -32,29 +32,19 @@ fn import_text(source: &str) -> Vec<String> {
             .into_iter()
             .collect(),
         "WindTerm" => {
+            // 候选根 + 一层子目录的三种导出统一由发现层给出。此前这里自己写
+            // 一份 `read_dir`，引导页另写一份：一边加了子目录支持另一边没加，
+            // 于是「引导探不到、侧栏能导入」。
             let roots = term_import::discovery::candidate_windterm_roots();
-            let mut paths: Vec<std::path::PathBuf> = Vec::new();
-            // 原版 `terminal/user.sessions`：扁平 JSON，9 条内置会话。
-            for root in &roots {
-                if let Some(p) = term_import::discovery::find_user_sessions_in(std::slice::from_ref(root)) {
-                    paths.push(p);
-                }
+            let exports = term_import::discovery::find_profile_exports_in(&roots);
+            // 原版 `terminal/user.sessions`（扁平 JSON）+ 旧格式的 `.wind` / `.json`
+            // 会话导出。发现层已经按路径排序去重，候选根重叠不会读两遍。
+            let mut paths = exports.profiles;
+            if let Some(sessions) = exports.user_sessions {
+                paths.push(sessions);
+                paths.sort();
+                paths.dedup();
             }
-            // 旧格式：`profiles/` 目录里每份 `.wind` / `.json` 是一个会话导出。
-            for root in &roots {
-                let Ok(entries) = std::fs::read_dir(root) else { continue };
-                for entry in entries.flatten() {
-                    let path = entry.path();
-                    if path.extension().and_then(|e| e.to_str())
-                        .is_some_and(|e| e == "wind" || e == "json")
-                    {
-                        paths.push(path);
-                    }
-                }
-            }
-            // 候选根有重叠（app 包 / 指针 / 用户根可能指向同一处），同一份文件只读一次。
-            paths.sort();
-            paths.dedup();
             paths.into_iter().filter_map(|p| std::fs::read_to_string(p).ok()).collect()
         }
         "PuTTY" => {

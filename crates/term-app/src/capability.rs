@@ -67,12 +67,20 @@ fn collect(items: &[Item], out: &mut Vec<Capability<'static>>) {
     }
 }
 
-/// 全部真实可点入口及其状态：菜单树 + 影子入口，按菜单顺序。
+/// 全部真实可点入口及其状态：菜单树 + 影子入口 + 数据层的工具条 / 下拉，按菜单顺序。
 ///
 /// 标签右键的 10 个动作不画在菜单栏里，但它们是**真实入口**。
 /// 以前 `inventory()` 只遍历菜单树，于是「已接线 N 条」少算这一块；
 /// 现在把 `tab::SHADOW_ENTRIES` 并进同一张表，判定仍只用 `Action::parse`，
 /// 不维护第二份清单。加一条影子入口而不给它 `parse`，这里立刻置灰。
+///
+/// 同样的道理：`menu::bars` 里的 BAR_TOOLS / DOCK_ITEMS / TUNNEL_ITEMS /
+/// GOTO_ITEMS / ZOOM_ITEMS 都是可点的命令入口，只是画在菜单栏**之外**
+/// （图标带、布局下拉、Tunnels 下拉、地址栏 Goto、View ▸ Zoom）。此前它们
+/// 从来没进过能力表——「菜单里点得到」的统计少了这块真实入口。
+/// 这些 ID 大多与菜单树重复（同一能力两个入口），所以按 id 去重：统计的是
+/// **不同命令**的数量，不是入口像素的数量；`menu_has_no_duplicate_command_ids`
+/// 仍单独钉住菜单/影子之间那一处允许的双入口。
 pub fn inventory() -> Vec<Capability<'static>> {
     let mut out = Vec::new();
     for menu in menu::menus() {
@@ -81,6 +89,23 @@ pub fn inventory() -> Vec<Capability<'static>> {
     for entry in crate::tab::SHADOW_ENTRIES {
         out.push(describe(entry.id));
     }
+    for tool in crate::menu::BAR_TOOLS {
+        out.push(describe(tool.id));
+    }
+    for item in crate::menu::DOCK_ITEMS {
+        out.push(describe(item.id));
+    }
+    for item in crate::menu::TUNNEL_ITEMS {
+        out.push(describe(item.id));
+    }
+    for (_, id) in crate::menu::GOTO_ITEMS {
+        out.push(describe(id));
+    }
+    for (_, id) in crate::menu::ZOOM_ITEMS {
+        out.push(describe(id));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    out.retain(|cap| seen.insert(cap.id));
     out
 }
 
@@ -98,15 +123,11 @@ mod tests {
 
     #[test]
     fn menu_has_no_duplicate_command_ids() {
-        // 同一个 surface 里一条命令只能出现一次——那是抄菜单时漏改 ID 的典型症状。
-        // 但**两个 surface 各有一个入口**是正常的：起
-        // `Session › Open Recent › Reopen Closed View` 与标签右键的「Reopen Closed」
-        // 共用一个 ID（`Terminal.TabReopenClosed`），因为它们是同一件事
-        // （读者都是 `ui/shell/tab_menu.rs::reopen_closed`），只是入口在菜单栏与
-        // 标签栏两处。以前菜单里挂的是第二个 ID `Terminal.ReopenClosedView`，
-        // `parse` 不认识它，于是同一能力被算成「一条能点 + 一条置灰」。
-        //
-        // 所以这里不看「有没有重复」，而看「重复的是哪些」：清单之外多一条就红。
+        // `inventory()` 现在按 id 去重（统计的是不同命令，不是入口像素），
+        // 所以这里断言的是「去重后确实没有重复」。`Terminal.TabReopenClosed`
+        // 在菜单栏与标签右键各有一个入口，去重前出现过两次——那是允许的
+        // 双入口，但能力台账只算一条；`bars_entries_are_registered…` 另钉
+        // 五个非菜单入口表也都在表里。
         let all = inventory();
         let mut seen = BTreeSet::new();
         let repeated: BTreeSet<&str> = all
@@ -114,10 +135,10 @@ mod tests {
             .map(|c| c.id)
             .filter(|id| !seen.insert(*id))
             .collect();
-        assert_eq!(
-            repeated,
-            BTreeSet::from(["Terminal.TabReopenClosed"]),
-            "只有菜单栏 / 标签右键共用的 Reopen 允许出现两次"
+        assert!(repeated.is_empty(), "inventory 必须按 id 去重：{repeated:?}");
+        assert!(
+            all.iter().any(|c| c.id == "Terminal.TabReopenClosed"),
+            "菜单栏 / 标签右键共用的 Reopen 仍要在表里，且只出现一次"
         );
     }
 
@@ -276,10 +297,14 @@ mod tests {
         // → 当时已接线 219→220、占位 3→2。
         // 上面整段都是当时的历史流水（含旧总数 222），现行账本已冻结为
         // 已接线 214 / 占位 2 / 总数 216（见下面三条断言），别照抄旧口径。
+        // 2026-11-25：把 `menu::bars` 的五个入口表并进 inventory 后，此前
+        // 从未进过能力台账的四条命令终于登记：三条整带开关 + Tunnels 总线开关。
+        // 同时 inventory 按 id 去重，菜单栏 / 标签右键共用的 Reopen 只算一条：
+        // 已接线 214→217、占位 2 不变、总数 216→219（+4 新登记 −1 去重）。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 214, "已接线命令数变化需显式确认");
+        assert_eq!(implemented, 217, "已接线命令数变化需显式确认");
         assert_eq!(planned, 2, "占位命令数变化需显式确认");
-        assert_eq!(inventory().len(), 216);
+        assert_eq!(inventory().len(), 219);
     }
 
     #[test]
@@ -330,6 +355,14 @@ mod tests {
             "Terminal.TunnelSettings",
             "Window.ToggleFocusMode",
             "Window.ToggleFullScreen",
+            // 2026-11-25：布局下拉的整带开关三条 + Tunnels 下拉的总线开关。
+            // 读者分别是 `ui/layout/dock_paint.rs::apply_layout_action`
+            // （整带收回/展开）与 `ui/effects.rs::set_tunnels_enabled`（真停/起转发）。
+            // 此前它们没进过 inventory，所以虽然一直能点，能力台账少算四条。
+            "Window.ToggleLeftDocks",
+            "Window.ToggleRightDocks",
+            "Window.ToggleBottomDocks",
+            "Window.ToggleTunnels",
             "Window.ToggleAlwaysOnTop",
             // 读者是 `ui/filer.rs` 的面板分支——开关一开就画，
             // 并在第一次显示时为当前标签开一条 SFTP 会话。
@@ -833,6 +866,74 @@ mod tests {
             Action::parse("Text.MarginFold"),
             Some(Action::Fold(crate::vocab::FoldCmd::Toggle))
         );
+    }
+
+    /// 源码级读者判据：`every_implemented_command_has_a_reader` 的两张白名单
+    /// 相等只能证明「登记一致」，证明不了「点了有效果」。对**新增命令**再要求
+    /// 一次硬证据：命令 ID 必须字面出现在 `apps/desktop/src/ui` 的某个 .rs 里
+    /// （那一层才有像素 / 对话框 / 窗口副作用）。老命令多数经 `Action::parse`
+    /// 统一派发，没有字面 ID，所以不在这一组里；新登记的命令必须过这一关。
+    /// fail-closed：目录读不到 / 文件读不到 / 一个 .rs 都没有，一律 FAIL。
+    #[test]
+    fn newly_wired_commands_have_a_literal_ui_reader() {
+        const NEW_WITH_LITERAL_READER: &[&str] = &[
+            "View.HexBase2", "View.HexBase7", "View.HexBase8", "View.HexBase10", "View.HexBase16",
+            "View.HexColumns8", "View.HexColumns16", "View.HexColumns24", "View.HexColumns32",
+            "View.HexGroupChars1", "View.HexGroupChars2", "View.HexGroupChars4", "View.HexGroupChars8",
+            "View.ToggleLineEndings", "View.ToggleColumnMarker", "View.ToggleIndentGuides", "View.ToggleWrapSymbols",
+            "View.WhiteSpacesHideAll", "View.WhiteSpacesShowAll", "View.WhiteSpacesShowInSelection",
+            "View.WhiteSpacesShowInLineStart", "View.WhiteSpacesShowInLineEnd",
+            "Application.SetWindowOpaque", "Application.SetWindowTranslucent", "Application.SetWindowTransparent",
+            "Application.SetWindowOpacity", "Window.ToggleDebugMode", "Text.ToggleHexEdit", "Text.ToggleWordWrap",
+        ];
+        fn collect_rs(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let entries = std::fs::read_dir(dir)
+                .unwrap_or_else(|e| panic!("读者目录必须可读（fail-closed）: {}: {e}", dir.display()));
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_rs(&path, out);
+                } else if path.extension().is_some_and(|e| e == "rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/desktop/src/ui");
+        let mut files = Vec::new();
+        collect_rs(&root, &mut files);
+        assert!(!files.is_empty(), "没有 UI 源码可查，不能算通过");
+        let mut source = String::new();
+        for file in &files {
+            source.push_str(&std::fs::read_to_string(file).unwrap_or_else(|e| {
+                panic!("读者源码必须可读（fail-closed）: {}: {e}", file.display())
+            }));
+        }
+        for id in NEW_WITH_LITERAL_READER {
+            assert!(is_implemented(id), "{id} 必须已接线");
+            assert!(source.contains(id), "{id} 没有 apps/desktop/src/ui 的字面读者");
+        }
+    }
+
+    /// 工具条 / 下拉的每条入口都在能力表里（按 id 去重后同一个命令只算一次）。
+    /// 这条门禁补的是「菜单树之外的真实入口漏统计」这一块。
+    #[test]
+    fn bars_entries_are_registered_without_inflating_command_counts() {
+        let ids: BTreeSet<&str> = inventory().iter().map(|c| c.id).collect();
+        for tool in crate::menu::BAR_TOOLS {
+            assert!(ids.contains(tool.id), "{} 漏进能力表", tool.id);
+        }
+        for item in crate::menu::DOCK_ITEMS {
+            assert!(ids.contains(item.id), "{} 漏进能力表", item.id);
+        }
+        for item in crate::menu::TUNNEL_ITEMS {
+            assert!(ids.contains(item.id), "{} 漏进能力表", item.id);
+        }
+        for (_, id) in crate::menu::GOTO_ITEMS {
+            assert!(ids.contains(id), "{} 漏进能力表", id);
+        }
+        for (_, id) in crate::menu::ZOOM_ITEMS {
+            assert!(ids.contains(id), "{} 漏进能力表", id);
+        }
     }
 
     #[test]

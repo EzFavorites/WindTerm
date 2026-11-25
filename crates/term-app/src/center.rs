@@ -33,6 +33,23 @@ pub fn filtered_sessions<'a>(
         .collect()
 }
 
+/// 过滤后的**唯一合法选中项**：原下标还在结果里就保留它；不在就回落到第一条
+/// 命中。整份过滤为空时返回 `None`——这时任何派发（连接 / 删除 / 编辑）都不能发生。
+///
+/// `selected` 存的是**原始下标**（见 [`filtered_sessions`]），所以「过滤后第 n 行」
+/// 不能写回 `selected`；这里只返回原始下标。
+pub fn selected_in_filtered(
+    sessions: &[term_core::session::SessionConfig],
+    query: &str,
+    selected: usize,
+) -> Option<usize> {
+    let rows = filtered_sessions(sessions, query);
+    rows.iter()
+        .find(|(i, _)| *i == selected)
+        .or_else(|| rows.first())
+        .map(|(i, _)| *i)
+}
+
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CenterState {
@@ -56,6 +73,32 @@ pub struct CenterState {
     /// `Terminal.SchemeList` 当前选中的内置配色方案下标（0 = cmd，对应
     /// `term_core::theme::BUILTIN_SCHEME_NAMES`）。
     pub scheme_idx: usize,
+}
+
+impl CenterState {
+    /// 每次 `SetInput` 之后调用：把 `selected` 收敛到当前过滤结果。
+    /// 返回是否真的改了选中项（调用方可据此清掉依赖选中项的确认态）。
+    pub fn converge_selection(&mut self, sessions: &[term_core::session::SessionConfig]) -> bool {
+        let next = selected_in_filtered(sessions, &self.input, self.selected);
+        match next {
+            Some(idx) if idx != self.selected => {
+                self.selected = idx;
+                self.confirm_delete = false;
+                true
+            }
+            None if self.selected != 0 => {
+                self.selected = 0;
+                self.confirm_delete = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// 派发前的最后一道校验：过滤集为空时返回 `None`，调用方必须禁用按钮。
+    pub fn validated_selection(&self, sessions: &[term_core::session::SessionConfig]) -> Option<usize> {
+        selected_in_filtered(sessions, &self.input, self.selected)
+    }
 }
 
 impl Default for CenterState {
@@ -108,6 +151,15 @@ pub fn reduce(state: &mut CenterState, action: CenterAction) {
             state.note = None;
         }
         CenterAction::SetInput(text) => {
+            // 过滤词一变，原先的选中项可能已经不在结果里。纯层看不到会话表，
+            // 所以先保守归零（绝不指向一条被隐藏的会话）；投影层紧接着用
+            // `converge_selection` 收敛到第一条命中，派发前再用
+            // `validated_selection` 复核一次。两步都不做时，旧实现会把
+            // `Work::Connect(selected)` 派给一条用户根本看不到的会话。
+            if state.input != text {
+                state.selected = 0;
+                state.confirm_delete = false;
+            }
             state.input = text;
             state.note = None;
         }
@@ -163,6 +215,39 @@ mod tests {
         assert_eq!(filtered_sessions(&sessions, "PROD")[0].0, 0);
         assert_eq!(filtered_sessions(&sessions, "personal")[0].0, 1);
         assert!(filtered_sessions(&sessions, "zzz").is_empty());
+    }
+
+    #[test]
+    fn set_input_converges_and_dispatch_validates_the_filtered_selection() {
+        let mut a = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
+        a.name = "prod-web".into();
+        a.group = "work".into();
+        let mut b = term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh);
+        b.name = "home-nas".into();
+        b.group = "personal".into();
+        let sessions = vec![a, b];
+
+        let mut s = CenterState::default();
+        reduce(&mut s, CenterAction::Select(1));
+        assert_eq!(s.selected, 1);
+        // 过滤词变化先把旧下标归零（绝不留一个指向隐藏会话的选中项）。
+        reduce(&mut s, CenterAction::SetInput("prod".into()));
+        assert_eq!(s.selected, 0);
+        // prod-web 恰好是第 0 条，归零后无需再改。
+        assert!(!s.converge_selection(&sessions));
+        assert_eq!(s.selected, 0);
+        assert_eq!(s.validated_selection(&sessions), Some(0));
+
+        // 改过滤词命中第 1 条，但 selected 还停在第 0 条。
+        reduce(&mut s, CenterAction::SetInput("nas".into()));
+        assert_eq!(s.selected, 0);
+        assert!(s.converge_selection(&sessions));
+        assert_eq!(s.selected, 1);
+        assert_eq!(s.validated_selection(&sessions), Some(1));
+
+        // 过滤结果为空：派发前校验必须拒绝。
+        reduce(&mut s, CenterAction::SetInput("zzz".into()));
+        assert_eq!(s.validated_selection(&sessions), None);
     }
 
     #[test]

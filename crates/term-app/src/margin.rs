@@ -61,8 +61,12 @@ impl MarginState {
     }
 
     /// 有没有**任何一列**要画。全关时投影层连边栏宽度都不该留（否则是一片死白）。
+    ///
+    /// `Blank` 也计入：它虽然不画字形，却是要留白的那一列——只留 `blank=true`
+    /// 时边栏仍有真实宽度（贴边与留白的差别看得见）。过去漏掉它，于是
+    /// 「其余四列全关、只留 Blank」这一档点下去什么都没变（空转开关）。
     pub fn any_column(&self) -> bool {
-        self.number || self.symbol || self.timestamp || self.fold
+        self.blank || self.number || self.symbol || self.timestamp || self.fold
     }
 }
 
@@ -165,8 +169,22 @@ mod tests {
     #[test]
     fn closing_every_column_leaves_no_margin() {
         let mut state = ViewState::default();
-        // 默认开的是「行号 + 符号 + 时间戳」，三列都得翻掉才会没有边栏。
-        assert!(state.margin.timestamp);
+        // 默认开的是「留白 + 行号 + 符号 + 时间戳」，四列都得翻掉才会没有边栏。
+        assert!(state.margin.blank && state.margin.timestamp);
+        for id in [
+            "Text.MarginBlank",
+            "Text.MarginNumber",
+            "Text.MarginSymbol",
+            "Text.MarginTimestamp",
+        ] {
+            reduce(&mut state, parse(id).unwrap());
+        }
+        assert!(!state.margin.any_column(), "四列全关时投影不该留边栏宽度");
+    }
+
+    #[test]
+    fn blank_alone_keeps_the_margin_non_empty() {
+        let mut state = ViewState::default();
         for id in [
             "Text.MarginNumber",
             "Text.MarginSymbol",
@@ -174,6 +192,13 @@ mod tests {
         ] {
             reduce(&mut state, parse(id).unwrap());
         }
-        assert!(!state.margin.any_column(), "三列全关时投影不该留边栏宽度");
+        assert!(state.margin.blank);
+        assert!(
+            state.margin.any_column(),
+            "只留 Blank 时仍是「贴边 vs 留白」的可见差别，不能算空转"
+        );
+        // 再把 Blank 也关掉，边栏才真的消失。
+        reduce(&mut state, parse("Text.MarginBlank").unwrap());
+        assert!(!state.margin.any_column());
     }
 }

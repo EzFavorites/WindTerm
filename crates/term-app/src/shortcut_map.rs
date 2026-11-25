@@ -204,17 +204,100 @@ pub fn display_chord(chord: &str, platform: Platform) -> String {
         .join(", ")
 }
 
-/// 把旧 prefs 里以数组下标为键的覆盖迁到「命令 ID 为键」。
-/// 下标越界的条目直接丢弃（老文件残留不该让程序 panic，也不该绑到别的命令）。
+/// 旧 prefs 里 `shortcut_overrides` 的下标**只对这一份快照有效**。
+///
+/// `menu::DEFAULT_SHORTCUTS` 后来在中间插过行（`Terminal.TabReopenClosed`），
+/// 拿当前表反查历史下标会把「11 = WindowList」读成「11 = TabReopenClosed」，
+/// 用户明明重绑的是窗口列表，升级后却变成重开标签——而追加在尾部的行还会让
+/// 原本越界（应当丢弃）的条目静默绑到一个意外命令上。这张表**只用于迁移**，
+/// 不参与展示与派发；新代码一律走 [`DEFAULT_BINDINGS`]。
+///
+/// 快照取自引入按 ID 存储之前那张 12 行的出厂表（`Window.WindowList` 是最后一行）。
+pub const LEGACY_SHORTCUT_IDS: &[&str] = &[
+    "Window.ShowPaletteCommand",
+    "Window.ShowPaletteAnything",
+    "Terminal.NewSession",
+    "Application.NewWindow",
+    "Text.Find",
+    "Text.FindNext",
+    "Window.GotoLine",
+    "Window.GotoAddressBar",
+    "Window.LockScreen",
+    "Window.Close",
+    "Window.SplitViewHorizontally",
+    "Window.WindowList",
+];
+
+/// 一次性迁移的结果。三份数据一起返回是为了让调用方**在同一写盘动作里**
+/// 同时写新字段、清旧字段——只写新字段会让旧文件在 Reset 后把绑定「复活」。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LegacyMigration {
+    /// 写进 `prefs.shortcut_bindings` 的结果。
+    pub bindings: Vec<(String, String)>,
+    /// 写进 `prefs.shortcut_overrides` 的结果。迁移成功后恒为空：旧字段必须清空。
+    pub overrides: Vec<(usize, String)>,
+    /// 下标越界、无法迁移的条目（只用于日志/提示，绝不绑到猜测的命令）。
+    pub dropped_indices: Vec<usize>,
+}
+
+/// 把旧下标覆盖迁到命令 ID，并给出「旧字段该写什么」。
+///
+/// `current_bindings`（新字段）非空时以它为准，旧字段一律清空：两份字段同时
+/// 有值是重启后行为不确定的根源。新字段为空时才按下标快照迁移；越界条目
+/// 记进 [`LegacyMigration::dropped_indices`] 而不是静默丢弃。
+pub fn migrate_legacy_with_report(
+    overrides: &[(usize, String)],
+    current_bindings: &[(String, String)],
+) -> LegacyMigration {
+    if !current_bindings.is_empty() {
+        return LegacyMigration {
+            bindings: current_bindings.to_vec(),
+            overrides: Vec::new(),
+            dropped_indices: Vec::new(),
+        };
+    }
+    let mut bindings = Vec::new();
+    let mut dropped_indices = Vec::new();
+    for (index, chord) in overrides {
+        match LEGACY_SHORTCUT_IDS.get(*index) {
+            Some(id) => bindings.push(((*id).to_string(), chord.clone())),
+            None => dropped_indices.push(*index),
+        }
+    }
+    LegacyMigration {
+        bindings,
+        overrides: Vec::new(),
+        dropped_indices,
+    }
+}
+
+/// 兼容旧调用方的简版入口：只取迁出的新绑定（旧字段的清空由写盘方负责）。
 pub fn migrate_legacy(overrides: &[(usize, String)]) -> Vec<(String, String)> {
-    overrides
-        .iter()
-        .filter_map(|(i, chord)| {
-            crate::menu::DEFAULT_SHORTCUTS
-                .get(*i)
-                .map(|s| (s.id.to_string(), chord.clone()))
-        })
-        .collect()
+    migrate_legacy_with_report(overrides, &[]).bindings
+}
+
+/// 写盘前把两份字段收敛到「新字段 + 旧字段为空」的形态。
+///
+/// 与 [`migrate_legacy_with_report`] 同一套规则，但以整个 `prefs` 的两份输入为
+/// 参数，方便调用方直接在 `save_prefs` 的闭包里写回两个字段。
+pub fn normalized_prefs_fields(
+    bindings: &[(String, String)],
+    overrides: &[(usize, String)],
+) -> (Vec<(String, String)>, Vec<(usize, String)>) {
+    let migration = migrate_legacy_with_report(overrides, bindings);
+    (migration.bindings, migration.overrides)
+}
+
+/// Reset 必须同时清两份字段：只清新字段时，下次读盘迁移会把旧下标重新点亮。
+pub fn reset_prefs_fields() -> (Vec<(String, String)>, Vec<(usize, String)>) {
+    (Vec::new(), Vec::new())
+}
+
+/// 两段按键是否是真前缀（差一段以上、且短的逐段等于长的开头）。
+///
+/// 相等不算前缀：那是 [`KeyBindingMap::conflicts`] 的另一半判据。
+fn is_proper_prefix(short: &[Chord], long: &[Chord]) -> bool {
+    short.len() < long.len() && short.iter().zip(long).all(|(a, b)| a == b)
 }
 
 /// 出厂表 + 用户覆盖合成的绑定表。
@@ -223,22 +306,56 @@ pub struct KeyBindingMap {
     rows: Vec<(String, String)>,
     /// 被用户覆盖过的命令 ID，写回 prefs 时只导这些，不把出厂表整张落盘。
     user_ids: Vec<String>,
+    /// 与先前用户绑定冲突、被显式回滚的条目（手改 prefs 时不能静默忽略）。
+    rejected_user_bindings: Vec<(String, String)>,
     platform: Platform,
 }
 
 impl KeyBindingMap {
+    /// 合成绑定表。
+    ///
+    /// 冲突规则：同一命令的多条用户绑定按输入顺序全部保留（别名）；**不同命令**
+    /// 抢同一串按键（含前缀）时，先出现的用户绑定胜出，后来的那条回滚并记进
+    /// [`KeyBindingMap::rejected_user_bindings`]。用户行排在出厂行前面，所以
+    /// 派发时用户绑定胜出；其它命令的出厂行仍留在表里，供 `conflicts()` 报告，
+    /// 重绑编辑器据此提示「已被占用」并拒绝这次写入，不会偷偷把默认命令摘掉。
     pub fn new(user: &[(String, String)], platform: Platform) -> Self {
+        let mut accepted: Vec<(String, String)> = Vec::new();
+        let mut rejected_user_bindings = Vec::new();
+        for (id, chord) in user {
+            let seq = shortcuts::parse_chord_seq(chord);
+            let clash = seq.as_ref().is_some_and(|want| {
+                accepted.iter().any(|(other_id, other_chord)| {
+                    if other_id == id {
+                        return false;
+                    }
+                    shortcuts::parse_chord_seq(other_chord).is_some_and(|other| {
+                        other == *want || is_proper_prefix(&other, want) || is_proper_prefix(want, &other)
+                    })
+                })
+            });
+            if clash {
+                rejected_user_bindings.push((id.clone(), chord.clone()));
+                continue;
+            }
+            accepted.push((id.clone(), chord.clone()));
+        }
+        let user_ids: Vec<String> = accepted.iter().map(|(id, _)| id.clone()).collect();
         let mut rows: Vec<(String, String)> = DEFAULT_BINDINGS
             .iter()
+            // 覆盖该命令的所有出厂别名，避免旧别名在重绑后继续触发。
+            .filter(|r| !user_ids.iter().any(|id| id == r.id))
             .map(|r| (r.id.to_string(), r.chord.to_string()))
             .collect();
-        for (id, chord) in user {
-            // 覆盖该命令的**所有**出厂别名，避免旧别名在重绑后继续触发。
-            rows.retain(|(row_id, _)| row_id != id);
-            rows.push((id.clone(), chord.clone()));
-        }
-        let user_ids = user.iter().map(|(id, _)| id.clone()).collect();
-        Self { rows, user_ids, platform }
+        // 展示顺序必须与出厂表一致（快捷键对话框的基线快照钉住了行序），
+        // 用户行仍追加在尾部；派发时的优先级由 `dispatch` 的两段查找保证。
+        rows.extend(accepted);
+        Self { rows, user_ids, rejected_user_bindings, platform }
+    }
+
+    /// 被回滚的用户绑定：调用方写盘时应当把这些条目一并删掉，避免下次重启再冲突。
+    pub fn rejected_user_bindings(&self) -> &[(String, String)] {
+        &self.rejected_user_bindings
     }
 
     pub fn platform(&self) -> Platform {
@@ -264,11 +381,22 @@ impl KeyBindingMap {
     }
 
     /// 一串按键 → 命令 ID。比较走 typed `Chord`，不受 `Meta/Cmd/Ctrl` 写法影响。
+    ///
+    /// 两遍查找：用户绑定先 match，之后才是出厂表。这样即使手改 prefs 让一条
+    /// 用户绑定与另一条出厂绑定撞键，用户的那条仍然胜出（冲突由 `conflicts()`
+    /// 如实报告，重绑编辑器会拦下这种写入）。
     pub fn dispatch(&self, pressed: &[Chord]) -> Option<&str> {
-        self.rows.iter().find_map(|(id, chord)| {
-            let want = shortcuts::parse_chord_seq(chord)?;
-            (want.as_slice() == pressed).then_some(id.as_str())
-        })
+        for (id, chord) in self.rows.iter().filter(|(id, _)| self.user_ids.contains(id)) {
+            if shortcuts::parse_chord_seq(chord).as_deref() == Some(pressed) {
+                return Some(id.as_str());
+            }
+        }
+        for (id, chord) in &self.rows {
+            if shortcuts::parse_chord_seq(chord).as_deref() == Some(pressed) {
+                return Some(id.as_str());
+            }
+        }
+        None
     }
 
     /// 全部绑定（命令 ID, 展示文本），供快捷键设置页列表使用。
@@ -288,7 +416,11 @@ impl KeyBindingMap {
             .collect()
     }
 
-    /// 冲突检测：两个不同命令绑到同一串按键。
+    /// 冲突检测：两个**不同命令**的按键序列相等，或者一条是真前缀。
+    ///
+    /// 前缀也算冲突：`Alt+W` 会把 `Alt+W, Alt+H` 的第一段吃掉，于是后一条
+    /// 永远等不到第二段；两段式绑定表里这种重叠比完全相等更常见，也更难查。
+    /// 返回 `(较短/先出现的那条按键文本, 命令 A, 命令 B)`。
     pub fn conflicts(&self) -> Vec<(String, String, String)> {
         let mut out = Vec::new();
         for (i, (id, chord)) in self.rows.iter().enumerate() {
@@ -301,7 +433,10 @@ impl KeyBindingMap {
                     continue;
                 }
                 if let Some(other_seq) = shortcuts::parse_chord_seq(other_chord) {
-                    if other_seq == seq {
+                    let collide = other_seq == seq
+                        || is_proper_prefix(&seq, &other_seq)
+                        || is_proper_prefix(&other_seq, &seq);
+                    if collide {
                         out.push((display_chord(chord, self.platform), id.clone(), other_id.clone()));
                     }
                 }
@@ -348,13 +483,129 @@ mod tests {
     }
 
     #[test]
-    fn legacy_index_overrides_are_migrated_to_command_ids() {
-        let idx = crate::menu::DEFAULT_SHORTCUTS
-            .iter()
-            .position(|s| s.id == "Terminal.NewSession")
-            .unwrap();
-        let migrated = migrate_legacy(&[(idx, "Cmd+Shift+N".to_string()), (999, "X".to_string())]);
-        assert_eq!(migrated, vec![("Terminal.NewSession".to_string(), "Cmd+Shift+N".to_string())]);
+    fn legacy_indices_are_aligned_to_the_frozen_snapshot_not_the_current_table() {
+        // 历史下标 3 = Application.NewWindow、6 = GotoLine、11 = WindowList。
+        // 当前表里 11 已被插入的 TabReopenClosed 占掉，拿当前表反查必然错绑。
+        let migrated = migrate_legacy(&[
+            (3, "Cmd+Shift+N".to_string()),
+            (6, "Cmd+K".to_string()),
+            (11, "Cmd+L".to_string()),
+        ]);
+        assert_eq!(
+            migrated,
+            vec![
+                ("Application.NewWindow".to_string(), "Cmd+Shift+N".to_string()),
+                ("Window.GotoLine".to_string(), "Cmd+K".to_string()),
+                ("Window.WindowList".to_string(), "Cmd+L".to_string()),
+            ]
+        );
+        assert_eq!(LEGACY_SHORTCUT_IDS.len(), 12);
+        assert_eq!(LEGACY_SHORTCUT_IDS[11], "Window.WindowList");
+        assert_ne!(
+            crate::menu::DEFAULT_SHORTCUTS[11].id,
+            LEGACY_SHORTCUT_IDS[11],
+            "当前表已经插过行——必须用快照而不是当前下标"
+        );
+    }
+
+    #[test]
+    fn out_of_range_legacy_indices_are_reported_not_silently_bound() {
+        let migration = migrate_legacy_with_report(&[(14, "X".into()), (999, "Y".into())], &[]);
+        assert!(migration.bindings.is_empty());
+        assert_eq!(migration.dropped_indices, vec![14, 999]);
+        assert!(migration.overrides.is_empty(), "旧字段必须在写盘时清空");
+    }
+
+    /// 模拟「迁移写盘 → Reset → 重启读盘」的完整一圈：Resets 不清旧字段时，
+    /// 第二次读盘会按下标重新点亮绑定，用户看到的是「Reset 后又复活」。
+    #[test]
+    fn migrated_bindings_do_not_come_back_after_reset_and_restart() {
+        let legacy = vec![(11usize, "Cmd+L".to_string())];
+        let first = migrate_legacy_with_report(&legacy, &[]);
+        assert_eq!(
+            first.bindings,
+            vec![("Window.WindowList".to_string(), "Cmd+L".to_string())]
+        );
+        // 写盘：新字段写结果、旧字段清空。
+        let (bindings, overrides) = (first.bindings, first.overrides);
+        assert!(overrides.is_empty());
+        assert!(!bindings.is_empty());
+
+        // Reset：两份字段一起清。
+        let (bindings, overrides) = reset_prefs_fields();
+        assert!(bindings.is_empty() && overrides.is_empty());
+
+        // 重启：simulate load-modify-save 的收敛，仍然全空。
+        let (restart_bindings, restart_overrides) = normalized_prefs_fields(&bindings, &overrides);
+        assert!(restart_bindings.is_empty(), "Reset 后不许复活");
+        assert!(restart_overrides.is_empty());
+        assert_eq!(
+            KeyBindingMap::new(&restart_bindings, Platform::Macos).display("Window.WindowList"),
+            default_display("Window.WindowList"),
+            "Reset 后应回到出厂和弦，不是旧下标指向的重绑和弦"
+        );
+    }
+
+    #[test]
+    fn a_new_field_wins_and_the_old_field_is_cleared() {
+        let new = vec![("Text.Find".to_string(), "Cmd+F".to_string())];
+        let migration = migrate_legacy_with_report(&[(11, "Cmd+L".into())], &new);
+        assert_eq!(migration.bindings, new);
+        assert!(migration.overrides.is_empty());
+    }
+
+    #[test]
+    fn a_conflicting_user_binding_is_rolled_back_and_recorded() {
+        let map = KeyBindingMap::new(
+            &[
+                ("Text.Find".to_string(), "Cmd+Shift+F".to_string()),
+                ("Text.Paste".to_string(), "Cmd+Shift+F".to_string()),
+            ],
+            Platform::Macos,
+        );
+        assert_eq!(map.rejected_user_bindings(), &[("Text.Paste".to_string(), "Cmd+Shift+F".to_string())]);
+        assert!(!map.user_bindings().iter().any(|(id, _)| id == "Text.Paste"));
+        let pressed = shortcuts::parse_chord_seq("Cmd+Shift+F").unwrap();
+        assert_eq!(map.dispatch(&pressed), Some("Text.Find"));
+    }
+
+    #[test]
+    fn an_equal_chord_from_a_user_wins_over_a_default() {
+        // 手改 prefs 把 Paste 绑到 Cmd+F：用户那条派发命中，默认 Find 仍留在
+        // 表里被 conflicts() 报告，编辑器据此拒绝这次写入（不偷偷摘掉 Find）。
+        let map = KeyBindingMap::new(
+            &[("Text.Paste".to_string(), "Cmd+F".to_string())],
+            Platform::Macos,
+        );
+        let pressed = shortcuts::parse_chord_seq("Cmd+F").unwrap();
+        assert_eq!(map.dispatch(&pressed), Some("Text.Paste"));
+        assert!(map.conflicts().iter().any(|(_, a, b)| {
+            (a == "Text.Find" && b == "Text.Paste") || (a == "Text.Paste" && b == "Text.Find")
+        }));
+    }
+
+    #[test]
+    fn a_true_prefix_is_a_conflict_but_equal_length_is_not() {
+        let map = KeyBindingMap::new(
+            &[("Text.Find".to_string(), "Alt+W".to_string())],
+            Platform::Macos,
+        );
+        assert!(
+            map.conflicts().iter().any(|(_, a, b)| {
+                (a == "Text.Find" && b == "Window.ToggleMenuBar")
+                    || (a == "Window.ToggleMenuBar" && b == "Text.Find")
+            }),
+            "Alt+W 是 Alt+W, Alt+M 的真前缀，必须报冲突：{:?}",
+            map.conflicts()
+        );
+        // 两条两段式键共享第一段但互不为前缀，不算冲突。
+        let map = KeyBindingMap::new(&[], Platform::Macos);
+        assert!(
+            !map.conflicts().iter().any(|(_, a, b)| {
+                (a == "Text.ToggleHexEdit" && b == "Text.ToggleWordWrap")
+                    || (a == "Text.ToggleWordWrap" && b == "Text.ToggleHexEdit")
+            })
+        );
     }
 
     #[test]

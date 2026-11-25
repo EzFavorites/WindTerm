@@ -5,6 +5,14 @@
 //!
 //! 语法：四则 + 取余 + `^`（右结合）+ 一元正负 + 括号 + 逗号参数；
 //! 名字支持 page/24 列出的常量与函数，函数名大小写敏感（与 JS 一致）。
+//!
+//! # 纯度契约（2026-11-25 明确登记）
+//!
+//! 本模块**不是纯函数模块**：`random()` 按 JS `Math.random` 语义每次都要变，
+//! 而这里没有随机数生成器，只能读宿主墙钟。这一处副作用是有意保留的，写在
+//! 契约里而不是藏在「纯求值层」这句话后面。需要确定性（单测 / 回放 / 宿主
+//! 自己掌握随机源）时走 [`evaluate_with_seed`]：相同的表达式 + 种子必得相同
+//! 结果，墙钟不会被读到；[`evaluate`] 是宿主便利入口，注入当前纳秒。
 
 use std::collections::HashMap;
 use std::fmt;
@@ -142,6 +150,8 @@ fn lex(src: &str) -> Result<Vec<Token>, CalcError> {
 struct Parser {
     tokens: Vec<Token>,
     pos: usize,
+    /// 宿主注入的随机种子；`evaluate_with_seed` 一路传到这里。
+    seed: u64,
 }
 
 impl Parser {
@@ -258,7 +268,8 @@ impl Parser {
             Some(Token::RParen) => {}
             _ => return Err(CalcError::ExpectedClosingParen),
         }
-        function(name, &args).ok_or_else(|| CalcError::UnknownFunction(name.to_string()))
+        function(name, &args, Some(self.seed))
+            .ok_or_else(|| CalcError::UnknownFunction(name.to_string()))
     }
 }
 
@@ -278,9 +289,9 @@ fn constant(name: &str) -> Option<f64> {
     Some(v)
 }
 
-/// page/24 列出的全部 Function Properties。`random()` 用系统时间派生，
-/// 每次调用都真实变化；其余都是确定性数学函数。
-fn function(name: &str, args: &[f64]) -> Option<f64> {
+/// page/24 列出的全部 Function Properties。`random()` 的随机源由宿主通过
+/// `seed` 注入（`None` 时才读墙钟）；其余都是确定性数学函数。
+fn function(name: &str, args: &[f64], seed: Option<u64>) -> Option<f64> {
     let a = |i: usize| args.get(i).copied().unwrap_or(f64::NAN);
     let out = match name {
         "abs" => a(0).abs(),
@@ -309,7 +320,7 @@ fn function(name: &str, args: &[f64]) -> Option<f64> {
         "max" => args.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         "min" => args.iter().copied().fold(f64::INFINITY, f64::min),
         "pow" => a(0).powf(a(1)),
-        "random" => random_unit(),
+        "random" => random_unit(seed),
         "round" => a(0).round(),
         "sign" => sign(a(0)),
         "sin" => a(0).sin(),
@@ -333,24 +344,35 @@ fn sign(v: f64) -> f64 {
     }
 }
 
-/// 不引入 rand 依赖：取系统纳秒的小数部分做 [0,1) 的均匀分布近似。
-/// 计算器不是密码学场景，这里只要「每次按都真的变」。
-fn random_unit() -> f64 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() as u64 + d.as_secs().wrapping_mul(1_000_000_003))
-        .unwrap_or(0);
+/// [0,1) 的均匀近似。有注入种子时只读种子（纯）；`None` 时由宿主入口注入
+/// 墙钟纳秒——这是本模块唯一的非纯读，见模块头契约。
+fn random_unit(seed: Option<u64>) -> f64 {
+    let nanos = seed.unwrap_or_else(|| {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos() as u64 + d.as_secs().wrapping_mul(1_000_000_003))
+            .unwrap_or(0)
+    });
     (nanos % 1_000_000_000) as f64 / 1_000_000_000.0
 }
 
 /// 求值并以显示字符串返回。`Err` 的文本以 `Invalid formula:` 开头，
-/// 与官方 GIF 里的错误提示一致。
+/// 与官方 GIF 里的错误提示一致。随机源由宿主注入；本便利入口用墙钟纳秒。
 pub fn evaluate(expression: &str) -> Result<String, CalcError> {
+    let seed = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 + d.as_secs().wrapping_mul(1_000_000_003))
+        .unwrap_or(0);
+    evaluate_with_seed(expression, seed)
+}
+
+/// 确定性求值入口：`random()` 只读注入的种子，整条链上没有任何墙钟/全局状态。
+pub fn evaluate_with_seed(expression: &str, seed: u64) -> Result<String, CalcError> {
     if expression.trim().is_empty() {
         return Err(CalcError::Empty);
     }
     let tokens = lex(expression)?;
-    let mut parser = Parser { tokens, pos: 0 };
+    let mut parser = Parser { tokens, pos: 0, seed };
     let value = parser.expr()?;
     if parser.pos != parser.tokens.len() {
         return Err(CalcError::TrailingInput);
@@ -454,6 +476,18 @@ mod tests {
         assert!(evaluate("(1+2").unwrap_err().to_string().contains("')'"));
         assert!(evaluate("1 2").unwrap_err().to_string().contains("trailing"));
         assert!(evaluate("nope(1)").unwrap_err().to_string().contains("Unknown function"));
+    }
+
+    #[test]
+    fn seeded_evaluation_is_deterministic_and_never_reads_the_clock() {
+        let a = evaluate_with_seed("random()", 12345).unwrap();
+        assert_eq!(a, evaluate_with_seed("random()", 12345).unwrap());
+        assert_ne!(a, evaluate_with_seed("random()", 999).unwrap());
+        let value: f64 = a.parse().unwrap();
+        assert!((0.0..1.0).contains(&value));
+        // 注入种子后连普通函数也走同一条确定性路径。
+        assert_eq!(evaluate_with_seed("sin(PI/2)", 7).as_deref(), Ok("1"));
+        assert!(evaluate_with_seed("", 7).unwrap_err().to_string().contains("empty"));
     }
 
     #[test]

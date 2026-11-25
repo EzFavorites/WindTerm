@@ -52,9 +52,17 @@ pub fn unescape(data: &str) -> Vec<u8> {
         if bytes[i] == b'\\' && i + 3 < bytes.len() {
             let (a, b, c) = (bytes[i + 1], bytes[i + 2], bytes[i + 3]);
             if (b'0'..=b'7').contains(&a) && (b'0'..=b'7').contains(&b) && (b'0'..=b'7').contains(&c) {
-                out.push((a - b'0') * 64 + (b - b'0') * 8 + (c - b'0'));
-                i += 4;
-                continue;
+                // 三个八进制位最大 511，u8 乘法会在 debug 下直接 panic（release
+                // 下则悄悄绕回成另一个字节）。先在 u32 里算完，超过 255 的
+                // 畸形转义按原文透传：不吞用户输出，也不制造假字节。
+                let value = ((a - b'0') as u32) * 64
+                    + ((b - b'0') as u32) * 8
+                    + ((c - b'0') as u32);
+                if value <= u8::MAX as u32 {
+                    out.push(value as u8);
+                    i += 4;
+                    continue;
+                }
             }
         }
         out.push(bytes[i]);
@@ -254,6 +262,26 @@ mod tests {
         assert_eq!(unescape("\\\\"), b"\\\\".to_vec());
         assert_eq!(unescape("\\101\\102"), b"AB".to_vec());
         assert_eq!(unescape("plain"), b"plain".to_vec());
+    }
+
+    #[test]
+    fn malformed_octal_escapes_are_passed_through_without_overflowing() {
+        // `\400` 及以上超过 u8；过去这里在 debug 构建里 panic，release 里绕回成
+        // 另一个字节。两种都不是「安全降级」，现在原样透传整串。
+        for raw in ["\\400", "\\777", "\\500"] {
+            assert_eq!(unescape(raw), raw.as_bytes().to_vec(), "{raw}");
+        }
+        let mut mixed = vec![255];
+        mixed.extend_from_slice(b"\\777");
+        mixed.push(b'A');
+        assert_eq!(unescape("\\377\\777\\101"), mixed);
+        // 合法区间照旧解码，边界 \377 = 255 不丢。
+        assert_eq!(unescape("\\377"), vec![255]);
+        assert_eq!(unescape("\\000"), vec![0]);
+        assert_eq!(parse_line("%output %0 \\777"), Event::Output {
+            pane: 0,
+            data: b"\\777".to_vec(),
+        });
     }
 
     #[test]

@@ -243,10 +243,13 @@ static CLASSES: &[(&str, ApiClass)] = &[
     ("Window.SplitViewHorizontally", ApiClass::Interactive),
     ("Window.SplitViewVertically", ApiClass::Interactive),
     ("Window.ToggleAlwaysOnTop", ApiClass::Interactive),
+    ("Window.ToggleBottomDocks", ApiClass::Equivalent("app_panel_set")),
     ("Window.ToggleDebugMode", ApiClass::Interactive),
     ("Window.ToggleFocusMode", ApiClass::Interactive),
     ("Window.ToggleFullScreen", ApiClass::Interactive),
+    ("Window.ToggleLeftDocks", ApiClass::Equivalent("app_panel_set")),
     ("Window.ToggleMenuBar", ApiClass::Interactive),
+    ("Window.ToggleRightDocks", ApiClass::Equivalent("app_panel_set")),
     ("Window.TogglePaneExplorer", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneFiler", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneOutline", ApiClass::Verb("app_panel_set")),
@@ -257,6 +260,9 @@ static CLASSES: &[(&str, ApiClass)] = &[
     ("Window.TogglePaneTransfer", ApiClass::Verb("app_panel_set")),
     ("Window.ToggleQuickBar", ApiClass::Interactive),
     ("Window.ToggleStatusBar", ApiClass::Interactive),
+    // 总线开关既不是面板可见性也不是窗口动词：转发线程真的停/起，脚本侧
+    // 没有对应动词，归 Interactive（与 TogglePaneTmux 同一口径）。
+    ("Window.ToggleTunnels", ApiClass::Interactive),
     ("Window.ToolbarCustomize", ApiClass::Interactive),
     ("Window.ToolbarList", ApiClass::Interactive),
     ("Window.WindowList", ApiClass::Interactive),

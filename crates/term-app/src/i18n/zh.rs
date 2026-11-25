@@ -185,11 +185,10 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Status Bar" => "状态栏",
         "Quick Bar" => "快捷栏",
         "Explorer" => "资源管理器",
-        "Filer" => "文件管理器",
-        "Outline" => "历史命令",
-        "Sender" => "发送",
-        "Session" => "会话",
-        "Transfer" => "传输",
+        // `Filer` / `Outline` / `Sender` 的规范译法见下方「面板标题」一组
+        // （文件 / 大纲 / 发送器）：键是英文原文，同一 key 重复登记时先出现的
+        // 赢，这里若再写一遍「文件管理器 / 历史命令 / 发送」会让面板标题
+        // 按哪条先出现而变，三组译文互相打架。
         "Toggle Menu Bar" => "显示菜单栏",
         "Toggle Status Bar" => "显示状态栏",
         "Toggle Quick Bar" => "显示快捷栏",
@@ -276,7 +275,6 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // ── 窗口 ──
         "Window Manager" => "窗口管理",
         "Window List" => "窗口列表",
-        "Window Opacity" => "窗口不透明度",
         "Set Window Opaque" => "不透明",
         "Set Window Translucent" => "半透明",
         "Set Window Transparent" => "全透明",
@@ -310,14 +308,14 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Copy Session Name" => "复制会话名",
         "Copy Session Url" => "复制会话地址",
         // ── 面板标题（`PanelId::title`，也会出现在停靠条 / 浮动窗标题） ──
-        "Explorer" => "资源管理器",
+        // 这一组是 `Filer` / `Outline` / `Sender` 三条 key 的唯一规范译法
+        // （文件 / 大纲 / 发送器），与上面视图组那三条冲突译文已删除。
         "Filer" => "文件",
         "Outline" => "大纲",
         "Sender" => "发送器",
         "Shell" => "终端",
         "Transfer" => "传输",
         "Sysmon" => "系统监控",
-        "Script" => "脚本",
         "Name" => "名称",
         "Date" => "日期",
         // ── 面板 chrome：齿轮 / Filter / Filer 路径栏与状态行 ──
@@ -689,5 +687,43 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "no scripts in library" => "脚本库里还没有脚本",
         "nothing run yet" => "还没有跑过脚本",
         _ => en,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::zh;
+
+    /// `match` 里写重复 key 不会报编译错：**先出现的赢**，于是同一句英文
+    /// 在不同位置会显示两种中文，改哪一处都不生效。这里从源码里逐行取
+    /// `"原文" =>` 的 key，重复即红；注释行不算（`//` 里经常引用旧键）。
+    #[test]
+    fn no_duplicate_translation_keys() {
+        let source = include_str!("zh.rs");
+        let mut seen = std::collections::BTreeSet::new();
+        let mut duplicates = Vec::new();
+        for line in source.lines() {
+            let line = line.trim();
+            if line.starts_with("//") {
+                continue;
+            }
+            let Some((lhs, _)) = line.split_once("=>") else { continue };
+            let lhs = lhs.trim();
+            let Some(key) = lhs.strip_prefix('"').and_then(|s| s.strip_suffix('"')) else {
+                continue;
+            };
+            if key.is_empty() {
+                continue;
+            }
+            if !seen.insert(key) {
+                duplicates.push(key.to_string());
+            }
+        }
+        assert!(!seen.is_empty(), "词表不该是空的（源码读取失败也要红）");
+        assert!(duplicates.is_empty(), "重复 key：{duplicates:?}");
+        // 三组曾经冲突的译文按规范只留一份。
+        assert_eq!(zh("Filer"), "文件");
+        assert_eq!(zh("Outline"), "大纲");
+        assert_eq!(zh("Sender"), "发送器");
     }
 }

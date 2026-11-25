@@ -39,6 +39,9 @@ use term_app::onboarding::{DetectedHost, OnboardingState, Step};
 use term_runtime::import_sessions::{
     parse_ssh_config as parse_ssh, parse_windterm, ImportedSession,
 };
+// 原版 `user.sessions` 的扁平 JSON 走 term-import 的新解析器：它按协议拆 target，
+// 不会像旧的宽松解析器那样把 9 条都读成 0 条。
+use term_import::sessions::parse_windterm_sessions;
 
 /// 钉死的矩形（画布 1280×760 里居中）：600×380。
 ///
@@ -154,7 +157,15 @@ impl TerminalWindow {
             .into_iter()
             .cloned()
             .collect();
-        let added = merge_detected(&mut self.sessions, &mut self.groups, picked);
+        let mut added = merge_detected(&mut self.sessions, &mut self.groups, picked);
+        // 原版 `user.sessions` 不摊成 DetectedHost：那个结构把协议硬编码成 Ssh，
+        // Telnet / Tcp / Shell 会被改错。这里直接走侧栏落库用的 ImportedSession，
+        // 由解析器保留协议、用户名与端口（「走侧栏落库」这一支）。
+        added += merge_imported(
+            &mut self.sessions,
+            &mut self.groups,
+            detect_windterm_sessions(),
+        );
         if added == 0 {
             return;
         }
@@ -193,6 +204,44 @@ fn merge_detected(
         groups.push(IMPORT_GROUP.to_string());
     }
     added
+}
+
+/// 把原版 `user.sessions` 的解析结果并进会话树，保留每条自己的协议 / 端口 / 用户。
+/// 与 [`merge_detected`] 同一套撞名策略（改名不覆盖），但不去改协议。
+fn merge_imported(
+    sessions: &mut Vec<SessionConfig>,
+    groups: &mut Vec<String>,
+    items: Vec<ImportedSession>,
+) -> usize {
+    let mut added = 0;
+    for item in items {
+        let name = if sessions.iter().any(|s| s.name == item.name) {
+            unique_name(sessions, &item.name)
+        } else {
+            item.name.clone()
+        };
+        let group = item.group.clone();
+        let mut cfg = item.into_config();
+        cfg.name = name;
+        sessions.push(cfg);
+        if !groups.iter().any(|g| g == &group) {
+            groups.push(group);
+        }
+        added += 1;
+    }
+    added
+}
+
+/// 原版 `user.sessions`：发现层给出的路径只查一次，解析走 `parse_windterm_sessions`。
+/// 读不到 / 一条都没有就是「这台机器上没有」，不伪造。
+fn detect_windterm_sessions() -> Vec<ImportedSession> {
+    let roots = term_import::discovery::candidate_windterm_roots();
+    let exports = term_import::discovery::find_profile_exports_in(&roots);
+    exports
+        .user_sessions
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .map(|text| parse_windterm_sessions(&text))
+        .unwrap_or_default()
 }
 
 /// 第一页：说明 + `Next` / `Skip`。
@@ -367,23 +416,14 @@ fn detect_hosts() -> Vec<DetectedHost> {
         out.extend(parse_ssh_config(&text, &ssh_config.to_string_lossy()));
     }
 
-    // 候选根目录统一由发现层给出：macOS app 包内 `.wind/profiles`、
-    // `profiles.config` 指针、三处用户根、Windows/Linux 常见位置。侧栏导入
-    // 走同一个函数，新增候选只改 `term_import::discovery` 一处（消除双写）。
-    // 发现层只枚举有限目录，不扫描全盘、不读会话内容。
-    for candidate in term_import::discovery::candidate_windterm_roots() {
-        let Ok(entries) = std::fs::read_dir(&candidate) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            let ext = path.extension().and_then(|e| e.to_str());
-            if !matches!(ext, Some("wind") | Some("json")) {
-                continue;
-            }
-            if let Ok(text) = std::fs::read_to_string(&path) {
-                out.extend(parse_windterm_profiles(&text, &path.to_string_lossy()));
-            }
+    // 与侧栏共用发现层的唯一入口：候选根 + 一层子目录里的 `.wind` / `.json`
+    // 导出。此前引导自己写 `read_dir(root)` 只看一层，侧栏加了子目录支持后
+    // 两边口径就分叉了。发现层只枚举有限目录，不扫描全盘。
+    let roots = term_import::discovery::candidate_windterm_roots();
+    let exports = term_import::discovery::find_profile_exports_in(&roots);
+    for path in exports.profiles {
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            out.extend(parse_windterm_profiles(&text, &path.to_string_lossy()));
         }
     }
     out
@@ -475,6 +515,25 @@ mod tests {
             sessions[1].name
         );
         assert_eq!(sessions[1].host, "10.0.0.11", "新来那条带着自己的目标");
+    }
+
+    #[test]
+    fn windterm_user_sessions_keep_their_protocol_when_merged() {
+        // DetectedHost 把协议硬编码成 Ssh，所以 user.sessions 不能摊成它；
+        // 走 ImportedSession 落库时 Telnet 必须还是 Telnet。
+        let items = parse_windterm_sessions(
+            r#"[{"session.protocol":"Telnet","session.label":"switch",
+                 "session.target":"admin@10.0.0.9:2323","session.group":"Net"}]"#,
+        );
+        assert_eq!(items.len(), 1);
+        let mut sessions = Vec::new();
+        let mut groups = Vec::new();
+        assert_eq!(merge_imported(&mut sessions, &mut groups, items), 1);
+        assert_eq!(sessions[0].protocol, Protocol::Telnet);
+        assert_eq!(sessions[0].host, "10.0.0.9");
+        assert_eq!(sessions[0].port, 2323);
+        assert_eq!(sessions[0].username, "admin");
+        assert!(groups.iter().any(|g| g == "Net"));
     }
 
     #[test]

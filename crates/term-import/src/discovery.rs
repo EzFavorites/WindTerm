@@ -127,63 +127,77 @@ fn normalize_dots(path: &Path) -> PathBuf {
     out
 }
 
+/// 一层候选布局下找到的导出物。
+///
+/// `user_config` / `user_sessions` 各取第一份（按候选根顺序、同根内按目录名字典序），
+/// `profiles` 收集根与一层子目录里所有 `.wind` / `.json` 会话导出，去重后按路径排序。
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ProfileExports {
+    pub user_config: Option<PathBuf>,
+    pub user_sessions: Option<PathBuf>,
+    pub profiles: Vec<PathBuf>,
+}
+
+/// **侧栏导入与首次引导共用的唯一发现入口**。
+///
+/// 每个候选根只看四层固定位置（根本身、`terminal/`、一层子目录、子目录的
+/// `terminal/`）——原版三层布局就到这里。更深一层一律不下钻，不扫描全盘；
+/// 这是发现层的边界，不是「递归遍历」的开头。此前侧栏与引导各写一份 `read_dir`，
+/// 一边加了子目录支持另一边没加，于是「引导探不到、侧栏能导入」。
+pub fn find_profile_exports_in(roots: &[PathBuf]) -> ProfileExports {
+    let mut out = ProfileExports::default();
+    let mut profiles = Vec::new();
+    for root in roots {
+        let mut bases = vec![root.clone()];
+        if let Ok(entries) = std::fs::read_dir(root) {
+            let mut dirs: Vec<PathBuf> = entries
+                .flatten()
+                .filter(|e| e.path().is_dir())
+                .map(|e| e.path())
+                .collect();
+            dirs.sort();
+            bases.extend(dirs);
+        }
+        for base in bases {
+            let config = base.join(USER_CONFIG_FILE);
+            if out.user_config.is_none() && config.is_file() {
+                out.user_config = Some(config);
+            }
+            for sessions in [base.join(USER_SESSIONS_FILE), base.join("terminal").join(USER_SESSIONS_FILE)] {
+                if out.user_sessions.is_none() && sessions.is_file() {
+                    out.user_sessions = Some(sessions);
+                }
+            }
+            let Ok(entries) = std::fs::read_dir(&base) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file()
+                    && path.extension().and_then(|e| e.to_str()).is_some_and(|e| e == "wind" || e == "json")
+                {
+                    profiles.push(path);
+                }
+            }
+        }
+    }
+    profiles.sort();
+    profiles.dedup();
+    out.profiles = profiles;
+    out
+}
+
 /// 在默认候选根里找 `user.config`。
 pub fn find_user_config() -> Option<PathBuf> {
     find_user_config_in(&candidate_windterm_roots())
 }
 
 /// 在给定候选根里找 `user.config`（供调用方在手动选择目录后复用）。
-///
-/// 每个根只看两处：根本身、以及根的**一层**子目录（原版是 `default.v10/user.config`）。
-/// 不递归下钻，更不扫描全盘——这是发现层的边界。
 pub fn find_user_config_in(roots: &[PathBuf]) -> Option<PathBuf> {
-    for root in roots {
-        let direct = root.join(USER_CONFIG_FILE);
-        if direct.is_file() {
-            return Some(direct);
-        }
-        let Ok(entries) = std::fs::read_dir(root) else { continue };
-        let mut dirs: Vec<PathBuf> = entries
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .map(|e| e.path())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            let candidate = dir.join(USER_CONFIG_FILE);
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-    }
-    None
+    find_profile_exports_in(roots).user_config
 }
 
 /// 与 [`find_user_config_in`] 同口径地找 `terminal/user.sessions`（会话导入用）。
-/// 只查根本身、一层子目录、以及一层子目录下的 `terminal/`——原版三层布局就到这里。
 pub fn find_user_sessions_in(roots: &[PathBuf]) -> Option<PathBuf> {
-    for root in roots {
-        for candidate in [root.join(USER_SESSIONS_FILE), root.join("terminal").join(USER_SESSIONS_FILE)] {
-            if candidate.is_file() {
-                return Some(candidate);
-            }
-        }
-        let Ok(entries) = std::fs::read_dir(root) else { continue };
-        let mut dirs: Vec<PathBuf> = entries
-            .flatten()
-            .filter(|e| e.path().is_dir())
-            .map(|e| e.path())
-            .collect();
-        dirs.sort();
-        for dir in dirs {
-            for candidate in [dir.join(USER_SESSIONS_FILE), dir.join("terminal").join(USER_SESSIONS_FILE)] {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-    }
-    None
+    find_profile_exports_in(roots).user_sessions
 }
 
 #[cfg(test)]
@@ -251,6 +265,35 @@ mod tests {
         let wanted = dir.join(USER_SESSIONS_FILE);
         std::fs::write(&wanted, "[]").expect("写会话");
         assert_eq!(find_user_sessions_in(&[root.clone()]), Some(wanted));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// 侧栏与引导共用一次扫描：同一层子目录里的两份导出都要被找到，
+    /// 不能一侧改了发现逻辑另一侧还漏着。
+    #[test]
+    fn find_profile_exports_in_collects_all_three_kinds_from_one_subdirectory() {
+        let root = tmp_dir("find-exports");
+        let profile = root.join("default.v10");
+        let terminal = profile.join("terminal");
+        std::fs::create_dir_all(&terminal).expect("mkdir");
+        let config = profile.join(USER_CONFIG_FILE);
+        let sessions = terminal.join(USER_SESSIONS_FILE);
+        let export = profile.join("sample.wind");
+        std::fs::write(&config, "{}").expect("config");
+        std::fs::write(&sessions, "[]").expect("sessions");
+        std::fs::write(&export, "[]").expect("export");
+        // 更深层的不算：发现层不递归。
+        let deep = profile.join("nested");
+        std::fs::create_dir_all(&deep).expect("mkdir");
+        std::fs::write(deep.join(USER_SESSIONS_FILE), "[]").expect("deep sessions");
+
+        let found = find_profile_exports_in(&[root.clone()]);
+        assert_eq!(found.user_config, Some(config));
+        assert_eq!(found.user_sessions, Some(sessions));
+        assert_eq!(found.profiles, vec![export]);
+        // 两个老入口也走同一份结果，口径不会再分叉。
+        assert_eq!(find_user_config_in(&[root.clone()]), found.user_config);
+        assert_eq!(find_user_sessions_in(&[root.clone()]), found.user_sessions);
         let _ = std::fs::remove_dir_all(&root);
     }
 

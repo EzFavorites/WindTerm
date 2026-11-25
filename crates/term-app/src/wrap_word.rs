@@ -37,6 +37,13 @@ impl WrapMode {
     }
 }
 
+/// `Wrap column` 的可选区间（列）。设置页 `settings_live_wrap::parse_wrap_column`
+/// 的输入框也夹进这同一区间：0 是 `Window edge` 哨兵，非零必须落在 8..=512。
+/// 两处阈值写死为同一个数，读侧的 [`WrapSettings::from_prefs`] 保证手改过的
+/// `prefs.json` 不会绕过设置页的下限。
+pub const WRAP_COLUMN_MIN: usize = 8;
+pub const WRAP_COLUMN_MAX: usize = 512;
+
 /// 窗口级折行设置（来自 prefs，**不含**每标签的软折开关）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct WrapSettings {
@@ -52,7 +59,15 @@ impl Default for WrapSettings {
 }
 
 impl WrapSettings {
+    /// 从落盘值构造。`0` = Window edge 哨兵原样保留；非零夹进
+    /// [`WRAP_COLUMN_MIN`]..=[`WRAP_COLUMN_MAX`]，与设置页输入框同一档位：
+    /// 手改 prefs 写了 `3` 或 `9999` 时，六个渲染消费者拿到的都是同一个合法值。
     pub fn from_prefs(mode: u8, column: usize) -> Self {
+        let column = if column == 0 {
+            0
+        } else {
+            column.clamp(WRAP_COLUMN_MIN, WRAP_COLUMN_MAX)
+        };
         Self { mode: WrapMode::from_u8(mode), column }
     }
 
@@ -269,6 +284,21 @@ mod tests {
     }
 
     // ---- 列宽：0 守旧，非 0 自定义 ----
+
+    /// 手改 prefs 绕过设置页写出的越界列宽，必须在**读侧**被夹回同一档位，
+    /// 否则六个渲染消费者会各按各的兜底折出不同段表。
+    #[test]
+    fn from_prefs_clamps_nonzero_columns_to_the_settings_range() {
+        assert_eq!(WRAP_COLUMN_MIN, 8);
+        assert_eq!(WRAP_COLUMN_MAX, 512);
+        assert_eq!(WrapSettings::from_prefs(1, 0).column, 0, "Window edge 哨兵原样保留");
+        assert_eq!(WrapSettings::from_prefs(1, 3).column, 8, "低于下限夹到 8");
+        assert_eq!(WrapSettings::from_prefs(1, 9999).column, 512, "高于上限夹到 512");
+        assert_eq!(WrapSettings::from_prefs(0, 80).column, 80, "合法值原样生效");
+        // 生效列宽也随之被夹住，不会出现「设置页显示 8、段表按 3 折」。
+        let settings = WrapSettings::from_prefs(1, 3);
+        assert_eq!(WrapConfig::new(true, settings).effective_cols(120), 8);
+    }
 
     #[test]
     fn column_zero_keeps_the_legacy_behaviour() {

@@ -473,8 +473,13 @@ pub struct Prefs {
     #[serde(default)]
     pub auto_reconnect: bool,
     /// 整窗主题名，取值来自 `term_core::theme::BUILTIN_THEME_NAMES`。
-    /// `#[serde(default)]`：老 `prefs.json` 没这一项时回落到 dige-black。
-    #[serde(default)]
+    ///
+    /// 这里必须写 `#[serde(default = "default_theme_name")]` 而不是裸
+    /// `#[serde(default)]`：后者的缺省是 `String::new()`（空串），与
+    /// `Prefs::default()` 的 `dige-black` 不一致。老 `prefs.json` 缺这个键时
+    /// 空串一路走到 `load_palette_named("")`，拿到的是「没有主题名的兜底
+    /// 16 色」，而不是 dige-black 整窗主题。两处默认值同一函数，就不会再漂。
+    #[serde(default = "default_theme_name")]
     pub theme_name: String,
     /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 false（主题通常没声明字体）。
     #[serde(default)]
@@ -637,6 +642,12 @@ fn default_1800() -> u32 {
     1800
 }
 
+/// 整窗主题的缺省名。serde 与手写 `Default` 共用这一处，老文件缺键与没有文件
+/// 两种处境必须拿到同一个主题（见 `theme_name` 字段注释）。
+fn default_theme_name() -> String {
+    term_core::theme::DEFAULT_THEME_NAME.to_string()
+}
+
 /// 窗口不透明度的出厂默认（1.0 = 完全不透明）。f32 的 `Default` 是 0.0，
 /// 不能用在 serde `default` 上，否则老文件缺键会回落成「全透明」——那比「回落成
 /// 出厂不透明」危险得多（整窗可能直接看不见）。见 `window_opacity` 字段注释。
@@ -760,7 +771,7 @@ impl Default for Prefs {
             auto_hide_menu_bar: false,
             lock_timeout_secs: 1800,
             auto_reconnect: false,
-            theme_name: term_core::theme::DEFAULT_THEME_NAME.to_string(),
+            theme_name: default_theme_name(),
             prefer_theme_fonts: false,
             tab_hover_activate: false,
             tab_hover_delay_ms: 200,
@@ -1013,6 +1024,13 @@ impl Prefs {
         } else {
             &self.search_url
         }
+    }
+
+    /// Reset 快捷键时调用：**两份字段一起清**。只清新字段时，下次启动
+    /// `migrate_legacy` 会把旧下标重新点亮，用户看到的是「Reset 后又复活」。
+    pub fn reset_shortcut_bindings(&mut self) {
+        self.shortcut_bindings.clear();
+        self.shortcut_overrides.clear();
     }
 
     /// 快捷命令栏的渲染开关，从 `prefs` 读初值（兼容终端 `user.config` 的位置）。
@@ -1367,6 +1385,28 @@ mod tests {
         assert!(back.command_history_save, "Save history 出厂默认开");
         assert_eq!(back.command_history_days, 0);
         assert_eq!(back.command_history_size, 0);
+    }
+
+    /// 老 `prefs.json` 没有 `theme_name` 时不能读到空串：空串会绕过三套内置
+    /// 整窗主题的查找，拿到的调色板连主题名都是空的。serde 缺省必须与
+    /// `Prefs::default()` 逐字相同。
+    #[test]
+    fn an_older_file_without_theme_name_gets_the_factory_theme() {
+        let path = tmp();
+        std::fs::write(&path, r#"{"language":"en"}"#).unwrap();
+        let back = load_from(&path).expect("缺键不该让整份文件读不出来");
+        assert_eq!(back.theme_name, term_core::theme::DEFAULT_THEME_NAME);
+        assert_eq!(back.theme_name, Prefs::default().theme_name);
+        assert_eq!(back.language, "en", "其余字段不许被连坐");
+    }
+
+    /// 显式写空串是用户手改的结果，不该被 migration 改写成出厂主题——
+    /// 「缺键」与「写了键」在磁盘上仍可区分。
+    #[test]
+    fn an_explicit_empty_theme_name_is_preserved() {
+        let path = tmp();
+        std::fs::write(&path, r#"{"theme_name":""}"#).unwrap();
+        assert_eq!(load_from(&path).unwrap().theme_name, "");
     }
 
     #[test]
@@ -2091,6 +2131,19 @@ mod tests {
         let reported = last_recovery().expect("保全之后必须能报出备份路径");
         assert!(reported.is_file(), "报出去的路径必须真的存在");
         assert_eq!(std::fs::read_to_string(&reported).unwrap(), "{ broken");
+    }
+
+    /// Reset 必须清掉旧下标字段；否则重启时迁移会把它重新写成新绑定。
+    #[test]
+    fn resetting_shortcuts_clears_both_the_new_and_the_legacy_field() {
+        let mut prefs = Prefs {
+            shortcut_bindings: vec![("Text.Find".into(), "Cmd+F".into())],
+            shortcut_overrides: vec![(3, "Cmd+K".into())],
+            ..Prefs::default()
+        };
+        prefs.reset_shortcut_bindings();
+        assert!(prefs.shortcut_bindings.is_empty());
+        assert!(prefs.shortcut_overrides.is_empty());
     }
 
     #[test]

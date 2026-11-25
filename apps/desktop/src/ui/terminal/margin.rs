@@ -383,9 +383,12 @@ mod tests {
         // 关掉时间戳省下 11 格：0.5 + 3 + 2 + 1 + 1 = 7.5 格。
         m.timestamp = false;
         assert_eq!(MarginMetrics::new(&m, cell, 20).width, 75.0);
-        // 三列全关：宽度 0，正文从左边开始（不该留一条死白）
+        // 只留 Blank 时仍有 1.5 格贴边留白：这一列是可见效果，不是空转开关。
         m.number = false;
         m.symbol = false;
+        assert_eq!(MarginMetrics::new(&m, cell, 20).width, 15.0);
+        // 四列全关：宽度 0，正文从左边开始（不该留一条死白）。
+        m.blank = false;
         assert_eq!(MarginMetrics::new(&m, cell, 20).width, 0.0);
     }
 

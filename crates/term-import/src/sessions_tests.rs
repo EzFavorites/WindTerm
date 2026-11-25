@@ -207,6 +207,53 @@ fn original_sessions_never_read_password_like_keys() {
     assert!(!format!("{:?}", got[0].clone().into_config()).contains("SENTINEL-PW"));
 }
 
+/// 原版 `user.sessions` 的 SSH/Telnet/Tcp 把用户、主机、端口挤在 `session.target`
+/// 一个串里；导入后三件事必须各自落位，而不是把整串当主机名、端口留成出厂 22。
+const SPLIT_TARGETS: &str = r#"[
+ {"session.protocol":"SSH","session.label":"prod","session.target":"deploy@10.0.0.11:2222","session.group":"Servers"},
+ {"session.protocol":"Ssh","session.label":"bare","session.target":"10.0.0.12"},
+ {"session.protocol":"Telnet","session.label":"old-switch","session.target":"admin@switch.example:2323"},
+ {"session.protocol":"Tcp","session.label":"raw","session.target":"127.0.0.1:9000"},
+ {"session.protocol":"SSH","session.label":"v6","session.target":"ops@[2001:db8::1]:2223"},
+ {"session.protocol":"SSH","session.label":"v6-bare","session.target":"[2001:db8::2]"},
+ {"session.protocol":"SSH","session.label":"explicit-user","session.target":"10.0.0.13:2200","session.username":"ops"},
+ {"session.protocol":"Serial","session.label":"tty","session.target":"/dev/ttyFAKE0"}
+]"#;
+
+#[test]
+fn windterm_targets_split_user_host_and_port_including_ipv6() {
+    let got = parse_windterm_sessions(SPLIT_TARGETS);
+    assert_eq!(got.len(), 8);
+    assert_eq!(got[0].host, "10.0.0.11");
+    assert_eq!(got[0].port, 2222);
+    assert_eq!(got[0].username, "deploy");
+    assert_eq!(got[0].protocol, Protocol::Ssh);
+    // 没有端口时按协议给默认值，不再把整串塞进 host。
+    assert_eq!(got[1].host, "10.0.0.12");
+    assert_eq!(got[1].port, term_core::config::SSH_PORT);
+    assert!(got[1].username.is_empty());
+    assert_eq!(got[2].host, "switch.example");
+    assert_eq!(got[2].port, 2323);
+    assert_eq!(got[2].username, "admin");
+    assert_eq!(got[2].protocol, Protocol::Telnet);
+    assert_eq!(got[3].host, "127.0.0.1");
+    assert_eq!(got[3].port, 9000);
+    assert_eq!(got[3].protocol, Protocol::Tcp);
+    // IPv6 括号里的冒号是地址的一部分，只有右括号后的 `:port` 才是端口。
+    assert_eq!(got[4].host, "2001:db8::1");
+    assert_eq!(got[4].port, 2223);
+    assert_eq!(got[4].username, "ops");
+    assert_eq!(got[5].host, "2001:db8::2");
+    assert_eq!(got[5].port, term_core::config::SSH_PORT);
+    // target 没写用户时允许显式字段兜底。
+    assert_eq!(got[6].host, "10.0.0.13");
+    assert_eq!(got[6].port, 2200);
+    assert_eq!(got[6].username, "ops");
+    // Serial 的设备路径仍原样保留，绝不能被当成 `host:port` 拆开。
+    assert_eq!(got[7].host, "/dev/ttyFAKE0");
+    assert_eq!(got[7].port, 0);
+}
+
 #[test]
 fn unknown_protocol_and_garbage_do_not_invent_sessions() {
     assert!(parse_windterm_sessions("[{\"session.protocol\":\"Quantum\"}]").is_empty());
