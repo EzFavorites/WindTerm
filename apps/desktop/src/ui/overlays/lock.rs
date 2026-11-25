@@ -6,7 +6,8 @@
 //!
 //! 语义仍复用 `term-vault` 的主密码：解锁时对 `vault.ztv` 做一次 `Vault::unlock`，
 //! 成功才把内存里的保险库重新挂上。没建过库时输入任意非空口令即创建，Esc 是
-//! 唯一的逃生口（有库时没有可见 Cancel，避免给人「点一下就不用密码」的错觉）。
+//! **无库时**唯一的逃生口（有库时没有可见 Cancel，避免给人「点一下就不用密码」
+//! 的错觉；本帧仍会先消费后台脚本的非键盘往返队列，见 `pre_update_gate.rs`）。
 
 use crate::ui::*;
 use term_app::lock::LockAction;

@@ -403,7 +403,9 @@ pub(in crate::ui) fn draw_context_rows(
         // 像素都不画**（菜单栏里能看见的箭头其实是夹具 `draw_menu_items_static`
         // 手绘的 `▸`）。所以展开态自己摆一个 `Area`，行还是同一个函数画。
         if r.children.is_some() {
-            draw_children_row(win, lang, ui, r, &base, work);
+            // 子菜单行也是这一级的一行：必须用同级统一算出的 accs[idx]，
+            // 否则它会按原始基线占一个已经被人用掉的键，既重复又挤掉后续行。
+            draw_children_row(win, lang, ui, r, &base, work, accs[idx]);
             continue;
         }
         let text = shown[idx];
@@ -448,6 +450,7 @@ fn draw_children_row(
     r: &Row,
     base: &RowLook,
     work: &mut Vec<Work>,
+    underline: Option<usize>,
 ) {
     let Some(tree_label) = r.children else {
         return;
@@ -460,13 +463,12 @@ fn draw_children_row(
         )
     });
     let text = t(lang, r.label);
-    let acc = if text == r.label { r.acc } else { Some(0) };
     let state = if live { MenuRowState::Enabled } else { MenuRowState::Disabled };
     let shortcut = shortcut_on_platform(r, &win.shortcuts);
     let row = draw_menu_row(
         ui,
         text,
-        acc,
+        underline,
         &shortcut,
         RowLook { state, ..*base },
         true,

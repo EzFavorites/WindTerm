@@ -24,6 +24,42 @@ fn terminal_menu_keeps_the_reference_row_order_and_groups() {
     assert_eq!(goto.shortcut, "Cmd+Shift+Left");
 }
 
+/// 右键菜单同一级不许出现重复访问键。子菜单行（`children`）也是这一级的一行，
+/// 必须和其余行一起参与去重——历史上它曾绕过 `accs`、按原始基线另取位置。
+#[test]
+fn context_rows_have_unique_access_keys_per_level() {
+    for rows in [TERMINAL_ROWS, VIEW_ROWS] {
+        let shown: Vec<&'static str> = rows.iter().map(|r| t(Lang::En, r.label)).collect();
+        let preferred: Vec<Option<usize>> = rows
+            .iter()
+            .zip(&shown)
+            .map(|(r, text)| {
+                if r.separator || r.swatches {
+                    None
+                } else if *text == r.label {
+                    r.acc
+                } else {
+                    Some(0)
+                }
+            })
+            .collect();
+        let positions = term_app::menu::access_positions_from(&shown, &preferred);
+        let mut seen = std::collections::HashSet::new();
+        for (idx, (r, pos)) in rows.iter().zip(positions).enumerate() {
+            if r.separator || r.swatches {
+                continue;
+            }
+            let Some(pos) = pos else { continue };
+            let ch = shown[idx][pos..].chars().next().expect("位置来自本行");
+            assert!(
+                seen.insert(ch.to_ascii_lowercase()),
+                "{} 的访问键 {ch} 与同级重复",
+                r.label
+            );
+        }
+    }
+}
+
 #[test]
 fn view_menu_keeps_three_checkboxes_and_the_split_rows() {
     assert_eq!(VIEW_ROWS.iter().filter(|r| r.check.is_some()).count(), 3);

@@ -278,7 +278,11 @@ pub fn access_positions_from(shown: &[&str], preferred: &[Option<usize>]) -> Vec
             let preferred = preferred.get(i).copied().flatten();
             let mut candidates = Vec::new();
             if let Some(pos) = preferred {
-                candidates.push(pos);
+                // 外部调用方可能把英文标签的字节下标配到中文显示文本上；
+                // 不是字符边界就直接丢掉，不能让它进 `text[pos..]` 造成 panic。
+                if text.is_char_boundary(pos) {
+                    candidates.push(pos);
+                }
             }
             candidates.extend(
                 text.char_indices()

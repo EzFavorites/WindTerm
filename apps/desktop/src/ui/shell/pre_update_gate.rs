@@ -16,6 +16,16 @@ impl TerminalWindow {
         // 空闲超时先判：这一帧刚派发的 Lock 立刻生效，不留一帧空窗。
         self.poll_lock_timeout(ctx);
         if self.view.lock.locked {
+            // 锁屏是**用户键盘输入**的边界，但不是「后台脚本与界面之间的
+            // 非键盘往返」的边界：触发器脚本不会因为屏幕锁了就停。若把这几条
+            // 队列连同整帧一起跳过，脚本的 app_* 会在 2 秒后误报 Timeout，
+            // 脚本面板也会卡在「在跑」。它们不画模态、不吃按键，先消费掉。
+            // `poll_script_ask` 仍留在解锁后的帧：ask/pick 需要用户应答，
+            // 锁屏期间弹模态会破坏输入边界。
+            self.drain_app_requests();
+            self.drain_script_activated();
+            self.poll_script();
+            self.poll_script_panel();
             // 锁屏是输入边界：不派发全局快捷键、不吞键、不采样远端 Sysmon。
             // 密码框需要的 Enter 与字符由 `draw_lock` 自己处理。
             self.draw_lock(ctx);
