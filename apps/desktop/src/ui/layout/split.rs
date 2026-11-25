@@ -179,23 +179,15 @@ impl Layout {
     }
 
     /// 把 `active_pane` 并入遍历顺序里的下一个叶子，并关掉它自己那块窗格。
-    /// 只有一块窗格时无动作。
-    pub fn merge_into_next(&mut self, active_pane: PaneId) -> bool {
-        let panes = self.leaf_panes();
-        if panes.len() < 2 {
-            return false;
-        }
-        let Some(pos) = panes.iter().position(|p| *p == active_pane) else {
-            return false;
+    /// 返回被覆盖的旧窗格身份（调用方据此摘掉它的 `pane_groups`），无动作返回 None。
+    pub fn merge_into_next(&mut self, active_pane: PaneId) -> Option<PaneId> {
+        let Some((next, old_next)) = super::merge_group::merge_target(&self.leaf_panes(), active_pane) else {
+            return None;
         };
-        let next = (pos + 1) % panes.len();
-        if next == pos {
-            return false;
-        }
         let mut cursor = 0usize;
         set_nth_pane(self, next, active_pane, &mut cursor);
         self.close_leaf(active_pane);
-        true
+        Some(old_next)
     }
 
     /// 整树为单叶子且恰好指着 `dead` 时，改成 `live`。用于「关掉窗口里最后一条
@@ -527,12 +519,12 @@ mod tests {
     fn merging_moves_the_active_session_into_the_next_pane() {
         let mut l = Layout::single(PaneId(0));
         l.split(PaneId(0), true, PaneId(1));
-        assert!(l.merge_into_next(PaneId(0)));
+        assert!(l.merge_into_next(PaneId(0)).is_some());
         assert_eq!(l, Layout::single(PaneId(0)), "另一个窗格换成当前会话后只剩一块");
         let mut l2 = Layout::single(PaneId(0));
         l2.split(PaneId(0), true, PaneId(1));
         l2.split(PaneId(1), false, PaneId(2));
-        assert!(l2.merge_into_next(PaneId(0)));
+        assert!(l2.merge_into_next(PaneId(0)).is_some());
         assert_eq!(l2.leaf_count(), 2);
         assert!(l2.leaf_panes().contains(&PaneId(0)));
     }
@@ -585,7 +577,7 @@ mod tests {
     #[test]
     fn merging_a_single_pane_is_a_no_op() {
         let mut l = Layout::single(PaneId(0));
-        assert!(!l.merge_into_next(PaneId(0)));
+        assert!(l.merge_into_next(PaneId(0)).is_none());
         assert_eq!(l, Layout::single(PaneId(0)));
     }
 

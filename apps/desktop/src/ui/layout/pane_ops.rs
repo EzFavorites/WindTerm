@@ -10,6 +10,7 @@
 use crate::ui::*;
 use crate::ui::layout::draw_node;
 use crate::ui::layout::mint_pane_identity;
+use super::merge_group::merge_groups;
 use eframe::egui;
 use term_core::session::Protocol;
 use term_core::session_runtime::SessionId;
@@ -171,7 +172,18 @@ impl TerminalWindow {
         let Some(active_pane) = self.pane_of_session(active) else {
             return;
         };
-        if self.layout.merge_into_next(active_pane) {
+        if let Some(old_next) = self.layout.merge_into_next(active_pane) {
+            // 树里少了那片叶子，分组表也必须少一个键：把被覆盖组的会话并入
+            // 幸存组（同一批 tab 不关，一个 SessionId 只留在一处），再摘掉旧键。
+            if let Some(overwritten) = self.pane_groups.remove(&old_next) {
+                let survivor = self
+                    .pane_groups
+                    .get(&active_pane)
+                    .cloned()
+                    .unwrap_or_else(|| overwritten.clone());
+                let merged = merge_groups(&survivor, &overwritten, active);
+                self.pane_groups.insert(active_pane, merged);
+            }
             self.ctx.request_repaint();
             // 结构变了，本帧末即时落盘。
             self.pending_save_layout = true;
@@ -339,5 +351,47 @@ mod tests {
         assert_eq!(win.layout.leaf_count(), 1);
         assert!(!win.pane_groups.contains_key(&p0));
         assert_eq!(win.pane_groups.get(&p1).unwrap().order, vec![id1]);
+    }
+
+    /// Move Group To Next：合并后 `pane_groups` 键集必须等于 `layout.leaf_panes()`，
+    /// 被覆盖窗格的会话并入幸存组（不关 tab、不留孤儿键）。
+    #[test]
+    fn move_group_to_next_leaves_no_orphan_pane_group() {
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let ctx = egui::Context::default();
+        let t0 = crate::ui::lifecycle_test_support::real_shell_tab(&pool, &ctx, 0);
+        let t1 = crate::ui::lifecycle_test_support::real_shell_tab(&pool, &ctx, 1);
+        let id0 = t0.identity;
+        let id1 = t1.identity;
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, vec![t0, t1]);
+        let p0 = PaneId(9101);
+        let p1 = PaneId(9102);
+        let mut groups: HashMap<PaneId, PaneGroup> = HashMap::new();
+        groups.insert(p0, PaneGroup { order: vec![id0], active: id0 });
+        groups.insert(p1, PaneGroup { order: vec![id1], active: id1 });
+        win.pane_groups = groups;
+        win.layout = Layout::Split {
+            horizontal: true,
+            ratio: 500,
+            first: Box::new(Layout::Leaf(p0)),
+            second: Box::new(Layout::Leaf(p1)),
+        };
+        win.active = Some(id0);
+
+        win.move_active_to_next_group();
+        let mut keys: Vec<PaneId> = win.pane_groups.keys().copied().collect();
+        keys.sort_by_key(|p| p.0);
+        let mut leaves = win.layout.leaf_panes();
+        leaves.sort_by_key(|p| p.0);
+        assert_eq!(keys, leaves, "merge 后 pane_groups 键集 == layout.leaf_panes()");
+        assert_eq!(leaves, vec![p0]);
+        let group = &win.pane_groups[&p0];
+        assert!(
+            group.order.contains(&id0) && group.order.contains(&id1),
+            "两组的会话都并进幸存组"
+        );
+        assert_eq!(group.active, id0);
+        assert_eq!(win.active, Some(id0));
+        assert!(win.pending_save_layout);
     }
 }

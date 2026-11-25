@@ -13,6 +13,7 @@ mod dock_float_band;
 mod dock_native;
 mod dock_paint;
 mod dock_panel_chrome;
+mod merge_group;
 mod pane_chrome;
 mod pane_ops;
 mod restore;

@@ -105,6 +105,33 @@ fn draw_focus_rows(ui: &mut egui::Ui, rows: Vec<FocusRow>, actions: &mut Vec<Act
     }
 }
 
+/// OpenSession 页里依赖选中会话的副作用意图。`session_work` 是它们唯一的派发口：
+/// 先经 `validated_selection` 复核（过滤集为空就什么都不派发），再带上**原始下标**。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) enum SessionIntent {
+    Connect,
+    Delete,
+    Edit,
+    Duplicate,
+    MoveToGroup(String),
+}
+
+/// 按钮 `enabled` 与 `Work::*` 共用这一道校验：命中的一定是过滤后仍可见的那条。
+pub(super) fn session_work(
+    view: &View<'_>,
+    state: &CenterState,
+    intent: SessionIntent,
+) -> Option<Work> {
+    let idx = state.validated_selection(view.sessions)?;
+    Some(match intent {
+        SessionIntent::Connect => Work::Connect(idx),
+        SessionIntent::Delete => Work::DeleteSession(idx),
+        SessionIntent::Edit => Work::EditSession(idx),
+        SessionIntent::Duplicate => Work::DuplicateSession(idx),
+        SessionIntent::MoveToGroup(g) => Work::MoveToGroup(idx, g),
+    })
+}
+
 pub(super) fn draw_page(
     view: &View<'_>,
     ui: &mut egui::Ui,
@@ -113,6 +140,8 @@ pub(super) fn draw_page(
     actions: &mut Vec<Action>,
     work: &mut Vec<Work>,
 ) {
+    // 绘制期只读校验一次：所有依赖选中项的按钮 / Work 都用它，不再读 state.selected。
+    let selected = state.validated_selection(view.sessions);
     match state.page {
         CenterPage::OpenSession => {
             ui.label(format!("会话库共 {} 条", view.sessions.len()));
@@ -121,48 +150,63 @@ pub(super) fn draw_page(
             }
             for (i, session) in term_app::center::filtered_sessions(&view.sessions, input) {
                 if ui
-                    .selectable_label(i == state.selected, &session.name)
+                    .selectable_label(Some(i) == selected, &session.name)
                     .clicked()
                 {
                     actions.push(Action::Center(CenterAction::Select(i)));
                 }
             }
-            if ui.button("连接选中会话").clicked() {
-                work.push(Work::Connect(state.selected));
+            if ui
+                .add_enabled(selected.is_some(), egui::Button::new("连接选中会话"))
+                .clicked()
+            {
+                if let Some(w) = session_work(view, state, SessionIntent::Connect) {
+                    work.push(w);
+                }
             }
             if state.confirm_delete {
                 ui.separator();
-                let name = view
-                    .sessions
-                    .get(state.selected)
+                let name = selected
+                    .and_then(|i| view.sessions.get(i))
                     .map(|s| s.name.clone())
                     .unwrap_or_default();
                 ui.label(format!("确认删除「{name}」？此操作不可撤销"));
-                if ui.button("确认删除").clicked() {
-                    work.push(Work::DeleteSession(state.selected));
+                if ui
+                    .add_enabled(selected.is_some(), egui::Button::new("确认删除"))
+                    .clicked()
+                {
+                    if let Some(w) = session_work(view, state, SessionIntent::Delete) {
+                        work.push(w);
+                    }
                 }
                 if ui.button("取消").clicked() {
                     actions.push(Action::Center(CenterAction::CancelDeleteSession));
                 }
-            } else if ui.button("删除选中会话").clicked() {
+            } else if ui
+                .add_enabled(selected.is_some(), egui::Button::new("删除选中会话"))
+                .clicked()
+            {
                 actions.push(Action::Center(CenterAction::ConfirmDeleteSession));
             }
 
             // 会话管理器：编辑 / 复制 / 移动分组 / 新建，对齐 WindTerm 会话树右键。
             ui.separator();
             ui.label("会话操作");
-            let has_selection = view.sessions.get(state.selected).is_some();
             if ui
-                .add_enabled(has_selection, egui::Button::new("编辑选中会话"))
+                .add_enabled(selected.is_some(), egui::Button::new("编辑选中会话"))
                 .clicked()
             {
-                work.push(Work::EditSession(state.selected));
+                if let Some(w) = session_work(view, state, SessionIntent::Edit) {
+                    work.push(w);
+                }
             }
             if ui
-                .add_enabled(has_selection, egui::Button::new("复制选中会话"))
+                .add_enabled(selected.is_some(), egui::Button::new("复制选中会话"))
                 .clicked()
             {
-                work.push(Work::DuplicateSession(state.selected));
+                if let Some(w) = session_work(view, state, SessionIntent::Duplicate) {
+                    work.push(w);
+                }
             }
             // 移动到分组：下拉选目标 + 应用按钮（目标为空时禁用）。
             ui.horizontal(|ui| {
@@ -186,10 +230,12 @@ pub(super) fn draw_page(
                         }
                     });
                 if ui
-                    .add_enabled(has_selection && !target.is_empty(), egui::Button::new("应用"))
+                    .add_enabled(selected.is_some() && !target.is_empty(), egui::Button::new("应用"))
                     .clicked()
                 {
-                    work.push(Work::MoveToGroup(state.selected, target));
+                    if let Some(w) = session_work(view, state, SessionIntent::MoveToGroup(target)) {
+                        work.push(w);
+                    }
                 }
             });
             if ui.button("＋ 新建会话").clicked() {
@@ -205,7 +251,7 @@ pub(super) fn draw_page(
                 view.groups.len(),
                 view.sessions.len()
             ));
-            if let Some(session) = view.sessions.get(state.selected) {
+            if let Some(session) = selected.and_then(|i| view.sessions.get(i)) {
                 ui.label(format!("选中：{} · {:?}", session.name, session.protocol));
                 if state.page == CenterPage::Profile {
                     ui.label(format!("描述：{}", session.description));
@@ -390,5 +436,80 @@ pub(super) fn draw_page(
                 });
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn session(name: &str, group: &str) -> SessionConfig {
+        let mut s = SessionConfig::new(term_core::session::Protocol::Ssh);
+        s.name = name.into();
+        s.group = group.into();
+        s
+    }
+
+    /// 过滤后 `state.selected` 仍指向被隐藏的第 1 条时，连接 / 删除 / 编辑必须
+    /// 命中过滤结果里可见的第 0 条；过滤集为空时按钮与 Work 一起禁掉。
+    #[test]
+    fn filtered_connect_and_delete_hit_the_visible_session() {
+        let sessions = vec![session("prod-web", "work"), session("home-nas", "personal")];
+        let groups: Vec<String> = Vec::new();
+        let tabs: Vec<Tab> = Vec::new();
+        let tools: Vec<ToolButton> = Vec::new();
+        let view = View {
+            sessions: &sessions,
+            groups: &groups,
+            tabs: &tabs,
+            tools: &tools,
+            selection_text: "",
+            theme_name: "test",
+            scheme_idx: 0,
+            focus_mode: false,
+            full_screen: false,
+            always_on_top: false,
+            show_status_bar: false,
+            show_quick_bar: false,
+            show_toolbar: false,
+            show_sidebar: false,
+            default_term: 0,
+            default_font_size: 12.0,
+            active_tab: 0,
+        };
+
+        let mut state = CenterState::default();
+        term_app::center::reduce(&mut state, CenterAction::Select(1));
+        term_app::center::reduce(&mut state, CenterAction::SetInput("prod".into()));
+        // 故意把隐藏下标塞回去：校验只认过滤后仍可见的那条。
+        state.selected = 1;
+        assert_eq!(state.validated_selection(&sessions), Some(0));
+        assert_eq!(
+            session_work(&view, &state, SessionIntent::Connect),
+            Some(Work::Connect(0))
+        );
+        assert_eq!(
+            session_work(&view, &state, SessionIntent::Delete),
+            Some(Work::DeleteSession(0))
+        );
+        assert_eq!(
+            session_work(&view, &state, SessionIntent::Edit),
+            Some(Work::EditSession(0))
+        );
+        // draw_center 在 actions 派发后做的收敛：经 reducer 的 Select 回写可见下标。
+        if state.converge_selection(&sessions) {
+            let idx = state.selected;
+            term_app::center::reduce(&mut state, CenterAction::Select(idx));
+        }
+        assert_eq!(state.selected, 0);
+
+        term_app::center::reduce(&mut state, CenterAction::SetInput("zzz".into()));
+        assert_eq!(state.validated_selection(&sessions), None);
+        assert_eq!(session_work(&view, &state, SessionIntent::Connect), None);
+        assert_eq!(session_work(&view, &state, SessionIntent::Delete), None);
+        assert_eq!(
+            session_work(&view, &state, SessionIntent::MoveToGroup("lab".into())),
+            None
+        );
     }
 }

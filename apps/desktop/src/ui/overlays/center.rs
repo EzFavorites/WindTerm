@@ -45,6 +45,7 @@ struct View<'a> {
 }
 
 /// 一次投影层副作用意图。绘制时收集，画完统一落地。
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Work {
     Connect(usize),
     SaveSessions,
@@ -103,6 +104,13 @@ impl TerminalWindow {
         }
         for action in actions {
             self.dispatch_action(action);
+        }
+        // `SetInput` 会先把 selected 归零（绝不指向被过滤掉的会话）；这里按真实
+        // 会话表收敛到第一条可见命中，并经 reducer 的 `Select` 回写。投影层不再
+        // 留一个指向隐藏会话的下标给下一帧的按钮。
+        if self.view.center.converge_selection(&self.sessions) {
+            let idx = self.view.center.selected;
+            self.dispatch_action(Action::Center(CenterAction::Select(idx)));
         }
         for item in work {
             self.apply_work(item);

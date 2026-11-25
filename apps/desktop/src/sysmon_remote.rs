@@ -20,7 +20,7 @@
 //! 另外，只有**内置 SSH + 内存里还握着凭据**的 tab 能建这条通道；系统 `ssh`
 //! 子进程没有凭据副本，本地 shell 本来就是宿主。两者都诚实地画 `—`，不编数字。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -37,6 +37,9 @@ const INTERVAL: Duration = Duration::from_secs(5);
 static SNAP: OnceLock<Mutex<Option<Reading>>> = OnceLock::new();
 static BUSY: AtomicBool = AtomicBool::new(false);
 static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+/// 目标代数：每次 `clear()` 自增。在途采样捕获请求时的代数，落地前比对；
+/// 代数变了就把结果丢掉，旧机器的数据不能盖掉新目标的快照。
+static GENERATION: AtomicU64 = AtomicU64::new(0);
 
 /// 目标系统（来自 `SessionConfig::system`）。大小写与 WindTerm 历史写法都在这里收口。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -175,8 +178,24 @@ pub(crate) fn seed_reading_for_test(reading: Option<Reading>) {
     }
 }
 
-/// 关掉开关时清掉旧读数，避免下次打开先闪一帧上一台机器的数字。
+/// 工作线程落地一次采样：只有请求时的代数仍是当前代数才写 SNAP。
+/// 过期结果连 `None` 都不写（新目标可能已经有读数）；调用方仍照常释放 BUSY、叫醒 UI。
+fn publish(captured: u64, next: Option<Reading>) {
+    let Ok(mut g) = snap().lock() else {
+        return;
+    };
+    if GENERATION.load(Ordering::SeqCst) != captured {
+        return;
+    }
+    *g = next;
+}
+
+/// 关掉开关 / 切换远端目标时清掉旧读数，避免下次打开先闪一帧上一台机器的数字。
+/// 自增代数让已经飞出去的旧结果作废（见 [`publish`]）。
 pub fn clear() {
+    // 先自增再持 SNAP 锁，与 publish 的「持锁比对 + 写入」配对：旧 worker 要么
+    // 先写完被这里清掉，要么看到新代数被丢弃，两种情况都不留旧机器的数字。
+    GENERATION.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut g) = snap().lock() {
         *g = None;
     }
@@ -214,6 +233,8 @@ pub fn request(
     if let Ok(mut g) = last.lock() {
         *g = Some(Instant::now());
     }
+    // 捕获本次请求的代数；期间 clear() 一换目标，回来时就不许再写 SNAP。
+    let generation = GENERATION.load(Ordering::SeqCst);
     let command = sample_command(target);
     let spawned = std::thread::Builder::new()
         .name("sysmon-remote-exec".to_string())
@@ -223,10 +244,9 @@ pub fn request(
                 Err(e) => Err(e),
             };
             let next = from_exec(target, unix_secs(), result);
-            // 失败写 None：快照回到「没有读数」，界面画 `—`，不再冒充 0.0%。
-            if let Ok(mut g) = snap().lock() {
-                *g = next;
-            }
+            // 同代内失败写 None（界面画 `—`）；目标已换则整个结果作废，
+            // 只释放 BUSY + 叫醒界面，不碰新目标的快照。
+            publish(generation, next);
             BUSY.store(false, Ordering::SeqCst);
             wake();
         });
@@ -374,5 +394,45 @@ mod tests {
     fn the_snapshot_starts_empty_and_can_be_cleared() {
         clear();
         assert!(reading().is_none());
+    }
+
+    /// 切目标后，旧机器在途的采样回来时不许覆盖新目标的快照——成功值和失败
+    /// 的 `None` 都不许写。同代结果照常落地。
+    #[test]
+    fn switching_target_drops_the_stale_in_flight_result() {
+        clear();
+        let stale_gen = GENERATION.load(Ordering::SeqCst);
+        clear();
+        let fresh_gen = GENERATION.load(Ordering::SeqCst);
+        assert_ne!(stale_gen, fresh_gen, "clear() 必须让在途结果过期");
+        seed_reading_for_test(Some(Reading {
+            cpu_pct: 12.5,
+            ..Default::default()
+        }));
+        publish(
+            stale_gen,
+            Some(Reading {
+                cpu_pct: 99.9,
+                ..Default::default()
+            }),
+        );
+        assert_eq!(reading().map(|r| r.cpu_pct), Some(12.5), "旧成功值不许盖新快照");
+        publish(stale_gen, None);
+        assert_eq!(
+            reading().map(|r| r.cpu_pct),
+            Some(12.5),
+            "旧失败也不许把新快照清成 None"
+        );
+        publish(
+            fresh_gen,
+            Some(Reading {
+                cpu_pct: 30.0,
+                ..Default::default()
+            }),
+        );
+        assert_eq!(reading().map(|r| r.cpu_pct), Some(30.0));
+        publish(fresh_gen, None);
+        assert!(reading().is_none(), "同代失败仍要写 None（界面画 —）");
+        clear();
     }
 }
