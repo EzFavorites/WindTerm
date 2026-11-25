@@ -22,10 +22,28 @@ use term_app::trigger::{Rule, TriggerAction, TriggerOn};
 /// 冷却与空闲判定都用它。`SystemTime` 可能被 NTP 回拨，内核的 `allow()` 已对
 /// `now < last` 放行，避免规则被永久卡死。
 fn now_secs() -> u64 {
+    // 单测把时钟钉住，才能确定性地走到「静默 2s 后到期」那一帧；生产构建里
+    // 这段完全不存在，仍然只读墙钟。
+    #[cfg(test)]
+    if let Some(fixed) = TEST_NOW.with(|cell| cell.get()) {
+        return fixed;
+    }
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// 单测注入的假时钟（`None` = 回到墙钟）。thread_local 让并行测试互不串味。
+#[cfg(test)]
+thread_local! {
+    pub(super) static TEST_NOW: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// 测试时钟的开关。只在 `#[cfg(test)]` 下存在，生产路径无从调用。
+#[cfg(test)]
+pub(super) fn set_test_now(now: Option<u64>) {
+    TEST_NOW.with(|cell| cell.set(now));
 }
 
 /// 用系统默认程序打开 hyperlink。失败只留一条日志，绝不 panic（gate 4p）。
@@ -71,6 +89,8 @@ impl Tab {
     /// `rules` 是全局触发器规则（来自 `Prefs`，经窗口缓存），`run_commands` 收集
     /// 本轮命中里 `RunCommand` 动作要派发的命令 ID——真正的 `dispatch` 在窗口层
     /// （`RunCommand` 走既有命令通道，需要窗口级的 `Action` 分发器，本 tab 没有）。
+    /// `poll` 的旧签名：给没有窗口提示槽的调用方（夹具 / 工具路径）用。
+    /// 错误不会静默吞掉——没有状态行可写时至少落到 stderr。
     pub(in crate::ui) fn poll(
         &mut self,
         rules: &[Rule],
@@ -78,6 +98,25 @@ impl Tab {
         auto_reconnect: bool,
         onekeys: &[term_core::onekey::OneKey],
         autofill: &std::collections::HashMap<String, String>,
+    ) -> bool {
+        let mut note = None;
+        let changed = self.poll_with_note(rules, run_commands, auto_reconnect, onekeys, autofill, &mut note);
+        if let Some(note) = note {
+            eprintln!("{note}");
+        }
+        changed
+    }
+
+    /// 与 [`poll`](Self::poll) 同一份泵，额外把触发器副作用错误交给窗口的
+    /// 提示槽（状态行）。窗口每帧把 `&mut self.log_note` 传进来。
+    pub(in crate::ui) fn poll_with_note(
+        &mut self,
+        rules: &[Rule],
+        run_commands: &mut Vec<String>,
+        auto_reconnect: bool,
+        onekeys: &[term_core::onekey::OneKey],
+        autofill: &std::collections::HashMap<String, String>,
+        note: &mut Option<String>,
     ) -> bool {
         let now = now_secs();
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
@@ -155,7 +194,7 @@ impl Tab {
                 let sig = crate::automation::sources::output_signal("", &text, now_millis);
                 self.shadow_check(sig, &v1);
                 for hit in hits {
-                    self.apply_trigger(hit, run_commands);
+                    self.apply_trigger(hit, run_commands, note);
                 }
                 // Account OneKey 的 expect → send：同一个提示只回一次，
                 // 方案名写错 / 已停用时 `active()` 返回 None，静默跳过。
@@ -208,7 +247,7 @@ impl Tab {
             let sig = crate::automation::sources::connected_signal("", crate::automation::now_ms());
             self.shadow_check(sig, &v1);
             for hit in hits {
-                self.apply_trigger(hit, run_commands);
+                self.apply_trigger(hit, run_commands, note);
             }
         } else if !live && self.was_live {
             // 断开边沿清掉这条会话的运行时凭据：Tab.auth 里只剩引用，没有
@@ -219,7 +258,7 @@ impl Tab {
             let sig = crate::automation::sources::disconnected_signal("", crate::automation::now_ms());
             self.shadow_check(sig, &v1);
             for hit in hits {
-                self.apply_trigger(hit, run_commands);
+                self.apply_trigger(hit, run_commands, note);
             }
             // 掉线边沿：显式 Disconnect / 本地 shell / 已达上限都不排；
             // 其余按 1/2/4/8 秒退避，尝试次数在连上时清零。
@@ -243,7 +282,18 @@ impl Tab {
             let sig = crate::automation::sources::idle_signal("", quiet, at);
             self.shadow_check(sig, &v1);
             for hit in hits {
-                self.apply_trigger(hit, run_commands);
+                self.apply_trigger(hit, run_commands, note);
+            }
+            // Send Later 的到期只靠输出事件驱动是不够的：远端在命中之后安静下来，
+            // 就再也不会有 `on_line_break` / `on_prompt` / `due` 的机会，定时发送
+            // 永远不落地。空闲段每帧补一次 `due`。
+            // `moved` 那一帧已经在输出分支调过 `due`（它会取走到期项），这里跳过，
+            // 避免同一帧把同一条命中发两遍。
+            if !moved {
+                let due = self.triggers.due(now);
+                for hit in due {
+                    self.apply_trigger(hit, run_commands, note);
+                }
             }
         }
         self.was_live = live;
@@ -334,20 +384,31 @@ impl Tab {
     /// - `Highlight`：记下命中所在的内容行，`paint_rows` 在字形下铺一层淡底；
     ///   不进选区、不影响复制。
     /// - `OpenLink`：经投影层 `sysopen::open` 用系统默认程序打开；失败只记日志。
-    pub(in crate::ui) fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
+    pub(in crate::ui) fn apply_trigger(
+        &mut self,
+        hit: term_app::trigger::Hit,
+        run_commands: &mut Vec<String>,
+        note: &mut Option<String>,
+    ) {
         for action in &hit.actions {
             match action {
                 // 只有文本里**明确写了转义**才走 Sender 那张表：`\x03` / `\003`
                 // / `\cc` 都要能发 Ctrl+C。普通文本（例如 `C:\Windows\path`）
                 // 原样发，不能被未知转义吃掉反斜杠，也不能因末尾孤立 `\` 整条不发送。
-                TriggerAction::SendText(s) => {
-                    self.write(&decode_send_text(s));
-                }
-                TriggerAction::SendLine(s) => {
-                    let mut bytes = decode_send_text(s);
-                    bytes.push(b'\r');
-                    self.write(&bytes);
-                }
+                // 写错的转义不回退成字面字节：既不发，也把原因送到状态行。
+                TriggerAction::SendText(s) => match decode_send_text(s) {
+                    Ok(bytes) => {
+                        self.write(&bytes);
+                    }
+                    Err(err) => note_escape_error(note, &hit.rule_id, "Send text", &err),
+                },
+                TriggerAction::SendLine(s) => match decode_send_text(s) {
+                    Ok(mut bytes) => {
+                        bytes.push(b'\r');
+                        self.write(&bytes);
+                    }
+                    Err(err) => note_escape_error(note, &hit.rule_id, "Send line", &err),
+                },
                 TriggerAction::Beep => {
                     self.write(&[0x07]);
                 }
@@ -358,8 +419,9 @@ impl Tab {
                 TriggerAction::LocalSendLine(s) => {
                     let mut text = s.clone();
                     text.push('\r');
-                    if let Ok(bytes) = term_core::send_escapes::decode(&text) {
-                        self.pending_local_sends.push(String::from_utf8_lossy(&bytes).into_owned());
+                    match term_core::send_escapes::decode(&text) {
+                        Ok(bytes) => self.pending_local_sends.push(String::from_utf8_lossy(&bytes).into_owned()),
+                        Err(err) => note_escape_error(note, &hit.rule_id, "Local send line", &err),
                     }
                 }
                 TriggerAction::Highlight => {
@@ -613,7 +675,12 @@ impl Tab {
 /// （`\q` → `q`），末尾孤立 `\` 还会直接报错导致整条不发送。对 Windows 路径
 /// 这种「用户本来就想发字面反斜杠」的文本，那是静默的数据损坏。所以只有
 /// 文本里确实出现了表内的显式转义时才解码；其余一律按字面字节发送。
-pub(super) fn decode_send_text(text: &str) -> Vec<u8> {
+///
+/// 第三轮：显式转义写错时返回 `Err`，由调用方上报到状态行，**不再静默回退**
+/// 成原样字节（那等于发了一串反斜杠，比不发更糟）。
+pub(super) fn decode_send_text(
+    text: &str,
+) -> Result<Vec<u8>, term_core::send_escapes::EscapeError> {
     let mut chars = text.chars().peekable();
     let mut explicit = false;
     while let Some(c) = chars.next() {
@@ -627,11 +694,22 @@ pub(super) fn decode_send_text(text: &str) -> Vec<u8> {
         }
     }
     if explicit {
-        if let Ok(bytes) = term_core::send_escapes::decode(text) {
-            return bytes;
-        }
+        return term_core::send_escapes::decode(text);
     }
-    text.as_bytes().to_vec()
+    Ok(text.as_bytes().to_vec())
+}
+
+/// 一处转义写错：把「哪条规则的哪个动作」与错误原因写进窗口提示槽。
+/// 同一批动作里只留第一条，避免一次命中把状态行刷成同一句话的列表。
+fn note_escape_error(
+    note: &mut Option<String>,
+    rule: &str,
+    action: &str,
+    err: &term_core::send_escapes::EscapeError,
+) {
+    if note.is_none() {
+        *note = Some(format!("触发器 {rule} 的 {action} 转义写错：{err}"));
+    }
 }
 
 #[cfg(test)]

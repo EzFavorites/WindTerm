@@ -62,11 +62,13 @@ pub(in crate::ui) fn finish_actions(
 ) {
     // `pending_ip_hit` 就是帧间的待触发槽：它按槽位写、帧末在这里取。
     let mut run_commands: Vec<String> = Vec::new();
+    let mut note: Option<String> = None;
     if let Some(hit) = win.pending_ip_hit.take() {
         if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
-            tab.apply_trigger(hit, &mut run_commands);
+            tab.apply_trigger(hit, &mut run_commands, &mut note);
         }
     }
+    flush_trigger_note(win, &mut note);
     // `p`（remote=true）与 `P`（remote=false）都走同一条漏斗：只有「要不要恢复」
     // 这一种后续状态，不再按 remote 分叉（两条路径都必须先离开只读才能写入）。
     let (text, alt, restore_local) = match vim {
@@ -87,6 +89,14 @@ pub(in crate::ui) fn finish_actions(
         win.commit_paste(slot, &text);
     }
     dispatch_all(win, run_commands);
+}
+
+/// 触发器转义写错的提示：帧末统一写进状态行，与工具面板 `Sender` 的 `note`
+/// 同一个落点。取走而不是克隆，保证同一条提示只显示一次。
+fn flush_trigger_note(win: &mut TerminalWindow, note: &mut Option<String>) {
+    if let Some(text) = note.take() {
+        win.log_note = Some(text);
+    }
 }
 
 fn dispatch_all(win: &mut TerminalWindow, ids: Vec<String>) {

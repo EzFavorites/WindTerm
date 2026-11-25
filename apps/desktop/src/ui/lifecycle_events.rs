@@ -18,6 +18,9 @@ pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut
     }
     let rules = win.triggers.clone();
     let slot = win.active_slot();
+    // 与 tabs 不相交的字段：借用检查允许同时拿。转义写错要落到状态行，
+    // 不许再静默吞掉（SendText / SendLine / LocalSendLine 同一条口径）。
+    let note = &mut win.log_note;
     if let Some(tab) = win.tabs.get_mut(slot) {
         let system = tab.config.system.clone();
         let session = tab.config.name.clone();
@@ -28,7 +31,7 @@ pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut
         for on in events {
             let hits = tab.triggers.event_for(&rules, on, now, Some(target));
             for hit in hits {
-                tab.apply_trigger(hit, run_commands);
+                tab.apply_trigger(hit, run_commands, note);
             }
         }
     }

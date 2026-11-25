@@ -338,12 +338,49 @@ fn literal_and_regex_agree_on_non_ascii_case_folding() {
     assert_eq!(find_matches(&snap, q, true), vec![Match::new(0, 2, 3)]);
 }
 
-/// 等价类逐对钉住：同一折叠类里两边都命中，不同类里两边都不命中。
-/// `İ`/`i` 是刻意不折叠的对照——Unicode simple fold 没有它的映射，
-/// 正则也不认；把这条写死，避免以后有人「顺手」用 full fold 又造成分叉。
+/// 同一段文本上分别跑字面与正则，逐项断言两条引擎口径一致。
+fn assert_literal_equals_regex(text: &str, query: &str, case_sensitive: bool, expected: usize) {
+    let win = window_from(&[text], text.chars().count().max(8), 0);
+    let literal = find_matches_in(&win, query, case_sensitive, false);
+    let pattern = regex::escape(query);
+    let regex = find_matches_regex_in(&win, &pattern, case_sensitive).expect("转义后的字面量必然合法");
+    assert_eq!(literal, regex, "text={text:?} query={query:?} cs={case_sensitive}");
+    assert_eq!(literal.len(), expected, "text={text:?} query={query:?} cs={case_sensitive}");
+}
+
+/// 第三轮回归：手写 lower/upper 双向等价对 28 对字符过度匹配，其中 `I`/`ı`、
+/// `i`/`ı`、`U+A7CE`/`U+A7CF` 都会被判成同义（Python/Rust 的 `to_uppercase`
+/// 把 `ı` 映成 `I`、把 `A7CE` 与 `A7CF` 互映），但 `regex` 的 Simple_Case_Fold
+/// 并不折叠它们。字面模式必须和正则一样**不命中**，两边逐项相等。
 #[test]
-fn literal_and_regex_agree_on_unicode_fold_classes() {
-    let same_fold = [
+fn literal_and_regex_agree_on_overfolded_unicode_pairs() {
+    for (a, b) in [
+        ('I', '\u{0131}'),
+        ('i', '\u{0131}'),
+        ('\u{A7CE}', '\u{A7CF}'),
+        ('\u{A7CF}', '\u{A7CE}'),
+        ('İ', 'i'),
+    ] {
+        for case_sensitive in [false, true] {
+            let text = format!("{a}{b}");
+            let q = a.to_string();
+            assert_literal_equals_regex(&text, &q, case_sensitive, 1);
+        }
+        // 反向查询同理：两个字形互为查询时，两边都只认自己。
+        let text = format!("{a}{b}");
+        let q = b.to_string();
+        assert_literal_equals_regex(&text, &q, false, 1);
+    }
+    // 对照：字符串里真的含两份相同字形时，两边都命中两次。
+    assert_literal_equals_regex("ıı", "ı", false, 2);
+    assert_literal_equals_regex("꟏꟏", "\u{A7CF}", false, 2);
+}
+
+/// 正常折叠类仍要在两种模式下都命中，避免「为了修过度匹配把真等价也砍掉」。
+/// 这些对子正是第二轮 `same_char` 想覆盖的范围，现在由 regex 引擎统一给出。
+#[test]
+fn literal_and_regex_agree_on_real_unicode_fold_classes() {
+    for (a, b) in [
         ('Ä', 'ä'),
         ('É', 'é'),
         ('Σ', 'σ'),
@@ -351,26 +388,14 @@ fn literal_and_regex_agree_on_unicode_fold_classes() {
         ('K', '\u{212A}'), // K / KELVIN SIGN
         ('ß', '\u{1E9E}'), // ß / LATIN CAPITAL SHARP S
         ('\u{03D1}', '\u{03F4}'), // 希腊 θ 的两个符号字形
-    ];
-    let different_fold = [('İ', 'i'), ('ß', 's'), ('Ä', 'A')];
-    for (a, b) in same_fold {
-        assert!(same_char(a, b, false), "U+{:04X} / U+{:04X} 应同折叠类", a as u32, b as u32);
+    ] {
         let text = format!("{a}{b}");
-        let win = window_from(&[&text], 8, 0);
         let q = a.to_string();
-        let literal = find_matches_in(&win, &q, false, false);
-        let regex = find_matches_regex_in(&win, &regex::escape(&q), false).expect("合法正则");
-        assert_eq!(literal, regex, "U+{:04X} / U+{:04X}", a as u32, b as u32);
-        assert_eq!(literal.len(), 2, "折叠类内的两个字形都应命中");
+        assert_literal_equals_regex(&text, &q, false, 2);
+        assert_literal_equals_regex(&text, &q, true, 1);
     }
-    for (a, b) in different_fold {
-        assert!(!same_char(a, b, false), "U+{:04X} / U+{:04X} 不应折叠", a as u32, b as u32);
-        let text = format!("{a}{b}");
-        let win = window_from(&[&text], 8, 0);
-        let q = a.to_string();
-        let literal = find_matches_in(&win, &q, false, false);
-        let regex = find_matches_regex_in(&win, &regex::escape(&q), false).expect("合法正则");
-        assert_eq!(literal, regex, "U+{:04X} / U+{:04X}", a as u32, b as u32);
-        assert_eq!(literal.len(), 1, "不同折叠类只命中查询字形本身");
-    }
+    // 快照入口也走同一个引擎，不能因为输入形状不同又分叉。
+    let snap = make_snap("İ ı i");
+    assert_eq!(find_matches(&snap, "ı", false).len(), 1);
+    assert_eq!(find_matches(&snap, "I", false).len(), 1);
 }

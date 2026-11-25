@@ -12,11 +12,12 @@
 //!
 //! # 大小写折叠口径（字面版与正则版共用）
 //!
-//! 忽略大小写时两边都用 **Unicode 简单大小写折叠**：这就是 `regex` 的
-//! `case_insensitive` 默认口径。字面版由 [`same_char`] 用 lower / upper 双向
-//! 等价还原同一口径，不再用 `eq_ignore_ascii_case`——它只比 ASCII，会让
-//! `Ä`/`ä` 在字面模式漏掉、正则模式却命中的分叉。对等判据见 `find_tests.rs`
-//! 里的 `literal_and_regex_agree_*` 两组测试。
+//! 字面模式不自己实现大小写规则：把 query 交给 [`regex::escape`] 原样转义后，
+//! 调用与正则模式**同一个** [`find_matches_regex_in`]。于是忽略大小写时两边
+//! 必然都是 `regex` 的 `case_insensitive`（Unicode 简单大小写折叠），不再有
+//! 「手写 lower/upper 双向等价」这种近似口径——它对 `I`/`ı`、`i`/`ı`、
+//! `U+A7CE`/`U+A7CF` 等 28 对字符过度匹配。对等判据见 `find_tests.rs` 里的
+//! `literal_and_regex_agree_*` 测试。
 
 use crate::grid::{Cell, GridSnapshot, ScreenImage};
 
@@ -41,24 +42,17 @@ impl Match {
 /// 在当前屏（快照）中查找所有匹配项。
 ///
 /// - `query` 为空返回空 Vec。
-/// - `case_sensitive` 控制是否区分大小写。
+/// - `case_sensitive` 控制是否区分大小写（口径与正则版同一套）。
 /// - 逐行扫描；列号是单元格下标（宽字符的占位格也算一格），可直接用于画高亮。
 /// - 返回按行号、列号升序排列的所有匹配；行号为 `0..rows`。
+///
+/// 快照只是事实窗口的一种输入形状：转成 `ScreenImage` 后走与
+/// [`find_matches_in`] 完全相同的引擎，不存在第二份字面扫描实现。
 pub fn find_matches(snap: &GridSnapshot, query: &str, case_sensitive: bool) -> Vec<Match> {
-    let query: Vec<char> = query.chars().collect();
     if query.is_empty() || snap.rows == 0 || snap.cols == 0 {
         return Vec::new();
     }
-
-    let mut matches = Vec::new();
-    for row in 0..snap.rows {
-        if let Some(cells) = snap.row_cells(row) {
-            // 快照入口是旧路径（只有测试与历史调用走它），不带整词：
-            // 要整词的调用方走 `find_matches_in`。
-            scan_line(row as i64, cells, &query, case_sensitive, false, &mut matches);
-        }
-    }
-    matches
+    find_matches_in(&snap.to_screen_image(), query, case_sensitive, false)
 }
 
 /// 在事实窗口（当前屏或回看缓冲）中查找所有匹配项。
@@ -76,21 +70,19 @@ pub fn find_matches_in(
     case_sensitive: bool,
     whole_word: bool,
 ) -> Vec<Match> {
-    let query: Vec<char> = query.chars().collect();
     if query.is_empty() || image.cols == 0 {
         return Vec::new();
     }
 
-    let mut matches = Vec::new();
-    for line in &image.lines {
-        scan_line(
-            line.row,
-            &line.cells,
-            &query,
-            case_sensitive,
-            whole_word,
-            &mut matches,
-        );
+    // 字面模式与正则模式共用同一台引擎：query 逐字符转义后只可能是一个合法
+    // 的「字面量」正则，所以 build 失败在语义上不可达；真出了意外也没有 panic
+    // 的路径，返回空结果即可（生产路径不增加 panic）。
+    let pattern = regex::escape(query);
+    let Ok(matches) = find_matches_regex_in(image, &pattern, case_sensitive) else {
+        return Vec::new();
+    };
+    if whole_word {
+        return whole_word_matches(image, matches);
     }
     matches
 }
@@ -159,9 +151,10 @@ pub fn validate_regex(pattern: &str) -> Result<(), regex::Error> {
 /// 与字面版 [`find_matches_in`] 共用字形折叠与坐标系：`Match.row` 是内容绝对
 /// 行号，`col_start/col_end` 是单元格列（宽字符占位格算在内），可直接画高亮。
 ///
-/// `case_sensitive` 通过 `RegexBuilder::case_insensitive` 控制，折叠口径与
-/// 字面版 [`find_matches_in`] 的 [`same_char`] 一致（Unicode 简单大小写折叠）；
-/// `whole_word` 整词语义留给字面版——正则用户自己写 `\b` 更精确。
+/// `case_sensitive` 通过 `RegexBuilder::case_insensitive` 控制。它是唯一的大小写
+/// 折叠口径：字面版 [`find_matches_in`] 把 query `regex::escape` 后也走这里，
+/// 所以两边逐项相等。`whole_word` 整词语义留给字面版——正则用户自己写 `\b`
+/// 更精确。
 ///
 /// 语法错误返回 `Err` 而不是吞掉：调用方要能把「表达式写错了」与「没有匹配」
 /// 区分开（后者显示 0/N，前者应当提示用户改表达式）。
@@ -296,37 +289,27 @@ fn glyphs_and_cols(cells: &[Cell]) -> (Vec<usize>, Vec<char>) {
     (cols, chars)
 }
 
-/// 单行扫描：快照与事实窗口共用的唯一实现。
+/// 在正则引擎给出的命中结果上做整词过滤。
 ///
-/// `row` 是这一行的内容绝对行号，`cells` 是它的完整单元格。
-/// 行尾空白不参与匹配（终端一行的右半部分是填充）。
-fn scan_line(
-    row: i64,
-    cells: &[Cell],
-    query: &[char],
-    case_sensitive: bool,
-    whole_word: bool,
-    out: &mut Vec<Match>,
-) {
-    let (cols, chars) = glyphs_and_cols(cells);
-    if chars.len() < query.len() {
-        return;
-    }
-
-    let mut at = 0;
-    while at + query.len() <= chars.len() {
-        let hit = (0..query.len()).all(|i| same_char(query[i], chars[at + i], case_sensitive))
-            && (!whole_word || on_word_boundaries(&chars, at, query.len()));
-        if hit {
-            let col_start = cols[at];
-            let last = at + query.len() - 1;
-            let col_end = cols[last] + if cells[cols[last]].wide { 2 } else { 1 };
-            out.push(Match::new(row, col_start, col_end));
-            at += query.len(); // 允许重叠匹配时可改为 at += 1
-        } else {
-            at += 1;
-        }
-    }
+/// 引擎返回的 `col_start/col_end` 是**单元格列**，边界判据吃的是**字形序列**，
+/// 所以先用 `glyphs_and_cols` 把命中行还原成字形，再把两个列端映射回字形下标。
+/// 宽字符占两格：`col_end` 是开区间，一个字形在 `cols` 里只有一个起始列，
+/// 因此 `cols[at..].take_while(c < col_end).count()` 正好是这段命中的字形数。
+fn whole_word_matches(image: &ScreenImage, matches: Vec<Match>) -> Vec<Match> {
+    matches
+        .into_iter()
+        .filter(|m| {
+            let Some(line) = image.lines.iter().find(|line| line.row == m.row) else {
+                return false;
+            };
+            let (cols, chars) = glyphs_and_cols(&line.cells);
+            let Some(at) = cols.iter().position(|&col| col == m.col_start) else {
+                return false;
+            };
+            let len = cols[at..].iter().take_while(|&&col| col < m.col_end).count();
+            len > 0 && on_word_boundaries(&chars, at, len)
+        })
+        .collect()
 }
 
 /// `at..at+len` 这一段是否两端都贴着词边界（行首 / 行尾也算边界）。
@@ -342,31 +325,6 @@ fn on_word_boundaries(chars: &[char], at: usize, len: usize) -> bool {
 /// 词字符：字母 / 数字 / 下划线。其余（空格、标点、制表）都当分隔符。
 fn is_word_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
-}
-
-/// 忽略大小写时的字符等价判据：**与正则版同一套 Unicode 简单大小写折叠**。
-///
-/// `regex` 的 `case_insensitive` 走 `Simple_Case_Folding`，而 `std` 没有直接
-/// 暴露 simple fold。这里用 `to_lowercase` / `to_uppercase` 的双向等价还原它：
-/// ASCII 与 `eq_ignore_ascii_case` 逐值相同，`Ä`/`ä`、`Σ`/`σ`/`ς`、`K`/`K`
-/// 等非 ASCII 等价类也一致；`İ` / `i` 这种没有 simple fold 的字形保持不等价，
-/// 与正则一致。希腊 θ 的两个符号字形（`ϑ` / `ϴ`）是唯一大小写映射都覆盖不到
-/// 的等价类，显式列出。新增等价类必须同时对正则版测试，不能只改这里。
-fn same_char(a: char, b: char, case_sensitive: bool) -> bool {
-    if case_sensitive {
-        return a == b;
-    }
-    if a == b {
-        return true;
-    }
-    let lower_eq = a.to_lowercase().eq(b.to_lowercase());
-    let upper_eq = a.to_uppercase().eq(b.to_uppercase());
-    lower_eq
-        || upper_eq
-        || matches!(
-            (a, b),
-            ('\u{03D1}', '\u{03F4}') | ('\u{03F4}', '\u{03D1}')
-        )
 }
 
 #[cfg(test)]

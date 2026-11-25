@@ -19,21 +19,170 @@
 //! `!is_live()` 分支承担，那条分支有自己的测试。这里只钉住「认出来了没有」。
 
 use crate::ui::lifecycle_test_support::{fake_tab, CloseCount};
+use std::sync::{Arc, Mutex};
+
+/// 把触发器写回会话的字节记下来，用来判定 Send Later 到底发没发。
+#[derive(Clone, Default)]
+struct Writes(Arc<Mutex<Vec<u8>>>);
+
+struct WriteChannel {
+    writes: Writes,
+    finished: bool,
+}
+
+impl term_core::channel::TermChannel for WriteChannel {
+    fn drain(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        self.writes.0.lock().expect("写入记录锁").extend_from_slice(bytes);
+    }
+    fn resize(&mut self, _cols: usize, _rows: usize) {}
+    fn poll(&mut self) -> Option<String> {
+        None
+    }
+    fn finished(&self) -> bool {
+        self.finished
+    }
+    fn close(&mut self) {
+        self.finished = true;
+    }
+    fn description(&self) -> &str {
+        "write recorder"
+    }
+}
 
 /// 触发器 Send text 里字面 Windows 路径必须往返一致；显式转义仍然生效。
 #[test]
 fn send_text_round_trips_windows_paths_and_explicit_escapes() {
     assert_eq!(
-        super::session::decode_send_text(r"C:\Windows\system32\drivers\etc\hosts"),
+        super::session::decode_send_text(r"C:\Windows\system32\drivers\etc\hosts").expect("字面路径"),
         br"C:\Windows\system32\drivers\etc\hosts",
         "未知转义不能吞掉反斜杠"
     );
     // 末尾孤立反斜杠也要发出去，不能让整条消息静默消失。
-    assert_eq!(super::session::decode_send_text("tail\\"), br"tail\");
+    assert_eq!(super::session::decode_send_text("tail\\").expect("字面反斜杠"), br"tail\");
     // 明确写了表内转义时仍按原版口径解码（Send text 的关键用途）。
-    assert_eq!(super::session::decode_send_text(r"\x03"), b"\x03");
-    assert_eq!(super::session::decode_send_text(r"\003"), b"\x03");
-    assert_eq!(super::session::decode_send_text(r"\q"), br"\q");
+    assert_eq!(super::session::decode_send_text(r"\x03").expect("\\x03"), b"\x03");
+    assert_eq!(super::session::decode_send_text(r"\003").expect("\\003"), b"\x03");
+    assert_eq!(super::session::decode_send_text(r"\q").expect("未知转义按字面"), br"\q");
+}
+
+/// 显式转义写错必须报错，绝不能静默回退成原样字节（那会把 `\x0` 当成文本发出）。
+#[test]
+fn bad_explicit_escape_is_an_error_not_a_silent_fallback() {
+    let err = super::session::decode_send_text(r"\x0").expect_err("写错的转义必须拒绝");
+    assert_eq!(err.at, 0);
+    assert_eq!(err.reason, "\\x 需要两位十六进制");
+    // 非 ASCII 的 \c / \m 同样被 send_escapes 拦下，不写出垃圾字节。
+    assert!(super::session::decode_send_text(r"\m你").is_err());
+}
+
+/// 与 Sender 一致：显式转义写错不静默 no-op，错误经 `poll_with_note` 上报到
+/// 窗口状态行提示槽，且一个字节都不写进 PTY。
+#[test]
+fn a_bad_trigger_escape_reaches_the_note_slot_and_writes_nothing() {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let writes = Writes::default();
+    let ch = WriteChannel {
+        writes: writes.clone(),
+        finished: false,
+    };
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        term_core::session::SessionConfig::new(term_core::session::Protocol::Shell),
+        Box::new(ch),
+        egui::Id::new(("bad-escape", 0)),
+        &ctx,
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    tab.raw.attach(crate::hex_tap::HexTap::new(rx));
+
+    let mut rule = term_core::trigger::Rule::default();
+    rule.id = "bad-escape".into();
+    rule.enabled = true;
+    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.pattern = "wake".into();
+    rule.literal = true;
+    rule.config.send.condition = term_core::trigger::SendCondition::AfterMatch;
+    rule.config.send.later_secs = "0".into();
+    rule.actions = vec![term_core::trigger::TriggerAction::SendText(r"\x0".into())];
+    let rules = [rule];
+
+    super::session::set_test_now(Some(10));
+    tx.send(b"wake".to_vec()).expect("送一次远端输出");
+    let mut note = None;
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new(), &mut note);
+    let note = note.expect("转义写错必须上报，不许静默吞掉");
+    assert!(note.contains("触发器 bad-escape 的 Send text 转义写错"), "note={note:?}");
+    assert!(note.contains("\\x 需要两位十六进制"), "note={note:?}");
+    // 解码失败的那一路没有任何 pool.send，等监管者一轮也不该冒出字节。
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(writes.0.lock().expect("读写入记录").is_empty(), "写错的转义一个字节都不能发出去");
+    super::session::set_test_now(None);
+}
+
+/// Send Later 的定时发送不能靠远端继续输出来驱动：命中之后远端安静 2s，
+/// 到期那一帧必须由 `poll` 的空闲段补一次 `due` 才发得出去。
+#[test]
+fn send_later_fires_after_the_remote_goes_quiet_for_two_seconds() {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let writes = Writes::default();
+    let ch = WriteChannel {
+        writes: writes.clone(),
+        finished: false,
+    };
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        term_core::session::SessionConfig::new(term_core::session::Protocol::Shell),
+        Box::new(ch),
+        egui::Id::new(("send-later-quiet", 0)),
+        &ctx,
+    );
+    // 输出从假 tap 进本帧，不依赖监管者线程时序。
+    let (tx, rx) = std::sync::mpsc::channel();
+    tab.raw.attach(crate::hex_tap::HexTap::new(rx));
+
+    let mut rule = term_core::trigger::Rule::default();
+    rule.id = "later".into();
+    rule.enabled = true;
+    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.pattern = "wake".into();
+    rule.literal = true;
+    rule.config.send.later_secs = "2".into();
+    rule.actions = vec![term_core::trigger::TriggerAction::SendText("LATER".into())];
+    let rules = [rule];
+    let autofill = std::collections::HashMap::new();
+
+    super::session::set_test_now(Some(100));
+    tx.send(b"wake".to_vec()).expect("送一次远端输出");
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert!(writes.0.lock().expect("读写入记录").is_empty(), "命中只排队，不能立刻发");
+    assert_eq!(tab.triggers.pending_count(), 1, "Send Later 已入队");
+
+    // 远端安静下来：101s 还没到期，102s 到期。两帧 tap 都是空的，
+    // 输出分支不会再跑——只有空闲段补调 due 才会出现这次发送。
+    super::session::set_test_now(Some(101));
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert!(writes.0.lock().expect("读写入记录").is_empty(), "还没到 2s 不该发");
+
+    super::session::set_test_now(Some(102));
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    // `pool.send` 把写命令交给监管者线程，落盘到假通道是异步的。
+    crate::ui::lifecycle_test_support::eventually("Send Later 写出", || {
+        writes.0.lock().map(|w| w.as_slice() == b"LATER").unwrap_or(false)
+    });
+    assert_eq!(tab.triggers.pending_count(), 0, "到期项应被取走，不能重复发");
+
+    // 同帧不重复：后续继续静默也不该再写一遍。
+    for t in 103..107 {
+        super::session::set_test_now(Some(t));
+        tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    }
+    assert_eq!(writes.0.lock().expect("读写入记录").as_slice(), b"LATER");
+    super::session::set_test_now(None);
 }
 
 /// 外部关掉之后：标签转断开、id 不再留着、且**要求重绘一次**。
