@@ -35,7 +35,8 @@ pub fn menus() -> Vec<Menu> {
                     id: "Terminal.ReconnectSession",
                 },
                 // 视觉基线 `01-session-menu.png`：Disconnect / Reconnect /
-                // Open Session... / Open Recent 是同一组，中间不插分隔线。
+                // Open Session / Open Recent 是同一组，中间不插分隔线（标签按
+                // 官方翻译表去掉省略号，2026-11-25）。
                 Item::Action {
                     label: "Open Session",
                     id: "Terminal.OpenSession",
@@ -55,8 +56,9 @@ pub fn menus() -> Vec<Menu> {
                 },
                 Item::Separator,
                 Item::Submenu {
-                    // 2026-11-08 视觉基线：四组 [Start...] [Stop/Pause/Resume]
-                    // [Open Log File/Folder] [Settings...]，命令 ID 一律不动。
+                    // 2026-11-08 视觉基线：四组 [Start] [Stop/Pause/Resume]
+                    // [Open Log File/Folder] [Settings]，命令 ID 一律不动；标签按
+                    // 翻译表去掉省略号。
                     label: "Log",
                     items: vec![
                         Item::Action {
@@ -172,10 +174,10 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             label: "Search",
             items: vec![
-                // 视觉基线 `01-search-menu.png` 上这两条是带省略号的，但真源头不
-                // 是截图：`windterm_en_zh.tsv`（1430 条官方英中对照）两侧一条
-                // 省略号都没有。省略号是当初照英文截图抄进菜单、又顺手抄进译文
-                // 表时加上的，2026-11-14 一并去掉（见 `i18n/zh.rs` 顶部注记）。
+                // 视觉基线 `01-search-menu.png` 上这两条曾带省略号，但真源头
+                // `windterm_en_zh.tsv`（1430 条官方英中对照）两侧都没有；
+                // 省略号是照英文截图抄进菜单时加上的，2026-11-25 按翻译表统一
+                // 去掉（这里已是 `Find` / `Search Online`，无省略号）。
                 Item::Action {
                     label: "Find",
                     id: "Text.Find",
@@ -685,11 +687,11 @@ pub fn menus() -> Vec<Menu> {
             // `Remote Mode` / `Word Wrap` / `Virtual Space` / `Multiple Caret`
             // 四条是**可勾选**行——见 `Item::Check` 的口径表。
             //
-            // 这四条的 `checked` 都是 `CheckState::Fixed`：勾或空框都是**照视觉基线
-            // 画死的**，读的不是运行期状态（图里 `Remote Mode` / `Word Wrap` 勾着，
-            // `Virtual Space` / `Multiple Caret` 空着）。所以「行是灰的（点不动）
-            // + 框是勾着的」并不自相矛盾——视觉基线里这几行本来就这么画，而它们
-            // 对应的动作还没接线，点不动。
+            // 前两条已接线：`Remote Mode` / `Word Wrap` 的 `checked` 都是
+            // `CheckState::Live`，勾由投影层现读（分别看 `Tab.local_mode` /
+            // `Tab.word_wrap`），点得到、勾会跟着变。只剩 `Virtual Space` /
+            // `Multiple Caret` 是删掉的编辑器语义，`checked` 仍是 `CheckState::Fixed`：
+            // 空框 / 勾照视觉基线画死，动作没接线、点不动。
             // 判据在 `crates/term-app/src/menu_check_tests.rs` 的
             // `a_wired_command_must_read_live_state`：双向断言
             // `Fixed ⇒ !capability::is_implemented(id)` 与
@@ -753,7 +755,8 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             label: "Tool",
             items: vec![
-                // 视觉基线 `01-tool-menu.png`：前四项带省略号，无分隔线。
+                // 视觉基线 `01-tool-menu.png`：前四项无分隔线；旧图里的省略号
+                // 已于 2026-11-25 按官方翻译表去掉，标签以这里为准。
                 // `Tunnel Settings` 是本实现多出的一行（隧道配置编辑器入口），
                 // 保留它是因为 `Terminal.ManageTunnels` 面板没有别的菜单入口。
                 Item::Action {

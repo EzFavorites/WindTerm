@@ -223,8 +223,10 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
 /// 2026-11-19 校正：原先这段按「只有 Copy/Paste/Zoom 有真 Work」把 Save Session
 /// 与 Line Endings / Wrap Symbols 一并灰掉，但那三条命令（`Terminal.Save` /
 /// `View.ToggleLineEndings` / `View.ToggleWrapSymbols`）早已接线并有读者（见
-/// `capability.rs`），是「假灰」。现在按台账接真。`Word Wrap` 仍是 `Planned`
-/// （要内核 reflow），保持灰勾选——视觉基线图里它亮，但按 ADR-0015 不摆假开关。
+/// `capability.rs`），是「假灰」。现在按台账接真。`Word Wrap` 也已于 2026-11-24
+/// 接线（`Text.ToggleWordWrap`，Mode ▸ Word Wrap 走 `CheckState::Live`，段表按位
+/// 软折），不再是 `Planned`。本行仍是手绘的 `check(...)`（没有 `Work` / `gate`），
+/// 所以在这个 ⋮ 弹层里保持灰勾选——灰的是这一行没挂派发，不是命令没实现。
 pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     row("Copy", "Shift+Del", Some(0), Some(Work::Copy)),
     row("Paste", "Shift+Ins", Some(0), Some(Work::Paste)),
@@ -239,7 +241,8 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     // 2026-11-19：`Terminal.Save` 已接线（CenterPage::Save → 保存到会话库），接真。
     command("Save Session", "Meta+S", Some(0), term_app::menu::context_ids::SAVE_SESSION),
     sep(),
-    // Word Wrap 仍 Planned（需内核 reflow），保持灰勾选。
+    // Word Wrap 命令已接线（Mode ▸ Word Wrap / `Text.ToggleWordWrap`）；这里仍按
+    // 视觉基线画灰勾选，因为这份 ⋮ 弹层的手绘行没有接 Work/gate，不是命令未接线。
     check("Word Wrap", "Alt+M, Alt+W", Some(0), true),
     // 这两条命令已接线（`parse.rs:106/109` → MarksKnob → Tab.marks），接真。
     // 勾选态走 gate 判态时不读常量 on；这里把 work + gate 补上，勾选框的
@@ -607,7 +610,9 @@ pub(in crate::ui) fn margin_rows(
         mk(t(lang, "Margin Symbol"), term_app::menu::margin_seq(MarginPart::Symbol), Some(Work::Margin(MarginPart::Symbol)), margin.get(MarginPart::Symbol)),
         mk(t(lang, "Margin Timestamp"), term_app::menu::margin_seq(MarginPart::Timestamp), Some(Work::Margin(MarginPart::Timestamp)), margin.get(MarginPart::Timestamp)),
         sep(),
-        // Symbols / White Spaces / Folds：View 里同名（未接线），手绘灰显箭头行。
+        // Symbols / White Spaces / Folds：View 里同名子菜单已接真（`menu_submenus.rs`
+        // 填入 live 项），这里仍是灰箭头，因为左边缘这份手绘菜单不展开子菜单
+        // （`sub()` 没有 `children`），不是命令未接线。
         sub(t(lang, "Symbols"), Some(0)),
         sub(t(lang, "White Spaces"), Some(0)),
         sub(t(lang, "Folds"), Some(0)),

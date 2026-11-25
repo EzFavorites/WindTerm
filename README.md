@@ -238,8 +238,11 @@ WindTerm 1.x / 1.72（Windows 10，2.3 GHz i5，8 GB），原文也注明仅供�
 | 动态内存压缩 | 工作内存降低 20%–90% |
 | 终端兼容 | vt100/220/340/420/520、xterm-256color；vttest 除 Tektronix 4014 全通过 |
 
-上游还提到本地/远程模式配合 vim 键位（用 Shift+Enter 切换），这里没有实现 vim
-键位层，因此 `Window.SetRemoteMode` 仍保持置灰。本项目的性能口径以
+上游还提到本地/远程模式配合 vim 键位（用 Shift+Enter 切换）。本项目已有本地模式
+的 vim 键位解析层（`term_app::vim`：26 个导航键与 `y`/`p` 复制粘贴），本地/远端模式
+均已接线：`Window.SetLocalMode` 与 `Window.SetRemoteMode` 共用 `Tab.local_mode`，
+后者的勾走 `CheckState::Live`，不再置灰；切换入口是 Mode 菜单，不照抄上游的
+Shift+Enter。本项目的性能口径以
 [`docs/bench/transfer-report.md`](docs/bench/transfer-report.md) 的可复跑基准为准。
 
 ## 文档

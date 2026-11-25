@@ -1,5 +1,5 @@
-//! `Preferences ▸ Highlight`：五行里**两行**有真实消费者，其余三行按  保持
-//! 灰显空框 + 悬停说明。
+//! `Preferences ▸ Highlight`：六行全部接真，选中态都有真实消费者，页内已无
+//! 灰显空框。
 //!
 //! # 为什么前两行能接真
 //!
@@ -24,11 +24,12 @@
 //! search 落在窗口上（改完对全部标签立刻生效）。兼容终端也确实一层是会话级、
 //! 一层是全局级。
 //!
-//! # 后三行的渲染口径
+//! # 其余四行的渲染口径
 //!
 //! caret word 用 `selection::word_at` 在事实窗口上取整词，current pair 用
 //! `selection::pair_start/pair_end` 取两端，current fold 用 OSC 133 命令块的
-//! 起始行。三者都只在字形下铺淡色，不进选区、不影响复制。
+//! 起始行，rainbow brackets 按括号嵌套深度上色。四者都只在字形下铺淡色，
+//! 不进选区、不影响复制。
 
 use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use super::settings_live::save_prefs;

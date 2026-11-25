@@ -106,16 +106,16 @@ pub enum Item {
     /// # `checked` 有两种：写死的事实 / 让投影层现读
     ///
     /// 菜单树是纯数据（`menu.rs` 不认识 `ViewState`，也不认识任何窗口），所以
-    /// 「用户此刻开没开」在**这一层**永远表达不了。第一版因此只允许写常量，
-    /// 于是四条「模式」行（Remote Mode / Word Wrap / Virtual Space /
-    /// Multiple Caret）写死不动的勾——它们都没有运行期状态可读：
+    /// 「用户此刻开没开」在**这一层**永远表达不了，常量勾只能写死。第一版的四条
+    /// 「模式」行已有两条改成 [`CheckState::Live`]：勾由投影层按当前会话现读，
+    /// 不再是写死不动的常量。只剩两条编辑器语义仍是 `Fixed`：
     ///
-    /// | 行 | 勾 | 这句话为什么为真 |
+    /// | 行 | 勾 | 现状 |
     /// |---|---|---|
-    /// | Remote Mode | ✓ | 本版没有「本地 / 远端模式」这个**开关**：协议是每个会话自己的属性（`Protocol::Shell` 起本地 shell，`Ssh` 连远端、`Serial` 开串口，见 `ui/construct.rs` 的出厂会话），不是整机的一个模式，所以没有「切过去 / 切回来」的状态可翻 |
-    /// | Word Wrap | ✓ | 终端是定宽栅格，换行是栅格本身，没有「不换行」形态 |
-/// | Virtual Space | ☐ | 编辑器语义，已从本程序删除 |
-    /// | Multiple Caret | ☐ | 同上 |
+    /// | Remote Mode | Live | 2026-11-23 已接线：`Window.SetRemoteMode` 退出只读，勾读 `Tab.local_mode`（`!local_mode_on()`） |
+    /// | Word Wrap | Live | 2026-11-24 已接线：`Text.ToggleWordWrap` 翻 `Tab.word_wrap`，段表按位软折 |
+    /// | Virtual Space | Fixed(false) | 编辑器语义，已从本程序删除，命令未接线，空框按视觉基线写死 |
+    /// | Multiple Caret | Fixed(true) | 同上；勾按视觉基线写死，不代表命令可用 |
     ///
     /// 另有一种 [`CheckState::Live`]：**这一行是个勾选框，
     /// 勾不勾由投影层按当前会话现读**。hex 三张子菜单的 13 档互斥单选

@@ -27,8 +27,8 @@
 //!
 //! # 铁律
 //!
-//! 灰行永远是空框 / 空下拉（`settings_pages_view::draw_row`）：勾与选中态传达
-//! 「这项已生效」，而它们零读者。
+//! 本页已无灰行：八行的选中态都对应有读者的 `Prefs` 字段。若日后新增占位行，
+//! 仍按 `settings_pages_view::draw_row` 画空框 / 空下拉，别用选中态冒充生效。
 
 use crate::ui::kit::spec::BLOCK_GAP;
 use super::settings_live::save_prefs;
@@ -150,7 +150,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &ACTIVATE_MODES,
             &mut activate,
         );
-        // 灰显行直接复用数据页那一套 `Row`：同一页里两种行只差「能不能点」。
+        // 三档下拉都走同一个 `live_combo`：原先灰显的两行现已接真，都能点。
         changed |= live_combo(
             ui,
             "prefs_tab_hover",
@@ -222,7 +222,7 @@ pub(in crate::ui) fn tabs(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &mut right,
         );
     });
-    // 视觉基线没有页脚说明；两行灰显的理由仍在各自 hover 上。
+    // 视觉基线没有页脚说明；原先两行灰显的理由已随接线移除，不再另堆说明。
 
     if changed {
         // 先改内存里的副本（标签条 / 关闭逻辑读到的是同一份），再 load-modify-save。
