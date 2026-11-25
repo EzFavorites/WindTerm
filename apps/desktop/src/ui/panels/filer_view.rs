@@ -35,6 +35,15 @@ const HEAD_H: f32 = 18.0;
 const FOOT_H: f32 = 20.0;
 const ROW_H: f32 = 19.0;
 
+/// 行热区 id：**名字 + 当前目录 + 来源**三者缺一不可。
+///
+/// 同名文件在两个目录（或本地 / 远端两棵树上）都可能同时出现，只用名字会让
+/// egui 把两行当成同一个 widget，点击 / 双击 / 右键串到另一边。目录与来源是
+/// 本帧就确定的值，作为 salt 带上即可，不碰视觉基线。
+fn row_id(name: &str, dir: &str, is_local: bool) -> egui::Id {
+    egui::Id::new(("filer_row", name, dir, is_local))
+}
+
 /// 滚轮像素量 → 整行位移。`pointer_in_list` 为假时一律 0。
 ///
 /// 门为什么长在这里而不是调用处：`InputState.raw_scroll_delta` 是**整帧全局**
@@ -331,7 +340,7 @@ impl TerminalWindow {
             );
             let text_resp = list_ui.interact(
                 text_rect,
-                egui::Id::new(("filer_row", &line.name)),
+                row_id(&line.name, &current_path, is_local),
                 egui::Sense::click(),
             );
             let max_chars = (text_rect.width() / 6.6).floor().max(2.0) as usize;
@@ -625,3 +634,7 @@ mod filter_tests;
 #[cfg(test)]
 #[path = "filer_wheel_tests.rs"]
 mod wheel_tests;
+
+#[cfg(test)]
+#[path = "filer_view_id_tests.rs"]
+mod id_tests;

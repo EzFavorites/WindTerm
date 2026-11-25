@@ -70,7 +70,7 @@ fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) 
 }
 
 /// 浮层内容的帧间锁存值。`Rule` 可克隆，指针进入浮层期间沿用旧菜单。
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 enum Payload {
     Ip(String),
     Custom { rule: Rule, matched: String },
@@ -113,6 +113,22 @@ fn ip_at_pointer(image: &ScreenImage, row: i64, col: usize) -> Option<String> {
         .map(|found| found.text)
 }
 
+/// 本帧指针处的浮层内容：**先算一次 IP 命中，再分支**。
+///
+/// 早期版本在分支两侧各算一次 `ip_at_pointer`——重复扫描整行不说，第二次
+/// 还可能因为指针已经进了上一帧的浮层而读出不同的行 / 列，把刚锁住的内容
+/// 误判成「未命中」。这里只算一次并按 IP 优先的形状定型；锚点锁存仍由
+/// `hover_anchor::resolve` 负责，本函数一行都没碰它的行为。
+fn payload_at_pointer(image: &ScreenImage, row: i64, col: usize, rules: &[Rule]) -> Option<Payload> {
+    if let Some(ip) = ip_at_pointer(image, row, col) {
+        return Some(Payload::Ip(ip));
+    }
+    custom_menu_at_pointer(image, row, col, rules).map(|(rule, matched)| Payload::Custom {
+        rule: rule.clone(),
+        matched: matched.clone(),
+    })
+}
+
 /// 画悬停菜单。命中才建浮层，未命中时零分配、零像素变化。
 pub(super) fn paint(
     ui: &egui::Ui,
@@ -133,14 +149,7 @@ pub(super) fn paint(
         return None;
     }
     let (row, col) = (row as i64, col as usize);
-    let fresh = if let Some(ip) = ip_at_pointer(image, row, col) {
-        Some(Payload::Ip(ip))
-    } else {
-        custom_menu_at_pointer(image, row, col, rules).map(|(rule, matched)| Payload::Custom {
-            rule: rule.clone(),
-            matched: matched.clone(),
-        })
-    };
+    let fresh = payload_at_pointer(image, row, col, rules);
     let token = match &fresh {
         Some(Payload::Ip(ip)) => format!("{row}:{col}:ip:{ip}"),
         Some(Payload::Custom { matched, .. }) => format!("{row}:{col}:custom:{matched}"),
@@ -225,6 +234,43 @@ pub(super) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn one_probe_per_frame_decides_the_payload_and_ip_wins_over_custom_menu() {
+        let text = "10.0.0.9";
+        let mut image = ScreenImage::blank(text.len(), 1, 0..1);
+        image.lines[0] = term_core::grid::LineSlice {
+            row: 0,
+            cells: text.chars().map(|ch| term_core::grid::Cell { ch, ..term_core::grid::Cell::default() }).collect(),
+        };
+        // 一条同样匹配这段文本的 Custom Menu 规则：IP 优先时它根本不该被读。
+        let mut rule = Rule {
+            enabled: true,
+            on: TriggerOn::Output,
+            literal: true,
+            pattern: text.to_string(),
+            ..Rule::default()
+        };
+        rule.config.menu.items.push(term_core::trigger::MenuItem {
+            label: "custom".to_string(),
+            ..term_core::trigger::MenuItem::default()
+        });
+        // 同一帧只算一次：命中 IP 就直接定型，不会在分支里再扫一遍。
+        assert_eq!(
+            payload_at_pointer(&image, 0, 2, &[rule]),
+            Some(Payload::Ip(text.to_string()))
+        );
+        // 列落在 IP 之外时 IP 分支不成立，才轮到 Custom Menu。
+        let mut image2 = ScreenImage::blank(text.len() + 2, 1, 0..1);
+        image2.lines[0] = term_core::grid::LineSlice {
+            row: 0,
+            cells: format!("  {text}").chars().map(|ch| term_core::grid::Cell { ch, ..term_core::grid::Cell::default() }).collect(),
+        };
+        assert!(matches!(
+            payload_at_pointer(&image2, 0, 1, &[Rule::default()]),
+            None
+        ));
+    }
 
     #[test]
     fn probe_commands_use_the_platform_counter_and_never_a_shell() {

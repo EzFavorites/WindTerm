@@ -241,6 +241,20 @@ fn paint_title_row(ui: &mut egui::Ui, text: &str) {
     );
 }
 
+/// 消费「点外收起」这一击：弹层同帧收起，但 click 边沿若留在输入里，
+/// 后面排在锚点下面的控件（命令组按钮 / 齿轮 / 终端）会把它当成自己的点击，
+/// 于是「点空白关菜单」顺手把底下的按钮按了。
+///
+/// egui 0.29 没有公开的逐键消费 click API：`PointerState` 换一份新的就能清掉
+/// 本帧 `Released{ click: Some(_) }` 边沿，raw events 里那次 release 也一并去掉。
+fn consume_closing_click(ui: &mut egui::Ui) {
+    ui.ctx().input_mut(|i| {
+        i.events
+            .retain(|e| !matches!(e, egui::Event::PointerButton { pressed: false, .. }));
+        i.pointer = egui::PointerState::default();
+    });
+}
+
 /// 手写 `Area` 的弹层要自己管「点外面收起」：点在弹层里或锚点按钮上不算。
 /// 与 `dock_bottom_menu.rs:89-100` / `tools_sender_menu.rs:57-67` 同一份判定。
 pub(super) fn close_on_click_outside(ui: &mut egui::Ui, popup: egui::Rect, anchor: egui::Rect) {
@@ -253,8 +267,13 @@ pub(super) fn close_on_click_outside(ui: &mut egui::Ui, popup: egui::Rect, ancho
     });
     if out {
         ui.memory_mut(|m| m.close_popup());
+        consume_closing_click(ui);
     }
 }
+
+#[cfg(test)]
+#[path = "quick_config_menu_click_tests.rs"]
+mod click_tests;
 
 #[cfg(test)]
 mod tests {

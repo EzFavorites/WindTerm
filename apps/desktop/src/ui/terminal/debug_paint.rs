@@ -301,8 +301,10 @@ fn row_marks(
     degrade: bool,
 ) -> Vec<(usize, Vec<(Rect, Color32)>)> {
     let mut out: Vec<(usize, Vec<(Rect, Color32)>)> = Vec::new();
-    let mut skip_placeholder = false;
     let first = cols.start;
+    // 段可能正好从宽字符的占位半格开始：前驱（段外那一格）是宽字符时，
+    // 本段第一格必须跳过，否则同一个汉字挂两套标记。
+    let mut skip_placeholder = first > 0 && cells.get(first - 1).is_some_and(|c| c.wide);
     for col in cols {
         let Some(cell_data) = cells.get(col) else {
             break;
@@ -684,6 +686,29 @@ mod tests {
         let groups = row_marks(&cells, 5..10, pos2(0.0, 0.0), cell, &colours, false);
         let cols: Vec<usize> = groups.iter().map(|(col, _)| *col).collect();
         assert_eq!(cols, vec![0, 1, 2], "标记列必须夹到段内、并转成段内相对列");
+    }
+
+    /// 段从宽字符占位半格开始时，那一格不能挂第二套标记。
+    #[test]
+    fn a_segment_starting_on_a_wide_placeholder_skips_it() {
+        let cell = default_cell();
+        let colours = DebugColours::new(&palette());
+        let mut attrs = Attrs::EMPTY;
+        attrs.insert(Attrs::BOLD);
+        let cells = [
+            Cell { ch: '中', attrs, wide: true, ..Cell::default() },
+            Cell { ch: '\0', attrs, wide: false, ..Cell::default() }, // 占位格
+            Cell { ch: 'x', attrs, ..Cell::default() },
+        ];
+        // 段 1..3 起于占位格：只画 'x'，段内相对列 1。
+        let groups = row_marks(&cells, 1..3, pos2(0.0, 0.0), cell, &colours, false);
+        let cols: Vec<usize> = groups.iter().map(|(col, _)| *col).collect();
+        assert_eq!(cols, vec![1], "占位格不能重复画标记");
+
+        // 段 0..2 从字形格开始：只画 '中'，占位格仍被跳过。
+        let groups = row_marks(&cells, 0..2, pos2(0.0, 0.0), cell, &colours, false);
+        let cols: Vec<usize> = groups.iter().map(|(col, _)| *col).collect();
+        assert_eq!(cols, vec![0]);
     }
 
     /// 每个颜色都比正文淡，且 `dim < bold < rule` 这条浓度序成立。

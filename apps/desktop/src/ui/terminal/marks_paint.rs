@@ -125,8 +125,10 @@ pub(in crate::ui) fn paint(
         // 只有 `InSelection` 档要算选区区间：其余四档每帧白扫一遍选区没有意义。
         if params.whitespace == WhitespaceMode::InSelection {
             for sel in selections.items() {
-                if let Some((from, to)) = sel.columns_on(line.row) {
-                    selected.push((from, to));
+                if let Some(range) = sel.columns_on(line.row) {
+                    if let Some(rel) = selected_range_in_segment(range, from, to) {
+                        selected.push(rel);
+                    }
                 }
             }
         }
@@ -144,6 +146,18 @@ pub(in crate::ui) fn paint(
             draw_mark(painter, *mark, origin, y, cell, font, &colours);
         }
     }
+}
+
+/// 选区的内容列区间 → 本段内的相对列区间；两段不相交时返回 `None`（不画）。
+///
+/// `sel.columns_on` 给的是整条逻辑行的内容列，而 `RowLine.cells` 是段内切片、
+/// 标记列也是段内相对列。少了这一步夹取，第二段的选区空白会画到第一段头上。
+fn selected_range_in_segment(range: (usize, usize), from: usize, to: usize) -> Option<(usize, usize)> {
+    let (sel_from, sel_to) = range;
+    if sel_from >= to || sel_to <= from {
+        return None;
+    }
+    Some((sel_from.max(from) - from, sel_to.min(to) - from))
 }
 
 /// 事实窗口里的一行 → **内容绝对行号**（`wraps` / `row_times` / `blocks` 用的是这一套）。
@@ -374,6 +388,19 @@ mod tests {
             "横笔必须往左收，否则画出来是个反向的 L"
         );
         assert!((strokes[1][0].x - strokes[0][1].x).abs() < 0.01, "两笔在右下角相接");
+    }
+
+    /// 段内选区夹取：内容列 → 段内相对列，跨段的部分不许渗进别的段。
+    #[test]
+    fn selection_ranges_are_clipped_to_the_segment_before_drawing() {
+        // 段 10..20。完全在前面的 / 完全在后面的都不画。
+        assert_eq!(selected_range_in_segment((0, 10), 10, 20), None);
+        assert_eq!(selected_range_in_segment((20, 30), 10, 20), None);
+        // 跨段：左边露出的部分夹掉，右边按段尾截断，再减段起点。
+        assert_eq!(selected_range_in_segment((0, 15), 10, 20), Some((0, 5)));
+        assert_eq!(selected_range_in_segment((15, usize::MAX), 10, 20), Some((5, 10)));
+        // 整段命中。
+        assert_eq!(selected_range_in_segment((0, usize::MAX), 10, 20), Some((0, 10)));
     }
 
     /// 全关时颜色表也照算不误——它只是取前景色乘 alpha，没有状态。

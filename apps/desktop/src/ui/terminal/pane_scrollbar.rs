@@ -25,6 +25,19 @@ pub(super) struct ScrollbarView {
     pub(super) history: i64,
     pub(super) cell_h: f32,
     pub(super) wheel_lines: i64,
+    /// 鼠标报告开关 / Shift 豁免与正文共用同一份快照：滚滚动条时也不能
+    /// 「既滚程序又滚回看」（xterm 惯例，见 `pane.rs` 的 `wheel_to_program`）。
+    pub(super) mouse_reporting: bool,
+    pub(super) shift: bool,
+}
+
+/// 滚轮归本地回看还是归程序，与正文同一把尺子。
+///
+/// 裁决：滚动条是本地 chrome，但**滚轮手势**仍受鼠标报告门控——不开报告或
+/// 按住 Shift 才是本地手势；否则指针在轨道上时不能绕过豁免偷偷滚回看。
+/// 拖拽 / 点击跳转仍是本地操作，不走这条判据。
+fn wheel_is_local(mouse_reporting: bool, shift: bool) -> bool {
+    !mouse_reporting || shift
 }
 
 /// 轨道矩形：贴右边缘、占满内容高度（浮动叠加，不改 `avail_w` / `cols`）。
@@ -77,6 +90,7 @@ pub(super) fn interact(
     viewport: &mut Viewport,
 ) -> Option<f32> {
     let (rows, history, cell_h, wheel_lines) = (view.rows, view.history, view.cell_h, view.wheel_lines);
+    let wheel_local = wheel_is_local(view.mouse_reporting, view.shift);
     if history <= 0 {
         return None;
     }
@@ -132,7 +146,8 @@ pub(super) fn interact(
 
     // 滚轮补位：指针在轨道上时，content 的 `resp.hovered()` 已不再是它（滚动条更靠上
     // 注册），原滚轮分支不触发；这里显式接住，避免「滚不动」死角（设计稿 §5.5）。
-    if resp.hovered() {
+    // 与正文同门控：鼠标报告开着且没按 Shift 时滚轮归程序，这里必须放手。
+    if resp.hovered() && wheel_local {
         let dy = ui.input(|i| i.raw_scroll_delta.y);
         if dy.abs() > f32::EPSILON {
             let lines = ((dy / cell_h) * wheel_lines as f32).round() as i64;
@@ -215,6 +230,15 @@ mod tests {
             assert_eq!(click_scroll_top(tr, rows, history, centre, th.height), st);
             assert_eq!(scroll_top_of(tr, rows, history, centre - th.height / 2.0), st);
         }
+    }
+
+    #[test]
+    fn the_wheel_gate_matches_the_content_branch_and_shift_exempts_the_scrollbar() {
+        // 与 pane.rs 的 `wheel_to_program = mouse_reporting && !shift` 互补。
+        assert!(wheel_is_local(false, false), "关报告：滚轮永远归本地");
+        assert!(wheel_is_local(false, true));
+        assert!(!wheel_is_local(true, false), "开报告又没按 Shift：滚轮归程序");
+        assert!(wheel_is_local(true, true), "Shift 是本地手势的豁免键");
     }
 
     #[test]

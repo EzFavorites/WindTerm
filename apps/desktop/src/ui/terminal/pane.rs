@@ -295,6 +295,8 @@ impl TerminalWindow {
                 history: tab.snapshot.history as i64,
                 cell_h,
                 wheel_lines: tab.config.wheel_lines.max(1) as i64,
+                mouse_reporting: tab.snapshot.mouse_reporting,
+                shift,
             };
             preview_hover_y = scrollbar_interact(
                 ui,
