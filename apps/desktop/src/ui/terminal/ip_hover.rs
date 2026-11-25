@@ -137,7 +137,6 @@ pub(super) fn paint(
     geom: GridGeom,
     word_wrap: bool,
     rules: &[Rule],
-    id: egui::Id,
 ) -> Option<term_app::trigger::Hit> {
     if word_wrap {
         return None;
