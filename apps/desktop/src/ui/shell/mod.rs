@@ -9,6 +9,10 @@
 //! `docs/design/13-ui-shell.md`；声明顺序决定谁贴最底边（状态栏先声明）。
 
 mod find_bar;
+// UI 外壳审查批次：帧首统一前置阶段（锁屏 / 模态键盘 / 快捷键门控 / prefs 版本号）
+// 与全局快捷键的事件门控。放新文件是为了守住 ui/mod.rs 的 500 代码行上限。
+mod pre_update_gate;
+pub(in crate::ui) mod shortcut_gate;
 /// `×` / `⚙` 的**唯一**画法与落位。2026-11-17 之前仓里有五份 `×`、三份 `⚙`，
 /// 同一个窗口右下角能量出三种尺寸——见模块头那张对照表。
 mod glyph;

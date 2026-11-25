@@ -667,6 +667,9 @@ pub enum CenterAction {
     CancelDeleteSession,
     /// 会话管理器「移动到分组」下拉框的当前选择（绘制时提交回 reducer）。
     SetMoveGroup(String),
+    /// 工作台配色下标。过去投影层直接写 `ViewState.center.scheme_idx`，
+    /// 绕过 reducer 的第二份真相；现在和别的字段一样走 dispatch。
+    SetScheme(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

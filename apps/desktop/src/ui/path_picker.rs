@@ -81,7 +81,10 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     };
     let mut chosen: Option<String> = None;
     let mut cancel = false;
-    egui::Window::new(title)
+    // `show` 返回 None = 用户点了标题栏 ×（或窗口被外部收掉）。过去不看来
+    // 返回值、无条件 `win.path_picker = Some(picker)`，于是 × 掉的下一帧
+    // 选择器立刻重开，根本关不掉。
+    let shown = egui::Window::new(title)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
@@ -148,7 +151,8 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
         });
     if let Some(path) = chosen {
         apply(win, picker.target, path);
-    } else if !cancel {
+    } else if !cancel && shown.is_some() {
         win.path_picker = Some(picker);
     }
+    // Cancel 或标题栏 ×：picker 随 `take()` 一起丢弃，不重新挂回去。
 }

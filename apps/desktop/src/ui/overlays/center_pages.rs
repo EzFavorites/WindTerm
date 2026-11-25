@@ -348,7 +348,8 @@ pub(super) fn draw_page(
                         work.push(Work::Activate(i));
                     }
                     if ui.small_button("关闭").clicked() {
-                        work.push(Work::Close(i));
+                        // 存恒在身份：从绘制到 apply_work 之间标签列表可能变过。
+                        work.push(Work::Close(tab.identity));
                     }
                 });
             }

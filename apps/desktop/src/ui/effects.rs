@@ -245,7 +245,10 @@ impl TerminalWindow {
             self.confirm.suppress_session,
             self.confirm.multi_tabs,
         ) {
-            self.confirm.pending = Some(crate::ui::dialogs::confirm::ConfirmClose::Tab(i));
+            let Some(kind) = crate::ui::dialogs::confirm::tab_at(&self.tabs, i) else {
+                return;
+            };
+            self.confirm.pending = Some(kind);
             self.confirm.check = false;
             return;
         }

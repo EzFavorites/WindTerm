@@ -38,6 +38,10 @@ mod strip;
 mod style;
 mod text;
 
+#[cfg(test)]
+#[path = "draft_tests.rs"]
+mod draft_tests;
+
 use crate::ui::*;
 use term_app::trigger::{Rule, TriggerAction};
 use term_core::trigger::{RuleConfig, TriggerKind};
@@ -190,6 +194,13 @@ pub(in crate::ui) struct View {
     pub pending_color: Option<term_core::trigger::ColorChoice>,
     /// 新建弹窗的 `Type` 列表是否展开。
     pub type_menu: bool,
+    /// 打开对话框那一刻的已提交规则快照。用来识别「关窗后重新打开」——
+    /// 那一刻必须重新克隆草稿，不能把上次取消掉的编辑带回来。
+    pub committed: Option<Vec<Rule>>,
+    /// 编辑草稿。`show` 的每一帧临时把它换成 `win.triggers`，帧末换回来：
+    /// 只有 Ok 才把草稿写进 prefs 并 `reload_triggers`，Cancel / Esc / 关窗
+    /// 一律丢弃。过去直接改 `win.triggers`，Cancel 之后运行期规则已经变了。
+    pub draft: Option<Vec<Rule>>,
 }
 
 impl Default for View {
@@ -217,6 +228,8 @@ impl Default for View {
             slot: ColorSlot::Mark,
             pending_color: None,
             type_menu: false,
+            committed: None,
+            draft: None,
         }
     }
 }
@@ -340,6 +353,11 @@ pub(in crate::ui) fn show(
 ) -> bool {
     let mut view = View::load(ui.ctx());
 
+    // 这一帧的所有编辑都发生在草稿上：临时把草稿塞进 `win.triggers`，
+    // 让原有绘制代码一个字不用改；帧末按 Ok / Cancel 决定保留还是丢弃。
+    let mut draft = begin_draft(&mut view, &win.triggers);
+    std::mem::swap(&mut win.triggers, &mut draft);
+
     // 选中项可能被删：先校正。左列表**不按页过滤**——视觉基线 `13` 里
     // 事件类（计时器图标）、Custom link、Highlight 三类同列在一个列表中。
     if view.sel.is_some_and(|i| i >= win.triggers.len()) {
@@ -387,9 +405,41 @@ pub(in crate::ui) fn show(
     }
 
     let close = act.close;
+    let saved = act.save;
     apply(win, &mut view, act);
+    // Ok：`apply` 已把草稿写回 prefs 并 reload，`win.triggers` 就是新的已提交
+    // 版本——丢掉换出来的旧版本。Cancel / 关窗：换回已提交版本，草稿作废。
+    finish_draft(&mut view, draft, &mut win.triggers, saved, close);
     view.store(ui.ctx());
     close
+}
+
+/// 帧首：取出这份对话框的草稿（必要时重新克隆已提交规则）。
+pub(in crate::ui) fn begin_draft(view: &mut View, committed: &[Rule]) -> Vec<Rule> {
+    if view.draft.is_none() || view.committed.as_deref() != Some(committed) {
+        view.committed = Some(committed.to_vec());
+        view.draft = Some(committed.to_vec());
+    }
+    view.draft.take().unwrap_or_default()
+}
+
+/// 帧末：`saved` 时草稿已经被 `apply` 提交；其余路径一律把已提交版本换回来。
+pub(in crate::ui) fn finish_draft(
+    view: &mut View,
+    mut draft: Vec<Rule>,
+    live: &mut Vec<Rule>,
+    saved: bool,
+    close: bool,
+) {
+    if saved {
+        view.committed = Some(live.clone());
+        view.draft = None;
+    } else {
+        // swap 之后：`live` 是已提交版本，`draft` 是这一帧编辑过的草稿。
+        std::mem::swap(live, &mut draft);
+        view.committed = Some(live.clone());
+        view.draft = if close { None } else { Some(draft) };
+    }
 }
 
 /// 一次绘制里累积的结构性动作，绘制结束后统一落地（避免边遍历边改）。

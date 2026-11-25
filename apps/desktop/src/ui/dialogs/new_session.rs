@@ -569,10 +569,13 @@ impl TerminalWindow {
     /// 打开一张新会话表单。**必须走这里**：它把 dialog 重置成 `New`，
     /// 否则在「属性 / 默认会话」之后点「＋ New Session」会把上一条会话改掉。
     ///
-    /// 注意：这里**不**用 `default_session` 重填表单——保持与历史行为一致，
-    /// 避免改动新建会话的初始表单、连带冲掉会话弹窗的组件基线。把「默认会话
-    /// 模板作用于新建」接到 `open_new_session` 是后续一步（需重冻基线）。
+    /// 表单本身也要重置：`NewSessionData::from_config` 从出厂 `SessionConfig`
+    /// 重建，否则上一次表单里敲的名字 / 主机 / 密码会留着，保存时按同名覆盖
+    /// 旧会话。仍不套用 `default_session` 模板——那会改动新建表单初值、冲掉
+    /// 组件基线（Default Settings 只写回自己的模板，不进 New 的初值）。
     pub(in crate::ui) fn open_new_session(&mut self, group: Option<String>) {
+        self.new_session = NewSessionData::from_config(&SessionConfig::new(Protocol::Shell));
+        self.new_session.selected_page = 0;
         self.session_dialog = SessionDialogKind::New { group: group.clone() };
         if let Some(group) = group {
             self.new_session.group = group;
@@ -709,11 +712,16 @@ impl TerminalWindow {
         }
     }
 
-    /// 把 `default_session` 模板落盘（目前为内存态占位，见 `mod.rs` 字段注释）。
+    /// 把 `default_session` 模板落盘到 `prefs.json`（`Prefs.default_session`）。
     ///
-    /// 接 prefs 持久化时在这里做唯一一处写入；现在先留空，保证 `Default` 模式
-    /// 在「不改动既有持久化格式」的前提下就能跑通完整保存链路。
-    fn persist_default_session(&mut self) {}
+    /// load-modify-save：整份重建会把语言 / 抑制位 / 触发器等一起清掉；这里只
+    /// 改自己那一个字段。`construct.rs` 启动时从同一处读回，下次打开 Default
+    /// 表单看到的就是上次保存的模板，而不是重新回到出厂值。
+    fn persist_default_session(&mut self) {
+        let template = self.default_session.clone();
+        // 走 dialogs 统一的 load-modify-save 入口，不再多两份 `term_runtime::` 门面引用。
+        super::settings_live::save_prefs(|prefs| prefs.default_session = Some(template));
+    }
 }
 
 // 属性面板（`Properties`）的分派语义用单测钉住：标题 / 按钮 / 是否连接 / 写回哪条

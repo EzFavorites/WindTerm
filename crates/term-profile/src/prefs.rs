@@ -130,6 +130,12 @@ pub struct Prefs {
     /// 关闭**会话**（单条或全部）不再弹确认。
     #[serde(default)]
     pub suppress_close_session: bool,
+    /// `Session ▸ Preferences ▸ Default Session Settings` 保存的默认模板。
+    /// `None` = 用户没保存过，界面回落到出厂 `SessionConfig::new(Protocol::Ssh)`。
+    /// 用 `Option` 而不是整份 `SessionConfig`，老文件缺键时 serde 缺省即「没设过」，
+    /// 不会凭空造出一条用户的默认会话。
+    #[serde(default)]
+    pub default_session: Option<term_core::session::SessionConfig>,
     /// Session Settings ▸ Logging 配置页（2026-11-08）。空串 / 0 表示「老文件
     /// 没这项」，由 `apps/desktop` 的 `LogSettingsData::from_prefs` 回落到视觉基线
     /// 默认值；写回时一定是具体值。分开存而不是塞一个 JSON 字符串，是为了
@@ -695,6 +701,8 @@ impl Default for Prefs {
             language: String::new(),
             suppress_close_window: false,
             suppress_close_session: false,
+            // 没保存过默认模板：界面回落到出厂 SessionConfig。
+            default_session: None,
             log_type: 0,
             log_overwrite: 0,
             log_file_name: String::new(),
@@ -1086,10 +1094,23 @@ pub fn exists() -> bool {
 /// 这一步的代价是每次写多读一遍这个几百字节的文件——设置页的写只在
 /// 「松手 / 点一下」时发生，不在每帧。
 pub fn save(prefs: &Prefs) -> bool {
-    match prefs_path() {
+    let ok = match prefs_path() {
         Some(path) => save_to(&path, prefs),
         None => false,
+    };
+    // 偏好版本号：每次**成功**写盘推进一格。界面层每帧读一次差额，得到
+    // `AppSnapshot.prefs_rev`——脚本据此判断要不要重取偏好，不再拿到死状态。
+    if ok {
+        WRITE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
+    ok
+}
+
+static WRITE_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 成功写盘的次数。只用来推进界面层的 `prefs_rev`，不落盘、不跨进程。
+pub fn write_generation() -> u64 {
+    WRITE_GENERATION.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// 显式路径版的写盘，语义与 [`save`] 完全一致（同一套覆盖前保全）。

@@ -16,6 +16,10 @@
 //! `ViewState` / `WindowOpacity` 里，已经分别落在 `window` 与 `panels` 段。
 //! 目前只暴露语言：它是唯一一条「改了能立刻生效」的偏好。
 
+#[cfg(test)]
+#[path = "app_state_prefs_rev_tests.rs"]
+mod app_state_prefs_rev_tests;
+
 use crate::ui::layout::Placement;
 use crate::ui::*;
 use term_app::action::Action;

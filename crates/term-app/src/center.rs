@@ -194,6 +194,7 @@ pub fn reduce(state: &mut CenterState, action: CenterAction) {
         CenterAction::ConfirmDeleteSession => state.confirm_delete = true,
         CenterAction::CancelDeleteSession => state.confirm_delete = false,
         CenterAction::SetMoveGroup(g) => state.move_group = g,
+        CenterAction::SetScheme(idx) => state.scheme_idx = idx,
     }
 }
 

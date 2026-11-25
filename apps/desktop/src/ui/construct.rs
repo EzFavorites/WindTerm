@@ -233,7 +233,8 @@ impl TerminalWindow {
                 flow_control: term_core::config::SERIAL_FLOW_CONTROL.to_string(),
             },
             session_dialog: SessionDialogKind::New { group: None },
-            default_session: SessionConfig::new(Protocol::Ssh),
+            // Default Session Settings 的落盘模板：用户没保存过时回落出厂值。
+            default_session: prefs.default_session.clone().unwrap_or_else(|| SessionConfig::new(Protocol::Ssh)),
             // 快捷命令表出厂四组十五项；文件坏 / 不存在都回默认，不拦启动。
             quick_bar: term_runtime::quickbar::load(),
             // 三个显示开关从 prefs 读初值（兼容终端 user.config 的位置）；

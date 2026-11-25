@@ -131,6 +131,10 @@ impl TerminalWindow {
     /// `Pass` 才轮到第 2 步，两步都不命中就什么都不吃——`pane.rs` 照常把字符
     /// 写进 PTY。
     pub(in crate::ui) fn handle_global_shortcuts(&mut self, ctx: &egui::Context) {
+        // 浮层 / 对话框开着时先过门控：单段 Enter/↑/↓ 既不派发也不吞，留给
+        // 浮层自己的输入框与列表（命令面板 / Goto / Center / Xfer 的键盘）。
+        // 正在重绑时例外：那一次按键是「要捕获的绑定」而不是命令，必须原样收到。
+        let overlay = overlay_open(self) && self.shortcut_capture.is_none();
         // egui 的帧时间（秒）。**不用墙钟**：夹具把 `i.time` 钉成 0.0，
         // 用 `Instant::now()` 会让截图/回放随真实时间抖动。
         let now_ms = (ctx.input(|i| i.time) * 1000.0) as u64;
@@ -145,6 +149,9 @@ impl TerminalWindow {
                     ..
                 } = event
                 {
+                    if !crate::ui::shell::shortcut_gate::dispatchable(*key, *modifiers, overlay) {
+                        continue;
+                    }
                     if let Some(name) = key_name(*key) {
                         pressed.push(Press {
                             chord: shortcuts::chord(
@@ -241,6 +248,19 @@ impl TerminalWindow {
     }
 }
 
+/// 此刻有没有浮层 / 对话框在吃键盘。`lock.locked` 已在统一前置阶段短路，
+/// 不必再列——它那帧根本走不到这里。
+fn overlay_open(win: &TerminalWindow) -> bool {
+    let v = &win.view;
+    win.modal_dialog_open()
+        || v.command_palette.visible
+        || v.goto.visible
+        || v.center.visible
+        || v.find.visible
+        || win.path_picker.is_some()
+        || win.upload_picker.is_some()
+}
+
 /// 把「这一帧已经开火的按下」连同它带出来的文本一起从输入事件里抹掉。
 ///
 /// # 为什么只抹 `Key` 不够（2026-11-11 逐层读源码确认，不是猜）
@@ -262,27 +282,13 @@ impl TerminalWindow {
 /// 而 `pane.rs:237` 把 `Event::Text` 无条件写进 PTY。也就是说：不抹的话，
 /// 按 `Alt+W` 开分屏的同时，PTY 里会多出一个 `∑`。
 ///
-/// # 为什么要整帧抹
+/// # 为什么只抹紧邻的那一条 Text
 ///
-/// `Event::Text` 不带键身份（只有一串字符），无法判断它是不是这次按下的副产物。
-/// 所以只在「本帧确实消费过按键」时抹，代价是同一帧里别的文本事件也会被牺牲
-/// —— egui 一帧内的按键序列本来就不保证，这个代价比往 PTY 里灌乱码小得多。
+/// `Event::Text` 不带键身份（只有一串字符），过去整帧清掉会连浮层输入框里
+/// 刚敲的字一起抹掉。egui-winit 产出顺序是「Key → Text」紧邻两条，所以按
+/// 相邻关系定位即可：只删被消费按键后面那一条，其余文本原样留下。
 fn eat_shortcut_events(ctx: &egui::Context, eaten: &[(egui::Modifiers, egui::Key)]) {
-    if eaten.is_empty() {
-        return;
-    }
-    ctx.input_mut(|i| {
-        i.events.retain(|event| match event {
-            egui::Event::Key {
-                key,
-                pressed: true,
-                modifiers,
-                ..
-            } => !eaten.iter().any(|(m, k)| m == modifiers && k == key),
-            egui::Event::Text(_) => false,
-            _ => true,
-        });
-    });
+    crate::ui::shell::shortcut_gate::eat(ctx, eaten);
 }
 
 impl TerminalWindow {

@@ -40,6 +40,10 @@
 //! `Ok` 之后那句橙字说的「Tunnels will be refreshed after closing the dialog」
 //! 是真的：写回 prefs 时一并按新的启用状态重起隧道（`apply_tunnels_after_edit`）。
 
+#[cfg(test)]
+#[path = "tunnel_settings_tests.rs"]
+mod tunnel_settings_tests;
+
 use crate::ui::*;
 use crate::ui::kit::window::DialogWindow;
 use super::dialog_chrome::{place, rgb};
@@ -86,6 +90,9 @@ pub(in crate::ui) struct Editor {
     pub(in crate::ui) sel: Option<usize>,
     /// 最近一次校验失败的原因（显示在橙字那一行下方）。
     pub(in crate::ui) error: Option<String>,
+    /// 端口输入过非法文本：直到改对之前 Ok 都不可用。
+    /// 光靠 `error` 不够——用户改对后那句提示会被下一次成功解析清掉。
+    pub(in crate::ui) port_invalid: bool,
 }
 
 impl Editor {
@@ -95,6 +102,7 @@ impl Editor {
             rows,
             sel,
             error: None,
+            port_invalid: false,
         }
     }
 
@@ -106,6 +114,20 @@ impl Editor {
         let i = self.sel?;
         self.rows.get_mut(i)
     }
+}
+
+/// Ok 前的整表校验：名字非空且唯一。端口是 `u16`，解析那一关已经在
+/// [`port_row`] 挡掉非法文本，这里的范围天然成立。
+pub(in crate::ui) fn validate_rows(rows: &[TunnelProfile]) -> Option<String> {
+    if rows.iter().any(|r| r.name.trim().is_empty()) {
+        return Some("有一条隧道没有名字。".into());
+    }
+    for (i, row) in rows.iter().enumerate() {
+        if rows[..i].iter().any(|prev| prev.name == row.name) {
+            return Some(format!("隧道名字「{}」重复。", row.name));
+        }
+    }
+    None
 }
 
 /// 把总线开关写回 `prefs.json`（`Effect::ToggleTunnels` 的第二步）。
@@ -140,9 +162,11 @@ pub(in crate::ui) fn draw(
         });
 
     if commit {
-        if ed.rows.iter().any(|r| r.name.trim().is_empty()) {
+        if ed.port_invalid {
+            ed.error = Some("端口必须是 0–65535 的整数。".into());
+        } else if let Some(why) = validate_rows(&ed.rows) {
             // 校验失败：**停在原地**，草稿原样留给用户改。
-            ed.error = Some("有一条隧道没有名字。".into());
+            ed.error = Some(why);
         } else {
             let snapshot = ed.rows.clone();
             super::settings_live::save_prefs(|p| p.tunnels = snapshot.clone());
@@ -244,9 +268,13 @@ fn form(ui: &mut egui::Ui, o: egui::Pos2, ed: &mut Editor) {
     text_row(ui, o, ROW_Y[0], "Name:", &mut next.name);
     kind_row(ui, o, ROW_Y[1], &mut next.kind, !has_sel);
     session_row(ui, o, ROW_Y[2], &mut next.session, ed);
-    port_row(ui, o, ROW_Y[3], "Listen Port:", &mut next.listen_port, true);
+    port_row(
+        ui, o, ROW_Y[3], "Listen Port:", &mut next.listen_port, true, &mut ed.error, &mut ed.port_invalid,
+    );
     text_row(ui, o, ROW_Y[4], "Destination Host:", &mut next.dest_host);
-    port_row(ui, o, ROW_Y[5], "Destination Port:", &mut next.dest_port, false);
+    port_row(
+        ui, o, ROW_Y[5], "Destination Port:", &mut next.dest_port, false, &mut ed.error, &mut ed.port_invalid,
+    );
 
     label(ui, o, STATUS_Y, "Status:");
     place(
@@ -318,6 +346,8 @@ fn port_row(
     name: &str,
     value: &mut u16,
     dynamic_hint: bool,
+    error: &mut Option<String>,
+    invalid: &mut bool,
 ) {
     label(ui, o, y, name);
     let rect = field_rect(o, y);
@@ -333,7 +363,32 @@ fn port_row(
                 .text_color(rgb(C_TEXT)),
         );
         if resp.changed() {
-            *value = buf.trim().parse().unwrap_or(0);
+            let trimmed = buf.trim();
+            // 空串 = 动态端口（占位提示）；非空必须是合法 u16。
+            // 过去 `.unwrap_or(0)` 把 "abc" / "70000" 静默变成 0，
+            // 用户点了 Ok 还以为自己填的是动态端口。
+            if trimmed.is_empty() {
+                *value = 0;
+                *invalid = false;
+                if error.as_deref() == Some("端口必须是 0–65535 的整数。") {
+                    *error = None;
+                }
+            } else {
+                match trimmed.parse::<u16>() {
+                    Ok(parsed) => {
+                        *value = parsed;
+                        *invalid = false;
+                        if error.as_deref() == Some("端口必须是 0–65535 的整数。") {
+                            *error = None;
+                        }
+                    }
+                    Err(_) => {
+                        // 保留原值，别让坏输入落地；Ok 会被 invalid 拦下。
+                        *invalid = true;
+                        *error = Some("端口必须是 0–65535 的整数。".into());
+                    }
+                }
+            }
         }
     });
     // ⇅：两枚小三角，点一下 ±1（视觉基线是 spinner，不是滚轮）。
@@ -345,6 +400,11 @@ fn port_row(
         let resp = ui.interact(r, egui::Id::new(("spin", name, k as i32)), egui::Sense::click());
         if resp.clicked() {
             *value = value.saturating_add_signed(d as i16);
+            // 箭头把值改成了一个合法 u16，之前的坏文本不再适用。
+            *invalid = false;
+            if error.as_deref() == Some("端口必须是 0–65535 的整数。") {
+                *error = None;
+            }
         }
         let c = r.center();
         let col = if resp.hovered() { rgb(0xE0E0E0) } else { rgb(0x9A9A9A) };

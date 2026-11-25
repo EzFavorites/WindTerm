@@ -5,10 +5,11 @@
 //! 只有 `Features` 三个开关，右侧留白就是它的样子。这里另开一个窗口，
 //! 入口是快捷命令栏左侧配置菜单底部的 `Edit commands`。
 //!
-//! `Ok` = 保存并关闭，`Cancel` = 回滚到**打开窗口那一刻**的快照并关闭。
-//! 编辑期间改动即时反映到底栏（`quick_bar` 是渲染期副本），但只有 `Ok`
-//! 才写 `quickbar.config`——每帧写盘会让输入框每敲一个字都触发一次 IO。
-//! 三个显示开关则写 `prefs.json`（兼容终端 `user.config` 的位置）。
+//! `Ok` = 保存并关闭；`Cancel` / Esc / 关窗 = 关闭并**丢弃草稿**，内存里的
+//! `self.quick_bar` 一个字节都不动。编辑只发生在帧内的 `cfg` 副本里，
+//! 只有 `Ok` 才同时写渲染副本与 `quickbar.config`——过去每帧写回内存副本，
+//! 取消之后底栏仍留着未保存的命令表，盘上却还是旧的，两份真相打架。
+//! 三个显示开关同样只在 `Ok` 时写 `prefs.json`。
 
 use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use eframe::egui;
@@ -51,7 +52,8 @@ impl TerminalWindow {
             id("qc_renaming"),
             id("qc_rename_text"),
         );
-        // 首次打开记快照；Cancel 时整份回滚。关窗时置 None，下次打开重记。
+        // 打开时记一份快照留作「这一轮编辑的起点」（关窗置 None）。
+        // 草稿本身只在帧内的 `cfg` 里，不再每帧写回 `self.quick_bar`。
         if ctx
             .data(|d| d.get_temp::<Option<QuickBarConfig>>(snap_id).unwrap_or(None))
             .is_none()
@@ -370,25 +372,20 @@ impl TerminalWindow {
             d.insert_temp(rename_text_id, rename_text);
         });
 
-        if cancel {
-            if let Some(snapshot) =
-                ctx.data(|d| d.get_temp::<Option<QuickBarConfig>>(snap_id).unwrap_or(None))
-            {
-                self.quick_bar = snapshot;
-            }
-        } else {
+        // 草稿只活在 `cfg` 里：`self.quick_bar` 是底栏每帧读的渲染副本，
+        // 过去每帧都把未确认的编辑写回去，Cancel / 关窗后底栏就留着一份
+        // 「没保存却生效」的命令表。现在只有 Ok 才写内存副本并落盘。
+        if ok {
             self.quick_bar = cfg;
-            if ok {
-                quickbar::save(&self.quick_bar);
-                // 三个显示开关落 prefs（兼容终端 user.config 的位置）；并同步窗口上的
-                // 渲染副本，底栏当帧就反映勾选结果。命令表与开关各写各的文件。
-                let mut p = prefs::load().unwrap_or_default();
-                p.quickbar_show_multiple_groups = disp.show_multiple_groups;
-                p.quickbar_show_group_title = disp.show_group_title;
-                p.quickbar_alphabetical = disp.alphabetical;
-                prefs::save(&p);
-                self.quick_bar_display = disp;
-            }
+            quickbar::save(&self.quick_bar);
+            // 三个显示开关落 prefs（兼容终端 user.config 的位置）；并同步窗口上的
+            // 渲染副本，底栏当帧就反映勾选结果。命令表与开关各写各的文件。
+            let mut p = prefs::load().unwrap_or_default();
+            p.quickbar_show_multiple_groups = disp.show_multiple_groups;
+            p.quickbar_show_group_title = disp.show_group_title;
+            p.quickbar_alphabetical = disp.alphabetical;
+            prefs::save(&p);
+            self.quick_bar_display = disp;
         }
         if ok || cancel || !open {
             self.view.show_quick_commands = false;

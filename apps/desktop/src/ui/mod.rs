@@ -837,20 +837,10 @@ impl TerminalWindow {
             self.draw_component_demo(ctx, comp);
             return;
         }
-        // 远端 Sysmon：开关开着才可能发起一次采样；节流 / 工作线程在 sysmon_remote
-        // 里，这里只做每帧的参数准备，不阻塞、不碰用户 PTY。
-        self.sync_remote_sysmon(ctx); self.confirm_pre_update(ctx); // 都赶在事件消费者之前
-        // 粘贴确认弹窗的键盘模态：同样要赶在终端吃键之前（弹窗开着时 Esc /
-        // Enter 归它，其余键与文字一律吃掉）。
-        self.paste_pre_update(ctx);
-        self.handle_global_shortcuts(ctx);
-        // 空闲超时先判：它派发的 Lock 在下面这一帧就生效，不多留一帧空窗。
-        self.poll_lock_timeout(ctx);
-        // V1-3：锁屏时只画遮罩，其余面板一律不画——否则「锁」只是装饰。
-        if self.view.lock.locked {
-            self.draw_lock(ctx);
-            return;
-        }
+        // 帧首前置阶段：锁屏边界 / 模态键盘 / 全局快捷键门控 / prefs 版本号，
+        // 全部收在 shell/pre_update_gate.rs（本文件守 500 代码行上限，不再加行）。
+        // 返回 true = 锁屏已画出，本帧到此为止。
+        if self.pre_update_gate(ctx) { return; }
         apply_ui_style(ctx, &self.palette);
         // `install` 返回 `true` = 这一帧才把新字形定义交给 egui，它下一帧才
         // 生效（`Context::set_fonts` 只挂 `new_font_definitions`）。此时量 cell

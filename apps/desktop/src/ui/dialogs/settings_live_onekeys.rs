@@ -361,10 +361,14 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             }
             win.save_onekeys();
         } else {
-            // Cancel 必须把**密码草稿**也丢掉。它是 `win` 上的字段，不在这份
-            // `edit` 里；留着的话，下次任意一次 Ok 都会 `save_onekeys()`，
+            // Cancel 必须把**三份凭据草稿**一起丢掉。它们都是 `win` 上的字段，
+            // 不在这份 `edit` 里；留着的话，下次任意一次 Ok 都会 `save_onekeys()`，
             // 把这次已经取消的输入写进保险库——用户以为取消了，凭据却落了盘。
+            // 密码、Keyboard-Interactive 应答、自动填充密码三者共用同一条写入口
+            // （见 `vault.rs::flush_onekey_drafts`），漏一个就等于没取消。
             win.onekeys_password_draft = None;
+            win.onekeys_ki_draft = None;
+            win.onekeys_autofill_draft = None;
         }
         win.view.show_onekeys = false;
         // 丢掉整份编辑态：下次打开重新从落盘值拷贝草稿。

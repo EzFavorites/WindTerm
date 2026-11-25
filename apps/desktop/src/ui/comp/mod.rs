@@ -477,7 +477,8 @@ impl TerminalWindow {
                 // pending 直接摆好，弹窗绘制与交互路径同一份代码。
                 self.confirm.pending = Some(match comp {
                     comp::CompId::ConfirmCloseSession => {
-                        crate::ui::dialogs::confirm::ConfirmClose::Tab(0)
+                        // 夹具没有真标签，用哨兵身份：绘制只关心文案与尺寸。
+                        crate::ui::dialogs::confirm::ConfirmClose::Tab(u64::MAX)
                     }
                     _ => crate::ui::dialogs::confirm::ConfirmClose::Window,
                 });

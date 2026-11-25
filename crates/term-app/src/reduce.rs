@@ -128,11 +128,14 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         Action::TmuxFeed(line) => vec![Effect::TmuxFeed(line)],
         // 纯 reducer 只把静态文本提升为 Effect；不碰 ViewState、不碰 PTY。
         Action::QuickCommand(text) => vec![Effect::SendCommand(text)],
-        // 配置菜单切分组可见性——只翻一位 `bool`，无 Effect。index 越界时
-        // 用取模兜底，菜单永远给的是合法下标，这里只是不让 reducer panic。
+        // 配置菜单切分组可见性——只翻一位 `bool`，无 Effect。
+        // 越界直接 return：取模兜底会把第 5 组（下标 4）折回第 1 组，
+        // 于是菜单上那一格永远点不动；静默翻错一组比不翻更糟。
         Action::QuickGroupToggle(i) => {
-            let slot = i % state.quick_groups_visible.len();
-            state.quick_groups_visible[slot] = !state.quick_groups_visible[slot];
+            if i >= state.quick_groups_visible.len() {
+                return vec![];
+            }
+            state.quick_groups_visible[i] = !state.quick_groups_visible[i];
             vec![]
         }
     }

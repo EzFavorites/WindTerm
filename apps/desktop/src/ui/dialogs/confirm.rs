@@ -28,6 +28,10 @@
 //! 是 prefs 缓存，勾选即刻 `prefs::save`（读回在 `construct.rs`），与
 //! `layout.json` 分开。
 
+#[cfg(test)]
+#[path = "confirm_identity_tests.rs"]
+mod confirm_identity_tests;
+
 use crate::ui::*;
 
 /// 要关的东西：决定文案、窗口高度与 Yes 的落点。
@@ -35,10 +39,19 @@ use crate::ui::*;
 pub(in crate::ui) enum ConfirmClose {
     /// 关闭整个窗口（软件）：两行文案，含「有会话正在打开」。
     Window,
-    /// 关闭下标 `usize` 的那条会话。
-    Tab(usize),
+    /// 关闭**恒在身份**为 `SessionId` 的那条会话。
+    ///
+    /// 不能存下标：弹窗挂着的时候脚本 / 导入可能在前面插一条标签，
+    /// 同一个下标就指向了另一条会话，Yes 之后关错窗口。身份不受插入影响。
+    Tab(term_core::session_runtime::SessionId),
     /// 关闭全部会话（Close All Views）。
     AllTabs,
+}
+
+/// 从标签下标造一条带**身份**的待确认关闭。下标失效时返回 `None`——
+/// 那说明调用方看到的世界已经过期，宁可不弹也不缓存一个会关错人的下标。
+pub(in crate::ui) fn tab_at(tabs: &[crate::ui::Tab], index: usize) -> Option<ConfirmClose> {
+    tabs.get(index).map(|tab| ConfirmClose::Tab(tab.identity))
 }
 
 impl ConfirmClose {
@@ -223,7 +236,12 @@ impl TerminalWindow {
         }
         match kind {
             ConfirmClose::Window => self.exit_application(),
-            ConfirmClose::Tab(i) => self.confirm_close_tab(i),
+            // 按身份反查：弹窗挂着期间标签列表可能插 / 删过，下标早就不作数了。
+            ConfirmClose::Tab(id) => {
+                if let Some(i) = self.tabs.iter().position(|t| t.identity == id) {
+                    self.confirm_close_tab(i);
+                }
+            }
             ConfirmClose::AllTabs => self.confirm_close_all_views(),
         }
     }

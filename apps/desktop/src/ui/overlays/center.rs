@@ -53,7 +53,8 @@ enum Work {
     ResetDefaults,
     Send(String),
     Activate(usize),
-    Close(usize),
+    /// 按**恒在身份**关闭，绘制时的下标跨帧会作废（脚本可能开新标签）。
+    Close(term_core::session_runtime::SessionId),
     SetScheme(usize),
     DeleteSession(usize),
     /// 打开选中会话的属性表单（复用 New Session 对话框）。
@@ -126,9 +127,11 @@ impl TerminalWindow {
                     let name = self.sessions[i].name.clone();
                     self.sessions.remove(i);
                     term_runtime::persist::save(&self.groups, &self.sessions);
-                    self.view.center.confirm_delete = false;
+                    self.dispatch_action(Action::Center(CenterAction::CancelDeleteSession));
                     let max = self.sessions.len().saturating_sub(1);
-                    self.view.center.selected = self.view.center.selected.min(max);
+                    self.dispatch_action(Action::Center(CenterAction::Select(
+                        self.view.center.selected.min(max),
+                    )));
                     self.selected_session = self.selected_session.min(max);
                     self.note(&format!("已删除会话：{name}"));
                 }
@@ -138,7 +141,7 @@ impl TerminalWindow {
                     // 复用 New Session 对话框的属性模式：填进去、保存时覆盖原条目。
                     // 该对话框在 center 之前绘制，关掉 center 它才浮到最上层。
                     self.open_session_properties(i);
-                    self.view.center.visible = false;
+                    self.dispatch_action(Action::Center(CenterAction::Close));
                 }
             }
             Work::DuplicateSession(i) => {
@@ -150,7 +153,9 @@ impl TerminalWindow {
                     self.sort_sessions();
                     self.save_sessions();
                     let max = self.sessions.len().saturating_sub(1);
-                    self.view.center.selected = self.view.center.selected.min(max);
+                    self.dispatch_action(Action::Center(CenterAction::Select(
+                        self.view.center.selected.min(max),
+                    )));
                     self.note(&format!("已复制「{name}」"));
                 }
             }
@@ -165,7 +170,7 @@ impl TerminalWindow {
             }
             Work::NewSession => {
                 self.open_new_session(None);
-                self.view.center.visible = false;
+                self.dispatch_action(Action::Center(CenterAction::Close));
             }
             Work::NewGroup => {
                 let name = format!("Group {}", self.groups.len() + 1);
@@ -210,10 +215,16 @@ impl TerminalWindow {
                     self.set_active_slot(i);
                 }
             }
-            Work::Close(i) => self.close_tab(i),
+            // 关闭确认与布局落盘走标签栏同一条路径，别绕过；身份反查防跨帧换人。
+            Work::Close(id) => {
+                if let Some(i) = self.tabs.iter().position(|t| t.identity == id) {
+                    self.close_tab_with_history(i);
+                    self.pending_save_layout = true;
+                }
+            }
             Work::SetScheme(i) => {
                 if let Some(palette) = scheme(i) {
-                    self.view.center.scheme_idx = i;
+                    self.dispatch_action(Action::Center(CenterAction::SetScheme(i)));
                     self.palette = palette;
                     self.note("配色已切换");
                 }

@@ -264,6 +264,37 @@ mod tests {
     /// 2026-11-15 用户反馈「group 复选框太大了，将所有复选框大小对齐」的防回归。
     /// 这里不再允许出现第二份边长：弹层可以保留自己的左内边距，但方框必须
     /// 与菜单行一样是 `CHECK_SIZE` 见方。
+    /// 取模兜底会把越界的第 5 组（下标 4）折回第 1 组：菜单上点第 5 组，
+    /// 实际翻的是第 1 组——看上去就是「第 5 组点不动，第 1 组自己变了」。
+    /// 越界必须什么都不做，不能静默翻错一组。
+    #[test]
+    fn an_out_of_range_group_toggle_changes_nothing() {
+        use crate::ui::lifecycle_test_support::window_with;
+        use term_app::state::QUICK_GROUP_COUNT;
+
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut win = window_with(pool, &ctx, Vec::new());
+        let before = win.view.quick_groups_visible;
+
+        for i in 0..QUICK_GROUP_COUNT {
+            win.dispatch_action(Action::QuickGroupToggle(i));
+            assert_ne!(
+                win.view.quick_groups_visible[i], before[i],
+                "合法下标 {i} 必须翻对应那一组"
+            );
+            // 翻回来，保证下面越界用例的四格都还是出厂值。
+            win.dispatch_action(Action::QuickGroupToggle(i));
+        }
+        assert_eq!(win.view.quick_groups_visible, before);
+
+        win.dispatch_action(Action::QuickGroupToggle(QUICK_GROUP_COUNT));
+        assert_eq!(
+            win.view.quick_groups_visible, before,
+            "越界下标不该借取模翻回第 1 组"
+        );
+    }
+
     #[test]
     fn group_checkboxes_are_exactly_as_large_as_menu_checkboxes() {
         let row = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(CONFIG_MENU_W, ROW_H));
