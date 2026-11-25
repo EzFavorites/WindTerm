@@ -7,6 +7,7 @@
 //! `Rule` 里**没有 `kind` 字段**：兼容终端 11 种类型是 UI 预设，经工厂展开成
 //! 这里的正交字段。改过结构的规则不强行归类（`kind_of` 返回 `None`）。
 
+use std::fmt;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -176,6 +177,80 @@ pub enum Action {
     App(AppAction),
 }
 
+/// 规则校验失败：动作里有内核 / 分发器执行不了的项。
+///
+/// 为什么要校验而不是「命中后 NoEffect」：后者让用户在规则管理器里配好一条
+/// 规则、等了半天才在日志里看见「没效果」。装载期就拒绝，错误停在写规则的那一刻。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleFault(pub String);
+
+impl fmt::Display for RuleFault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for RuleFault {}
+
+/// 有分发实现的会话动词。**规则校验与 dispatcher 共用这一份清单**，免得
+/// 「校验放行」与「命中后才有 NoEffect」两边各写一张表然后漂移。
+pub const DISPATCHABLE_METHODS: &[&str] = &["write", "keys", "notify"];
+
+pub fn dispatchable_method(method: &str) -> bool {
+    DISPATCHABLE_METHODS.contains(&method)
+}
+
+impl Action {
+    /// 装载期校验：动词既要在能力面登记，也要有分发实现；AppAction 同理。
+    pub fn validate(&self) -> Result<(), RuleFault> {
+        match self {
+            Action::Session(inv) => {
+                if crate::surface::find(&inv.method).is_none() {
+                    return Err(RuleFault(format!(
+                        "会话动词 {:?} 不在能力面上",
+                        inv.method
+                    )));
+                }
+                if !dispatchable_method(&inv.method) {
+                    return Err(RuleFault(format!(
+                        "会话动词 {:?} 已登记但还没有分发实现，规则不能装载",
+                        inv.method
+                    )));
+                }
+                Ok(())
+            }
+            Action::App(app) => app.validate(),
+        }
+    }
+}
+
+impl AppAction {
+    pub fn validate(&self) -> Result<(), RuleFault> {
+        match self {
+            AppAction::Alert(AlertKind::Beep)
+            | AppAction::Dispatch(_)
+            | AppAction::RunScript(_) => Ok(()),
+            AppAction::Alert(AlertKind::SystemNotice) => Err(RuleFault(
+                "桌面通知还没有分发实现，规则不能装载".to_string(),
+            )),
+            AppAction::Mark(_) | AppAction::Link(_) | AppAction::Menu(_) | AppAction::Tooltip(_) => {
+                Err(RuleFault(
+                    "Mark / Link / Menu / Tooltip 的渲染基底还没落地，规则不能装载".to_string(),
+                ))
+            }
+        }
+    }
+}
+
+/// 校验整批规则。返回第一条不合格规则的 `(规则 id, 原因)`。
+pub fn validate_rules(rules: &[Rule]) -> Result<(), (RuleId, RuleFault)> {
+    for rule in rules {
+        rule.validate()
+            .map_err(|fault| (rule.id.clone(), fault))?;
+    }
+    Ok(())
+}
+
 /// 一条规则。字段正交，UI 的 11 种类型由预设工厂展开成它。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Rule {
@@ -191,6 +266,16 @@ pub struct Rule {
     pub guard: Guard,
     #[serde(default)]
     pub actions: Vec<Action>,
+}
+
+impl Rule {
+    /// 规则装载期校验：任一动作不可执行就整条拒绝，绝不让它命中后变 NoEffect。
+    pub fn validate(&self) -> Result<(), RuleFault> {
+        for action in &self.actions {
+            action.validate()?;
+        }
+        Ok(())
+    }
 }
 
 fn default_enabled() -> bool {
@@ -277,5 +362,37 @@ mod tests {
     fn invocation_references_a_session_verb_not_a_new_action_vocabulary() {
         let inv = Invocation::new("log_start", serde_json::json!({"session": "s1", "dir": "/tmp"}));
         assert_eq!(inv.method, "log_start");
+    }
+
+    #[test]
+    fn validation_admits_only_methods_that_the_dispatcher_can_execute() {
+        for method in ["write", "keys", "notify"] {
+            let action = Action::Session(Invocation::new(method, serde_json::json!({})));
+            assert!(action.validate().is_ok(), "{method} 应可装载");
+        }
+        // 登记在能力面但没有分发实现 → 装载期就拒，不等命中变 NoEffect。
+        let action = Action::Session(Invocation::new("log_start", serde_json::json!({})));
+        assert!(action.validate().is_err());
+        let unknown = Action::Session(Invocation::new("not_a_verb", serde_json::json!({})));
+        assert!(unknown.validate().is_err());
+    }
+
+    #[test]
+    fn validation_rejects_unimplemented_app_actions() {
+        assert!(AppAction::Alert(AlertKind::Beep).validate().is_ok());
+        assert!(AppAction::Alert(AlertKind::SystemNotice).validate().is_err());
+        assert!(AppAction::Mark(MarkSpec::default()).validate().is_err());
+        assert!(AppAction::Link(LinkSpec::default()).validate().is_err());
+        assert!(AppAction::Menu(MenuSpec::default()).validate().is_err());
+        assert!(AppAction::Tooltip(TextSpec::default()).validate().is_err());
+    }
+
+    #[test]
+    fn validate_rules_points_at_the_bad_rule() {
+        let mut bad = rule();
+        bad.actions.push(Action::App(AppAction::Mark(MarkSpec::default())));
+        let (id, fault) = validate_rules(&[rule(), bad]).expect_err("应拒");
+        assert_eq!(id, "r1");
+        assert!(fault.to_string().contains("Mark"));
     }
 }

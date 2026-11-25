@@ -26,6 +26,7 @@ use crate::error::{PrimitiveError, ScriptError};
 use crate::filter::GrepHandle;
 use crate::human::{Answer, Ask, MessageButton, MessageIcon, PickFile};
 use crate::localfs::{DirEntry, FileStat};
+use crate::sessions::SessionsError;
 use crate::proc::{ProcOutput, ProcRun};
 use crate::sessions::SessionInfo;
 use crate::sandbox::SandboxConfig;
@@ -107,13 +108,21 @@ impl ScriptEngine {
         // 的对账，也不出现在 ADR-0019 的 schema 里。
         crate::compat::register(&mut engine, workspace.as_ref().clone());
 
-        let ast = engine
-            .compile(script)
-            .map_err(|e| ScriptError::Syntax(e.to_string(), Self::position_of(e.position())))?;
+        let ast = engine.compile(script).map_err(|e| {
+            let error = ScriptError::Syntax(e.to_string(), Self::position_of(e.position()));
+            // `last_error()` / `crt.GetLastErrorMessage()` 必须能看见失败原因；
+            // 两处失败都在这里落账，别让调用方只拿到一个 Err 却读不到文本。
+            workspace.env().context.record_error(error.to_string());
+            error
+        })?;
         let mut scope = Scope::new();
         let value = engine
             .eval_ast_with_scope::<Dynamic>(&mut scope, &ast)
-            .map_err(|e| Self::to_script_error(*e))?;
+            .map_err(|e| {
+                let error = Self::to_script_error(*e);
+                workspace.env().context.record_error(error.to_string());
+                error
+            })?;
         // Display：String 原样、数字转十进制、unit → 空串（调用方最常见的
         // 是脚本末尾放 screen()）。
         Ok(if value.is_unit() {
@@ -868,11 +877,17 @@ impl ScriptEngine {
             });
             let s = ws.clone();
             engine.register_fn("profile_set", move |name: &str, spec: Map| -> Result<Dynamic, Box<EvalAltResult>> {
-                let mut config = s.profile_get(name).unwrap_or_else(|_| {
-                    term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh)
-                });
+                // 只有「库里没有这条」才新建。读库失败（权限 / 冲突 / 宿主不支持）
+                // 必须原样报出来——否则脚本以为在改配置，其实往一条全新的空配置里写。
+                let mut config = match s.profile_get(name) {
+                    Ok(config) => config,
+                    Err(SessionError::Sessions(SessionsError::NotFound(_))) => {
+                        term_core::session::SessionConfig::new(term_core::session::Protocol::Ssh)
+                    }
+                    Err(other) => return Err(session_to_rhai(other)),
+                };
                 config.name = name.to_string();
-                apply_profile_map(&mut config, &spec);
+                apply_profile_map(&mut config, &spec, &[]).map_err(string_to_rhai)?;
                 let total = s.profile_save(config).map_err(session_to_rhai)?;
                 Ok(count_map(total as i64))
             });
@@ -1254,8 +1269,16 @@ fn profile_config_map(config: &SessionConfig) -> Dynamic {
     Dynamic::from(map)
 }
 
-/// `profile_set` 里允许改的键。**未知键报错**（写错字段名静默无效最难查）。
-fn apply_profile_map(config: &mut SessionConfig, spec: &Map) {
+/// `profile_set` 里允许改的键。**未知键收集后统一报错**：写错字段名静默无效
+/// 最难查——脚本会拿着「保存成功」的回执，以为配置已经改了。
+fn apply_profile_map(
+    config: &mut SessionConfig,
+    spec: &Map,
+    extra_allowed: &[&str],
+) -> Result<(), String> {
+    let allowed = "host / port / username / group / term / charset / description / protocol \
+                   / auth / shell_command / identity_file / builtin_ssh";
+    let mut unknown = Vec::new();
     for (key, value) in spec {
         match key.as_str() {
             "host" => config.host = value.clone().into_string().unwrap_or_default(),
@@ -1288,11 +1311,18 @@ fn apply_profile_map(config: &mut SessionConfig, spec: &Map) {
                 config.identity_file = value.clone().into_string().unwrap_or_default()
             }
             "builtin_ssh" => config.builtin_ssh = value.as_bool().unwrap_or(config.builtin_ssh),
-            // 其余键（name / protocol 的大小写变体……）由调用方显式设置，
-            // 或不在本动词的可改范围里；静默忽略会让人以为保存成功了。
-            _ => {}
+            other if extra_allowed.contains(&other) => {}
+            // 其余键不在本动词的可改范围里（profile_set 里连 name 也不收）。
+            other => unknown.push(other.to_string()),
         }
     }
+    if !unknown.is_empty() {
+        return Err(format!(
+            "profile_set 不认识键 {}（可用：{allowed}）",
+            unknown.join(", ")
+        ));
+    }
+    Ok(())
 }
 
 /// `Protocol` → 脚本里的短标签（小写，与 [`protocol_from_tag`] 互为逆）。
@@ -1388,7 +1418,7 @@ fn open_request_from_map(
             string_to_rhai("session_open 的 config 必须是 Map".to_string())
         })?;
         let mut base = SessionConfig::new(Protocol::Ssh);
-        apply_profile_map(&mut base, &map);
+        apply_profile_map(&mut base, &map, &["name"]).map_err(string_to_rhai)?;
         if let Some(name) = map.get("name").and_then(|v| v.clone().into_string().ok()) {
             base.name = name;
         }
@@ -2016,5 +2046,151 @@ mod tests {
             }
             other => panic!("应是运行时错误：{other:?}"),
         }
+    }
+
+    /// `last_error()` / `crt.GetLastErrorMessage()` 的 e2e：编译失败与执行失败
+    /// 都要在共享 `ScriptContext` 上留一句可读文本，不能只把 Err 丢给调用方。
+    #[test]
+    fn compile_and_eval_failures_are_recorded_in_the_shared_context() {
+        use crate::{HostEnv, ScriptContext, Sessions};
+        use crate::testutil::FakeSessions;
+
+        let fake = FakeSessions::new();
+        fake.mount(1, "one");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let current = sessions.attach(1).expect("会话 1");
+        let context = Arc::new(ScriptContext::new(None, Vec::new()));
+        let env = HostEnv::new(sessions).with_context(Arc::clone(&context));
+        let ws = Arc::new(ScriptWorkspace::new(env, current, Duration::from_secs(2)));
+        let engine = ScriptEngine::new(fast_sandbox());
+
+        assert!(context.last_error().is_empty(), "干净启动不该有错误文本");
+        engine
+            .run_in_workspace("let = ;", Arc::clone(&ws))
+            .expect_err("语法错必须失败");
+        let syntax = context.last_error();
+        assert!(syntax.contains("语法"), "语法错文案应可展示：{syntax}");
+
+        engine
+            .run_in_workspace("throw \"boom\";", ws)
+            .expect_err("运行期错必须失败");
+        let runtime = context.last_error();
+        assert!(runtime.contains("boom"), "运行期错文案应可展示：{runtime}");
+        assert_ne!(runtime, syntax, "后一次失败应覆盖前一次");
+    }
+
+    // ── profile_set：未知键 / NotFound 专用路径 ──────────────────────────
+
+    struct TestCatalog(Arc<Mutex<Vec<term_core::session::SessionConfig>>>);
+
+    impl term_core::session::ProfileCatalog for TestCatalog {
+        fn sessions(
+            &self,
+        ) -> Result<Vec<term_core::session::SessionConfig>, term_core::session::CatalogError> {
+            Ok(self.0.lock().expect("catalog 锁").clone())
+        }
+
+        fn save(
+            &self,
+            rows: &[term_core::session::SessionConfig],
+        ) -> Result<(), term_core::session::CatalogError> {
+            *self.0.lock().expect("catalog 锁") = rows.to_vec();
+            Ok(())
+        }
+    }
+
+    struct FakeWithCatalog {
+        inner: Arc<crate::testutil::FakeSessions>,
+        catalog: Arc<TestCatalog>,
+    }
+
+    impl crate::Sessions for FakeWithCatalog {
+        fn list(&self) -> Vec<crate::sessions::SessionInfo> {
+            self.inner.list()
+        }
+        fn resolve(&self, name: &str) -> Option<term_core::session_runtime::SessionId> {
+            self.inner.resolve(name)
+        }
+        fn name(&self, id: term_core::session_runtime::SessionId) -> Option<String> {
+            self.inner.name(id)
+        }
+        fn open(
+            &self,
+            request: &term_core::session::OpenRequest,
+        ) -> Result<crate::sessions::SessionInfo, SessionsError> {
+            self.inner.open(request)
+        }
+        fn close(&self, name: &str) -> Result<(), SessionsError> {
+            self.inner.close(name)
+        }
+        fn attach(
+            &self,
+            id: term_core::session_runtime::SessionId,
+        ) -> Option<Arc<Mutex<dyn term_core::session_runtime::Session>>> {
+            self.inner.attach(id)
+        }
+        fn profiles(&self) -> Option<Arc<dyn term_core::session::ProfileCatalog>> {
+            Some(self.catalog.clone())
+        }
+    }
+
+    fn workspace_with_catalog() -> (Arc<ScriptWorkspace>, Arc<TestCatalog>) {
+        use crate::HostEnv;
+
+        let fake = crate::testutil::FakeSessions::new();
+        fake.mount(1, "one");
+        let catalog = Arc::new(TestCatalog(Arc::new(Mutex::new(Vec::new()))));
+        let sessions: Arc<dyn crate::Sessions> = Arc::new(FakeWithCatalog {
+            inner: fake.clone(),
+            catalog: Arc::clone(&catalog),
+        });
+        let current = sessions.attach(1).expect("会话 1");
+        let ws = ScriptWorkspace::new(HostEnv::new(sessions), current, Duration::from_secs(2));
+        (Arc::new(ws), catalog)
+    }
+
+    #[test]
+    fn profile_set_rejects_unknown_keys_instead_of_silently_ignoring() {
+        let (ws, catalog) = workspace_with_catalog();
+        let engine = ScriptEngine::new(fast_sandbox());
+        let err = engine
+            .run_in_workspace(
+                r#"profile_set("new", #{host: "h", hostname: "typo"})"#,
+                ws,
+            )
+            .expect_err("未知键必须报错");
+        let msg = match err {
+            ScriptError::Runtime(msg, _) => msg,
+            other => panic!("应是运行时错误：{other:?}"),
+        };
+        assert!(msg.contains("hostname"), "错误要点名未知键：{msg}");
+        assert!(
+            catalog.0.lock().expect("catalog 锁").is_empty(),
+            "失败不该留下半截写盘"
+        );
+    }
+
+    #[test]
+    fn profile_set_only_creates_a_new_config_when_not_found() {
+        use term_core::session::{Protocol, SessionConfig};
+
+        let (ws, catalog) = workspace_with_catalog();
+        catalog.0.lock().expect("catalog 锁").push(SessionConfig {
+            name: "keep".to_string(),
+            host: "old-host".to_string(),
+            ..SessionConfig::new(Protocol::Ssh)
+        });
+        let engine = ScriptEngine::new(fast_sandbox());
+        let out = engine
+            .run_in_workspace(
+                r#"profile_set("keep", #{port: 2222}).value.to_string()"#,
+                ws,
+            )
+            .expect("保存已有配置");
+        assert_eq!(out, "1", "回执给保存后的条数");
+        let rows = catalog.0.lock().expect("catalog 锁");
+        assert_eq!(rows.len(), 1, "只更新、不追加");
+        assert_eq!(rows[0].host, "old-host", "已有配置不能被空壳覆盖");
+        assert_eq!(rows[0].port, 2222);
     }
 }

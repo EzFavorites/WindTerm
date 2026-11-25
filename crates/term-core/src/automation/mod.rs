@@ -25,5 +25,8 @@ pub use cursor::ScanCursor;
 pub use engine::Evaluator;
 pub use line::{apply_lines, LinePolicy};
 pub use pattern::{Pattern, PatternError, Span, Syntax, WindowHint};
-pub use rule::{Action, AppAction, Effect, Filter, Guard, Invocation, OnceScope, Rule, RuleId};
+pub use rule::{
+    dispatchable_method, validate_rules, Action, AppAction, Effect, Filter, Guard, Invocation,
+    OnceScope, Rule, RuleFault, RuleId,
+};
 pub use signal::{CloseReason, Signal, Target, Ticks, When};

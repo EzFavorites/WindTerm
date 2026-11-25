@@ -51,6 +51,8 @@ pub struct Shadow {
     last_output: Option<Ticks>,
     /// 影子比对累计（仅诊断，不进持久化）。
     disagreements: usize,
+    /// 最近一次 `reload` 拒掉的规则数（校验不通过；仅诊断）。
+    rejected_rules: usize,
 }
 
 impl Shadow {
@@ -69,11 +71,24 @@ impl Shadow {
         self.signature = signature;
     }
 
-    /// 换一批规则（来自旧规则转换）。编译错误在此处被丢弃（旧 Rule 已由
-    /// `term_app::trigger::validate` 校验过，新 Pattern 编译失败只可能是
-    /// 简化正则与标准正则的语法差异——留空规则，不让它影响旧轨）。
+    /// 换一批规则（来自旧规则转换）。**校验不通过的动作在这里就被拒**：
+    /// 不支持的 method / AppAction 不再等到命中后才变成 NoEffect。
+    /// Pattern 编译错误仍在此处丢弃（旧 Rule 已由 `term_app::trigger::validate`
+    /// 校验过，新 Pattern 编译失败只可能是两套正则语法的差异——留空规则不让它影响旧轨）。
     pub fn reload(&mut self, rules: &[Rule]) {
-        let _errors = self.eval.reload(rules);
+        let valid: Vec<Rule> = rules.iter().filter(|r| r.validate().is_ok()).cloned().collect();
+        self.rejected_rules = rules.len() - valid.len();
+        let _errors = self.eval.reload(&valid);
+    }
+
+    /// 最近一次装载被校验拒掉的规则数。
+    pub fn rejected_rules(&self) -> usize {
+        self.rejected_rules
+    }
+
+    /// 求值器里实际装着的规则数（诊断用）。
+    pub fn eval_rules_len(&self) -> usize {
+        self.eval.rules().len()
     }
 
     /// 喂一条信号，返回新轨产出的 Effect。默认路径调用方**只比对不执行**。
@@ -194,5 +209,43 @@ mod tests {
         let a = now_ms();
         let b = now_ms();
         assert!(b >= a);
+    }
+
+    #[test]
+    fn reload_rejects_unsupported_actions_before_they_can_hit() {
+        use term_core::automation::rule::{Action, Filter, Guard, Invocation, MarkSpec};
+        use term_core::automation::signal::When;
+
+        fn rule(id: &str, actions: Vec<Action>) -> Rule {
+            Rule {
+                id: id.into(),
+                name: String::new(),
+                enabled: true,
+                when: When::Connected,
+                filter: Filter::default(),
+                guard: Guard::default(),
+                actions,
+            }
+        }
+
+        let good = rule(
+            "ok",
+            vec![Action::Session(Invocation::new(
+                "write",
+                serde_json::json!({"text": "hi"}),
+            ))],
+        );
+        let bad = rule(
+            "bad",
+            vec![
+                Action::Session(Invocation::new("log_start", serde_json::json!({}))),
+                Action::App(AppAction::Mark(MarkSpec::default())),
+            ],
+        );
+
+        let mut shadow = Shadow::new();
+        shadow.reload(&[good, bad]);
+        assert_eq!(shadow.rejected_rules(), 1, "不合格规则装载期就被拒");
+        assert_eq!(shadow.eval_rules_len(), 1, "只有合格规则进求值器");
     }
 }

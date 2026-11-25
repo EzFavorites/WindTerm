@@ -23,7 +23,9 @@
 //! ADR-0025 阶段 5 起，界面那条路的「能看见」是**真的**：新开的会话经
 //! [`PooledSessions::with_opened`] 递回窗口，下一帧就变成一条标签页。
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -286,6 +288,16 @@ fn spawn_failure(failure: OpenFailure) -> SessionsError {
     }
 }
 
+/// 整表序列化指纹。只比条数会漏掉「条数相同但内容没写进去」这类事故。
+fn fingerprint(sessions: &[SessionConfig]) -> Result<u64, term_core::session::CatalogError> {
+    let json = serde_json::to_string(sessions).map_err(|e| {
+        term_core::session::CatalogError(format!("会话库写盘前序列化失败：{e}"))
+    })?;
+    let mut hasher = DefaultHasher::new();
+    json.hash(&mut hasher);
+    Ok(hasher.finish())
+}
+
 /// 会话库（`~/.zterm/sessions.db`）之上的 `ProfileCatalog`。
 ///
 /// 落盘走 `term_runtime::persist`，与侧栏是同一份文件、同样两条规则
@@ -308,14 +320,18 @@ impl ProfileCatalog for DeskProfiles {
         term_runtime::persist::save(&groups, sessions);
         // `persist::save` 自己吞掉错误（打 stderr）——那边没把 `Result` 递出来。
         // 这里不假装知道成败，但也不能报成功之后用户发现没落盘，所以回读一次。
+        // **只比条数不够**：写失败可能留下旧库，而旧库恰好也有同样多条；那会把
+        // 「用户改的主机没落盘」报成成功。比整表序列化指纹。
         let written = self.sessions()?;
-        if written.len() == sessions.len() {
+        let expected_fp = fingerprint(sessions)?;
+        let written_fp = fingerprint(&written)?;
+        if expected_fp == written_fp {
             Ok(())
         } else {
             Err(term_core::session::CatalogError(format!(
-                "写会话库后回读到 {} 条，与期望的 {} 条不一致（看 stderr 有没有写盘错误）",
-                written.len(),
-                sessions.len()
+                "写会话库后回读内容不一致（{} 条 → {} 条，指纹 {expected_fp:016x} → {written_fp:016x}；看 stderr 有没有写盘错误）",
+                sessions.len(),
+                written.len()
             )))
         }
     }
@@ -419,5 +435,58 @@ mod tests {
             cols: 80,
             rows: 24,
         }
+    }
+
+    /// 写盘校验必须比**整表内容**而不只是条数：两条同长度但主机不同的库
+    /// 指纹不同；真写一次后回读拿到的就是刚写进去的那份。
+    #[test]
+    fn saving_the_catalog_compares_full_fingerprints_not_just_counts() {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        use term_core::session::Protocol;
+
+        struct ProfileDirGuard(Option<String>);
+        impl Drop for ProfileDirGuard {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(value) => std::env::set_var("WINDTERM_PROFILE_DIR", value),
+                    None => std::env::remove_var("WINDTERM_PROFILE_DIR"),
+                }
+            }
+        }
+
+        let _guard = ProfileDirGuard(std::env::var("WINDTERM_PROFILE_DIR").ok());
+        let dir = std::env::temp_dir().join(format!(
+            "windterm-script-host-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("临时 profile 目录");
+        std::env::set_var("WINDTERM_PROFILE_DIR", &dir);
+
+        let old = SessionConfig {
+            name: "one".to_string(),
+            host: "old-host".to_string(),
+            ..SessionConfig::new(Protocol::Ssh)
+        };
+        let new = SessionConfig {
+            host: "new-host".to_string(),
+            ..old.clone()
+        };
+        assert_ne!(
+            fingerprint(&[old.clone()]).expect("旧库指纹"),
+            fingerprint(&[new]).expect("新库指纹"),
+            "条数相同但内容不同，指纹必须不同"
+        );
+
+        let catalog = DeskProfiles;
+        catalog.save(&[old.clone()]).expect("写盘成功");
+        let rows = catalog.sessions().expect("回读");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].host, "old-host", "回读拿到的就是刚写的那份");
+        drop(rows);
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

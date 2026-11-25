@@ -5,9 +5,10 @@
 //! - 真正执行发生在窗口层（它持有 `Tab::write` 与 `dispatch`）——影子轨默认
 //!   不调用执行，所以 98 张截图零变化。
 //!
-//! 这样「能做什么」仍只有 `surface::METHODS` 一份清单：`Invocation.method`
-//! 引用的动词由 [`term_core::surface::find_method`] 校验，未登记的动词在
-//! `plan()` 阶段就被拒，不会把字符串拼到执行边缘才发现。
+//! 这样「能做什么」仍只有 `surface::METHODS` 一份清单：不支持的 method 与
+//! AppAction 由 [`term_core::automation::rule::Rule::validate`] 在**规则装载期**
+//! 就拒掉，命中后不会再冒出一个 NoEffect。本文件只做「已校验的动作 → 计划」
+//! 的纯映射，并对绕过校验的调用保留一道防御。
 
 use term_core::automation::rule::AlertKind;
 use term_core::automation::{Action, AppAction, Effect, Invocation};
@@ -19,6 +20,10 @@ pub enum Plan {
     Write { text: String },
     /// 派发一条菜单命令 ID。
     Dispatch { command: String },
+    /// 按**键名**发按键（会话动词 `keys`）。
+    Keys { keys: Vec<String> },
+    /// 把一句话送到用户眼前（会话动词 `notify`）。
+    Notify { message: String },
     /// 桌面 / 终端响铃。
     Beep,
     /// 跑一段脚本（只产出意图，执行留给脚本线程）。
@@ -73,7 +78,8 @@ fn plan_app(app: &AppAction) -> Plan {
             path: spec.path.clone(),
             args: spec.args.clone(),
         },
-        // Mark / Link / Menu / Tooltip 的渲染基底未落地，显式空效果。
+        // 这几种在规则装载期已被 `validate()` 拒绝；这里保留防御分支，
+        // 让绕过校验的调用得到看得见的 NoEffect 而不是静默成功。
         AppAction::Mark(_)
         | AppAction::Link(_)
         | AppAction::Menu(_)
@@ -82,8 +88,12 @@ fn plan_app(app: &AppAction) -> Plan {
 }
 
 fn plan_invocation(inv: &Invocation) -> Plan {
-    // 动词必须在能力面表登记；这是「能做什么只有一份清单」的落点。
-    if term_core::surface::find(&inv.method).is_none() {
+    // 动词必须在能力面表登记且有分发实现；规则装载时已经由 `Rule::validate`
+    // 拒过一次（见 term_core::automation::rule::DISPATCHABLE_METHODS），这里保留
+    // 一道防御，免得调用方绕过校验之后「命中了却没效果」。
+    if term_core::surface::find(&inv.method).is_none()
+        || !term_core::automation::rule::dispatchable_method(&inv.method)
+    {
         return Plan::NoEffect;
     }
     match inv.method.as_str() {
@@ -92,6 +102,29 @@ fn plan_invocation(inv: &Invocation) -> Plan {
             Plan::Write {
                 text: text.to_owned(),
             }
+        }
+        "keys" => {
+            let keys = inv
+                .params
+                .get("keys")
+                .and_then(|v| v.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            Plan::Keys { keys }
+        }
+        "notify" => {
+            let message = inv
+                .params
+                .get("message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_owned();
+            Plan::Notify { message }
         }
         _ => Plan::NoEffect,
     }
@@ -131,6 +164,28 @@ mod tests {
         let inv = Invocation::new("not_a_verb", serde_json::json!({}));
         let set = plan_effects(&[effect(Action::Session(inv))]);
         assert_eq!(set.plans[0].1, Plan::NoEffect);
+    }
+
+    #[test]
+    fn keys_and_notify_map_to_their_own_plans() {
+        let keys = Invocation::new("keys", serde_json::json!({"keys": ["f5", "enter"]}));
+        let notify = Invocation::new("notify", serde_json::json!({"message": "done"}));
+        let set = plan_effects(&[
+            effect(Action::Session(keys)),
+            effect(Action::Session(notify)),
+        ]);
+        assert_eq!(
+            set.plans[0].1,
+            Plan::Keys {
+                keys: vec!["f5".into(), "enter".into()]
+            }
+        );
+        assert_eq!(
+            set.plans[1].1,
+            Plan::Notify {
+                message: "done".into()
+            }
+        );
     }
 
     #[test]

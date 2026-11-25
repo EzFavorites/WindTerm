@@ -12,6 +12,17 @@
 //! （[`SelectionSlot`]），脚本读槽。读到的可能比「此刻」晚一帧——对
 //! 「把选中内容存成变量」这个用途足够，而比「脚本自己去猜用户在选什么」好得多。
 //!
+//! # 剪贴板读：只认界面递过来的真值
+//!
+//! `egui` 的 `output().copied_text` 是**本进程最近一次 `copy_text`** 的影子，
+//! 脚本读它会读到自己上一次 `clipboard_set` 写进去的字——跨应用复制的内容
+//! 永远读不到。真正的系统剪贴板文本只有一条入口：宿主把 Cmd+V / 右键粘贴
+//! 翻成 `egui::Event::Paste(text)` 送进界面。于是在这里装一个 pass 级
+//! reactor，把每次 Paste 的文本抄进共享槽；`get()` 读槽。
+//!
+//! 槽里还没有任何 Paste 事实（冷启动 / 用户从没在本窗口粘过）时显式
+//! `Unsupported`，**不**拿空串冒充成功，更不回读自己写出去的内容。
+//!
 //! # 授权
 //!
 //! 剪贴板读、窗口控制都要显式授权（`clipboard` / `ui`）。判定在工作区
@@ -25,26 +36,70 @@ use eframe::egui;
 use term_core::session_runtime::SessionId;
 use term_script::{ClipError, Clipboard, Ui, UiError};
 
-/// 剪贴板端口：`copy_text` 写、`output().copied_text` 读。
+/// 从 `Event::Paste` 收割来的**系统剪贴板事实**。`None` = 界面还没递过来过。
+#[derive(Default)]
+struct ClipboardTruth {
+    pasted: Option<String>,
+}
+
+type ClipboardTruthSlot = Arc<Mutex<ClipboardTruth>>;
+
+/// 剪贴板端口：`copy_text` 写；读只认 reactor 从 `Event::Paste` 抄进来的真值。
 pub struct DeskClipboard {
     ctx: egui::Context,
+    truth: ClipboardTruthSlot,
+}
+
+/// 把本帧的 Paste 事件抄进槽。只克隆、不摘掉事件——终端的粘贴处理也必须拿到它。
+fn harvest_paste(ctx: &egui::Context, truth: &ClipboardTruthSlot) {
+    let pasted: Vec<String> = ctx.input(|input| {
+        input
+            .events
+            .iter()
+            .filter_map(|event| match event {
+                egui::Event::Paste(text) => Some(text.clone()),
+                _ => None,
+            })
+            .collect()
+    });
+    if let Some(last) = pasted.last() {
+        if let Ok(mut slot) = truth.lock() {
+            slot.pasted = Some(last.clone());
+        }
+    }
 }
 
 impl DeskClipboard {
     pub fn new(ctx: egui::Context) -> Self {
-        Self { ctx }
+        let truth: ClipboardTruthSlot = Arc::new(Mutex::new(ClipboardTruth::default()));
+        // UI 每帧开始就把 Paste 抄一份；脚本线程只在 get() 时读槽，互不阻塞。
+        let reactor_truth = Arc::clone(&truth);
+        ctx.on_begin_pass(
+            "script-clipboard-paste",
+            Arc::new(move |ctx: &egui::Context| harvest_paste(ctx, &reactor_truth)),
+        );
+        Self { ctx, truth }
     }
 }
 
 impl Clipboard for DeskClipboard {
     fn get(&self) -> Result<String, ClipError> {
-        // egui 把「本进程最近一次复制的文本」放在输出的 `copied_text` 里。
-        // 读不到（冷启动、别的程序复制的）就是空串——不是错误：CRT 的
-        // `Clipboard.Text` 在空剪贴板上也返回空串。
-        Ok(self.ctx.output(|out| out.copied_text.clone()))
+        // 帧外直接调时也收一次（脚本线程可能在两次 pass 之间读）。
+        harvest_paste(&self.ctx, &self.truth);
+        let slot = self.truth.lock().map_err(|_| {
+            ClipError::Unsupported("剪贴板事实槽锁中毒，无法确认系统剪贴板内容".to_string())
+        })?;
+        slot.pasted.clone().ok_or_else(|| {
+            ClipError::Unsupported(
+                "没有来自界面的剪贴板事实：egui 只在用户粘贴时把系统剪贴板送进来；请先在窗口里粘贴一次"
+                    .to_string(),
+            )
+        })
     }
 
     fn set(&self, text: &str) -> Result<(), ClipError> {
+        // 写是「把请求排队给下一帧」，不会回头污染读槽：脚本读到的永远是
+        // 用户从别的应用粘进来的那一份，而不是自己刚写出去的。
         self.ctx.copy_text(text.to_string());
         Ok(())
     }
@@ -134,18 +189,45 @@ mod tests {
         assert!(flag.load(Ordering::SeqCst));
     }
 
-    /// 空剪贴板读空串、写不留失败。
-    ///
-    /// 这里**不**断言「写进去能读回来」：egui 的 `copied_text` 是**本帧**的
-    /// 平台输出，只在一次 `begin_pass`/`end_pass` 之内存在；在帧外写、帧外读
-    /// 拿到的永远是空串。真正能读回自己刚写的内容只有「同一帧里先写后读」，
-    /// 那是 `OSC 52` 会话内自读的场景，不是脚本的（脚本的 `clipboard_get`
-    /// 读的是用户上一次复制的东西，由 egui 从系统剪贴板填进输出）。
+    /// 冷启动：界面还没把任何 Paste 事实递进来时**显式 Unsupported**，
+    /// 不拿空串冒充「剪贴板是空的」，更不回读 `set` 自己写出去的字。
     #[test]
-    fn an_empty_clipboard_reads_as_an_empty_string_and_writes_do_not_fail() {
+    fn a_cold_clipboard_is_unsupported_not_an_empty_string() {
+        let board = DeskClipboard::new(egui::Context::default());
+        match board.get() {
+            Err(ClipError::Unsupported(why)) => assert!(why.contains("界面"), "{why}"),
+            other => panic!("冷启动应显式 Unsupported：{other:?}"),
+        }
+        board.set("我自己写的").expect("写剪贴板不留失败");
+        match board.get() {
+            Err(ClipError::Unsupported(_)) => {}
+            other => panic!("自己的写入不能冒充系统剪贴板：{other:?}"),
+        }
+    }
+
+    /// 跨应用：别的程序复制的字经界面 `Event::Paste` 进来，脚本读到的就是它。
+    /// reactor 在 pass 开始时收割——这里直接跑一次 pass 模拟那一帧。
+    #[test]
+    fn a_paste_from_another_app_becomes_the_value_the_script_reads() {
         let ctx = egui::Context::default();
-        let board = DeskClipboard::new(ctx);
-        assert_eq!(board.get().expect("空剪贴板"), "");
-        board.set("hello").expect("写剪贴板不留失败");
+        let board = DeskClipboard::new(ctx.clone());
+        ctx.input_mut(|input| {
+            input.events.push(egui::Event::Paste("别的应用的密码".into()));
+        });
+        assert_eq!(board.get().expect("读到真值"), "别的应用的密码");
+        // 自己随后写一次，不该覆盖用户粘进来的事实。
+        board.set("脚本输出").expect("写不留失败");
+        assert_eq!(board.get().expect("仍是真值"), "别的应用的密码");
+    }
+
+    /// 新的一次粘贴覆盖旧值（reactor 每次 pass 都收割最新一条）。
+    #[test]
+    fn the_latest_paste_wins() {
+        let ctx = egui::Context::default();
+        let board = DeskClipboard::new(ctx.clone());
+        ctx.input_mut(|input| input.events.push(egui::Event::Paste("old".into())));
+        assert_eq!(board.get().expect("旧值"), "old");
+        ctx.input_mut(|input| input.events.push(egui::Event::Paste("new".into())));
+        assert_eq!(board.get().expect("新值"), "new");
     }
 }
