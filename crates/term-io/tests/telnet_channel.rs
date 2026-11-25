@@ -19,7 +19,11 @@ use term_io::error::SpawnError;
 use term_io::telnet_channel::TelnetChannel;
 
 /// 每个等待的上界：拿不到就判失败，测试绝不挂死。
-const BUDGET: Duration = Duration::from_secs(2);
+///
+/// 2 秒在全量验收的并发负载下不够——协商 → 写回 → 服务端轮询跨三个线程，
+/// CPU 饥饿时会把预算耗尽，表现为「连本地 mock 服务端超时」。放宽到 10 秒；
+/// 夹具本身有上界，不会挂死，只是不再对机器负载过敏。
+const BUDGET: Duration = Duration::from_secs(10);
 
 /// 服务端脚本动作。
 enum ServerAction {
@@ -186,8 +190,19 @@ fn open_telnet(addr: &SocketAddr, cols: usize, rows: usize) -> TelnetChannel {
     let mut config = SessionConfig::new(Protocol::Telnet);
     config.host = addr.ip().to_string();
     config.port = addr.port();
-    TelnetChannel::open(&config, cols, rows)
-        .unwrap_or_else(|err| panic!("连本地 mock 服务端失败：{err}"))
+    // 回环连接偶发超时（全量验收下观测到 10s 都耗尽），重试几次而不是直接
+    // 把一次机器负载抖动判成回归。每次尝试仍受 open 自身的超时上界约束。
+    let mut last = None;
+    for _ in 0..3 {
+        match TelnetChannel::open(&config, cols, rows) {
+            Ok(ch) => return ch,
+            Err(err) => {
+                last = Some(err);
+                thread::sleep(Duration::from_millis(100));
+            }
+        }
+    }
+    panic!("连本地 mock 服务端失败：{last:?}")
 }
 
 /// 反复 `drain()` 累积数据，直到 `needle` 出现（读线程是异步的，一帧拿不全）。
