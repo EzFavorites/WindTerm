@@ -378,6 +378,8 @@ pub(in crate::ui) fn draw_node(
             }
             // ④-1：分屏时每片 Leaf 画自己的一套 chrome（标签条 + 地址栏 +
             // 终端 + Sysmon）；单窗格不走 draw_node，全窗顶栏原样保留。
+            // 专注模式由 `pane_chrome::draw_pane_leaf` 按 `win.view.focus_mode`
+            // 压掉前三段，只留终端——分屏格子里也不许漏出 chrome。
             let group = win.pane_groups.get(pane).cloned();
             if let Some(group) = group {
                 super::pane_chrome::draw_pane_leaf(win, ui, *pane, &group, rect);
@@ -585,6 +587,50 @@ mod tests {
         let mut l = Layout::single(PaneId(0));
         assert!(!l.merge_into_next(PaneId(0)));
         assert_eq!(l, Layout::single(PaneId(0)));
+    }
+
+    /// 分屏入口的渲染断言：两片窗格在专注态都不画 tab 条 / 工具行 / Sysmon。
+    /// 与 `pane_chrome` 的单叶断言互补——这里守的是递归入口确实走了那道门控。
+    #[test]
+    fn focus_mode_split_draws_only_terminals() {
+        fn shapes(focus: bool) -> usize {
+            let ctx = egui::Context::default();
+            let pool = std::sync::Arc::new(term_session::SessionPool::new());
+            let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+            win.view.focus_mode = focus;
+            let p0 = mint_pane_identity();
+            let p1 = mint_pane_identity();
+            win.pane_groups.clear();
+            win.pane_groups.insert(p0, PaneGroup { order: Vec::new(), active: 0 });
+            win.pane_groups.insert(p1, PaneGroup { order: Vec::new(), active: 0 });
+            let tree = Layout::Split {
+                horizontal: true,
+                ratio: 500,
+                first: Box::new(Layout::Leaf(p0)),
+                second: Box::new(Layout::Leaf(p1)),
+            };
+            let mut count = 0;
+            for _ in 0..2 {
+                let input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1280.0, 800.0),
+                    )),
+                    ..Default::default()
+                };
+                let out = ctx.run(input, |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        draw_node(&mut win, ui, &tree, 1, &mut Vec::new());
+                    });
+                });
+                count = out.shapes.len();
+            }
+            count
+        }
+        assert!(
+            shapes(true) < shapes(false),
+            "专注态分屏形状数必须严格少于常态：每片窗格的 chrome 都要被压掉"
+        );
     }
 
     /// 关掉一个窗格里显示的会话，应当**剪掉那片叶子**而不是用别的会话冒充它。

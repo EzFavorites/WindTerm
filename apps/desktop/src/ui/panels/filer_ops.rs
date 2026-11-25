@@ -533,10 +533,12 @@ fn paint_footer_icon(p: &egui::Painter, r: egui::Rect, kind: usize, color: egui:
 }
 
 impl TerminalWindow {
-    /// 画底栏右侧：排序文案 + F7 / F8 / F9 三颗图标按钮。
+    /// 画底栏右侧：排序文案 + 三颗图标按钮。
     ///
-    /// 提示文案用金图上的英文原文走 `tr()`，`(F7)` 这类键名是数据。灰掉的
-    /// 那颗把原因写进 hover——只灰不说，用户会以为面板坏了。
+    /// 提示文案用金图上的英文原文走 `tr()`。键名**不**写进 hover：F7/F8/F9
+    /// 并没有绑进 `shortcut_map`，写出来就是「按了没反应」的假提示；命令面
+    /// 不为一个悬停文案扩张。灰掉的那颗把原因写进 hover——只灰不说，用户会
+    /// 以为面板坏了。
     pub(in crate::ui) fn draw_filer_footer_actions(
         &self,
         ui: &mut egui::Ui,
@@ -571,18 +573,16 @@ impl TerminalWindow {
                 self.tr("Copy Directory Path To Terminal"),
                 path_block.is_none(),
                 copy_reason,
-                "F7",
             ),
-            (self.tr("Sync Terminal Folder"), sync_ready, sync_reason, "F8"),
+            (self.tr("Sync Terminal Folder"), sync_ready, sync_reason),
             (
                 self.tr("Automatically Sync Terminal Folder"),
                 false,
                 Some(self.tr("Not wired (placeholder)")),
-                "F9",
             ),
         ];
         let mut clicks = FilerFooterClicks::default();
-        for (i, (label, enabled, reason, key)) in rows.into_iter().enumerate() {
+        for (i, (label, enabled, reason)) in rows.into_iter().enumerate() {
             let x = rect.right() - (rows.len() - i) as f32 * FOOT_BTN_PITCH;
             let r = egui::Rect::from_min_size(
                 egui::pos2(x, rect.center().y - FOOT_BTN_W / 2.0),
@@ -595,8 +595,8 @@ impl TerminalWindow {
                 if enabled { dim } else { dim.gamma_multiply(0.45) },
             );
             let hint = match reason {
-                Some(why) if !enabled => format!("{label} ({key}) — {why}"),
-                _ => format!("{label} ({key})"),
+                Some(why) if !enabled => format!("{label} — {why}"),
+                _ => label.to_string(),
             };
             let resp = ui
                 .interact(r, egui::Id::new(("filer_footer_btn", i)), egui::Sense::click())

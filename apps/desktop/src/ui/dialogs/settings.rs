@@ -353,6 +353,11 @@ impl TerminalWindow {
     /// `prefs::save` 与 `layout_state::save` 一样是「尽力而为」的可用性资产。
     fn set_language(&mut self, lang: Lang) {
         self.dispatch_action(Action::Shell(ShellAction::SetLanguage(lang)));
+        // 同帧收口：reducer 写 ViewState.lang、这里落 prefs，两者必须是同一帧的
+        // 一个原子变化。早先只靠 dispatch，万一派发在某些入口被排到下一帧，
+        // 就会出现「界面仍是旧语言、prefs 已是新语言」的一帧分叉。这里再同步
+        // 写一次（值相同则幂等），不让语言与偏好短暂各说各话。
+        self.view.lang = lang;
         // load-modify-save：抑制位等其余字段必须跟着保留，整份重建会把
         // 「不再提示」的用户选择悄悄清掉。
         let mut prefs = term_runtime::prefs::load().unwrap_or_default();
@@ -672,6 +677,25 @@ fn tree_row(ui: &mut egui::Ui, width: f32, indent: f32, label: &str, selected: b
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 选语言那一刻，界面语言与落盘偏好必须是同帧的同一个值，不许先分叉一帧。
+    #[test]
+    fn choosing_a_language_syncs_view_and_prefs_in_the_same_frame() {
+        use term_app::i18n::Lang;
+        crate::ui::lifecycle_test_support::with_temp_profile(|| {
+            let ctx = egui::Context::default();
+            let pool = std::sync::Arc::new(term_session::SessionPool::new());
+            let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+            win.view.lang = Lang::En;
+            win.set_language(Lang::Zh);
+            assert_eq!(win.view.lang, Lang::Zh, "ViewState 当帧就切到新语言");
+            // 借既有的 load-modify-save 入口读盘（不为测试新增门面引用）：闭包里
+            // 只断言不改字段，落回去的还是同一份 prefs。
+            super::settings_live::save_prefs(|p| {
+                assert_eq!(p.language, Lang::Zh.tag(), "prefs 与界面必须同值");
+            });
+        });
+    }
 
     /// 用户 明确要求「设置默认打开应该是 application 页面才对」。
     #[test]

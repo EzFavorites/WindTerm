@@ -54,22 +54,51 @@ impl UploadPicker {
 /// 永远失败的任务。`is_dir` 由路径自身判定，落地时据此选 `enqueue_upload_tree`；
 /// `size` 沿用 `modem_drop.rs` / 本地行右键的既有口径 0（进度由传输事件回填）。
 pub(in crate::ui) fn paths_to_upload_picks(paths: &[String]) -> Vec<XferPick> {
-    paths
-        .iter()
-        .filter_map(|local| {
-            let path = Path::new(local);
-            if !path.exists() {
-                return None;
-            }
-            let name = path.file_name()?.to_string_lossy().into_owned();
-            Some(XferPick::Upload {
-                local: local.clone(),
-                name,
-                size: 0,
-                is_dir: path.is_dir(),
+    partition_upload_paths(paths).0
+}
+
+/// 同一份映射同时留下被跳过的路径：选择时有效、点上传时已失效的条目不能
+/// 只从队列里消失——用户得在回执里看见数量与名字（与 Filer 批次共用状态行）。
+fn partition_upload_paths(paths: &[String]) -> (Vec<XferPick>, Vec<String>) {
+    let mut picks = Vec::new();
+    let mut skipped = Vec::new();
+    for local in paths {
+        let path = Path::new(local);
+        let Some(name) = path.file_name() else {
+            skipped.push(local.clone());
+            continue;
+        };
+        if !path.exists() {
+            skipped.push(local.clone());
+            continue;
+        }
+        let name = name.to_string_lossy().into_owned();
+        picks.push(XferPick::Upload {
+            local: local.clone(),
+            name,
+            size: 0,
+            is_dir: path.is_dir(),
+        });
+    }
+    (picks, skipped)
+}
+
+/// 汇总回执：先列成功入队的句子，再把失效条目的数量与名字写上。
+/// 纯函数，便于断言「静默跳过」已经变成有据可查的提示。
+fn upload_receipt(mut notes: Vec<String>, skipped: &[String]) -> Vec<String> {
+    if !skipped.is_empty() {
+        let names: Vec<String> = skipped
+            .iter()
+            .map(|p| {
+                Path::new(p)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| p.clone())
             })
-        })
-        .collect()
+            .collect();
+        notes.push(format!("{} 条已失效已跳过：{}", skipped.len(), names.join("、")));
+    }
+    notes
 }
 
 /// 确认时如果有路径已经失效（`paths_to_upload_picks` 丢弃的），必须在回执里
@@ -237,15 +266,18 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     if confirmed {
         // 逐条进既有队列：目录由 start_filer_transfer 自动走 enqueue_upload_tree。
         // 回执沿用 Filer 状态行那一个槽，不新开提示位。
-        let picks = paths_to_upload_picks(&picker.selected);
-        let dropped = picker.selected.len().saturating_sub(picks.len());
+        let (picks, skipped) = partition_upload_paths(&picker.selected);
         let mut notes: Vec<String> = picks
             .into_iter()
             .map(|pick| win.start_filer_transfer(pick))
             .collect();
-        append_dropped_notice(&mut notes, dropped);
-        win.note_multi_upload(notes);
-        ctx.request_repaint();
+        // 全失效给明确错误；部分失效在回执里列出名字（两批修复的口径合并）。
+        if notes.is_empty() {
+            append_dropped_notice(&mut notes, skipped.len());
+        } else {
+            notes = upload_receipt(notes, &skipped);
+        }
+        win.note_multi_upload(notes);        ctx.request_repaint();
     } else if !cancel {
         win.upload_picker = Some(picker);
     }
@@ -302,6 +334,25 @@ mod tests {
         let missing = repo_path("../../crates/definitely-not-here-page21");
         let picks = paths_to_upload_picks(&[missing, "/".to_string(), String::new()]);
         assert!(picks.is_empty(), "坏路径不该变成一条永远失败的任务");
+    }
+
+    /// 选择时有效、提交时失效的条目必须进回执，不能静默从队列里消失。
+    #[test]
+    fn skipped_upload_paths_are_named_in_the_receipt() {
+        let good = repo_path("../../crates/term-io/src/local_dir.rs");
+        let missing = repo_path("../../crates/definitely-not-here-page21");
+        let (picks, skipped) =
+            partition_upload_paths(&[good.clone(), missing.clone(), "/".to_string()]);
+        assert_eq!(picks.len(), 1, "有效路径照常入队");
+        assert_eq!(skipped, vec![missing, "/".to_string()]);
+        let receipt = upload_receipt(vec!["local_dir.rs：已入队".to_string()], &skipped);
+        assert_eq!(receipt.len(), 2);
+        assert!(receipt[1].contains("2 条已失效已跳过"), "{receipt:?}");
+        assert!(
+            receipt[1].contains("definitely-not-here-page21"),
+            "失效条目要写出名字：{receipt:?}"
+        );
+        assert!(receipt[1].contains("/"), "没有文件名的根路径也要写进去");
     }
 
     #[test]

@@ -21,12 +21,11 @@
 
 use crate::ui::*;
 use eframe::egui;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 use term_app::action::Action;
 use term_app::dock::PanelId;
 use term_app::shell::ShellAction;
-use term_core::session::Protocol;
+use term_core::session::{Protocol, SessionConfig};
 use term_core::theme::CHROME_SCALE;
 use term_session::sysmon::{fmt_bytes, fmt_uptime};
 
@@ -167,6 +166,36 @@ fn chip(
     p.text(rect.center(), egui::Align2::CENTER_CENTER, label, font.clone(), fg);
 }
 
+/// 远端源的稳定键：会话身份每次重连都会变，但「同一台机器」不该因此清读数；
+/// 反过来 host / user / port 任一变了就是另一台机器，上一台的读数必须丢弃。
+fn remote_target_key(config: &SessionConfig) -> String {
+    format!("{}@{}:{}", config.username, config.host, config.port)
+}
+
+/// 上次采样的远端目标。`None` = 开关关着 / 没有合法目标。进程级状态与
+/// `sysmon_remote` 的快照同源：两者都由这条路径统一作废，不留半个真相。
+static LAST_TARGET: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn last_target() -> &'static Mutex<Option<String>> {
+    LAST_TARGET.get_or_init(|| Mutex::new(None))
+}
+
+/// 目标变化时清掉快照与节流时戳（后者让新目标能立刻采，不用等 5 秒）。
+/// 返回是否真的变了；同一台机器每帧调用也不会反复清。
+fn set_remote_target(key: Option<&str>) -> bool {
+    let changed = match last_target().lock() {
+        Ok(mut last) if last.as_deref() != key => {
+            *last = key.map(str::to_owned);
+            true
+        }
+        _ => false,
+    };
+    if changed {
+        crate::sysmon_remote::clear();
+    }
+    changed
+}
+
 impl TerminalWindow {
     /// 每帧调一次：开关开着且活动 tab 是**握着凭据的内置 SSH** 时，请求一次
     /// 非阻塞远端采样。节流与「上一轮还在飞」由 `sysmon_remote::request` 自己管，
@@ -175,32 +204,31 @@ impl TerminalWindow {
     /// 系统 `ssh` 子进程没有凭据副本、本地 shell 就是宿主，两者都不发命令，
     /// 远端读数保持 `—`。夹具模式也绝不连网，截图才能逐字节稳定。
     pub(in crate::ui) fn sync_remote_sysmon(&self, ctx: &egui::Context) {
-        static WAS_ON: AtomicBool = AtomicBool::new(false);
         if !self.view.sysmon_remote {
-            if WAS_ON.swap(false, Ordering::Relaxed) {
-                crate::sysmon_remote::clear();
-            }
-            return;
-        }
-        WAS_ON.store(true, Ordering::Relaxed);
-        if crate::ui::harness::fixture_mode() {
+            set_remote_target(None);
             return;
         }
         let Some(tab) = self.tabs.get(self.active_slot()) else {
-            crate::sysmon_remote::clear();
+            set_remote_target(None);
             return;
         };
         if tab.config.protocol != Protocol::Ssh || !tab.config.builtin_ssh || tab.session.is_none() {
             // 换了数据源就不能留上一台机器的数字——那是「看起来有数据」的假读数。
-            crate::sysmon_remote::clear();
+            set_remote_target(None);
             return;
         }
         let Some(auth) = tab.auth.clone() else {
-            crate::sysmon_remote::clear();
+            set_remote_target(None);
             return;
         };
+        // 目标一换就清快照 + 节流时戳：否则新机器的头几帧还在显示上一台的数字，
+        // 而且 5 秒节流会拖到新目标第一次采样。会话身份会随重连变，故用 host/user/port。
+        set_remote_target(Some(&remote_target_key(&tab.config)));
+        if crate::ui::harness::fixture_mode() {
+            return;
+        }
         if crate::sysmon_remote::target_for(&tab.config.system).is_none() {
-            crate::sysmon_remote::clear();
+            set_remote_target(None);
             return;
         }
         // 与连接时同一份参数拼装（ProxyJump / 代理链 / 主机密钥），不另写一套；
@@ -212,7 +240,7 @@ impl TerminalWindow {
         ) {
             Ok(opts) => opts,
             Err(_) => {
-                crate::sysmon_remote::clear();
+                set_remote_target(None);
                 return;
             }
         };
@@ -500,5 +528,64 @@ mod tests {
         let total = 24_776_704u64;
         assert_eq!(mem_text(used, total), "23.00/23.63 GiB");
         assert_eq!(mem_text(0, 0), "—/— GiB");
+    }
+
+    #[test]
+    fn a_failed_remote_sample_shows_a_dash_not_zero_percent() {
+        let failed = crate::sysmon_remote::from_exec(
+            crate::sysmon_remote::Target::Linux,
+            0,
+            Err(term_ssh::SshError::Config("采样失败".to_string())),
+        );
+        assert!(failed.is_none());
+        assert_eq!(remote_text(true, failed.as_ref()), "—");
+    }
+
+    #[test]
+    fn remote_target_key_ignores_session_identity_but_separates_machines() {
+        let a = SessionConfig::new(Protocol::Ssh);
+        let mut renamed = a.clone();
+        renamed.name = "另一条会话".to_string();
+        assert_eq!(remote_target_key(&a), remote_target_key(&renamed));
+        let mut other_host = a.clone();
+        other_host.host = "10.0.0.2".to_string();
+        assert_ne!(remote_target_key(&a), remote_target_key(&other_host));
+        let mut other_user = a.clone();
+        other_user.username = "root".to_string();
+        assert_ne!(remote_target_key(&a), remote_target_key(&other_user));
+        let mut other_port = a.clone();
+        other_port.port = 2222;
+        assert_ne!(remote_target_key(&a), remote_target_key(&other_port));
+    }
+
+    /// 切换远端源时，上一台机器的读数不能在新机器上继续显示。
+    /// 同一台机器重复同步也不许清——否则每帧都归零，读数永远出不来。
+    #[test]
+    fn switching_remote_target_clears_the_previous_reading() {
+        let stale = crate::sysmon_sample::Reading {
+            cpu_pct: 77.7,
+            ..Default::default()
+        };
+        set_remote_target(None);
+        crate::sysmon_remote::clear();
+        assert!(set_remote_target(Some("alice@10.0.0.1:22")));
+        crate::sysmon_remote::seed_reading_for_test(Some(stale.clone()));
+        assert_eq!(
+            crate::sysmon_remote::reading().map(|r| r.cpu_pct),
+            Some(77.7),
+            "上一台机器的读数确实在快照里"
+        );
+        assert!(!set_remote_target(Some("alice@10.0.0.1:22")), "同一台不重置");
+        assert!(crate::sysmon_remote::reading().is_some());
+        assert!(set_remote_target(Some("bob@10.0.0.2:2222")), "换机器必须重置");
+        assert!(
+            crate::sysmon_remote::reading().is_none(),
+            "上一台机器的读数不能留到新机器上"
+        );
+        crate::sysmon_remote::seed_reading_for_test(Some(stale));
+        assert!(set_remote_target(None), "关掉开关也要重置");
+        assert!(crate::sysmon_remote::reading().is_none());
+        set_remote_target(None);
+        crate::sysmon_remote::clear();
     }
 }

@@ -132,14 +132,21 @@ pub fn parse_output(target: Target, text: &str, now_secs: u64) -> Reading {
     out
 }
 
-/// exec 的结果 → 快照。任何失败都退化成「没有读数」，绝不返回半截假数字：
+/// exec 的结果 → 快照。任何失败都退化成「没有读数」（`None`），绝不返回半截假数字：
 /// 非零退出、输出触顶截断、空 stdout 都不算一次成功采样。
-pub fn from_exec(target: Target, now_secs: u64, result: Result<ExecOutput, SshError>) -> Reading {
+///
+/// 这里必须区分「采到了 0.0%」与「根本没采到」：返回值是 `Option`，失败是 `None`，
+/// 界面据此画 `—`（而不是把上一次失败伪装成 0.0% 的真读数）。
+pub fn from_exec(
+    target: Target,
+    now_secs: u64,
+    result: Result<ExecOutput, SshError>,
+) -> Option<Reading> {
     match result {
         Ok(out) if !out.truncated && out.exit_code.unwrap_or(0) == 0 && !out.stdout.is_empty() => {
-            parse_output(target, &String::from_utf8_lossy(&out.stdout), now_secs)
+            Some(parse_output(target, &String::from_utf8_lossy(&out.stdout), now_secs))
         }
-        _ => Reading::default(),
+        _ => None,
     }
 }
 
@@ -157,6 +164,15 @@ fn snap() -> &'static Mutex<Option<Reading>> {
 /// 当前远端读数。`None` = 没开 / 还在采 / 上次失败：界面必须画 `—`。
 pub fn reading() -> Option<Reading> {
     snap().lock().ok().and_then(|g| g.clone())
+}
+
+/// 只在单测里播种快照：切换远端目标的断言要能造出「上一台机器的读数」，
+/// 这条路径不发命令、不碰网络（`#[cfg(test)]`，不进生产二进制）。
+#[cfg(test)]
+pub(crate) fn seed_reading_for_test(reading: Option<Reading>) {
+    if let Ok(mut g) = snap().lock() {
+        *g = reading;
+    }
 }
 
 /// 关掉开关时清掉旧读数，避免下次打开先闪一帧上一台机器的数字。
@@ -207,8 +223,9 @@ pub fn request(
                 Err(e) => Err(e),
             };
             let next = from_exec(target, unix_secs(), result);
+            // 失败写 None：快照回到「没有读数」，界面画 `—`，不再冒充 0.0%。
             if let Ok(mut g) = snap().lock() {
-                *g = Some(next);
+                *g = next;
             }
             BUSY.store(false, Ordering::SeqCst);
             wake();
@@ -288,29 +305,59 @@ mod tests {
 
     #[test]
     fn every_failure_mode_degrades_to_no_reading() {
+        // 失败必须是 None（→ 界面 `—`），不能是 `Reading::default()`（→ 0.0%）。
         let err = from_exec(Target::Linux, 0, Err(SshError::Config("缺主机".to_string())));
-        assert_eq!(err, Reading::default());
+        assert!(err.is_none());
         let bad_exit = ExecOutput {
             stdout: LINUX.as_bytes().to_vec(),
             stderr: Vec::new(),
             exit_code: Some(127),
             truncated: false,
         };
-        assert_eq!(from_exec(Target::Linux, 0, Ok(bad_exit)), Reading::default());
+        assert!(from_exec(Target::Linux, 0, Ok(bad_exit)).is_none());
         let empty = ExecOutput {
             stdout: Vec::new(),
             stderr: b"sh: top: not found".to_vec(),
             exit_code: Some(0),
             truncated: false,
         };
-        assert_eq!(from_exec(Target::Linux, 0, Ok(empty)), Reading::default());
+        assert!(from_exec(Target::Linux, 0, Ok(empty)).is_none());
         let capped = ExecOutput {
             stdout: LINUX.as_bytes().to_vec(),
             stderr: Vec::new(),
             exit_code: Some(0),
             truncated: true,
         };
-        assert_eq!(from_exec(Target::Linux, 0, Ok(capped)), Reading::default());
+        assert!(from_exec(Target::Linux, 0, Ok(capped)).is_none());
+        let good = ExecOutput {
+            stdout: LINUX.as_bytes().to_vec(),
+            stderr: Vec::new(),
+            exit_code: Some(0),
+            truncated: false,
+        };
+        let ok = from_exec(Target::Linux, 0, Ok(good));
+        assert!(ok.is_some_and(|r| (r.cpu_pct - 8.2).abs() < 0.01), "真采到的 0 才是 0");
+    }
+
+    #[test]
+    fn a_failed_sample_clears_the_successful_snapshot() {
+        // 模拟工作线程落地：成功写 Some，失败写 None（`request()` 现在就这么做）。
+        clear();
+        let good = ExecOutput {
+            stdout: LINUX.as_bytes().to_vec(),
+            stderr: Vec::new(),
+            exit_code: Some(0),
+            truncated: false,
+        };
+        *snap().lock().unwrap() = from_exec(Target::Linux, 0, Ok(good));
+        assert!(reading().is_some());
+        *snap().lock().unwrap() = from_exec(
+            Target::Linux,
+            0,
+            Err(SshError::Config("采样失败".to_string())),
+        );
+        assert!(reading().is_none(), "失败后不能再留上一轮的读数");
+        clear();
     }
 
     #[test]

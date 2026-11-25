@@ -36,15 +36,26 @@ const RIGHT_W: f32 = 18.0;
 const RIGHT_GAP: f32 = 3.0;
 const RIGHT_EDGE: f32 = 2.0;
 
-/// 分屏时画一片 Leaf：自上而下切四段，再把终端内容交给原来的
-/// [`TerminalWindow::draw_terminal_area_for`]（同一份渲染实现，不重写终端）。
-pub(in crate::ui) fn draw_pane_leaf(
-    win: &mut TerminalWindow,
-    ui: &mut egui::Ui,
-    pane: PaneId,
-    group: &PaneGroup,
-    rect: egui::Rect,
-) {
+/// 一片 Leaf 的四段矩形。纯函数，便于断言专注模式确实压掉了全部 chrome。
+///
+/// `focus = true` 时终端吃满整片窗格，tab 条 / 工具行 / Sysmon 三段全是 `None`：
+/// 专注模式对**每一片**分屏窗格都生效，不是只压单窗格那条全窗顶栏。
+struct LeafRects {
+    tab: Option<egui::Rect>,
+    tools: Option<egui::Rect>,
+    term: egui::Rect,
+    sysmon: Option<egui::Rect>,
+}
+
+fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
+    if focus {
+        return LeafRects {
+            tab: None,
+            tools: None,
+            term: rect,
+            sysmon: None,
+        };
+    }
     // 矮窗格保底：三段 chrome 先按可用高度收缩，终端至少留一行高。
     let chrome = TAB_BAR_H + PANE_TOOLS_H + SYSMON_BAR_H;
     let term_h = (rect.height() - chrome).max(16.0);
@@ -69,20 +80,39 @@ pub(in crate::ui) fn draw_pane_leaf(
         egui::pos2(rect.left(), rect.max.y - sysmon_h),
         egui::vec2(rect.width(), sysmon_h),
     );
+    LeafRects {
+        tab: Some(tab_rect),
+        tools: Some(tools_rect),
+        term: term_rect,
+        sysmon: Some(sysmon_rect),
+    }
+}
 
-    {
+/// 分屏时画一片 Leaf：自上而下切四段，再把终端内容交给原来的
+/// [`TerminalWindow::draw_terminal_area_for`]（同一份渲染实现，不重写终端）。
+///
+/// 专注模式下只画终端段：分屏窗格里不再出现 tab 条 / 工具行 / Sysmon。
+pub(in crate::ui) fn draw_pane_leaf(
+    win: &mut TerminalWindow,
+    ui: &mut egui::Ui,
+    pane: PaneId,
+    group: &PaneGroup,
+    rect: egui::Rect,
+) {
+    let parts = leaf_rects(rect, win.view.focus_mode);
+    if let Some(tab_rect) = parts.tab {
         let mut top = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect));
         draw_pane_tab_strip(win, &mut top, pane, group);
     }
-    {
+    if let Some(tools_rect) = parts.tools {
         let mut tools = ui.new_child(egui::UiBuilder::new().max_rect(tools_rect));
         draw_pane_address_bar(win, &mut tools, pane, group.active);
     }
     {
-        let mut term = ui.new_child(egui::UiBuilder::new().max_rect(term_rect));
+        let mut term = ui.new_child(egui::UiBuilder::new().max_rect(parts.term));
         win.draw_terminal_area_for(&mut term, group.active);
     }
-    {
+    if let Some(sysmon_rect) = parts.sysmon {
         let mut sysmon = ui.new_child(egui::UiBuilder::new().max_rect(sysmon_rect));
         win.draw_sysmon_bar(&mut sysmon, Some(pane.0));
     }
@@ -292,4 +322,72 @@ fn draw_pane_address_bar(win: &mut TerminalWindow, ui: &mut egui::Ui, pane: Pane
             float: false,
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn leaf_rect() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 400.0))
+    }
+
+    #[test]
+    fn non_focus_leaf_keeps_all_three_chrome_segments() {
+        let r = leaf_rect();
+        let parts = leaf_rects(r, false);
+        assert!(parts.tab.is_some(), "tab 条不能丢");
+        assert!(parts.tools.is_some(), "工具行 / 地址栏不能丢");
+        assert!(parts.sysmon.is_some(), "Sysmon 细带不能丢");
+        assert_eq!(parts.term.top(), r.top() + TAB_BAR_H + PANE_TOOLS_H);
+        assert_eq!(parts.sysmon.unwrap().bottom(), r.bottom());
+    }
+
+    /// 专注模式压掉的不只是单窗格那条全窗顶栏——**每一片分屏窗格**也只剩终端。
+    /// 这段按 `win.view.focus_mode` 收口，几何层先断言，绘制层再断言一次。
+    #[test]
+    fn focus_leaf_hides_every_chrome_segment() {
+        let r = leaf_rect();
+        let parts = leaf_rects(r, true);
+        assert!(parts.tab.is_none());
+        assert!(parts.tools.is_none());
+        assert!(parts.sysmon.is_none());
+        assert_eq!(parts.term, r, "终端吃满整片窗格");
+    }
+
+    /// 真跑两帧绘制（首帧 `Area` 是 sizing pass，形状是 `Noop`，见 `address_tests`）。
+    /// 同一片窗格：专注态形状数必须严格少于常态，否则 chrome 只是「没画在预期位置」
+    /// 而不是真的被压掉。
+    fn pane_shapes(focus: bool) -> usize {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+        win.view.focus_mode = focus;
+        let pane = crate::ui::layout::mint_pane_identity();
+        let group = PaneGroup { order: Vec::new(), active: 0 };
+        let mut shapes = 0;
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(leaf_rect()),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_pane_leaf(&mut win, ui, pane, &group, ui.available_rect_before_wrap());
+                });
+            });
+            shapes = out.shapes.len();
+        }
+        shapes
+    }
+
+    #[test]
+    fn focus_mode_split_pane_renders_without_chrome() {
+        let normal = pane_shapes(false);
+        let focused = pane_shapes(true);
+        assert!(
+            focused < normal,
+            "专注态 {focused} 形状应少于常态 {normal}：tab 条 / 工具行 / Sysmon 都不该画"
+        );
+    }
 }

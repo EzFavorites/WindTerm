@@ -143,6 +143,23 @@ fn the_path_sent_to_the_terminal_is_the_whole_path_without_an_enter() {
     }
 }
 
+/// F7/F8/F9 没有绑进 `shortcut_map`，底栏 hover 不能写出「(F7)」这类假键名。
+/// 这里直接钉生产源码的文案数据：三个键名一个字面量都不许再留在绘制文件里。
+#[test]
+fn filer_footer_hover_never_advertises_unbound_function_keys() {
+    let src = include_str!("filer_ops.rs");
+    for key in ["F7", "F8", "F9"] {
+        assert!(
+            !src.contains(&format!("\"{key}\"")),
+            "底栏 hover 不许再写 ({key})：这三个键没接进 shortcut_map"
+        );
+    }
+    assert!(
+        !src.contains("{label} ({key})"),
+        "hover 文案不许再往标签后面拼键名"
+    );
+}
+
 #[test]
 fn filer_chrome_keys_are_translated_with_the_tsv_wording() {
     use term_app::i18n::{t, Lang};
