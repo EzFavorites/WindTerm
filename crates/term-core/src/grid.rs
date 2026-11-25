@@ -504,11 +504,14 @@ impl ScreenImage {
     /// `lines.iter().find(|l| l.row == row)`（例如 `ui/terminal/pane.rs` 的
     /// `screen_index_of`：折叠之后它必须查表，减法一定会错行）。
     pub fn line_at(&self, row: i64) -> Option<&LineSlice> {
-        // 极端窗口（start=i64::MIN / row=i64::MAX）的减法会溢出：用 checked
-        // 直接判「不在窗口内」，避免 panic 或负偏移绕回成巨大下标。
-        let offset = row.checked_sub(self.range.start)?;
-        let offset = usize::try_from(offset).ok()?;
-        self.lines.get(offset)
+        // 极端窗口（start=i64::MIN / row=i64::MAX）的减法会溢出。换算统一走
+        // coords 的 checked 入口：负偏移、溢出与 32 位截断一律给 None，
+        // 不再在裸 i64 上自行相减。
+        let index = crate::coords::content_row_to_screen_index(
+            ViewRow::new(row),
+            ViewRow::new(self.range.start),
+        )?;
+        self.lines.get(index)
     }
 
     /// 本窗口的视口行区间（类型化视图）。

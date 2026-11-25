@@ -97,11 +97,21 @@ pub fn decode(text: &str) -> Result<Vec<u8>, EscapeError> {
                 out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
             }
             'c' => {
-                let x = take_tail_char(&chars, &mut i, at, "\\c 需要一个字母")?;
+                // 只接受 ASCII：`x as u8` 对多字节字形只留最后一个字节，
+                // 静默产出与控制字符无关的垃圾。宁可明确报错让调用方拦下。
+                let x = take_tail_char(&chars, &mut i, at, "\\c 需要一个 ASCII 字符")?;
+                if !x.is_ascii() {
+                    return Err(EscapeError { at, reason: "\\c 只接受 ASCII 字符" });
+                }
                 out.push((x.to_ascii_uppercase() as u8) & 0x1F);
             }
             'm' => {
-                let x = take_tail_char(&chars, &mut i, at, "\\m 需要一个字符")?;
+                // 同上：`\m` 是「高位字节 = 低位 ASCII | 0x80」，非 ASCII
+                // 截断后毫无意义，明确拒绝而不是写进 PTY。
+                let x = take_tail_char(&chars, &mut i, at, "\\m 需要一个 ASCII 字符")?;
+                if !x.is_ascii() {
+                    return Err(EscapeError { at, reason: "\\m 只接受 ASCII 字符" });
+                }
                 out.push(x as u8 | 0x80);
             }
             // 未列出的转义按原版口径保留字面字符（`\q` → `q`），不静默吞掉反斜杠。
@@ -156,5 +166,25 @@ mod tests {
         assert!(decode(r"\x0").is_err());
         assert!(decode(r"\u12").is_err());
         assert!(decode("\\").is_err());
+    }
+
+    /// `\c` / `\m` 的后继必须是 ASCII：多字节字形被 `as u8` 截断后既不是
+    /// 控制字符也不是高位字节，静默发出垃圾比不发更糟。带 `-` 分隔符的写法
+    /// 同样要拒绝，且错误位置指向反斜杠。
+    #[test]
+    fn control_and_high_byte_escapes_reject_non_ascii_tails() {
+        for (text, reason) in [
+            (r"\cÄ", "\\c 只接受 ASCII 字符"),
+            (r"\c-ä", "\\c 只接受 ASCII 字符"),
+            (r"\m你", "\\m 只接受 ASCII 字符"),
+            (r"\m-Ω", "\\m 只接受 ASCII 字符"),
+        ] {
+            let err = decode(text).expect_err("非 ASCII 后继必须拒绝");
+            assert_eq!(err.reason, reason, "text={text:?}");
+            assert_eq!(err.at, 0, "错误位置应指向转义的反斜杠");
+        }
+        // ASCII 后继的既有语义不变（`X` = 0x58 → \c = 0x18、\m = 0xD8）。
+        assert_eq!(decode(r"\cX").unwrap(), b"\x18");
+        assert_eq!(decode(r"\m-X").unwrap(), b"\xd8");
     }
 }
