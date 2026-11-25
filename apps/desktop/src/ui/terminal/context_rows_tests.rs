@@ -83,6 +83,67 @@ fn view_menu_keeps_three_checkboxes_and_the_split_rows() {
     assert!(matches!(v, Some(Work::Split(false))));
 }
 
+/// 2026-11-26：Word Wrap 这条 ⋮ 行此前是裸 `check(...)` ——有勾、没 `work` /
+/// `gate`，于是既点了没反应，悬停又说 `Not wired`，而命令其实 2026-11-24 就接了。
+/// 这条钉住它和另外两行都按台账启用，且勾选走 live 而非夹具出厂字面量。
+#[test]
+fn view_check_rows_are_wired_and_read_live_state() {
+    let ctx = egui::Context::default();
+    let pool = std::sync::Arc::new(term_session::SessionPool::new());
+    let win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+    let checked: Vec<&Row> = VIEW_ROWS.iter().filter(|r| r.check.is_some()).collect();
+    assert_eq!(checked.len(), 3);
+    for r in checked {
+        let id = r.check_id.unwrap_or_else(|| panic!("{} 的勾没挂 live ID", r.label));
+        assert_eq!(r.gate, Some(id), "{} 的判态与勾选必须是同一条命令", r.label);
+        assert!(
+            matches!(r.work, Some(Work::Command(w)) if w == id),
+            "{} 的派发与勾选必须是同一条命令",
+            r.label
+        );
+        // 夹具字面量只描述基线那一瞬，真值必须来自 live（此处是无标签出厂态）。
+        assert!(!live_check(&win, id), "{id} 出厂态应是空框");
+        let (state, why) = crate::ui::shell::action_state(&win, id);
+        assert_eq!(state, MenuRowState::Enabled);
+        assert_ne!(why, "Not wired (placeholder)", "{id} 已接线，不能再这么骗人");
+    }
+    // 夹具里 Word Wrap 写的是 true，live 读到 false——这个差就是像素变化的来源之一。
+    let wrap = VIEW_ROWS.iter().find(|r| r.label == "Word Wrap").unwrap();
+    assert_eq!(wrap.check, Some(true));
+    assert!(!live_check(&win, wrap.check_id.unwrap()));
+}
+
+/// 2026-11-26：两条两段快捷键是**夹具字面量偏差**，不是绑定表事实。
+///
+/// 全局绑定表只有 `Text.ToggleWordWrap`（Word Wrap 那行）和 Alt+T 段的 Margin
+/// 系列，没有 `View.ToggleLineEndings` / `View.ToggleWrapSymbols`。这里照视觉
+/// 基线抄的字面量靠 `shortcut_on_platform` 的 `display(id)` 为空这条路显示。
+/// 锁死这一点，免得有人以为它们与绑定表同源、或者为了「对齐」去改全局绑定表。
+#[test]
+fn the_two_two_stroke_view_shortcuts_are_fixture_literals() {
+    use term_app::shortcut_map::{KeyBindingMap, Platform};
+    let map = KeyBindingMap::new(&[], Platform::Macos);
+    for (label, literal) in [
+        ("Line Endings", "Alt+T, Alt+E"),
+        ("Wrap Symbols", "Alt+T, Alt+W"),
+    ] {
+        let r = VIEW_ROWS.iter().find(|r| r.label == label).unwrap();
+        assert_eq!(r.shortcut, literal, "{label} 必须照基线逐字抄");
+        let id = r.gate.unwrap();
+        assert!(map.display(id).is_empty(), "{id} 在绑定表里没有条目，才走到字面量");
+        assert_eq!(
+            shortcut_on_platform(r, &map),
+            literal,
+            "{label} 的偏差只允许在夹具字面量这一层"
+        );
+        // 有 gate 也只说明判态/派 dispatched 接真，不代表键位来自绑定表。
+        assert!(matches!(r.work, Some(Work::Command(w)) if w == id));
+    }
+    // 对照组：Word Wrap 走的是绑定表真值，不许被这条测试误伤成字面量偏差。
+    let wrap = VIEW_ROWS.iter().find(|r| r.label == "Word Wrap").unwrap();
+    assert_eq!(map.display(wrap.gate.unwrap()), "Alt+M, Alt+W");
+}
+
 #[test]
 fn rows_without_an_action_are_always_drawn_disabled() {
     for r in TERMINAL_ROWS.iter().chain(VIEW_ROWS.iter()) {

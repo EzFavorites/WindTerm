@@ -47,7 +47,9 @@ pub(in crate::ui) use find_bar::{draw_find_bar, FIND_BAR_H};
 // 是同一个谓词（`is_implemented` × 日志写入端状态），于是放开 `action_state`。
 // 行仍然手绘——egui 的 `SubMenuButton` 行高差 3 点、箭头字形在本项目字体里
 // 没有，混用就成了同一张菜单两种行。
-pub(in crate::ui) use menu_items::{action_state, draw_menu_items_static};
+// 2026-11-26：右键菜单 ⋮ 里那三条勾选项（Word Wrap / Line Endings /
+// Wrap Symbols）也要读同一份 live 判据，不能各自写死出厂常量，所以再导出。
+pub(in crate::ui) use menu_items::{action_state, draw_menu_items_static, live_check};
 pub(in crate::ui) use menu_style::popup_bg;
 pub(in crate::ui) use menu_style::menu_popup_width;
 // 右键菜单（terminal/context_rows.rs）复用同一套四栏手绘，视觉才和菜单栏弹层

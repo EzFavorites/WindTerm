@@ -264,7 +264,12 @@ pub(super) fn widest_cells(win: &TerminalWindow, items: &[Item]) -> usize {
 /// 颜色全部按 [`MenuRowState`] 烤死，**不用 `PLACEHOLDER`**：后者交给
 /// `Button` 按控件状态回填，禁用色随主题走，做不出视觉基线的 `#555555`。
 /// 下划线在 layout 时烘焙，同样要烤成对应状态的文字色。
-fn text_job(
+///
+/// 唯一例外是 `color = Color32::PLACEHOLDER`：子菜单标题走 `ui.menu_button`，
+/// 文字由 egui 的 `SubMenuButton` 按 hover / open 状态回填（`painter.galley`
+/// 的 fallback color），下划线也一并由 tessellator 用同一个 fallback 上色。
+/// 这时本函数只负责把访问字母那一节标出来，不负责定颜色。
+pub(in crate::ui) fn text_job(
     text: &str,
     underline: Option<usize>,
     color: egui::Color32,
