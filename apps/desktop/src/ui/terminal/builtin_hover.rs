@@ -62,7 +62,13 @@ fn tooltip_at_pointer(image: &ScreenImage, row: i64, col: usize) -> Option<Strin
 }
 
 /// 画浮层。未命中 / 软折 / 无指针时零分配、零像素变化。
-pub(super) fn paint(ui: &egui::Ui, image: &ScreenImage, geom: GridGeom, word_wrap: bool) {
+pub(super) fn paint(
+    ui: &egui::Ui,
+    image: &ScreenImage,
+    geom: GridGeom,
+    word_wrap: bool,
+    id: egui::Id,
+) {
     if word_wrap {
         return;
     }
@@ -80,8 +86,8 @@ pub(super) fn paint(ui: &egui::Ui, image: &ScreenImage, geom: GridGeom, word_wra
         Some(text) => format!("{row}:{col}:{text}"),
         None => String::new(),
     };
-    // 与 ip 菜单同一把口径：Id 只按窗格 + 种类定型，不随指针行列漂移。
-    let id = hover_anchor::hover_id(ui.unique_id(), "builtin_tooltip");
+    // Id 由调用方按槽位身份传入；行列只进 token，切 child / 布局重排后 Id 不变。
+    let id = id.with("builtin_tooltip");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );

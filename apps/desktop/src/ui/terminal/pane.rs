@@ -376,7 +376,17 @@ impl TerminalWindow {
             );
         }
 
-        if !bin && !tab.local_mode { if let Some(hit) = super::ip_hover::paint(ui, image, geom, tab.word_wrap, &self.triggers) { self.pending_ip_hit = Some(hit); } super::builtin_hover::paint(ui, image, geom, tab.word_wrap); }
+        // 悬停浮层的帧间锚点按**槽位身份**寻址：专注模式切 child、布局重排后
+        // ui.unique_id() 会变，浮层会闪退；TabSlot::index() 跨帧恒在。
+        let hover_id = egui::Id::new(("hover_token", slot.index()));
+        if !bin && !tab.local_mode {
+            if let Some(hit) =
+                super::ip_hover::paint(ui, image, geom, tab.word_wrap, &self.triggers, hover_id)
+            {
+                self.pending_ip_hit = Some(hit);
+            }
+            super::builtin_hover::paint(ui, image, geom, tab.word_wrap, hover_id);
+        }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {
             let (click, mods) = ui.input(|i| (i.pointer.button_clicked(egui::PointerButton::Primary).then(|| i.pointer.press_origin()).flatten(), i.modifiers));

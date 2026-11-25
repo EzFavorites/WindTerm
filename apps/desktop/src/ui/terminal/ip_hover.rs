@@ -136,6 +136,7 @@ pub(super) fn paint(
     geom: GridGeom,
     word_wrap: bool,
     rules: &[Rule],
+    id: egui::Id,
 ) -> Option<term_app::trigger::Hit> {
     if word_wrap {
         return None;
@@ -155,9 +156,9 @@ pub(super) fn paint(
         Some(Payload::Custom { matched, .. }) => format!("{row}:{col}:custom:{matched}"),
         None => String::new(),
     };
-    // Id 只按窗格 + 种类定型：row:col:token 只作为 resolve 的参数。指针移进
-    // 浮层后行列会变，Id 不变才能取回上一帧锁住的锚点与菜单内容。
-    let id = hover_anchor::hover_id(ui.unique_id(), "ip_menu");
+    // Id 由调用方按槽位身份传入，这里只加种类后缀：聚焦模式切 child、布局重排
+    // 后仍跨帧稳定。行列只进 token（变化时才重设锚点），不进 Id（否则浮层闪退）。
+    let id = id.with("ip_menu");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );
