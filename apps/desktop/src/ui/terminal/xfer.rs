@@ -245,7 +245,7 @@ impl TerminalWindow {
             self.xfer_prompt_error("这个标签没有活着的会话".to_string());
             return;
         };
-        match XferHandle::start_with_literal(
+        match XferHandle::start_with_policy(
             self.pool.clone(),
             session,
             kind,

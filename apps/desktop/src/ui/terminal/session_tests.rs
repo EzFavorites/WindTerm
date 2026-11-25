@@ -267,7 +267,7 @@ fn tab_with_tap(
 ) -> (
     term_core::session_runtime::SessionId,
     crate::ui::Tab,
-    std::sync::mpsc::Sender<Vec<u8>>,
+    crate::hex_tap::TapSender,
 ) {
     let ctx = egui::Context::default();
     let pool = Arc::new(term_session::SessionPool::new());
@@ -287,7 +287,7 @@ fn tab_with_tap(
     (
         tab.session().expect("夹具带一条会话"),
         tab,
-        tx,
+        crate::hex_tap::TapSender::new(tx),
     )
 }
 

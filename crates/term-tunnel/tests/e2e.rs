@@ -213,28 +213,38 @@ async fn proxy(mut channel: Channel<Msg>, tcp: tokio::net::TcpStream) {
 
 /// 起一个只监听本机的 mock 服务端，返回地址与观测记录。
 fn start_server(backend: SocketAddr) -> (SocketAddr, Arc<Mutex<Observed>>) {
-    let addr = free_port();
     let observed = Arc::new(Mutex::new(Observed::default()));
     let server = MockServer {
         password: "test-password".to_string(),
         backend,
         observed: Arc::clone(&observed),
     };
+    // 服务端自己在 tokio runtime 里 bind 并把真实地址回传：不再"先占端口再放掉"
+    // ——那一招在全量门禁下有 bind 竞态，会让本地转发 e2e 偶发红。
+    let (addr_tx, addr_rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .expect("建测试运行时");
         rt.block_on(async move {
+            let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+                .await
+                .expect("mock 服务端 bind");
+            let addr = listener.local_addr().expect("mock 服务端 addr");
+            addr_tx.send(addr).expect("回传服务端地址");
             let key = host_key();
             let config = Arc::new(server::Config {
                 keys: vec![key],
                 ..Default::default()
             });
             let mut srv = server;
-            srv.run_on_address(config, addr).await.expect("mock 服务端退出");
+            srv.run_on_socket(config, &listener).await.expect("mock 服务端退出");
         });
     });
+    let addr = addr_rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("mock 服务端 30 秒内没绑好");
     (addr, observed)
 }
 
@@ -275,15 +285,15 @@ fn free_port() -> SocketAddr {
 /// 等服务端真的在监听。
 ///
 /// `run_on_address` 在另一个线程里 bind，测试线程可能先跑到 connect 那一步——
-/// 那时看到的是「连接被拒」，而这不是隧道的问题。给到 10 秒上限，
+/// 服务端地址已由 start_server 回传，这里只做一次快速探活，给到 15 秒上限，
 /// 起不来就直接失败（而不是让测试随机红）。
 fn wait_for_server(addr: SocketAddr) {
-    let deadline = Instant::now() + Duration::from_secs(10);
+    let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
             Ok(_) => return,
             Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => panic!("mock 服务端 10 秒内没起来：{e}"),
+            Err(e) => panic!("mock 服务端 15 秒内没起来：{e}"),
         }
     }
 }

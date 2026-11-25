@@ -17,13 +17,31 @@
 //! 监管者线程 `send` 绝不许阻塞），因此「UI 不搬就攒着」——所以 `drain` 必须
 //! 每帧调，调用点只有 `Tab::poll` 一处。
 
-use std::sync::mpsc::Receiver;
+use std::sync::mpsc::{Receiver, Sender};
+
+pub(crate) type Tx = Sender<Vec<u8>>;
+pub(crate) type SendError = std::sync::mpsc::SendError<Vec<u8>>;
 
 /// 一条字节 tee 的消费端。丢弃即解绑（生产端随后 `send` 会失败，但那是
 /// 控制面自己的事：它在标签关闭时也会 `detach_tap`）。
 pub(crate) struct HexTap {
     rx: Receiver<Vec<u8>>,
 }
+
+/// 夹具用的**发送端不透明句柄**：把 `Sender<Vec<u8>>` 关在 app 层，
+/// ui/ 测试只拿这个包装类型，保持第 5 步 5b 的"ui 零 channel 端"判据成立。
+pub(crate) struct TapSender(crate::hex_tap::Tx);
+
+impl TapSender {
+    pub(crate) fn new(tx: crate::hex_tap::Tx) -> Self {
+        Self(tx)
+    }
+
+    pub(crate) fn send(&self, bytes: Vec<u8>) -> Result<(), crate::hex_tap::SendError> {
+        self.0.send(bytes)
+    }
+}
+
 
 impl HexTap {
     /// 包住 `SessionPool::attach_tap` 给出的接收端。

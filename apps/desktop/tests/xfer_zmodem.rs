@@ -589,7 +589,8 @@ fn drive_samples_meta_once_per_file_start() {
             other => panic!("这里只该有 FileStart，实际 {other:?}"),
         })
         .collect();
-    assert_eq!(got, [meta, second]);
+    // 同帧多 FileStart 安全门：整批默认，避免末文件状态串给前面的文件。
+    assert_eq!(got, [xfer_run::FileMeta::default(), xfer_run::FileMeta::default()]);
 }
 
 /// ③a 收尾落盘：`Sink::close` 用标准库 `FileTimes` 把对端 mtime 写回文件；

@@ -203,32 +203,12 @@ impl XferHandle {
         protocol: XferProtocol,
         target: PathBuf,
     ) -> Result<Self, String> {
-        Self::start_with_policy(pool, session, kind, protocol, target, Default::default())
+        Self::start_with_policy(pool, session, kind, protocol, target, Default::default(), false)
     }
 
-    /// 带同名冲突策略的入口；UI 重构完成后由设置页把选择传进来。
-    ///
-    /// 走这条路的调用方**没有**「这是一条拖放进来的单路径」这一事实，所以
-    /// `literal_single` 恒为 `false`：`;` 只按多文件语法判定（碎片都存在才拆）。
+    /// 带同名冲突策略的入口。`literal_single` 是 UI 传来的显式事实：`target`
+    /// 是否为拖放进来的**一条**本地路径；手动输入的 `a;b` 传 false，按多文件语法判定。
     pub fn start_with_policy(
-        pool: Arc<SessionPool>,
-        session: SessionId,
-        kind: XferKind,
-        protocol: XferProtocol,
-        target: PathBuf,
-        policy: crate::xfer_conflict::ConflictPolicy,
-    ) -> Result<Self, String> {
-        Self::start_impl(pool, session, kind, protocol, target, policy, 0, false)
-    }
-
-    /// 与 [`Self::start_with_policy`] 同源，多带一条**显式事实**：`target` 是
-    /// 拖进来的**一条**本地路径（可能真名里带 `;`）。
-    ///
-    /// 只有这个事实为真时 `send_target_paths` 才启用「整条路径存在就当单路径」
-    /// 的闸门。手动在弹层里输入的 `a;b` 走 [`Self::start_with_policy`]，永远按碎片
-    /// 判定——哪怕同目录恰好有个字面名叫 `a;b` 的文件，也不会把用户想发的两个
-    /// 文件吞成一个。事实由 UI 层（弹层）一路传到这里，不在驱动层靠路径形状猜。
-    pub fn start_with_literal(
         pool: Arc<SessionPool>,
         session: SessionId,
         kind: XferKind,
@@ -237,16 +217,7 @@ impl XferHandle {
         policy: crate::xfer_conflict::ConflictPolicy,
         literal_single: bool,
     ) -> Result<Self, String> {
-        Self::start_impl(
-            pool,
-            session,
-            kind,
-            protocol,
-            target,
-            policy,
-            0,
-            literal_single,
-        )
+        Self::start_impl(pool, session, kind, protocol, target, policy, 0, literal_single)
     }
 
     /// 断点续传：本地已有目标文件的前 `offset` 字节，协议层回 ZRPOS(offset)，
