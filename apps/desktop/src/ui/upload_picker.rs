@@ -72,6 +72,19 @@ pub(in crate::ui) fn paths_to_upload_picks(paths: &[String]) -> Vec<XferPick> {
         .collect()
 }
 
+/// 确认时如果有路径已经失效（`paths_to_upload_picks` 丢弃的），必须在回执里
+/// 写明条数；全被丢弃时给出明确错误，不能画成「上传成功」。
+fn append_dropped_notice(notes: &mut Vec<String>, dropped: usize) {
+    if dropped == 0 {
+        return;
+    }
+    notes.push(if notes.is_empty() {
+        format!("所选 {dropped} 条路径都已失效，未入队")
+    } else {
+        format!("{dropped} 条路径已失效，未入队")
+    });
+}
+
 /// 把手输的一行解析成绝对路径并加入选择；相对路径以当前列出的目录为基准。
 fn add_typed(picker: &mut UploadPicker, dir: &Path) {
     let raw = picker.typed.trim();
@@ -224,10 +237,13 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
     if confirmed {
         // 逐条进既有队列：目录由 start_filer_transfer 自动走 enqueue_upload_tree。
         // 回执沿用 Filer 状态行那一个槽，不新开提示位。
-        let notes: Vec<String> = paths_to_upload_picks(&picker.selected)
+        let picks = paths_to_upload_picks(&picker.selected);
+        let dropped = picker.selected.len().saturating_sub(picks.len());
+        let mut notes: Vec<String> = picks
             .into_iter()
             .map(|pick| win.start_filer_transfer(pick))
             .collect();
+        append_dropped_notice(&mut notes, dropped);
         win.note_multi_upload(notes);
         ctx.request_repaint();
     } else if !cancel {
@@ -302,6 +318,25 @@ mod tests {
             XferPick::Upload { local, .. } => assert_eq!(local, &a),
             _ => panic!("类型不对"),
         }
+    }
+
+    #[test]
+    fn confirm_receipt_reports_dropped_paths_and_never_looks_silent() {
+        let mut notes = vec!["已入队 a".to_string()];
+        append_dropped_notice(&mut notes, 2);
+        assert_eq!(notes.len(), 2);
+        assert!(notes[1].contains("2 条路径已失效"), "{notes:?}");
+
+        // 全部失效：回执必须是一条明确错误，而不是空列表伪装成成功。
+        let mut notes = Vec::new();
+        append_dropped_notice(&mut notes, 3);
+        assert_eq!(notes.len(), 1);
+        assert!(notes[0].contains("3 条路径都已失效"), "{notes:?}");
+
+        // 没有丢弃时不添噪。
+        let mut notes = vec!["已入队 a".to_string()];
+        append_dropped_notice(&mut notes, 0);
+        assert_eq!(notes.len(), 1);
     }
 
     #[test]

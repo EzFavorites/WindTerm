@@ -264,24 +264,67 @@ fn is_cancel_event(event: &egui::Event) -> bool {
     }
 }
 
+/// 取消键只有在键盘真的会进终端窗格时才归我们处理。
+///
+/// 窗口失焦、对话框/浮层正拦着键盘时，`Ctrl+C` / `Ctrl+X` 是给那些控件的，
+/// 无差别吞掉会让「在对话框里按取消」失效——焦点边界必须先判。
+fn terminal_keyboard_focused(ctx: &egui::Context, win: &TerminalWindow) -> bool {
+    let view = &win.view;
+    ctx.input(|i| i.focused)
+        && !view.command_palette.visible
+        && !view.goto.visible
+        && !view.center.visible
+        && !view.show_shortcuts
+        && !view.show_tmux
+        && !view.lock.locked
+        && win.pending_paste.is_none()
+        && !win.modal_dialog_open()
+}
+
+/// 只摘出**匹配**的取消键，其余事件（包括同一条 Text 里的普通字符）原样留下。
+///
+/// 旧实现用 `retain` 把整条 `Event::Text("a\x03b")` 丢掉，连带吞了 `ab`；
+/// 现在只抠掉控制字符，判据也只看真正摘出来的那些事件。
+fn take_cancel_events(events: Vec<egui::Event>) -> (Vec<egui::Event>, Vec<egui::Event>) {
+    let mut kept = Vec::with_capacity(events.len());
+    let mut taken = Vec::new();
+    for event in events {
+        match event {
+            egui::Event::Text(text) => {
+                let (cancel, rest): (String, String) = text
+                    .chars()
+                    .partition(|c| *c == '\x03' || *c == '\x18');
+                if !cancel.is_empty() {
+                    taken.push(egui::Event::Text(cancel));
+                }
+                if !rest.is_empty() {
+                    kept.push(egui::Event::Text(rest));
+                }
+            }
+            event if is_cancel_event(&event) => taken.push(event),
+            event => kept.push(event),
+        }
+    }
+    (kept, taken)
+}
+
 fn cancel_pass(ctx: &egui::Context, win: &mut TerminalWindow) {
     let running = win.xfer.as_ref().is_some_and(|job| {
         let progress = job.handle.progress();
         !progress.finished && progress.error.is_none()
     });
-    if !running {
-        // 上一次传输里只按了一击 X 就结束了：别把那半截连按带进下一次传输。
+    if !running || !terminal_keyboard_focused(ctx, win) {
+        // 传输结束或焦点不在终端：别把半截连按（或失焦前的一击）带进下一次。
         CANCEL.with(|slot| slot.borrow_mut().last_x = None);
         return;
     }
-    // 传输中这两击一律吞掉：即使第一击还没凑成连按，也不能让 `\x03` / `\x18`
-    // 原样进 PTY（与 `pane.rs` 的裸编码路径相对）。
     let (events, now) = ctx.input(|i| (i.events.clone(), i.time));
+    let (kept, taken) = take_cancel_events(events);
     let hit = CANCEL.with(|slot| {
         let mut state = slot.borrow_mut();
-        cancel_hit(&events, now, &mut state, DOUBLE_X_WINDOW)
+        cancel_hit(&taken, now, &mut state, DOUBLE_X_WINDOW)
     });
-    ctx.input_mut(|i| i.events.retain(|event| !is_cancel_event(event)));
+    ctx.input_mut(|i| i.events = kept);
     if hit {
         if let Some(job) = win.xfer.as_ref() {
             job.handle.cancel();
@@ -456,6 +499,41 @@ mod tests {
         let mut state = CancelState::default();
         assert!(!cancel_hit(&[egui::Event::Text("\x18".into())], 3.0, &mut state, 1.0));
         assert!(cancel_hit(&[egui::Event::Text("\x18".into())], 3.5, &mut state, 1.0));
+    }
+
+    #[test]
+    fn cancel_consumption_respects_the_terminal_focus_boundary() {
+        let ctx = egui::Context::default();
+        let mut win = crate::ui::lifecycle_test_support::window_with(
+            std::sync::Arc::new(term_session::SessionPool::new()),
+            &ctx,
+            vec![],
+        );
+        ctx.input_mut(|i| i.focused = true);
+        assert!(terminal_keyboard_focused(&ctx, &win));
+        ctx.input_mut(|i| i.focused = false);
+        assert!(!terminal_keyboard_focused(&ctx, &win), "窗口失焦时不能吞键");
+        ctx.input_mut(|i| i.focused = true);
+        win.view.show_settings = true;
+        assert!(
+            !terminal_keyboard_focused(&ctx, &win),
+            "设置对话框正拦着键盘时不能吞键"
+        );
+    }
+
+    #[test]
+    fn only_matching_cancel_events_are_removed() {
+        let (kept, taken) = take_cancel_events(vec![
+            egui::Event::Text("a\x03b".to_string()),
+            key_ctrl(egui::Key::C),
+            key_ctrl(egui::Key::V),
+            egui::Event::Text("plain".to_string()),
+        ]);
+        assert_eq!(taken.len(), 2, "只摘出 Ctrl+C 与 Text 里的 \\x03");
+        assert!(matches!(&taken[0], egui::Event::Text(t) if t == "\x03"));
+        assert_eq!(kept.len(), 3, "普通键与同一条 Text 的其余字符必须留下");
+        assert!(matches!(&kept[0], egui::Event::Text(t) if t == "ab"));
+        assert!(matches!(&kept[1], egui::Event::Key { key: egui::Key::V, .. }));
     }
 
     #[test]

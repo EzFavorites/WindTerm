@@ -7,6 +7,13 @@ use crate::scan::{Scan, Scanner};
 use std::collections::VecDeque;
 use term_xfer::{Action, Error, Fault};
 
+/// 连发时每个 `ZDATA` 帧最多装几个子包。
+///
+/// 整文件一次打成**一个** `Action::Send` 会让内存里同时躺着文件 `Vec` 与
+/// 转义后的整帧（最坏接近 2 倍文件长）；按 12 个子包一批切开发，峰值与
+/// 文件大小脱钩，帧序仍然是原来的那一串 `ZDATA` + `ZEOF`。
+const STREAM_BATCH: usize = 12;
+
 /// 发送方：把文件编码成 ZMODEM 帧，按对端的应答推进。
 ///
 /// # 用法
@@ -321,10 +328,12 @@ impl Sender {
                 self.peer_canfc32 = frame::rinit_flags(header.data) & frame::RINIT_CANFC32 != 0;
                 self.on_zrinit(out);
             }
+            // `ZRPOS` 是「从这个偏移重发」，`ZACK` 是「这段收到了」——两者在
+            // `ZEOF` 之后到达 total 时含义不同：前者要求补发 ZEOF，后者只是迟到
+            // 的确认，必须忽略，否则对端会收到两个 ZEOF。
             FrameType::ZRPOS | FrameType::ZACK => {
-                // 位置字段是**小端**（`rclhdr()` / `ZP0 == 0`）。
                 let offset = u64::from(frame::decode_position(header.data));
-                self.on_position(offset, out);
+                self.on_position(offset, header.frame == FrameType::ZRPOS, out);
             }
             FrameType::ZNAK => {
                 if self.bump_failure(Fault::Checksum, out) {
@@ -374,8 +383,8 @@ impl Sender {
         }
     }
 
-    /// 对端给出了一个偏移（`ZRPOS` 要求重发，`ZACK` 表示已收到这段）。
-    fn on_position(&mut self, offset: u64, out: &mut Vec<Action>) {
+    /// 对端给出了一个偏移。`rpos` 区分 `ZRPOS`（要求重发）与 `ZACK`（已收到）。
+    fn on_position(&mut self, offset: u64, rpos: bool, out: &mut Vec<Action>) {
         // 连发模式下 `ZEOF` 之后仍可能收到 `ZRPOS`：接收方在流中间发现某块 CRC 错，
         // 要求整段回退。这时虽然已经发过 `ZEOF`，也必须从该偏移重发。
         let retry_after_stream = self.cfg.streaming && self.phase == Phase::AwaitingZrinitAfterEof;
@@ -386,8 +395,11 @@ impl Sender {
         let total = self.data.len() as u64;
         let offset = offset.min(total);
         if retry_after_stream && offset >= total {
-            // 连发之后收到的 `ZACK(total)`：最后一个 `ZCRCW` 的确认，`ZEOF` 已发，
-            // 不能再发一次（否则对端会收到重复的 `ZEOF`）。
+            // `ZACK(total)` 是迟到的确认，`ZEOF` 已经发过，不再发；`ZRPOS(total)`
+            // 则是对端明确说「我一份数据都收到了，把 ZEOF 再发一次」。
+            if rpos {
+                self.send_eof(out);
+            }
             return;
         }
         if offset < self.offset {
@@ -535,22 +547,34 @@ impl Sender {
             return;
         }
         let header = self.data_header();
-        let mut bytes = frame::encode_header(
-            header,
-            FrameType::ZDATA,
-            frame::encode_position(self.offset as u32),
-        );
         let crc = header.subpacket_crc();
+        let new_frame = |offset: u64| {
+            frame::encode_header(header, FrameType::ZDATA, frame::encode_position(offset as u32))
+        };
+        let mut bytes = new_frame(self.offset);
+        let mut batch = 0usize;
         while (self.offset as usize) < total {
             let start = self.offset as usize;
             let end = (start + self.cfg.block_size).min(total);
-            let tail = if end == total {
+            let last = end == total;
+            batch += 1;
+            // 批尾用 `ZCRCE`（本帧结束、不要应答），末块用 `ZCRCW` 要最后一个
+            // `ZACK`；批内用 `ZCRCG`（后面还有子包）。子包顺序、偏移与末块
+            // 帧尾都不变，只是把一帧切成多帧。
+            let tail = if last {
                 FrameEnd::ZCRCW
+            } else if batch >= STREAM_BATCH {
+                FrameEnd::ZCRCE
             } else {
                 FrameEnd::ZCRCG
             };
             bytes.extend_from_slice(&frame::encode_subpacket(&self.data[start..end], tail, crc));
             self.offset = end as u64;
+            if batch >= STREAM_BATCH && !last {
+                out.push(Action::Send(std::mem::take(&mut bytes)));
+                bytes = new_frame(self.offset);
+                batch = 0;
+            }
         }
         self.last_frame = bytes.clone();
         out.push(Action::Send(bytes));

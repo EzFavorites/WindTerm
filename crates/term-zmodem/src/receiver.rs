@@ -147,6 +147,8 @@ pub struct Receiver {
     mode: Option<u32>,
     /// 调用方声明的「本地已有前 N 字节」，收到 `ZFILE` 时用于续传。
     resume: u64,
+    /// 协议层钳制**之后**实际生效的续传起点（收到 `ZFILE` 才有意义）。
+    effective_resume: u64,
     /// 当前文件已下发的字节数。
     received: u64,
     /// 是否正在 `ZCRCG` 连发的中间：此时丢一块就整段错位，恢复只能整段回退。
@@ -169,6 +171,7 @@ impl Receiver {
             mtime: None,
             mode: None,
             resume: 0,
+            effective_resume: 0,
             received: 0,
             in_stream: false,
             failures: 0,
@@ -254,6 +257,14 @@ impl Receiver {
         self.resume
     }
 
+    /// 协议层钳制后实际生效的续传起点。
+    ///
+    /// 落盘侧必须按这个值 seek —— 直接用原始声明值会在对端声明更短的文件时
+    /// 越过文件末尾（`set_len` 补零 = 数据错位）。未收到 `ZFILE` 时为 0。
+    pub fn effective_resume_offset(&self) -> u64 {
+        self.effective_resume
+    }
+
     /// 开始接收：发出 `ZRINIT`（宣告 `CANFC32` 与 8192 字节缓冲）。
     ///
     /// 幂等：非 [`Phase::Idle`] 时返回空。调用方若忘了先调它也不致命——
@@ -304,7 +315,8 @@ impl Receiver {
                 self.buf.clear();
                 self.pending = None;
                 self.in_stream = false;
-                self.request_retry(&mut out);
+                // 静默是超时，不是校验错：上报时要分得清（见 `Fault`）。
+                self.request_retry(Fault::Timeout, &mut out);
             }
             Phase::AwaitingZfile | Phase::AwaitingZfin => {
                 if self.bump_failure(Fault::Timeout, &mut out) {
@@ -496,7 +508,7 @@ impl Receiver {
 
     fn on_bad_subpacket(&mut self, pending: Pending, out: &mut Vec<Action>) {
         match pending {
-            Pending::Data { .. } => self.request_retry(out),
+            Pending::Data { .. } => self.request_retry(Fault::Checksum, out),
             Pending::File { .. } => {
                 if self.bump_failure(Fault::Checksum, out) {
                     self.emit(FrameType::ZNAK, [0; 4], out);
@@ -539,6 +551,7 @@ impl Receiver {
         self.size = info.size;
         self.mtime = info.mtime;
         self.mode = info.mode;
+        self.effective_resume = start;
         self.received = start;
         self.in_stream = false;
         // 续传点只对本次会话的第一个文件有意义（调用方只知道那一个半截文件）。
@@ -574,7 +587,7 @@ impl Receiver {
 
         if offset > self.received {
             // 跳到了前面：从期望位置重发。
-            self.request_retry(out);
+            self.request_retry(Fault::Checksum, out);
             return;
         }
         if end_offset <= self.received {
@@ -590,7 +603,7 @@ impl Receiver {
         }
         if offset < self.received {
             // 部分重叠：既不是重传也不是新块，只能请对端从期望位置来。
-            self.request_retry(out);
+            self.request_retry(Fault::Checksum, out);
             return;
         }
 
@@ -643,7 +656,7 @@ impl Receiver {
             None => offset != self.received,
         };
         if mismatch {
-            self.request_retry(out);
+            self.request_retry(Fault::Checksum, out);
             return;
         }
         self.file_open = false;
@@ -696,13 +709,13 @@ impl Receiver {
     ///
     /// 连发（`ZCRCG`）中途失败时格外重要：丢掉缓冲里的**残尾**再回 `ZRPOS`——
     /// 连发流里丢了一块，后面的子包全会错位，继续「跳过继续」只会越错越远。
-    fn request_retry(&mut self, out: &mut Vec<Action>) {
+    fn request_retry(&mut self, last: Fault, out: &mut Vec<Action>) {
         if self.in_stream {
             self.buf.clear();
             self.pending = None;
             self.in_stream = false;
         }
-        if !self.bump_failure(Fault::Checksum, out) {
+        if !self.bump_failure(last, out) {
             return;
         }
         self.emit_zrpos(out);

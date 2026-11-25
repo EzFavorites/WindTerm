@@ -239,10 +239,12 @@ impl XferQueue {
     /// `Cancelled` 事件（`cancel` 的注释）。所以这里不再看 `JobState`——照着表
     /// 判就行，另按状态放宽反而会把「事件还没回来」的窗口放行出去。
     fn path_in_use(&self, remote: &str, tree: bool) -> bool {
+        let remote = queue_path(remote);
         for (path, id) in &self.by_path {
             let Some(task) = self.tasks.get(id) else {
                 continue;
             };
+            let path = queue_path(path);
             if path == remote {
                 return true;
             }
@@ -553,6 +555,13 @@ fn file_name(path: &str) -> String {
         .find(|segment| !segment.is_empty())
         .unwrap_or(path)
         .to_string()
+}
+
+/// 队列里比较路径的统一口径：去掉结尾的 `/`，但根 `/` 必须保留。
+/// 服务端给 `/srv` 还是 `/srv/`，指的是同一个目录，不该变成两条任务。
+fn queue_path(path: &str) -> &str {
+    let trimmed = path.trim_end_matches('/');
+    if trimmed.is_empty() { "/" } else { trimmed }
 }
 
 /// `child` 是不是 `parent` 的**真后代**（必须隔一个 `/`）。

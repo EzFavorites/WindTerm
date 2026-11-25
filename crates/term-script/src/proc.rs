@@ -81,6 +81,16 @@ impl std::error::Error for ProcError {}
 /// 外部进程端口。
 pub trait Process: Send + Sync {
     fn run(&self, request: &ProcRun) -> Result<ProcOutput, ProcError>;
+
+    /// 带本次运行的取消令牌。默认实现兼容没有阻塞点的端口（如 `NoProcess`）；
+    /// 真正会 `wait` 的宿主必须覆盖它，在等待循环里轮询令牌并杀掉子进程。
+    fn run_cancellable(
+        &self,
+        request: &ProcRun,
+        _cancel: &crate::cancel::CancelToken,
+    ) -> Result<ProcOutput, ProcError> {
+        self.run(request)
+    }
 }
 
 /// 未接线的宿主：`Unsupported`（不是「命令不存在」——那会让人去查 PATH）。
@@ -98,11 +108,20 @@ impl Process for NoProcess {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cancel::CancelToken;
 
     #[test]
     fn the_unwired_host_reports_unsupported_not_a_missing_command() {
         let err = NoProcess.run(&ProcRun::new("uname")).unwrap_err();
         assert!(matches!(err, ProcError::Unsupported(_)));
         assert!(!err.to_string().contains("不存在"));
+    }
+
+    #[test]
+    fn the_default_cancellable_entry_keeps_unwired_hosts_unsupported() {
+        let err = NoProcess
+            .run_cancellable(&ProcRun::new("uname"), &CancelToken::new())
+            .unwrap_err();
+        assert!(matches!(err, ProcError::Unsupported(_)));
     }
 }

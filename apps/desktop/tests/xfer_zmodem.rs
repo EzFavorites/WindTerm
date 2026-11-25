@@ -230,7 +230,7 @@ fn require_prog(prog: &str) -> String {
 #[test]
 fn sink_appends_at_the_resume_offset() {
     let root = unique_dir("sink-resume");
-    std::fs::write(root.join("part.bin"), b"abc").unwrap();
+    std::fs::write(root.join("part.bin"), b"abcde").unwrap();
     let pool = SessionPool::new();
     {
         let mut sink = xfer_run::Sink {
@@ -244,12 +244,13 @@ fn sink_appends_at_the_resume_offset() {
             skipping: false,
             resume_offset: 5,
         };
-        sink.open("part.bin", xfer_run::FileMeta { mtime: None, mode: None }).unwrap();
+        let meta = xfer_run::FileMeta { resume: 5, ..xfer_run::FileMeta::default() };
+        sink.open("part.bin", meta).unwrap();
         sink.write(b"XY").unwrap();
         sink.close().unwrap();
     }
     let bytes = std::fs::read(root.join("part.bin")).unwrap();
-    assert_eq!(bytes.len(), 7, "先补齐到 offset=5，再追加两字节");
+    assert_eq!(bytes.len(), 7, "本地确有 5 字节，从末尾接着写两字节");
     assert_eq!(&bytes[5..], b"XY");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -484,6 +485,7 @@ fn drive_attaches_meta_to_a_single_file_start_and_drops_it_when_ambiguous() {
     let meta = xfer_run::FileMeta {
         mtime: Some(1_700_000_000),
         mode: Some(0o644),
+        ..xfer_run::FileMeta::default()
     };
     let one = xfer_run::drive(
         vec![
@@ -560,6 +562,7 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             xfer_run::FileMeta {
                 mtime: Some(want),
                 mode: Some(0o644),
+                ..xfer_run::FileMeta::default()
             },
         )
         .expect("开文件");
@@ -586,7 +589,7 @@ fn sink_applies_peer_mtime_but_leaves_time_alone_for_none_or_zero() {
             skipping: false,
             resume_offset: 0,
         };
-        sink.open(name, xfer_run::FileMeta { mtime, mode: None })
+        sink.open(name, xfer_run::FileMeta { mtime, ..xfer_run::FileMeta::default() })
             .expect("开文件");
         sink.write(b"x").expect("写内容");
         let path = root.join(name);

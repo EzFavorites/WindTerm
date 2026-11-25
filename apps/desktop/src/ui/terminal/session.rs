@@ -337,21 +337,16 @@ impl Tab {
     pub(in crate::ui) fn apply_trigger(&mut self, hit: term_app::trigger::Hit, run_commands: &mut Vec<String>) {
         for action in &hit.actions {
             match action {
-                // 原版 Send text 支持与 Sender 同一张转义表（见 kingtoolbox-docs）：
-                // `\x03` / `\003` / `\cc` 都要能发 Ctrl+C。解码失败时不写半条命令。
-                TriggerAction::SendText(s) => match term_core::send_escapes::decode(s) {
-                    Ok(bytes) => { self.write(&bytes); }
-                    // 解析失败整条不写——半条命令比不发送更糟。
-                    Err(_) => {}
-                },
+                // 只有文本里**明确写了转义**才走 Sender 那张表：`\x03` / `\003`
+                // / `\cc` 都要能发 Ctrl+C。普通文本（例如 `C:\Windows\path`）
+                // 原样发，不能被未知转义吃掉反斜杠，也不能因末尾孤立 `\` 整条不发送。
+                TriggerAction::SendText(s) => {
+                    self.write(&decode_send_text(s));
+                }
                 TriggerAction::SendLine(s) => {
-                    let mut text = s.clone();
-                    text.push('\r');
-                    match term_core::send_escapes::decode(&text) {
-                        Ok(bytes) => { self.write(&bytes); }
-                        // 解析失败整条不写——半条命令比不发送更糟。
-                    Err(_) => {}
-                    }
+                    let mut bytes = decode_send_text(s);
+                    bytes.push(b'\r');
+                    self.write(&bytes);
                 }
                 TriggerAction::Beep => {
                     self.write(&[0x07]);
@@ -610,6 +605,33 @@ impl Tab {
             self.pool.close(id);
         }
     }
+}
+
+/// Trigger ▸ Send text 的解码口径。
+///
+/// 与 Sender 共用转义表是原版口径，但那张表对**未知转义**会吞掉反斜杠
+/// （`\q` → `q`），末尾孤立 `\` 还会直接报错导致整条不发送。对 Windows 路径
+/// 这种「用户本来就想发字面反斜杠」的文本，那是静默的数据损坏。所以只有
+/// 文本里确实出现了表内的显式转义时才解码；其余一律按字面字节发送。
+pub(super) fn decode_send_text(text: &str) -> Vec<u8> {
+    let mut chars = text.chars().peekable();
+    let mut explicit = false;
+    while let Some(c) = chars.next() {
+        if c == '\\'
+            && chars
+                .peek()
+                .is_some_and(|next| matches!(next, '0'..='7' | 'a' | 'b' | 't' | 'n' | 'v' | 'f' | 'r' | '\\' | 'x' | 'u' | 'c' | 'm'))
+        {
+            explicit = true;
+            break;
+        }
+    }
+    if explicit {
+        if let Ok(bytes) = term_core::send_escapes::decode(text) {
+            return bytes;
+        }
+    }
+    text.as_bytes().to_vec()
 }
 
 #[cfg(test)]

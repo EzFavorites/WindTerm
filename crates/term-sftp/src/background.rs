@@ -855,6 +855,13 @@ fn stop_event(path: String, error: TransferError) -> Event {
     }
 }
 
+/// walk 入口的取消检查（连空树也覆盖：循环里没有任何检查点）。
+fn cancelled_tree(root: String, opts: &TransferOpts<'_>) -> Option<Event> {
+    opts.cancel
+        .is_cancelled()
+        .then(|| stop_event(root, TransferError::Cancelled { pre_existing: false }))
+}
+
 /// 跑一棵树的传输：先展开成计划，再按计划建目录、逐文件传。
 ///
 /// 每个文件自己的 `Progress` / `Done` / `Failed` 挂在该文件的远端路径上；
@@ -873,6 +880,11 @@ async fn tree_and_report(
     reporter: &Reporter<'_>,
 ) -> Event {
     let root = remote.to_string();
+    // 空树里一个文件都没有，walk 的逐文件循环不会转——没有这个入口检查，
+    // 用户已经按了 Stop  still 会收到一条 Done。
+    if let Some(event) = cancelled_tree(root.clone(), &opts) {
+        return event;
+    }
     let plan = match direction {
         Direction::Download => crate::walk::plan_remote(sftp, remote).await,
         Direction::Upload => crate::walk::plan_local(local),
@@ -900,5 +912,29 @@ async fn tree_and_report(
     match result {
         Ok(bytes) => Event::Done { path: root, bytes },
         Err(e) => stop_event(root, e),
+    }
+}
+
+#[cfg(test)]
+mod background_cancel_tests {
+    use super::*;
+
+    /// 空树没有逐文件检查点：入口这一下是唯一能拦住「取消仍报 Done」的地方。
+    #[test]
+    fn a_cancelled_tree_reports_cancelled_even_when_the_plan_is_empty() {
+        let token = CancelToken::new();
+        let opts = TransferOpts {
+            resume: false,
+            preserve: false,
+            preserve_dir: false,
+            fix_invalid: false,
+            cancel: &token,
+        };
+        assert!(cancelled_tree("/tree".to_string(), &opts).is_none());
+        token.cancel();
+        match cancelled_tree("/tree".to_string(), &opts) {
+            Some(Event::Cancelled { path, kept: false }) => assert_eq!(path, "/tree"),
+            other => panic!("取消该上报 Cancelled，实得 {other:?}"),
+        }
     }
 }

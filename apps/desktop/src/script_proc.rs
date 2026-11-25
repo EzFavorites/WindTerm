@@ -22,7 +22,10 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use term_core::script_caps::Capabilities;
-use term_script::{ProcError, ProcOutput, ProcRun, Process};
+use term_script::{CancelToken, ProcError, ProcOutput, ProcRun, Process};
+
+/// `ProcRun.timeout = None` 时的缺省上限（端口文档承诺的 30 秒）。
+const DEFAULT_PROC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// 本地进程端口。`caps` 是每次现问的授权来源（理由同 `script_fs`）。
 pub struct LocalProcess<F> {
@@ -43,6 +46,16 @@ where
     F: Fn() -> Capabilities + Send + Sync,
 {
     fn run(&self, request: &ProcRun) -> Result<ProcOutput, ProcError> {
+        // 兼容直接调 `run` 的宿主：没有本次运行的令牌，用一个不会被取消的。
+        self.run_cancellable(request, &CancelToken::new())
+    }
+
+    fn run_cancellable(
+        &self,
+        request: &ProcRun,
+        cancel: &CancelToken,
+    ) -> Result<ProcOutput, ProcError> {
+        cancel.check().map_err(|_| ProcError::Cancelled)?;
         (self.caps)()
             .check_process()
             .map_err(|denied| ProcError::Denied(denied.to_string()))?;
@@ -73,13 +86,10 @@ where
                     .map_err(|e| ProcError::Io(format!("往子进程写输入失败：{e}")))?;
             }
         }
-        let output = match request.timeout {
-            Some(limit) => wait_with_timeout(child, limit)?,
-            // 不给超时 = 一直等（脚本作者显式要的语义）。
-            None => child
-                .wait_with_output()
-                .map_err(|e| ProcError::Io(format!("等 {} 结束时失败：{e}", request.program)))?,
-        };
+        // `None` 也必须有上限：端口文档承诺 30 秒缺省，无限等会让「停止」
+        // 彻底失效（沙箱只在语句之间检查，卡在 wait 里救不了）。
+        let limit = request.timeout.unwrap_or(DEFAULT_PROC_TIMEOUT);
+        let output = wait_with_cancel(child, limit, cancel)?;
         Ok(ProcOutput {
             code: output.status.code(),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -88,18 +98,25 @@ where
     }
 }
 
-/// 等子进程结束，最多等 `limit`；到期就 kill 并报超时。
+/// 等子进程结束：每 20ms 同时检查取消令牌与超时，两者都会 kill + 收尸。
 ///
 /// 为什么轮询而不是「在另一个线程上 `wait` + `recv_timeout`」：`Child::wait` 要
 /// `&mut self`，跨线程传一个 `Child` 再拿回它的输出是可行的，但那条路在超时
 /// 分支上要处理「线程还攥着 Child」的收尾；轮询 20ms 一次足够（脚本对子进程的
 /// 时延要求是「秒级」，不是「微秒级」），而且没有额外的线程要管。
-fn wait_with_timeout(
+fn wait_with_cancel(
     mut child: std::process::Child,
     limit: Duration,
+    cancel: &CancelToken,
 ) -> Result<std::process::Output, ProcError> {
     let started = std::time::Instant::now();
     loop {
+        if cancel.is_cancelled() {
+            let _ = child.kill();
+            // 收尸：不 wait 会留一个僵尸。
+            let _ = child.wait();
+            return Err(ProcError::Cancelled);
+        }
         match child.try_wait() {
             Ok(Some(_)) => {
                 return child
@@ -109,7 +126,6 @@ fn wait_with_timeout(
             Ok(None) => {
                 if started.elapsed() >= limit {
                     let _ = child.kill();
-                    // 收尸：不 wait 会留一个僵尸。
                     let _ = child.wait();
                     return Err(ProcError::Timeout);
                 }
@@ -170,6 +186,74 @@ mod tests {
             Err(ProcError::Denied(why)) => assert!(why.contains("进程"), "{why}"),
             other => panic!("期望被拒，实得 {other:?}"),
         }
+    }
+
+    /// Stop 必须打断 `wait`：即使 `timeout = None`（走 30 秒缺省），也不能
+    /// 让一条挂住的子进程把脚本线程钉到超时。
+    #[test]
+    fn a_stop_token_kills_the_child_and_returns_immediately() {
+        let caps = allow();
+        let process = LocalProcess::new(|| caps.clone());
+        let token = CancelToken::new();
+        let mut req = request("/bin/sh", &["-c", "sleep 30"]);
+        req.timeout = None;
+        let stopper = token.clone();
+        let thread = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            stopper.cancel();
+        });
+        let started = std::time::Instant::now();
+        match Process::run_cancellable(&process, &req, &token) {
+            Err(ProcError::Cancelled) => {}
+            other => panic!("期望被取消，实得 {other:?}"),
+        }
+        thread.join().unwrap();
+        assert!(
+            started.elapsed() < Duration::from_secs(3),
+            "Stop 后要立刻返回，实耗 {:?}",
+            started.elapsed()
+        );
+    }
+
+    /// 接线级：脚本引擎的 Stop → 进程端口 → 会话租约释放。
+    #[test]
+    fn stop_returns_through_the_engine_and_releases_the_session_lease() {
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let id = pool.open_exec("cat", 80, 24).expect("起会话");
+        let registry = std::sync::Arc::new(crate::script_run::ScriptRunRegistry::new());
+        let source = "// @cap process\nproc_run(\"/bin/sh\", [\"-c\", \"sleep 30\"]);\n";
+        let options = crate::script_run::RunOptions::default()
+            .with_registry(registry.clone(), "stop-test");
+        let mut run = crate::script_run::ScriptRun::start(
+            pool.clone(),
+            id,
+            source.to_string(),
+            options,
+        )
+        .expect("起脚本");
+        assert!(registry.holder(id).is_some(), "跑起来就该占着会话");
+
+        // 让脚本真的进到子进程的 wait 里，再按 Stop。
+        std::thread::sleep(Duration::from_millis(250));
+        let started = std::time::Instant::now();
+        run.cancel();
+        let outcome = loop {
+            if let Some(outcome) = run.try_outcome() {
+                break outcome;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(3),
+                "按了 Stop 却迟迟不返回"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(
+            matches!(&outcome, crate::script_run::Outcome::Failed { message, .. } if message.contains("取消")),
+            "应当报取消，实得 {outcome:?}"
+        );
+        drop(run);
+        assert!(registry.holder(id).is_none(), "停了以后会话租约必须释放");
+        pool.close(id);
     }
 
     /// 挂住的子进程要被杀掉并报 `Timeout`，不能把脚本线程钉死。

@@ -35,6 +35,22 @@ fn only_one_transfer_runs_at_a_time() {
 }
 
 #[test]
+fn trailing_slashes_do_not_create_a_second_task() {
+    let mut q = queue();
+    q.enqueue_upload_tree("/srv", "/tmp/src").expect("入队");
+    assert!(
+        q.enqueue_upload_tree("/srv/", "/tmp/src").is_none(),
+        "/srv 与 /srv/ 是同一棵树，不能各占一行"
+    );
+    // 单文件路径同样要归一；根 '/' 保留，不能被当空串。
+    let mut q = queue();
+    q.enqueue_download("/r/a", "/l/a", 5).expect("入队");
+    assert!(q.enqueue_download("/r/a/", "/l/a", 5).is_none());
+    assert_eq!(queue_path("/"), "/");
+    assert_eq!(queue_path("/srv//"), "/srv");
+}
+
+#[test]
 fn progress_moves_the_overall_numerator() {
     let mut q = queue();
     q.enqueue_download("/r/a.bin", "/l/a.bin", 1000);

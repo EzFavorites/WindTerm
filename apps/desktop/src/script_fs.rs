@@ -190,6 +190,17 @@ fn normalize_for(path: &str, write: bool) -> Result<PathBuf, FsError> {
             let name = raw
                 .file_name()
                 .ok_or_else(|| FsError::BadArgument(format!("{path:?} 没有文件名")))?;
+            // 悬空软链：`canonicalize(raw)` 正是因为「目标不存在」才失败的。
+            // 若直接拼 parent.join(name)，check_write 看的是白名单内的软链
+            // 本身，而 open() 会跟着它写到白名单外——这是逃逸。跟随软链拿到
+            // 真实目标（由 allow_write 重新 check_write），目标不存在则拒绝。
+            if std::fs::symlink_metadata(raw)
+                .is_ok_and(|meta| meta.file_type().is_symlink())
+            {
+                return std::fs::canonicalize(raw).map_err(|_| {
+                    FsError::Denied(format!("{path:?} 是指向不存在目标的软链，拒绝写入"))
+                });
+            }
             Ok(parent.join(name))
         }
         Err(e) => Err(FsError::Io(format!("{path:?} 不可用：{e}"))),
@@ -287,6 +298,50 @@ mod tests {
             Err(FsError::BadArgument(_))
         ));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// 软链不能变成白名单逃逸口：写新文件时也不能跟着一个「指向外部」的软链。
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_cannot_escape_the_write_allowlist_even_when_dangling() {
+        let root = sandbox("symlink");
+        let outside = std::env::temp_dir().join(format!(
+            "zterm-fs-outside-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&outside).unwrap();
+        let outside = std::fs::canonicalize(&outside).unwrap();
+        let caps = caps_for(&root, true);
+        let files = LocalFiles::new(|| caps.clone());
+
+        // 指向白名单外**已存在**文件：normalize_for 的 canonicalize 会成功，
+        // 但真实目标在白名单外，allow_write 必须拒。
+        let secret = outside.join("secret.txt");
+        std::fs::write(&secret, b"secret").unwrap();
+        let link = root.join("link.txt");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        match files.write(&link.to_string_lossy(), b"X", false) {
+            Err(FsError::Denied(_)) => {}
+            other => panic!("指向外部的软链必须被拒，实得 {other:?}"),
+        }
+        assert_eq!(std::fs::read(&secret).unwrap(), b"secret", "目标不能被改写");
+
+        // 悬空软链：canonicalize(raw) 失败会走「写新文件」退路，但落点不能是
+        // 软链本身（open 会跟到白名单外创建目标）。
+        let dangling = root.join("dangling.txt");
+        let outside_target = outside.join("created-by-escape.txt");
+        std::os::unix::fs::symlink(&outside_target, &dangling).unwrap();
+        assert!(
+            files.write(&dangling.to_string_lossy(), b"X", false).is_err(),
+            "悬空软链必须拒绝写入"
+        );
+        assert!(!outside_target.exists(), "白名单外不能被创建出文件");
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     /// 授权是**每次现问**的：构造之后信封变宽，下一次调用就该放行。

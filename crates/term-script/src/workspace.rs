@@ -902,7 +902,7 @@ impl ScriptWorkspace {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
-        let output = self.inner.env.process.run(request)?;
+        let output = self.inner.env.process.run_cancellable(request, self.cancel())?;
         self.check_cancel()?;
         Ok(output)
     }

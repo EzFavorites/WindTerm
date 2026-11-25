@@ -20,6 +20,22 @@
 
 use crate::ui::lifecycle_test_support::{fake_tab, CloseCount};
 
+/// 触发器 Send text 里字面 Windows 路径必须往返一致；显式转义仍然生效。
+#[test]
+fn send_text_round_trips_windows_paths_and_explicit_escapes() {
+    assert_eq!(
+        super::session::decode_send_text(r"C:\Windows\system32\drivers\etc\hosts"),
+        br"C:\Windows\system32\drivers\etc\hosts",
+        "未知转义不能吞掉反斜杠"
+    );
+    // 末尾孤立反斜杠也要发出去，不能让整条消息静默消失。
+    assert_eq!(super::session::decode_send_text("tail\\"), br"tail\");
+    // 明确写了表内转义时仍按原版口径解码（Send text 的关键用途）。
+    assert_eq!(super::session::decode_send_text(r"\x03"), b"\x03");
+    assert_eq!(super::session::decode_send_text(r"\003"), b"\x03");
+    assert_eq!(super::session::decode_send_text(r"\q"), br"\q");
+}
+
 /// 外部关掉之后：标签转断开、id 不再留着、且**要求重绘一次**。
 #[test]
 fn an_externally_closed_session_turns_the_tab_into_a_disconnected_one() {

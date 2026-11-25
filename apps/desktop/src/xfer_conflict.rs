@@ -51,6 +51,8 @@ pub(crate) enum WriteMode {
 pub(crate) enum Decision {
     Write(PathBuf, WriteMode),
     Skip,
+    /// 判据本身没法安全落地（改名用尽候选）：报错，绝不静默覆盖。
+    Error(String),
 }
 
 /// 接收弹层下拉的档位与文案。**唯一一份清单**：弹层按这个顺序画，判据按这个
@@ -78,18 +80,32 @@ pub(crate) fn label(policy: ConflictPolicy) -> &'static str {
         .unwrap_or(POLICIES[0].1)
 }
 
-fn renamed(path: &Path) -> PathBuf {
+/// 改名用的候选个数上限。`decide` 用 9999；测试用小值，不必真造一万个文件。
+const RENAME_ATTEMPTS: u32 = 9999;
+
+fn renamed(path: &Path) -> Option<PathBuf> {
+    renamed_up_to(path, RENAME_ATTEMPTS)
+}
+
+fn renamed_up_to(path: &Path, attempts: u32) -> Option<PathBuf> {
     let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
     let ext = path.extension().map(|s| format!(".{}", s.to_string_lossy())).unwrap_or_default();
     let parent = path.parent().unwrap_or_else(|| Path::new(""));
-    for n in 1..=9999u32 {
+    for n in 1..=attempts {
         let candidate = parent.join(format!("{stem}-{n}{ext}"));
         if !candidate.exists() {
-            return candidate;
+            return Some(candidate);
         }
     }
-    // 极端情况：一万次都撞名，回落到覆盖原路径，绝不 panic。
-    path.to_path_buf()
+    // 候选全被占：覆盖原路径就是数据丢失，宁可明确报错。
+    None
+}
+
+fn rename_error(path: &Path, attempts: u32) -> String {
+    format!(
+        "改名失败：{} 的 -1..-{attempts} 全部存在，已拒绝覆盖原文件",
+        path.display()
+    )
 }
 
 /// `None` 的 existing = 文件不存在：七档都从头写，append / resume 没有可续的旧内容。
@@ -106,7 +122,10 @@ pub(crate) fn decide(
     match policy {
         ConflictPolicy::Overwrite => Decision::Write(path.to_path_buf(), WriteMode::Overwrite),
         ConflictPolicy::Skip => Decision::Skip,
-        ConflictPolicy::Rename => Decision::Write(renamed(path), WriteMode::Overwrite),
+        ConflictPolicy::Rename => match renamed(path) {
+            Some(target) => Decision::Write(target, WriteMode::Overwrite),
+            None => Decision::Error(rename_error(path, RENAME_ATTEMPTS)),
+        },
         ConflictPolicy::Newer => {
             let newer = match (source_mtime, existing.modified_secs) {
                 (Some(src), Some(dst)) => u64::from(src) > dst,
@@ -152,7 +171,7 @@ mod tests {
     ) -> Option<(PathBuf, WriteMode)> {
         match decide(path, existing, mtime, size, policy) {
             Decision::Write(p, mode) => Some((p, mode)),
-            Decision::Skip => None,
+            Decision::Skip | Decision::Error(_) => None,
         }
     }
 
@@ -311,6 +330,22 @@ mod tests {
             decide(path, old, None, None, ConflictPolicy::Newer),
             Decision::Write(_, WriteMode::Overwrite)
         ));
+    }
+
+    #[test]
+    fn rename_never_falls_back_to_overwriting_the_original() {
+        let dir = temp_dir("rename-exhausted");
+        let path = dir.join("a.bin");
+        std::fs::write(&path, b"old").unwrap();
+        // 两个候选都被占：不再回落覆盖原路径，而是给出明确错误。
+        std::fs::write(dir.join("a-1.bin"), b"one").unwrap();
+        std::fs::write(dir.join("a-2.bin"), b"two").unwrap();
+        assert!(renamed_up_to(&path, 2).is_none(), "候选全被占时不再回落覆盖");
+        let err = rename_error(&path, 2);
+        assert!(err.contains("改名失败"), "{err}");
+        assert!(err.contains("拒绝覆盖"), "{err}");
+        assert_eq!(std::fs::read(&path).unwrap(), b"old", "原文件必须原样保留");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

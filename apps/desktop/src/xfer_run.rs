@@ -590,6 +590,9 @@ impl Engine for ZRxEngine {
         FileMeta {
             mtime: self.inner.file_mtime(),
             mode: self.inner.file_mode(),
+            size: self.inner.file_size(),
+            // 协议层钳制后的续传起点；落盘侧绝不能用原始声明值。
+            resume: self.inner.effective_resume_offset(),
         }
     }
 }
@@ -644,6 +647,11 @@ pub(crate) struct FileMeta {
     /// 对端给的权限位（低 12 位）；`None` = 对端没给。**有意不落盘**，见
     /// [`Sink::close`]。
     pub(crate) mode: Option<u32>,
+    /// 对端声明的文件长度（`ZFILE` 的长度字段）。`NewerAndLonger` 必须拿到它，
+    /// 否则「更新且更长」会被当成「无条件覆盖」。
+    pub(crate) size: Option<u64>,
+    /// 协议层钳制后的续传起点；`0` = 从头收。
+    pub(crate) resume: u64,
 }
 
 /// 驱动内部动作：把 `term_xfer::Action` 展开，并给 `FileStart` 补上元数据。
@@ -713,7 +721,10 @@ pub(crate) struct Sink<'a> {
 
 impl Sink<'_> {
     /// 开当前文件。`raw` 是**对端给的**名字，必须过 [`resolve_name`]。
-    pub(crate) fn open(&mut self, raw: &str, meta: FileMeta) -> Result<(), String> {
+    ///
+    /// 返回值是「已有内容要计入进度分母的字节数」（只有 Append 档非 0）：
+    /// 对端声明的长度不含这段旧字节，直接拿它当分母会显示 > 100%。
+    pub(crate) fn open(&mut self, raw: &str, meta: FileMeta) -> Result<Option<u64>, String> {
         let dir = self
             .dir
             .clone()
@@ -738,11 +749,14 @@ impl Sink<'_> {
             }
         });
         let existing_len = existing.map(|e| e.len);
+        // 每一次开文件都取协议层钳制后的有效偏移；不能用 start_resume 的原始
+        // 声明值（对端声明的文件更短时它会越过文件末尾，set_len 会补零）。
+        self.resume_offset = meta.resume;
         let (path, mode) = match crate::xfer_conflict::decide(
             &path,
             existing,
             meta.mtime,
-            None,
+            meta.size,
             self.policy,
         ) {
             crate::xfer_conflict::Decision::Write(path, mode) => (path, mode),
@@ -750,8 +764,9 @@ impl Sink<'_> {
                 self.skipping = true;
                 self.mtime = meta.mtime;
                 self.mode = meta.mode;
-                return Ok(());
+                return Ok(None);
             }
+            crate::xfer_conflict::Decision::Error(why) => return Err(why),
         };
         // 起始偏移：显式续传入口（`start_resume`）已经把协议层设成 ZRPOS(N)，
         // 它的通道优先，行为与改动前逐字节一致；否则按策略给出的落盘方式决定
@@ -789,12 +804,29 @@ impl Sink<'_> {
             .truncate(truncate)
             .open(&path)
             .map_err(|e| format!("建不了文件 {}：{e}", path.display()))?;
+        let extra = if matches!(mode, crate::xfer_conflict::WriteMode::Append)
+            && self.resume_offset == 0
+        {
+            // 显式续传通道不追加旧内容（对端会从 offset 重发），只有 Append 档
+            // 的最终长度才是「旧字节 + 对端完整文件」。
+            existing_len
+        } else {
+            None
+        };
         if offset > 0 {
             let len = file
                 .metadata()
                 .map_err(|e| format!("读不了文件长度 {}：{e}", path.display()))?
                 .len();
-            if len != offset {
+            if len < offset {
+                // 本地实际长度不够却按 offset 追加，中间会出现一段补零、
+                // 后面的内容也接错位——这是静默的数据损坏，必须报错。
+                return Err(format!(
+                    "续传偏移 {offset} 超过本地文件 {} 的实际长度 {len}：拒绝补零造成数据错位",
+                    path.display()
+                ));
+            }
+            if len > offset {
                 file.set_len(offset)
                     .map_err(|e| format!("对齐续传长度失败 {}：{e}", path.display()))?;
             }
@@ -804,7 +836,7 @@ impl Sink<'_> {
         self.file = Some((path, file));
         self.mtime = meta.mtime;
         self.mode = meta.mode;
-        Ok(())
+        Ok(extra)
     }
 
     pub(crate) fn write(&mut self, bytes: &[u8]) -> Result<(), String> {
@@ -953,10 +985,13 @@ fn pump(
                 guard.bytes += bytes.len() as u64;
             }
             DriveAction::FileStart { name, size, meta } => {
-                guard.total = size;
-                if let Err(message) = sink.open(&name, meta) {
-                    step = Step::Failed(message);
-                    break;
+                match sink.open(&name, meta) {
+                    // Append 的最终长度 = 既有字节 + 对端发来的完整文件。
+                    Ok(existing) => guard.total = size.map(|n| n + existing.unwrap_or(0)),
+                    Err(message) => {
+                        step = Step::Failed(message);
+                        break;
+                    }
                 }
             }
             DriveAction::FileDone => {
@@ -1253,10 +1288,16 @@ fn read_send_file(path: &Path) -> Result<SendFile, SendFilesError> {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_name;
-    use super::{FileMeta, Sink};
+    use super::{
+        drive, pump, resolve_name, zmodem_config, DriveAction, Engine, FileMeta, Progress, Sink,
+        ZRxEngine,
+    };
     use crate::xfer_conflict::ConflictPolicy;
     use std::path::PathBuf;
+    use std::sync::Mutex;
+    use std::time::{Duration, UNIX_EPOCH};
+    use term_zmodem::frame::{self, CrcKind, FrameEnd, FrameType};
+    use term_zmodem::HeaderKind;
 
     /// 每个落盘用例一个独立临时目录，互不干扰。
     fn temp_dir(tag: &str) -> PathBuf {
@@ -1356,20 +1397,124 @@ mod tests {
     }
 
     #[test]
-    fn explicit_resume_channel_still_appends_at_the_offset() {
-        // start_resume 的显式通道：协议层已回 ZRPOS(5)，落盘先补齐到 5 再追加。
+    fn explicit_resume_channel_appends_at_the_protocol_effective_offset() {
+        // 显式通道：协议层回 ZRPOS(5)，且本地确有 5 字节，落盘从末尾接着写。
         let dir = temp_dir("resume-explicit");
-        std::fs::write(dir.join("part.bin"), b"abc").unwrap();
+        std::fs::write(dir.join("part.bin"), b"abcde").unwrap();
         let pool = term_session::SessionPool::new();
         {
-            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 5);
-            sink.open("part.bin", FileMeta::default()).unwrap();
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 0);
+            let meta = FileMeta { resume: 5, ..FileMeta::default() };
+            sink.open("part.bin", meta).unwrap();
             sink.write(b"XY").unwrap();
             sink.close().unwrap();
         }
-        let bytes = std::fs::read(dir.join("part.bin")).unwrap();
-        assert_eq!(bytes.len(), 7);
-        assert_eq!(&bytes[5..], b"XY");
+        assert_eq!(std::fs::read(dir.join("part.bin")).unwrap(), b"abcdeXY");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_resume_offset_past_the_local_file_is_an_error_not_zero_fill() {
+        // 本地只有 3 字节却要从 5 开始写：旧实现 set_len(5) 会补两个 0，
+        // 数据从此错位。现在必须报错，且原文件一个字节都不动。
+        let dir = temp_dir("resume-too-far");
+        let target = dir.join("part.bin");
+        std::fs::write(&target, b"abc").unwrap();
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 0);
+            let meta = FileMeta { resume: 5, ..FileMeta::default() };
+            let err = sink.open("part.bin", meta).unwrap_err();
+            assert!(err.contains("续传偏移"), "{err}");
+            assert!(err.contains("实际长度"), "{err}");
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"abc");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_clamped_resume_offset_wins_over_the_stale_initial_value() {
+        // 对端声明 10 字节、本地已有 10 字节；原始声明值 100 被协议层钳到 10。
+        // 落盘只认 FileMeta 里的有效值，否则又会在末尾补 90 个零。
+        let dir = temp_dir("resume-clamped");
+        let target = dir.join("part.bin");
+        std::fs::write(&target, b"0123456789").unwrap();
+        let pool = term_session::SessionPool::new();
+        {
+            let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Resume, 100);
+            let meta = FileMeta { resume: 10, size: Some(10), ..FileMeta::default() };
+            sink.open("part.bin", meta).unwrap();
+            sink.write(b"!").unwrap();
+            sink.close().unwrap();
+        }
+        assert_eq!(std::fs::read(&target).unwrap(), b"0123456789!");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 真走一遍 `ZRxEngine::feed → file_meta → drive → pump → Sink::open`：
+    /// 对端声明的长度必须一路带到冲突判据里，不能在中途变成 `None`。
+    fn wired_file_start(name: &str, size: u64, mtime: u32) -> Vec<DriveAction> {
+        let mut engine = ZRxEngine {
+            inner: term_zmodem::Receiver::new(zmodem_config()),
+        };
+        let _ = engine.begin();
+        let info = frame::encode_file_info(name, size, mtime);
+        let mut wire = frame::encode_header(HeaderKind::Hex, FrameType::ZFILE, [0, 0, 0, 1]);
+        wire.extend_from_slice(&frame::encode_subpacket(
+            &info,
+            FrameEnd::ZCRCW,
+            CrcKind::Crc16,
+        ));
+        drive(engine.feed(&wire), engine.file_meta())
+    }
+
+    #[test]
+    fn newer_and_longer_gets_the_peer_size_through_the_whole_wiring() {
+        let dir = temp_dir("wired-newer-longer");
+        let target = dir.join("a.bin");
+        std::fs::write(&target, vec![b'O'; 100]).unwrap();
+        let file = std::fs::File::options().write(true).open(&target).unwrap();
+        file.set_times(
+            std::fs::FileTimes::new()
+                .set_modified(UNIX_EPOCH + Duration::from_secs(100)),
+        )
+        .unwrap();
+        drop(file);
+
+        let actions = wired_file_start("a.bin", 10, 101);
+        // 引擎确实把 ZFILE 的长度与 mtime 取到了（不是只靠纯函数判据）。
+        assert!(actions.iter().any(|a| matches!(
+            a,
+            DriveAction::FileStart { size: Some(10), meta, .. } if meta.mtime == Some(101)
+        )));
+
+        let pool = term_session::SessionPool::new();
+        let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::NewerAndLonger, 0);
+        let progress = Mutex::new(Progress::default());
+        let _ = pump(actions, &mut sink, &progress);
+        assert!(sink.skipping, "更新但更短：NewerAndLonger 必须跳过，不能覆盖");
+        assert_eq!(std::fs::read(&target).unwrap().len(), 100, "旧文件要原样保留");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn append_progress_denominator_includes_the_existing_bytes() {
+        let dir = temp_dir("append-total");
+        std::fs::write(dir.join("a.bin"), b"OLD").unwrap();
+        let pool = term_session::SessionPool::new();
+        let mut sink = sink_in(&pool, dir.clone(), ConflictPolicy::Append, 0);
+        let progress = Mutex::new(Progress::default());
+        let actions = vec![DriveAction::FileStart {
+            name: "a.bin".to_string(),
+            size: Some(4),
+            meta: FileMeta::default(),
+        }];
+        let _ = pump(actions, &mut sink, &progress);
+        assert_eq!(
+            progress.lock().unwrap().total,
+            Some(7),
+            "既有 3 字节 + 对端 4 字节 = 7，不能用 4 当分母"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
