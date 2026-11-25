@@ -3,7 +3,7 @@
 本文件记录本项目面向用户的显著变更。格式沿用 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
 版本号与发布日期在实际发布时写入；未发布的内容留在 `[Unreleased]`。
 
-## [Unreleased]
+## [0.0.1-beta2] - 2026-11-26
 
 ### Added
 
@@ -33,7 +33,7 @@
 - 脱敏改为字节级替换，原始字节日志不再被 `from_utf8_lossy` 改写。
 - 重连边沿不再用自动日志覆盖 Debug Mode 的排障日志。
 
-## [0.0.1.beta] - 2026-11-25
+## [0.0.1-beta] - 2026-11-25
 
 首轮公开 beta：Rust + egui 桌面终端工作台，支持本地 Shell / SSH / Telnet / TCP /
 串口、内置 SFTP、跳板与端口转发、Rhai 脚本与能力面服务。详见 `README.md` 与

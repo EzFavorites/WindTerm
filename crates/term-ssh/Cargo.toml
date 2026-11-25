@@ -1,6 +1,6 @@
 [package]
 name = "term-ssh"
-version = "0.0.1-beta"
+version = "0.0.1-beta2"
 rust-version = "1.94"
 edition = "2021"
 
