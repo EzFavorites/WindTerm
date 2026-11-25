@@ -41,6 +41,24 @@ pub struct MarginState {
     pub timestamp: bool,
 }
 
+/// `⇄▾` 选出的导航方向 / 范围。
+///
+/// - `Forward`：`>` 下一步、`<` 上一步（出厂行为）；
+/// - `Backward`：两者互换，`>` 上一步、`<` 下一步；
+/// - `All`：除正常步进外还展开「Find All」结果列表（范围 = 整个事实窗口）。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindDirection {
+    Forward,
+    Backward,
+    All,
+}
+
+impl Default for FindDirection {
+    fn default() -> Self {
+        Self::Forward
+    }
+}
+
 /// Find 相关状态（查找栏的可见性与查询串）。
 ///
 /// F2：这里**没有**匹配总数。匹配是 `(query, 大小写, 事实窗口)` 的纯函数值，
@@ -60,6 +78,17 @@ pub struct FindState {
     /// `.*`（Regular Expression）：查询串按正则解释。与大小写 / 整词同一纪律，
     /// 只由 `reduce` 写；匹配集合在 `find::matches` 里按这一位选字面 / 正则引擎。
     pub regex: bool,
+    /// `≡`：正则模式下把 `.` 放开到换行，并启用 `^`/`$` 逐行锚定。
+    ///
+    /// 只在正则模式下有意义；字面模式的匹配集合不受它影响。读者是
+    /// `app::find::matches`（选正则引擎的 builder 标志）与 Find 栏（画开关）。
+    pub multi_line: bool,
+    /// `⇄▾` 的方向 / 范围。读者是 `app::find::nav_action`（决定 `<`/`>`/`Enter`
+    /// 实际派发 Next 还是 Previous）与 Find 栏（画开关与悬停说明）。
+    pub direction: FindDirection,
+    /// 「Find All」结果列表是否展开。列表数据每帧由 `app::find::result_rows`
+    /// 从窗口现算，这位只表达用户的选择，不缓存匹配。
+    pub find_all_open: bool,
     /// 当前匹配在窗口内匹配集合中的索引（对总数取模，窗口变了也不会越界）。
     pub current_match: usize,
 }

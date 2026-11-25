@@ -97,6 +97,16 @@ pub(super) fn paint_overlays(
     // 传给 `view::paint_cursor`。这样函数体的读法与加这个结构体之前一字不差。
     let OverlayToggles { cursor_typing: hide_cursor_typing, search: highlight_search } = toggles;
     let image = &tab.view;
+    // Find All 列表的数据源：Find 栏在 CentralPanel 之前声明，拿不到本帧窗口，
+    // 所以这里每帧把「当前事实窗口 + FindState」算出的结果写进 ctx，供它下一帧
+    // 读取（find_bar 会校验 query，隔帧残留不会冒充新查询的结果）。不缓存计数：
+    // 结果仍是 `app::find::matches` 的纯函数值，滚动后下一帧自然换掉。
+    ctx.data_mut(|d| {
+        d.insert_temp(
+            egui::Id::new("find_all_results"),
+            find::result_rows(&view.find, image),
+        )
+    });
     let image_cols = image.cols.max(1);
     let start_x = geom.start.x;
     let start_y = geom.start.y;

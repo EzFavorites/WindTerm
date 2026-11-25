@@ -196,6 +196,78 @@ pub fn find_matches_regex_in(
     Ok(out)
 }
 
+/// 正则的多行模式（`≡`）：`.` 可跨行，`^` / `$` 按行锚定。
+///
+/// 返回仍是逐行的 [`Match`]：一条跨行命中会被拆成它覆盖的每一行上的一段，
+/// 每段用那一行的字形列区间。这样高亮、结果列表与单线正则共用同一个
+/// `Match` 坐标系，不引入「跨行匹配」这种 UI 无法画的第二种值。
+///
+/// 行尾换行只作为分隔符参与匹配，不会变成任何一行上的高亮格。
+pub fn find_matches_regex_multiline_in(
+    image: &ScreenImage,
+    pattern: &str,
+    case_sensitive: bool,
+) -> Result<Vec<Match>, regex::Error> {
+    let re = regex::RegexBuilder::new(pattern)
+        .case_insensitive(!case_sensitive)
+        .dot_matches_new_line(true)
+        .multi_line(true)
+        .build()?;
+    // 把整个窗口拼成一段文本，并留一张 byte → (行序号, 行内字形序号) 表。
+    // 字节偏移来自 regex，字形序号来自折叠表，两者不能混用（宽字符先踩过坑）。
+    let mut text = String::new();
+    let mut lines: Vec<(i64, Vec<usize>)> = Vec::new();
+    let mut byte_to_pos: Vec<(usize, usize)> = Vec::new();
+    for line in &image.lines {
+        let (cols, chars) = glyphs_and_cols(&line.cells);
+        let li = lines.len();
+        lines.push((line.row, cols));
+        for (ci, ch) in chars.iter().enumerate() {
+            let at = text.len();
+            text.push(*ch);
+            for _ in at..text.len() {
+                byte_to_pos.push((li, ci));
+            }
+        }
+        // 换行字节落在「本行末尾」，不作为任何字形参与高亮。
+        text.push('\n');
+        byte_to_pos.push((li, chars.len()));
+    }
+    byte_to_pos.push((lines.len().saturating_sub(1), 0));
+
+    let mut out = Vec::new();
+    for m in re.find_iter(&text) {
+        if m.start() == m.end() {
+            continue;
+        }
+        let (start_line, start_char) = byte_to_pos
+            .get(m.start())
+            .copied()
+            .unwrap_or((0, 0));
+        let (end_line, end_char) = byte_to_pos
+            .get(m.end().saturating_sub(1))
+            .copied()
+            .unwrap_or((start_line, start_char));
+        for li in start_line..=end_line {
+            let Some((row, cols)) = lines.get(li) else { continue };
+            let from = if li == start_line { start_char.min(cols.len()) } else { 0 };
+            let to = if li == end_line { end_char.min(cols.len()) } else { cols.len() };
+            if to <= from {
+                continue;
+            }
+            let col_start = cols[from];
+            let last = cols[to - 1];
+            let wide = image
+                .lines
+                .get(li)
+                .and_then(|l| l.cells.get(last))
+                .is_some_and(|c| c.wide);
+            out.push(Match::new(*row, col_start, last + if wide { 2 } else { 1 }));
+        }
+    }
+    Ok(out)
+}
+
 /// 把一行的单元格折叠成「字形 → 起始列」两条平行序列，裁掉行尾空白。
 ///
 /// `cols[i]` 是第 i 个字形的起始列，`chars[i]` 是它的字符。宽字符占两格

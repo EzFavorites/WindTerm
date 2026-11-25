@@ -13,11 +13,129 @@
 //! 状态里因此只剩三件事：开没开、搜什么、区分大小写；外加一个
 //! `current_match`（用户的「第几个」选择，按总数取模使用）。
 
-use crate::state::FindState;
-use term_core::find::{find_matches_in, find_matches_regex_in, Match};
+use crate::state::{FindDirection, FindState};
+use crate::vocab::Action;
+use term_core::find::{find_matches_in, find_matches_regex_in, find_matches_regex_multiline_in, Match};
 use term_core::grid::ScreenImage;
 
 pub use crate::vocab::FindAction;
+
+/// `SetQuery` 负载里保留的子命令前缀。
+///
+/// 不新增命令 ID，也不改 `FindAction` 词表：`≡` / `⇄▾` / Find All 这三个
+/// 栏内开关是**动作参数**——用 `SetQuery` 这个已有入口携带一个不可能从
+/// 键盘敲出来的 NUL 前缀，reducer 先识别它，识别不到才当普通查询串。
+/// 这样命令表、快捷键表和菜单树一个字节都不用动。
+const UI_CMD_PREFIX: &str = "\u{0}fb";
+
+/// 上面那三个开关经 `SetQuery` 负载表达的子命令。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FindUiCommand {
+    CycleDirection,
+    ToggleMultiLine,
+    ToggleFindAll,
+}
+
+impl FindUiCommand {
+    fn code(self) -> char {
+        match self {
+            Self::CycleDirection => 'd',
+            Self::ToggleMultiLine => 'm',
+            Self::ToggleFindAll => 'a',
+        }
+    }
+}
+
+/// 栏内开关的 FindAction（仍走 `SetQuery` 一个入口，参数不同）。
+pub fn ui_command(cmd: FindUiCommand) -> FindAction {
+    FindAction::SetQuery(format!("{UI_CMD_PREFIX}{}", cmd.code()))
+}
+
+/// 包成顶层 Action 供投影层 dispatch。
+pub fn ui_command_action(cmd: FindUiCommand) -> Action {
+    Action::Find(ui_command(cmd))
+}
+
+fn decode_ui_command(payload: &str) -> Option<FindUiCommand> {
+    let rest = payload.strip_prefix(UI_CMD_PREFIX)?;
+    match rest {
+        "d" => Some(FindUiCommand::CycleDirection),
+        "m" => Some(FindUiCommand::ToggleMultiLine),
+        "a" => Some(FindUiCommand::ToggleFindAll),
+        _ => None,
+    }
+}
+
+/// 结果列表的一行：匹配序号 + 内容绝对行号 + 列区间 + 行摘要。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FindResultRow {
+    pub index: usize,
+    pub row: i64,
+    pub col_start: usize,
+    pub col_end: usize,
+    pub summary: String,
+}
+
+/// 结果列表的数据源：窗口 + 状态 → 行表（无缓存、无计数槽）。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FindResults {
+    /// 取数时的查询串；UI 用它丢弃隔帧残留的列表。
+    pub query: String,
+    pub rows: Vec<FindResultRow>,
+}
+
+/// Find All 列表的数据源。复用 [`matches`] 的纯函数结果，不另立一套扫描。
+pub fn result_rows(state: &FindState, window: &ScreenImage) -> FindResults {
+    let query = state.query.clone();
+    let found = matches(state, window);
+    let rows = found
+        .iter()
+        .enumerate()
+        .filter_map(|(index, m)| {
+            let line = window.lines.iter().find(|l| l.row == m.row)?;
+            Some(FindResultRow {
+                index,
+                row: m.row,
+                col_start: m.col_start,
+                col_end: m.col_end,
+                summary: line.text(),
+            })
+        })
+        .collect();
+    FindResults { query, rows }
+}
+
+/// `⇄▾` 决定 `<` / `>` / `Enter` 实际往哪边走。
+///
+/// `All` 不改变步进方向（仍是 `>` 向前），它的「范围」在打开结果列表上体现；
+/// `Backward` 才真正把两个按钮的语义互换。抽成纯函数，栏里只读它派发。
+pub fn nav_action(state: &FindState, forward: bool) -> FindAction {
+    let backward = state.direction == FindDirection::Backward;
+    if forward != backward {
+        FindAction::Next
+    } else {
+        FindAction::Previous
+    }
+}
+
+/// 点击结果列表某条时，给出「从当前匹配走到它」的最短动作与步数。
+///
+/// 不新增 GotoIndex 动作：现有 `Next` / `Previous` 在环形匹配集上走步，
+/// 走 `min(前向, 后向)` 那一侧即可落在目标索引上。`total == 0` 时无动作。
+pub fn jump_plan(state: &FindState, total: usize, target: usize) -> Option<(FindAction, usize)> {
+    if total == 0 {
+        return None;
+    }
+    let current = current_index(state, total)?;
+    let target = target.min(total - 1);
+    let forward = (target + total - current) % total;
+    let backward = (current + total - target) % total;
+    if forward <= backward {
+        Some((FindAction::Next, forward))
+    } else {
+        Some((FindAction::Previous, backward))
+    }
+}
 
 
 /// 窗口内的全部匹配：`(query, 大小写, 窗口)` 的纯函数值。
@@ -34,7 +152,13 @@ pub fn matches(state: &FindState, window: &ScreenImage) -> Vec<Match> {
     if state.regex {
         // 表达式写错时返回空集合（显示 0/N），而不是退回字面匹配——那会让
         // 用户以为 `[` 真的搜到了东西。UI 另有语法校验提示（见 find_bar）。
-        find_matches_regex_in(window, &state.query, state.case_sensitive).unwrap_or_default()
+        // `≡` 在正则模式下放开 `.` 跨行；纯层支持，不是画一个假开关。
+        if state.multi_line {
+            find_matches_regex_multiline_in(window, &state.query, state.case_sensitive)
+                .unwrap_or_default()
+        } else {
+            find_matches_regex_in(window, &state.query, state.case_sensitive).unwrap_or_default()
+        }
     } else {
         find_matches_in(window, &state.query, state.case_sensitive, state.whole_word)
     }
@@ -73,14 +197,35 @@ pub fn reduce(state: &mut FindState, action: FindAction, window: Option<&ScreenI
             state.case_sensitive = false;
             state.whole_word = false;
             state.regex = false;
+            state.multi_line = false;
+            state.direction = FindDirection::Forward;
+            state.find_all_open = false;
             state.current_match = 0;
         }
-        FindAction::SetQuery(q) => {
-            state.query = q;
-            // 换了查询就回到第一个匹配——否则「第 9 个」这种残留索引
-            // 会让人以为新查询是从中间开始搜的。
-            state.current_match = 0;
-        }
+        FindAction::SetQuery(q) => match decode_ui_command(&q) {
+            // 三个栏内开关走「动作参数」：不换查询、不动当前匹配，只翻自己的位。
+            Some(FindUiCommand::CycleDirection) => {
+                state.direction = match state.direction {
+                    FindDirection::Forward => FindDirection::Backward,
+                    FindDirection::Backward => FindDirection::All,
+                    FindDirection::All => FindDirection::Forward,
+                };
+                // `All` 是「范围 = 整个窗口」，展开结果列表才是它的可见效果。
+                state.find_all_open = state.direction == FindDirection::All;
+            }
+            Some(FindUiCommand::ToggleMultiLine) => {
+                state.multi_line = !state.multi_line;
+            }
+            Some(FindUiCommand::ToggleFindAll) => {
+                state.find_all_open = !state.find_all_open;
+            }
+            None => {
+                state.query = q;
+                // 换了查询就回到第一个匹配——否则「第 9 个」这种残留索引
+                // 会让人以为新查询是从中间开始搜的。
+                state.current_match = 0;
+            }
+        },
         FindAction::ToggleCase => {
             state.case_sensitive = !state.case_sensitive;
             state.current_match = 0;
@@ -113,6 +258,7 @@ pub fn reduce(state: &mut FindState, action: FindAction, window: Option<&ScreenI
             state.visible = false;
             state.query.clear();
             state.current_match = 0;
+            state.find_all_open = false;
         }
         // 以选区为查询词的前置复位——打开栏、清空旧查询、回到第一个匹配。
         // 「填选区 + 跳一步」交给投影层（`SelectionNext`/`SelectionPrev` 在 action.rs

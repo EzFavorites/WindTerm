@@ -31,11 +31,19 @@
 //! - **计数不存**：总数由调用方按 `(query, 窗口)` 算好传进来，本文件不缓存；
 //! - **受控输入**：编辑写 `input` 缓冲，改动再以 `SetQuery` 派发（`edit_action`）。
 //!
-//! # 未接线的图标
+//! # 剩余三个图标 + Find All 的接线
 //!
-//! `≡` / `I` / `⇄▾` / `Find All` 在视觉基线里是亮的，但本仓没有对应能力：
-//! `Find All` 要有结果列表面板，另三个是编辑态/范围选择。按一贯做法——
-//! **画在原位、点击不假装有效**，悬停说明未接线。
+//! - `Find All` 展开一个 `egui::Area` 结果列表：数据由 `app::find::result_rows`
+//!   每帧从事实窗口现算，点条目用已有的 `Next`/`Previous` 走到那一项；
+//! - `⇄▾` 三态（前 / 后 / 全部）真改写 `FindState.direction`，`<`/`>`/`Enter`
+//!   经 `app::find::nav_action` 改变派发方向；`All` 还展开结果列表；
+//! - `≡` 仅在正则模式下生效，翻 `multi_line`（`.` 跨行 + `^/$` 逐行锚定），
+//!   字面模式下明确禁用并在悬停里写明原因，不画假开关；
+//! - `I` 保持禁用：本仓终端没有插入 / 编辑光标态，悬停照实说明。
+//!
+//! 三个新开关不新增命令 ID / `FindAction` 变体：它们经 `SetQuery` 的保留
+//! 前缀以「动作参数」形式进入同一个 reducer（见 `app::find::ui_command_action`）。
+//! 默认态一个像素都不变——视觉基线里的亮图标仍是亮的，只有真正切换后才有反馈。
 //!
 //! `.*`（正则）已接线：`term-core::find` 用 `regex` 编译表达式，字符列与
 //! 字形坐标同源；语法错时图标和输入框边框转成红色，悬停给出编译错误，
@@ -44,10 +52,18 @@
 use crate::ui::tr::t;
 use eframe::egui;
 use term_app::action::Action;
-use term_app::find::{current_index, FindAction};
+use term_app::find::{
+    current_index, jump_plan, nav_action, ui_command_action, FindAction, FindResults,
+    FindUiCommand,
+};
 use term_app::i18n::Lang;
-use term_app::state::FindState;
+use term_app::state::{FindDirection, FindState};
 use term_core::theme::CHROME_SCALE;
+
+/// 终端叠层每帧写入 `egui::Context` 的结果列表快照键（见 `pane_overlays.rs`）。
+/// 查找栏在 `CentralPanel` 之前绘制，取的是上一帧的值；`query` 不一致时丢弃，
+/// 不会把旧查询的结果画成新查询的答案。
+const FIND_RESULTS_ID: &str = "find_all_results";
 
 use super::glyph;
 
@@ -209,7 +225,7 @@ pub fn draw_find_bar(
             dispatch(edit_action(input));
         }
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            dispatch(Action::Find(FindAction::Next));
+            dispatch(Action::Find(nav_action(find_state, true)));
         }
         if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
             dispatch(Action::Find(FindAction::Close));
@@ -298,10 +314,22 @@ pub fn draw_find_bar(
     }
     x += step;
 
-    // `≡` 方框三条横线（未接线）
+    // `≡` 方框三条横线：正则模式下的多行标志（真开关），字面模式禁用。
+    // 视觉基线里这一格不铺底，所以默认态保持原样；只有真的打开才铺 active_bg。
     let r = icon_rect(x, ICON_W);
-    let resp = ui.interact(r, egui::Id::new("find_icon_multi"), egui::Sense::click());
-    if resp.hovered() {
+    let multi_enabled = find_state.regex;
+    let resp = ui.interact(
+        r,
+        egui::Id::new("find_icon_multi"),
+        if multi_enabled {
+            egui::Sense::click()
+        } else {
+            egui::Sense::hover()
+        },
+    );
+    if find_state.multi_line {
+        ui.painter().rect_filled(r, 0.0, active_bg);
+    } else if resp.hovered() {
         ui.painter().rect_filled(r, 0.0, hover_bg);
     }
     let b = egui::Rect::from_center_size(r.center(), egui::vec2(13.0, 11.0));
@@ -317,7 +345,21 @@ pub fn draw_find_bar(
             egui::Stroke::new(1.0, text_c),
         );
     }
-    resp.on_hover_text("多行匹配（未接线）");
+    let multi_tip = if multi_enabled {
+        format!(
+            "多行匹配（{}）：`.` 可跨行，^/$ 逐行锚定",
+            if find_state.multi_line { "开" } else { "关" }
+        )
+    } else {
+        "多行匹配（禁用：仅在正则模式 .* 下有效）".to_string()
+    };
+    if multi_enabled {
+        if resp.on_hover_text(multi_tip).clicked() {
+            dispatch(ui_command_action(FindUiCommand::ToggleMultiLine));
+        }
+    } else {
+        resp.on_hover_text(multi_tip);
+    }
     x += step;
 
     // `I` 光标形态（未接线；视觉基线里它是亮着的，本仓无对应能力，只画形态）
@@ -336,10 +378,12 @@ pub fn draw_find_bar(
         .layout_no_wrap("I".to_owned(), font.clone(), text_c);
     ui.painter()
         .galley(r.center() - g.size() / 2.0, g, text_c);
-    resp.on_hover_text("插入 / 编辑光标（未接线）");
+    // 本仓终端只有「选中/未选中」与可变光标形态渲染，没有可编辑的插入态；
+    // 不做假开关，悬停把原因说清楚。
+    resp.on_hover_text("插入 / 编辑光标（禁用：本仓终端没有插入/编辑光标态）");
     x += step + CYCLE_GAP;
 
-    // `⇄▾` 查找方向 / 范围（未接线）
+    // `⇄▾` 查找方向 / 范围（真三态开关：前 → 后 → 全部）
     let r = icon_rect(x, CYCLE_W);
     let resp = ui.interact(r, egui::Id::new("find_icon_dir"), egui::Sense::click());
     // 与 `I` 同底色：视觉基线里这两格是一块连续的高亮，与左边四格区分开。
@@ -379,19 +423,52 @@ pub fn draw_find_bar(
         text_c,
         egui::Stroke::NONE,
     ));
-    resp.on_hover_text("查找方向 / 范围（未接线）");
+    let dir_tip = match find_state.direction {
+        FindDirection::Forward => "查找方向 / 范围：向前（点击切到向后）",
+        FindDirection::Backward => "查找方向 / 范围：向后（< 与 > 互换，点击切到全部）",
+        FindDirection::All => "查找方向 / 范围：全部（展开结果列表，点击回到向前）",
+    };
+    if resp.on_hover_text(dir_tip).clicked() {
+        dispatch(ui_command_action(FindUiCommand::CycleDirection));
+    }
+    // 非默认态给一点可见反馈（默认 Forward 时一个像素都不动）。
+    if find_state.direction != FindDirection::Forward {
+        let dot = egui::pos2(r.right() - 6.0, r.bottom() - 3.0);
+        if find_state.direction == FindDirection::All {
+            ui.painter().rect_filled(
+                egui::Rect::from_center_size(dot + egui::vec2(-3.0, 0.0), egui::vec2(2.0, 2.0)),
+                0.0,
+                text_c,
+            );
+        }
+        ui.painter().rect_filled(
+            egui::Rect::from_center_size(dot, egui::vec2(2.0, 2.0)),
+            0.0,
+            text_c,
+        );
+    }
 
     // 右端三个按钮：描边 `#3B3B3B`、内部 `#262626`（视觉基线实测）。
     let btn_fill = egui::Color32::from_rgb(0x26, 0x26, 0x26);
     let btn_line = egui::Color32::from_rgb(0x3B, 0x3B, 0x3B);
     for (rect, label, id, tip) in [
-        (lt_r, "<".to_owned(), "find_btn_prev", t(lang, "Find Previous")),
-        (gt_r, ">".to_owned(), "find_btn_next", t(lang, "Find Next")),
+        (
+            lt_r,
+            "<".to_owned(),
+            "find_btn_prev",
+            t(lang, "Find Previous").to_owned(),
+        ),
+        (
+            gt_r,
+            ">".to_owned(),
+            "find_btn_next",
+            t(lang, "Find Next").to_owned(),
+        ),
         (
             all_r,
             t(lang, "Find All").to_owned(),
             "find_btn_all",
-            "Find All（未接线：需要结果列表面板）",
+            format!("Find All（{total} 个匹配，点击展开/收起结果列表）"),
         ),
     ] {
         let resp = ui.interact(rect, egui::Id::new(id), egui::Sense::click());
@@ -406,9 +483,9 @@ pub fn draw_find_bar(
             .galley(rect.center() - g.size() / 2.0, g, text_c);
         if resp.on_hover_text(tip).clicked() {
             match id {
-                "find_btn_prev" => dispatch(Action::Find(FindAction::Previous)),
-                "find_btn_next" => dispatch(Action::Find(FindAction::Next)),
-                // `Find All` 未接线：点击不派发，避免「点了没反应还以为在搜」。
+                "find_btn_prev" => dispatch(Action::Find(nav_action(find_state, false))),
+                "find_btn_next" => dispatch(Action::Find(nav_action(find_state, true))),
+                "find_btn_all" => dispatch(ui_command_action(FindUiCommand::ToggleFindAll)),
                 _ => {}
             }
         }
@@ -441,12 +518,104 @@ pub fn draw_find_bar(
         dispatch(Action::Find(FindAction::Close));
     }
 
+    // Find All 展开时，在终端区上方画结果列表。默认关着，视觉基线零变化。
+    if find_state.find_all_open {
+        let results = ui
+            .ctx()
+            .data(|d| d.get_temp::<FindResults>(egui::Id::new(FIND_RESULTS_ID)));
+        draw_find_all_panel(ui, bar, find_state, results.as_ref(), lang, dispatch);
+    }
+
     // 计数本身不画在这条栏里：视觉基线把整条状态栏染色显示
     // `18 of 30 Found`，由 `status_bar.rs` 负责。这里只把命中信息留个
     // 记号，方便 `--screenshot` 之外的调试；没有读者时不产生任何像素。
     if let Some(idx) = current_index(find_state, total) {
         ui.ctx()
             .data_mut(|d| d.insert_temp(egui::Id::new("find_hit"), (idx + 1, total)));
+    }
+}
+
+/// Find All 结果列表：`Area` 自绘，不改 `ui/mod.rs` 的面板声明。
+///
+/// 数据来自终端叠层每帧写入的一份 `FindResults`（查询串不符即丢弃）；
+/// 点击一条不新增 GotoIndex 动作，按环形索引走较短的一侧到那一项。
+fn draw_find_all_panel(
+    ui: &mut egui::Ui,
+    bar: egui::Rect,
+    find_state: &FindState,
+    results: Option<&FindResults>,
+    lang: Lang,
+    dispatch: &mut dyn FnMut(Action),
+) {
+    let w = (bar.width() - 16.0).clamp(200.0, 440.0);
+    let screen_h = ui.ctx().screen_rect().height();
+    let h = (screen_h - 24.0).clamp(120.0, 280.0);
+    let pos = egui::pos2(bar.right() - w - 8.0, (bar.top() - h - 4.0).max(0.0));
+    let active_bg = crate::theme::chrome(CHROME_SCALE.tab);
+    let border = crate::theme::chrome(CHROME_SCALE.border);
+    let mut close = false;
+    egui::Area::new(egui::Id::new("find_all_panel"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(pos)
+        .pivot(egui::Align2::LEFT_TOP)
+        .movable(false)
+        .fade_in(false)
+        .show(ui.ctx(), |ui| {
+            egui::Frame::popup(ui.style())
+                .fill(active_bg)
+                .stroke(egui::Stroke::new(1.0, border))
+                .show(ui, |ui| {
+                    ui.set_width(w - 16.0);
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new(t(lang, "Find All")).strong());
+                        if ui.button("×").clicked() {
+                            close = true;
+                        }
+                    });
+                    ui.separator();
+                    let fresh = results.filter(|r| r.query == find_state.query);
+                    match fresh {
+                        None => {
+                            ui.label("结果列表在终端绘制后刷新");
+                        }
+                        Some(r) if r.rows.is_empty() => {
+                            ui.label("当前窗口内没有匹配");
+                        }
+                        Some(r) => {
+                            let current = current_index(find_state, r.rows.len());
+                            egui::ScrollArea::vertical()
+                                .max_height(h - 58.0)
+                                .show(ui, |ui| {
+                                    for row in &r.rows {
+                                        let label = format!("{:>5}  {}", row.row, row.summary);
+                                        let resp = ui.add(
+                                            egui::Button::new(
+                                                egui::RichText::new(label).monospace(),
+                                            )
+                                            .frame(false)
+                                            .fill(if current == Some(row.index) {
+                                                crate::theme::chrome(CHROME_SCALE.hover)
+                                            } else {
+                                                egui::Color32::TRANSPARENT
+                                            }),
+                                        );
+                                        if resp.clicked() {
+                                            if let Some((action, steps)) =
+                                                jump_plan(find_state, r.rows.len(), row.index)
+                                            {
+                                                for _ in 0..steps {
+                                                    dispatch(Action::Find(action.clone()));
+                                                }
+                                            }
+                                        }
+                                    }
+                                });
+                        }
+                    }
+                });
+        });
+    if close {
+        dispatch(ui_command_action(FindUiCommand::ToggleFindAll));
     }
 }
 
@@ -472,63 +641,5 @@ pub fn sync_input(input: &mut String, query: &str) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn editing_dispatches_set_query_and_nothing_else() {
-        // 受控输入框的全部写回能力就是这一条动作。
-        assert_eq!(
-            edit_action("abc"),
-            Action::Find(FindAction::SetQuery("abc".to_string()))
-        );
-        // 空串也是合法编辑（删光）：不能变成「关闭」或「忽略」。
-        assert_eq!(
-            edit_action(""),
-            Action::Find(FindAction::SetQuery(String::new()))
-        );
-    }
-
-    #[test]
-    fn sync_input_leaves_the_buffer_alone_when_query_is_unchanged() {
-        // 每帧都会调用，未变时必须无动作——否则光标每帧被重置。
-        let mut input = String::from("ab");
-        assert!(!sync_input(&mut input, "ab"));
-        assert_eq!(input, "ab");
-    }
-
-    #[test]
-    fn sync_input_picks_up_an_external_change() {
-        // 菜单派发 `Find` 打开时 query 被清空，缓冲要跟着清。
-        let mut input = String::from("stale");
-        assert!(sync_input(&mut input, ""));
-        assert_eq!(input, "");
-        assert!(sync_input(&mut input, "line"));
-        assert_eq!(input, "line");
-    }
-
-    /// 视觉基线的横坐标是死的，这里把「右端三按钮 + 图标组」的累加关系钉住：
-    /// 任何一格宽度改了，都必须同时改视觉基线那一栏，否则这条先红。
-    #[test]
-    fn the_icon_strip_and_the_three_buttons_add_up_to_the_reference() {
-        // 输入框内右侧：5 格 + 空隙 + ⇄▾ + 右内距。
-        let icons = ICON_W * 5.0 + CYCLE_GAP + CYCLE_W + ICON_R_PAD;
-        // 视觉基线：图标组 815..998（183）+ 右内距 6.5。
-        assert_eq!(icons, 189.5, "图标组总宽（含右内距）");
-        // 框外：× 右距 + × 宽 + × 空隙 + Find All + 空隙 + > + 空隙 + < + 空隙。
-        let right = CLOSE_R_PAD
-            + CLOSE_SIZE
-            + CLOSE_GAP
-            + ALL_W
-            + BEFORE_ALL_GAP
-            + NAV_W
-            + NAV_GAP
-            + NAV_W
-            + FIELD_TO_NAV;
-        // 视觉基线（命中态那张，右端没被裁）：1290 − 1004.5 = 285.5。按
-        // 「× 6.5 / 两箭头同宽 77.5」摊下来正好 285.0，差的 0.5 在同一物理像素里。
-        assert_eq!(right, 285.0, "输入框右沿到窗口右端");
-        // 顺带钉住「视觉边长」那个约定：对角线 = 6.5 − 1。
-        assert_eq!(CLOSE_SIZE - 1.0, 5.5);
-    }
-}
+#[path = "find_bar_tests.rs"]
+mod tests;
