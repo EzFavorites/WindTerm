@@ -476,8 +476,27 @@ fn semicolon_separated_paths_expand_and_duplicate_names_are_refused() {
     );
 }
 
-/// `drive()` 按动作逐条取样：合规的一帧一个 `FileStart` 原样带元数据；非合规
-/// 一帧多个时每条都拿到自己的样本，不再因为「有歧义」把整批时间戳抹掉。
+/// 文件名里带分号的**单路径**：即便拆出来的碎片也全都是现存文件，整条路径
+/// 存在就必须优先当单路径，不能被误拆成一批（拖进来的单个文件就是这条路径）。
+#[test]
+fn a_single_path_with_semicolons_is_never_split_even_when_fragments_exist() {
+    let root = unique_dir("collect-semicolon");
+    // 造出最刁钻的局面：`a;b` 本身是真文件，而 `a` / `b` 也都存在。
+    let whole = root.join("a;b");
+    let a = root.join("a");
+    let b = root.join("b");
+    std::fs::write(&whole, b"WHOLE").expect("写带分号的单文件");
+    std::fs::write(&a, b"AAA").expect("写碎片 a");
+    std::fs::write(&b, b"BBB").expect("写碎片 b");
+
+    let files = xfer_run::collect_send_files(&whole).expect("整条路径优先");
+    assert_eq!(files.len(), 1, "整条是存在的文件时不许拆成三份");
+    assert_eq!(files[0].name, "a;b");
+    assert_eq!(files[0].data, b"WHOLE");
+}
+
+/// `drive()` 把取样到的元数据挂到唯一的 `FileStart` 上；一次 `feed` 里出现多个
+/// `FileStart` 时宁可整批不带 mtime，也不能把文件 B 的时间串到文件 A 上。
 #[test]
 fn drive_samples_meta_once_per_file_start() {
     use term_xfer::Action;

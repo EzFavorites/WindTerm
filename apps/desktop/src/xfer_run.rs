@@ -1227,6 +1227,14 @@ fn send_target_paths(target: &Path) -> Vec<PathBuf> {
     if !text.contains(';') {
         return single();
     }
+    // 整条就是一个存在的路径（文件名里带分号，例如拖进来的单文件）：绝不拆。
+    // 只靠下面「碎片都存在」的启发式不够——`a;b` 本身是真文件、而 `a` 与 `b`
+    // 也恰好都在同目录时，单路径会被误当成两条。整条优先是更稳的判据；代价是
+    // 这种同目录三者并存时 typed 的 `a;b` 会被解读成那一个字面文件，属于
+    // 无法两全的歧义，按「不替用户拆文件」的方向取舍。
+    if target.exists() {
+        return single();
+    }
     let parts: Vec<PathBuf> = text
         .split(';')
         .map(str::trim)
@@ -1537,6 +1545,81 @@ mod tests {
                 assert_eq!(*got, meta);
             }
             other => panic!("期望一个带元数据的 FileStart，实得 {other:?}"),
+        }
+    }
+
+    /// 一个非合规对端把**两整个文件**（各含 ZFILE/ZDATA/ZEOF）流水线塞进一次
+    /// `feed`：两个 ZFILE 都会走到 `on_file_info`，末态快照只剩第二个文件的值。
+    /// 这是「逐条 mtime/resume 取样串味」的真实输入形状。
+    fn two_files_in_one_feed_wire() -> Vec<u8> {
+        let mut wire = Vec::new();
+        for (name, payload, mtime) in [
+            ("a.bin", &b"abc"[..], 1_700_000_001u32),
+            ("b.bin", &b"defff"[..], 1_700_000_002u32),
+        ] {
+            let info = frame::encode_file_info(name, payload.len() as u64, mtime);
+            wire.extend_from_slice(&frame::encode_header(
+                HeaderKind::Hex,
+                FrameType::ZFILE,
+                frame::FILE_HEADER_DATA,
+            ));
+            wire.extend_from_slice(&frame::encode_subpacket(
+                &info,
+                FrameEnd::ZCRCW,
+                CrcKind::Crc16,
+            ));
+            wire.extend_from_slice(&frame::encode_data_frame(
+                0,
+                payload,
+                FrameEnd::ZCRCW,
+                HeaderKind::Hex,
+            ));
+            wire.extend_from_slice(&frame::encode_header(
+                HeaderKind::Hex,
+                FrameType::ZEOF,
+                frame::encode_position(payload.len() as u32),
+            ));
+        }
+        wire
+    }
+
+    /// 真接一台 `ZRxEngine`，一次 `feed` 喂入双 ZFILE：安全门必须让两个
+    /// `FileStart` 都拿 `FileMeta::default()`，绝不把末态（第二个文件）的 mtime
+    /// 或续传偏移串到第一个文件上。
+    #[test]
+    fn two_file_starts_in_one_feed_never_cross_contaminate_meta() {
+        let mut engine = ZRxEngine {
+            inner: term_zmodem::Receiver::new(zmodem_config()),
+        };
+        let _ = engine.begin();
+
+        let actions = engine.feed(&two_files_in_one_feed_wire());
+        let sampled = engine.file_meta();
+        // 先钉住末态确实是第二个文件的：否则这个用例根本测不出串味。
+        assert_eq!(sampled.mtime, Some(1_700_000_002));
+        assert_eq!(sampled.size, Some(5));
+        assert_eq!(sampled.resume, 0);
+
+        let out = drive(actions, sampled);
+        let starts: Vec<_> = out
+            .iter()
+            .filter_map(|action| match action {
+                DriveAction::FileStart { name, size, meta } => Some((name.as_str(), *size, *meta)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(starts.len(), 2, "一次 feed 里确实出了两个 FileStart");
+        assert_eq!(starts[0].0, "a.bin");
+        assert_eq!(starts[1].0, "b.bin");
+        assert_eq!(starts[0].1, Some(3));
+        assert_eq!(starts[1].1, Some(5));
+        // 同帧多 FileStart 整批安全门：任一 FileStart 都不许串到别的文件元数据。
+        for (name, _, meta) in &starts {
+            assert_eq!(
+                *meta,
+                FileMeta::default(),
+                "{name} 拿到了串味的元数据（末态 mtime / 续传偏移）"
+            );
         }
     }
 

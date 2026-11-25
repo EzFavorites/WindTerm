@@ -29,6 +29,10 @@ fn upload_pick_for(local: &str, is_dir: bool) -> Option<XferPick> {
 /// 只有**多条**路径才用 `;` 连接（那是 [`crate::xfer_run::collect_send_files`] 认识的
 /// 批处理写法）；单条路径原样传下去，不经过连接。路径名里带 `;` 是合法的，单条
 /// 时绝不能因为「拼接」这一步把它当成多文件语法处理。
+///
+/// 注意：原样传下去还不够——下游 `send_target_paths` 的启发式也可能因为「碎片都
+/// 存在」再把一条真名带分号的路径劈开。那一侧另有一道「整条路径存在就当单路径」
+/// 的闸门，两处合起来才真正不误拆（见 `xfer_run.rs` 的 `send_target_paths`）。
 fn modem_path_text(paths: &[String]) -> String {
     match paths {
         [only] => only.clone(),

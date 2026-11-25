@@ -820,25 +820,48 @@ async fn transfer_and_report(
     reporter: &Reporter<'_>,
 ) -> Event {
     let path = remote.to_string();
-    let TransferOpts {
-        resume,
-        preserve,
-        preserve_dir: _,
-        fix_invalid: _,
-        cancel,
-    } = opts;
     let mut on_progress = |transferred: u64, total: u64| reporter.progress(&path, transferred, total);
     let result = match direction {
         Direction::Download => {
-            transfer::download(sftp, remote, local, resume, preserve, cancel, &mut on_progress)
-                .await
+            transfer::download(
+                sftp,
+                remote,
+                local,
+                opts.resume,
+                opts.preserve,
+                opts.cancel,
+                &mut on_progress,
+            )
+            .await
         }
         Direction::Upload => {
-            transfer::upload(sftp, local, remote, resume, preserve, cancel, &mut on_progress).await
+            transfer::upload(
+                sftp,
+                local,
+                remote,
+                opts.resume,
+                opts.preserve,
+                opts.cancel,
+                &mut on_progress,
+            )
+            .await
         }
     };
+    final_outcome(path, result, &opts)
+}
+
+/// 把一次传输（单文件或整棵树）的结果收成终态事件：**成功也要先确认没被取消**。
+///
+/// `transfer::download/upload` 与 `walk::run` 只在各自传输的边界查取消旗：取消
+/// 恰好落在最后一个文件收尾之后、我们发出 `Done` 之前时，那两个检查点都转不到。
+/// 没有末尾这一下复核，用户点了 Stop 仍会收到一条 `Done`。失败分支不改写——
+/// 真正的原因比取消更值得上报。
+fn final_outcome(path: String, result: Result<u64, TransferError>, opts: &TransferOpts<'_>) -> Event {
     match result {
-        Ok(bytes) => Event::Done { path, bytes },
+        Ok(bytes) => match cancelled_tree(path.clone(), opts) {
+            Some(event) => event,
+            None => Event::Done { path, bytes },
+        },
         Err(e) => stop_event(path, e),
     }
 }
@@ -933,7 +956,7 @@ async fn tree_and_report(
         file_done: &mut on_file_done,
     };
     let result = crate::walk::run(sftp, direction, &mut job).await;
-    tree_outcome(root, result, &opts)
+    final_outcome(root, result, &opts)
 }
 
 #[cfg(test)]
@@ -963,13 +986,13 @@ mod background_cancel_tests {
         }
     }
 
-    /// walk 已经成功返回（含空树、以及取消发生在最后一个文件之后）时，
-    /// 终态判据必须再看一次取消旗：绝不把 Cancelled 报成 Done。
+    /// 成功返回之后才按 Stop：末尾复核必须把 `Done` 改成 `Cancelled`。
+    /// 单文件与整棵树共用这一条终态判据，所以两边都跑一遍。
     #[test]
-    fn a_cancelled_tree_never_reports_done_after_the_walk() {
+    fn a_cancelled_transfer_never_reports_done_after_success() {
         let token = CancelToken::new();
         let opts = opts_for(&token);
-        match tree_outcome("/tree".to_string(), Ok(42), &opts) {
+        match final_outcome("/tree".to_string(), Ok(42), &opts) {
             Event::Done { path, bytes } => {
                 assert_eq!(path, "/tree");
                 assert_eq!(bytes, 42);
@@ -977,12 +1000,14 @@ mod background_cancel_tests {
             other => panic!("没取消时成功仍报 Done，实得 {other:?}"),
         }
         token.cancel();
-        match tree_outcome("/tree".to_string(), Ok(42), &opts) {
-            Event::Cancelled { path, kept: false } => assert_eq!(path, "/tree"),
-            other => panic!("取消后不许报 Done，实得 {other:?}"),
+        for path in ["/tree", "/single.bin"] {
+            match final_outcome(path.to_string(), Ok(42), &opts) {
+                Event::Cancelled { path: got, kept: false } => assert_eq!(got, path),
+                other => panic!("取消后不许报 Done，实得 {other:?}"),
+            }
         }
         // 真失败不能被取消旗盖掉：保留原始原因，用户才知道哪里坏了。
-        match tree_outcome(
+        match final_outcome(
             "/tree".to_string(),
             Err(TransferError::Failed("disk full".to_string())),
             &opts,

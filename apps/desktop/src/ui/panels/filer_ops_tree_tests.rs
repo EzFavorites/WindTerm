@@ -70,6 +70,28 @@ fn a_tree_becomes_existing_remove_requests_files_first() {
     assert!(plan_tree_delete("/srv/tree", &[scanned("../evil", false)]).is_err());
 }
 
+/// 确认窗说「含根自身」，就真得把根算进去：`ScannedEntry` 里只有子孙，
+/// 根自身那条删请求是 `plan_tree_delete` 额外补的。少报一个会让用户低估规模。
+#[test]
+fn tree_scan_status_counts_the_root_directory_itself() {
+    let entries = [
+        scanned("sub", true),
+        scanned("sub/deep/a.txt", false),
+        scanned("b.txt", false),
+        scanned("empty", true),
+    ];
+    assert_eq!(
+        tree_status::tree_scan_status(&entries),
+        "扫描完成：2 个文件、3 个目录（含根自身）",
+        "清单里 2 个子目录 + 根自身 = 3"
+    );
+    // 空树也得报 1 个目录：那是唯一的一条删根请求。
+    assert_eq!(
+        tree_status::tree_scan_status(&[]),
+        "扫描完成：0 个文件、1 个目录（含根自身）"
+    );
+}
+
 /// 扫描收件箱按根路径认领：旧清单 / 别的树的清单都不能顶替当前确认的那棵。
 #[test]
 fn a_stale_or_failed_scan_cannot_arm_the_confirmation() {

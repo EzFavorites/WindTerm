@@ -21,6 +21,10 @@ use super::*;
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use term_core::vt::paste_bytes_for;
 
+/// 删整棵树的扫描文案：清单里目录数少算了一个根，`+1` 的换算单独放这里。
+#[path = "filer_ops_tree_status.rs"]
+mod tree_status;
+
 /// 一次等着用户确认的写操作。
 ///
 /// 全部用**绝对路径**存下来（而不是存行号 / 名字再回头查）：等用户点确认时
@@ -349,14 +353,7 @@ impl TerminalWindow {
             (FilerOp::DeleteTree { path }, Some(scan)) if scan.root == *path => match &scan.error {
                 Some(e) => (format!("扫描失败：{e}"), false),
                 None => match &scan.entries {
-                    Some(entries) => {
-                        let files = entries.iter().filter(|e| !e.is_dir).count();
-                        let dirs = entries.len() - files;
-                        (
-                            format!("扫描完成：{files} 个文件、{dirs} 个目录（含根自身）"),
-                            true,
-                        )
-                    }
+                    Some(entries) => (tree_status::tree_scan_status(entries), true),
                     None => ("正在扫描整棵树…".to_string(), false),
                 },
             },
