@@ -155,8 +155,9 @@ pub(super) fn paint(
         Some(Payload::Custom { matched, .. }) => format!("{row}:{col}:custom:{matched}"),
         None => String::new(),
     };
-    // Id 带上行列与种类：同一行换一个 token 才重设锚点；指针进浮层时锁存旧内容。
-    let id = egui::Id::new(("hover_token", row, col, "ip_menu"));
+    // Id 只按窗格 + 种类定型：row:col:token 只作为 resolve 的参数。指针移进
+    // 浮层后行列会变，Id 不变才能取回上一帧锁住的锚点与菜单内容。
+    let id = hover_anchor::hover_id(ui.unique_id(), "ip_menu");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );
@@ -234,6 +235,17 @@ pub(super) fn paint(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 接线级：paint 用的 Id 只能由窗格 `ui.unique_id()` + 种类算出，不收 row/col。
+    /// 指针进浮层后 row/col 变了，锁存仍得靠同一把钥匙取回。
+    #[test]
+    fn the_menu_id_is_per_pane_and_not_per_pointer_cell() {
+        let pane = egui::Id::new("pane_1");
+        let id = hover_anchor::hover_id(pane, "ip_menu");
+        assert_eq!(id, hover_anchor::hover_id(pane, "ip_menu"), "同窗格恒等");
+        assert_ne!(id, hover_anchor::hover_id(pane, "builtin_tooltip"), "不同浮层分开");
+        assert_ne!(id, hover_anchor::hover_id(egui::Id::new("pane_2"), "ip_menu"), "不同窗格分开");
+    }
 
     #[test]
     fn one_probe_per_frame_decides_the_payload_and_ip_wins_over_custom_menu() {

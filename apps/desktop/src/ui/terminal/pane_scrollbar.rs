@@ -146,8 +146,10 @@ pub(super) fn interact(
 
     // 滚轮补位：指针在轨道上时，content 的 `resp.hovered()` 已不再是它（滚动条更靠上
     // 注册），原滚轮分支不触发；这里显式接住，避免「滚不动」死角（设计稿 §5.5）。
-    // 与正文同门控：鼠标报告开着且没按 Shift 时滚轮归程序，这里必须放手。
-    if resp.hovered() && wheel_local {
+    // 滚动条是本地 chrome：这一支**不读 mouse_reporting / Shift**——鼠标报告开着时
+    // content 把滚轮交给程序、mouse-report 帧也不上报轨道位置，只有这里能滚回看。
+    // Shift 的本地豁免语义仍由正文分支独占，此处不重复门控。
+    if resp.hovered() {
         let dy = ui.input(|i| i.raw_scroll_delta.y);
         if dy.abs() > f32::EPSILON {
             let lines = ((dy / cell_h) * wheel_lines as f32).round() as i64;
@@ -248,5 +250,59 @@ mod tests {
         let th = thumb_of(tr, rows, history, 50);
         assert_eq!(click_scroll_top(tr, rows, history, 0.0, th.height), 0);
         assert_eq!(click_scroll_top(tr, rows, history, tr.height, th.height), history as u64);
+    }
+
+    /// egui 的 hover 命中用的是**上一帧**的 widget rect：先跑一帧把轨道热区
+    /// 注册进 `prev_pass`，第二帧再投递滚轮，才是生产路径的真实时序。
+    fn wheel_after_a_warmup_frame(pointer: egui::Pos2) -> i64 {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 420.0));
+        let view = ScrollbarView { rows: 24, history: 100, cell_h: 16.0, wheel_lines: 1 };
+        let mut viewport = Viewport::new();
+        let ctx = egui::Context::default();
+        for events in [
+            vec![egui::Event::PointerMoved(pointer)],
+            vec![
+                egui::Event::PointerMoved(pointer),
+                // 一整格 16pt：dy / cell_h * wheel_lines = 1 行。
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: egui::vec2(0.0, 16.0),
+                    modifiers: egui::Modifiers::default(),
+                },
+            ],
+        ] {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(rect),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        interact(ui, egui::Id::new(("term_scrollbar", 0)), rect, view, &mut viewport);
+                    });
+                },
+            );
+        }
+        viewport.scroll()
+    }
+
+    /// 真实几何下的轨道滚轮：指针压在滚动条上时 content 的 `resp.hovered()` 已经
+    /// 不是它（滚动条更靠上注册），mouse-report 帧也不把这一击当程序手势——
+    /// 滚动条是本地 chrome，轨道滚轮必须无条件滚回看。
+    ///
+    /// 回归：这里曾加过 `!mouse_reporting || shift` 门控（与正文共用一把尺子），
+    /// 于是开着鼠标报告时三处都不处理，滚轮在滚动条上成了死区。
+    #[test]
+    fn a_wheel_over_the_track_scrolls_back_as_local_chrome() {
+        let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 420.0));
+        assert_eq!(wheel_after_a_warmup_frame(track_rect(rect).center()), 1);
+    }
+
+    /// 同一帧里指针落在正文（轨道之外）时，滚动条不许凭空吃下这次滚轮。
+    /// 门是几何 hover，不是 mouse_reporting / Shift。
+    #[test]
+    fn a_wheel_outside_the_track_does_not_touch_the_scrollbar() {
+        assert_eq!(wheel_after_a_warmup_frame(egui::pos2(100.0, 200.0)), 0);
     }
 }

@@ -241,33 +241,60 @@ fn paint_title_row(ui: &mut egui::Ui, text: &str) {
     );
 }
 
-/// 消费「点外收起」这一击：弹层同帧收起，但 click 边沿若留在输入里，
-/// 后面排在锚点下面的控件（命令组按钮 / 齿轮 / 终端）会把它当成自己的点击，
-/// 于是「点空白关菜单」顺手把底下的按钮按了。
+/// 本帧「点外收起」消费掉的那一次点击位置。按帧时间存，跨帧自动失效。
 ///
-/// egui 0.29 没有公开的逐键消费 click API：`PointerState` 换一份新的就能清掉
-/// 本帧 `Released{ click: Some(_) }` 边沿，raw events 里那次 release 也一并去掉。
-fn consume_closing_click(ui: &mut egui::Ui) {
+/// 锚点下的控件若要避免被同一次点击带动作，可用 [`click_consumed_at`] 自查；
+/// 本模块绝不整份替换 `PointerState`，所以不查也不会掉 hover / release。
+fn consumed_click_id() -> egui::Id {
+    egui::Id::new("quick_config_consumed_click")
+}
+
+/// 这一击是否已经被 Config 弹层的「点外收起」消费（只在本帧有效）。
+pub(super) fn click_consumed_at(ui: &egui::Ui, pos: egui::Pos2) -> bool {
+    let now = ui.input(|i| i.time);
+    ui.data(|d| d.get_temp::<(egui::Pos2, f64)>(consumed_click_id()))
+        .is_some_and(|(at, when)| when == now && at == pos)
+}
+
+/// 只删 Primary 的 release，**不碰整份 `PointerState`**。
+///
+/// 旧写法 `i.pointer = PointerState::default()` 把 hover 与其它按钮的 release
+/// 一起清掉：同帧排在锚点后面的命令组按钮 / 齿轮没了指向色，自己的点击也丢了。
+/// 这里 raw events 只挑 Primary 的 release 删掉，其它按钮、按下与 hover 全留着；
+/// 同时又把位置记进 [`click_consumed_at`]，给锚点下的控件一条「跳过这一击」的判据。
+fn consume_closing_click(ui: &egui::Ui, pos: egui::Pos2) {
     ui.ctx().input_mut(|i| {
-        i.events
-            .retain(|e| !matches!(e, egui::Event::PointerButton { pressed: false, .. }));
-        i.pointer = egui::PointerState::default();
+        i.events.retain(|e| {
+            !matches!(
+                e,
+                egui::Event::PointerButton {
+                    button: egui::PointerButton::Primary,
+                    pressed: false,
+                    ..
+                }
+            )
+        });
     });
+    let now = ui.input(|i| i.time);
+    ui.data_mut(|d| d.insert_temp(consumed_click_id(), (pos, now)));
 }
 
 /// 手写 `Area` 的弹层要自己管「点外面收起」：点在弹层里或锚点按钮上不算。
 /// 与 `dock_bottom_menu.rs:89-100` / `tools_sender_menu.rs:57-67` 同一份判定。
 pub(super) fn close_on_click_outside(ui: &mut egui::Ui, popup: egui::Rect, anchor: egui::Rect) {
-    let out = ui.input(|i| {
-        i.pointer.any_click()
-            && !i
-                .pointer
-                .interact_pos()
-                .is_some_and(|p| popup.contains(p) || anchor.contains(p))
+    let (out, pos) = ui.input(|i| {
+        let pos = i.pointer.interact_pos();
+        (
+            i.pointer.any_click()
+                && !pos.is_some_and(|p| popup.contains(p) || anchor.contains(p)),
+            pos,
+        )
     });
     if out {
         ui.memory_mut(|m| m.close_popup());
-        consume_closing_click(ui);
+        if let Some(pos) = pos {
+            consume_closing_click(ui, pos);
+        }
     }
 }
 

@@ -8,6 +8,19 @@
 
 use eframe::egui;
 
+/// 悬停浮层的 egui Id：**只按窗格（调用处的 `ui.unique_id()`）+ 种类定型**。
+///
+/// 用 `unique_id()` 而不是 `id()`：同一父 Ui 下多个 `new_child` 的 `id()` 都叫
+/// `"child"`，分屏的两个窗格会共用一把钥匙；`unique_id()` 带自增序号，才是
+/// 一块窗格一份。
+///
+/// 指针移进浮层后，终端侧的 row/col 会变、甚至根本算不出 token；若 Id 里带
+/// row/col，`Latch` 就取不到上一帧锁住的锚点与内容，浮层当场闪退或点错 token。
+/// `row:col:token` 只作为 [`resolve`] 的参数，绝不参与 Id。
+pub(in crate::ui) fn hover_id(ui_id: egui::Id, kind: &str) -> egui::Id {
+    egui::Id::new(("hover_token", ui_id, kind))
+}
+
 #[derive(Clone)]
 pub(in crate::ui) struct Latch<T> {
     token: String,
@@ -81,7 +94,7 @@ mod tests {
 
     #[test]
     fn the_anchor_is_latched_until_the_token_changes() {
-        let id = egui::Id::new(("hover_token", 3, 7, "ip"));
+        let id = hover_id(egui::Id::new("pane_slot_1"), "ip");
         egui::__run_test_ui(|ui| {
             let (a1, p1) = resolve(&ui, id, "3:7:10.0.0.9", egui::pos2(100.0, 60.0), egui::vec2(10.0, 10.0), Payload("ip"));
             assert_eq!(a1, egui::pos2(110.0, 70.0));
@@ -100,7 +113,7 @@ mod tests {
 
     #[test]
     fn a_pointer_inside_the_popup_keeps_the_old_anchor_and_payload() {
-        let id = egui::Id::new(("hover_token", 1, 2, "builtin"));
+        let id = hover_id(egui::Id::new("pane_slot_2"), "builtin");
         egui::__run_test_ui(|ui| {
             let (anchor, _) = resolve(ui, id, "1:2:0xFF", egui::pos2(40.0, 20.0), egui::vec2(10.0, 10.0), Payload("hex"));
             remember::<Payload>(ui, id, egui::Rect::from_min_size(anchor, egui::vec2(140.0, 90.0)));
@@ -108,6 +121,37 @@ mod tests {
             let (kept, payload) = resolve(ui, id, "", egui::pos2(100.0, 60.0), egui::vec2(10.0, 10.0), Payload("none"));
             assert_eq!(kept, anchor);
             assert_eq!(payload, Payload("hex"), "浮层里的按钮必须还在，不能一移动就消失");
+        });
+    }
+
+    /// 回归：指针从终端格移进浮层那一瞬，row/col 变了，但 id 必须不变。
+    /// 旧写法把 row/col 编进 `egui::Id`，`Latch` 取不到→闪退 / 点错 token。
+    #[test]
+    fn moving_the_pointer_into_the_popup_does_not_change_the_id_or_the_anchor() {
+        let pane = egui::Id::new("pane_slot_3");
+        let id = hover_id(pane, "ip_menu");
+        // 调用方每帧都会重算 row:col:token，但只传给 resolve，不传给 Id。
+        let id_after_pointer_moves = hover_id(pane, "ip_menu");
+        assert_eq!(id_after_pointer_moves, id, "指针位移不许打穿锁存");
+        assert_ne!(id, hover_id(pane, "builtin_tooltip"), "同窗格不同浮层各一份锁存");
+        assert_ne!(id, hover_id(egui::Id::new("pane_slot_4"), "ip_menu"), "两窗格互不串");
+
+        egui::__run_test_ui(|ui| {
+            // 指针在 3:7 命中 IP：建浮层并记下它的矩形。
+            let token_at_cell = "3:7:10.0.0.9";
+            let (anchor, payload) = resolve(ui, id, token_at_cell, egui::pos2(100.0, 60.0), egui::vec2(10.0, 10.0), Payload("ip"));
+            assert_eq!(payload, Payload("ip"));
+            remember::<Payload>(ui, id, egui::Rect::from_min_size(anchor, egui::vec2(120.0, 80.0)));
+
+            // 模拟指针进入浮层：终端侧算出的 row/col 不再是 3:7（这里用 9:1 表示），
+            // token 也退化成空；但 id 仍是同一把钥匙，锚点与内容必须原样留住。
+            let token_after_enter = "";
+            let (kept_anchor, kept_payload) = resolve(
+                ui, id_after_pointer_moves, token_after_enter,
+                egui::pos2(150.0, 90.0), egui::vec2(10.0, 10.0), Payload("none"),
+            );
+            assert_eq!(kept_anchor, anchor, "锚点不能被新指针位置带跑");
+            assert_eq!(kept_payload, Payload("ip"), "浮层里的按钮不能闪退");
         });
     }
 }

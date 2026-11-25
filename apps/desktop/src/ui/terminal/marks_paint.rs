@@ -21,7 +21,7 @@
 
 use egui::{pos2, Align2, Color32, FontId, Painter, Pos2, Rect, Shape, Stroke, Vec2};
 use term_app::selection::Selections;
-use term_core::grid::{LineSlice, ScreenImage};
+use term_core::grid::{Cell, LineSlice, ScreenImage};
 use term_core::theme::Palette;
 
 use super::marks::{self, Mark, MarksParams, WhitespaceMode};
@@ -120,7 +120,7 @@ pub(in crate::ui) fn paint(
         let abs = abs_row(image, line);
         // 段内夹取：标记只认这一段占的 cell，宽字符占位格也跟着段表走。
         let (from, to) = segment_cell_range(seg, line.cells.len());
-        let cells = &line.cells[from..to];
+        let (cells, col_shift) = segment_view(&line.cells, from, to);
         selected.clear();
         // 只有 `InSelection` 档要算选区区间：其余四档每帧白扫一遍选区没有意义。
         if params.whitespace == WhitespaceMode::InSelection {
@@ -143,21 +143,34 @@ pub(in crate::ui) fn paint(
         };
         marks::push_row_marks(params, &row, &mut marks);
         for mark in &marks {
-            draw_mark(painter, *mark, origin, y, cell, font, &colours);
+            draw_mark(painter, shift_mark(*mark, col_shift), origin, y, cell, font, &colours);
         }
     }
 }
 
-/// 选区的内容列区间 → 本段内的相对列区间；两段不相交时返回 `None`（不画）。
+/// 段首占位格：段可能正好起于宽字符的**右半格**（软折把两格切到两段上）。
 ///
-/// `sel.columns_on` 给的是整条逻辑行的内容列，而 `RowLine.cells` 是段内切片、
-/// 标记列也是段内相对列。少了这一步夹取，第二段的选区空白会画到第一段头上。
-fn selected_range_in_segment(range: (usize, usize), from: usize, to: usize) -> Option<(usize, usize)> {
-    let (sel_from, sel_to) = range;
-    if sel_from >= to || sel_to <= from {
-        return None;
+/// 判据只看**段外前驱**：`cells[from - 1].wide` 为真则 `from` 是占位格。占位格
+/// 自己的 `wide` 是 `false`，`attrs` / `fg` / `bg` 又与字形格逐字节相同，看它
+/// 自己永远判不出来（与 `debug_paint::row_marks` 同源）。跳过它，否则「中」的
+/// 右半边会被画上一个空白方点。
+///
+/// 返回 `(本段真正可画的 cell, 它们相对段首的屏幕列偏移)`。
+fn segment_view<'a>(cells: &'a [Cell], from: usize, to: usize) -> (&'a [Cell], usize) {
+    let shift = usize::from(from > 0 && cells.get(from - 1).is_some_and(|c| c.wide));
+    let start = (from + shift).min(to);
+    (&cells[start..to], shift)
+}
+
+/// 跳掉段首占位格后，段内相对列整体右移一格才落回屏幕列。
+fn shift_mark(mark: Mark, by: usize) -> Mark {
+    match mark {
+        Mark::SpaceDot { col } => Mark::SpaceDot { col: col + by },
+        Mark::TabArrow { col } => Mark::TabArrow { col: col + by },
+        Mark::IndentGuide { col } => Mark::IndentGuide { col: col + by },
+        Mark::LineEnding { col } => Mark::LineEnding { col: col + by },
+        Mark::WrapSymbol { col } => Mark::WrapSymbol { col: col + by },
     }
-    Some((sel_from.max(from) - from, sel_to.min(to) - from))
 }
 
 /// 事实窗口里的一行 → **内容绝对行号**（`wraps` / `row_times` / `blocks` 用的是这一套）。
@@ -390,17 +403,30 @@ mod tests {
         assert!((strokes[1][0].x - strokes[0][1].x).abs() < 0.01, "两笔在右下角相接");
     }
 
-    /// 段内选区夹取：内容列 → 段内相对列，跨段的部分不许渗进别的段。
+    /// 段起于宽字符占位半格时，那一格不许挂第二套空白标记。
+    /// 走生产判据 `segment_view` + `push_row_marks` + `shift_mark`，不抄复印件。
     #[test]
-    fn selection_ranges_are_clipped_to_the_segment_before_drawing() {
-        // 段 10..20。完全在前面的 / 完全在后面的都不画。
-        assert_eq!(selected_range_in_segment((0, 10), 10, 20), None);
-        assert_eq!(selected_range_in_segment((20, 30), 10, 20), None);
-        // 跨段：左边露出的部分夹掉，右边按段尾截断，再减段起点。
-        assert_eq!(selected_range_in_segment((0, 15), 10, 20), Some((0, 5)));
-        assert_eq!(selected_range_in_segment((15, usize::MAX), 10, 20), Some((5, 10)));
-        // 整段命中。
-        assert_eq!(selected_range_in_segment((0, usize::MAX), 10, 20), Some((0, 10)));
+    fn a_segment_starting_on_a_wide_placeholder_does_not_dot_the_right_half() {
+        let mut params = MarksParams::default();
+        params.whitespace = WhitespaceMode::ShowAll;
+        let glyph = Cell { ch: '中', wide: true, ..Cell::default() };
+        // 占位格：ch 是空白、wide=false、样式与字形格完全一样（vt.rs 的真实形状）。
+        let placeholder = Cell { ch: '\0', wide: false, ..Cell::default() };
+        let cells = [glyph, placeholder, Cell { ch: ' ', ..Cell::default() }];
+        let marks_for = |from, to| {
+            let (visible, shift) = segment_view(&cells, from, to);
+            let row = marks::RowLine { cells: visible, continuation: false, next_continuation: false, selected: &[] };
+            let mut out = Vec::new();
+            marks::push_row_marks(&params, &row, &mut out);
+            out.into_iter().map(|m| shift_mark(m, shift)).collect::<Vec<Mark>>()
+        };
+
+        // 段 1..3 起于占位格：只画后面的空格，屏幕列 1（占位格那一列 0 空着）。
+        assert_eq!(marks_for(1, 3), vec![Mark::SpaceDot { col: 1 }]);
+        // 段里只有占位格：一格都不画。
+        assert!(marks_for(1, 2).is_empty());
+        // 段 0..2 从字形格开始：`push_row_marks` 自己的 prev_wide 判据跳过占位格。
+        assert!(marks_for(0, 2).is_empty(), "一个汉字只挂一套标记");
     }
 
     /// 全关时颜色表也照算不误——它只是取前景色乘 alpha，没有状态。

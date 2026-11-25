@@ -35,13 +35,13 @@ const HEAD_H: f32 = 18.0;
 const FOOT_H: f32 = 20.0;
 const ROW_H: f32 = 19.0;
 
-/// 行热区 id：**名字 + 当前目录 + 来源**三者缺一不可。
+/// 行热区 Id 的 salt：**真名 + target**，不是屏上的显示名。
 ///
-/// 同名文件在两个目录（或本地 / 远端两棵树上）都可能同时出现，只用名字会让
-/// egui 把两行当成同一个 widget，点击 / 双击 / 右键串到另一边。目录与来源是
-/// 本帧就确定的值，作为 salt 带上即可，不碰视觉基线。
-fn row_id(name: &str, dir: &str, is_local: bool) -> egui::Id {
-    egui::Id::new(("filer_row", name, dir, is_local))
+/// 显示名只是标签：目录带 `/`、符号链接带 `@`，于是普通文件 `foo@` 与指向
+/// `foo` 的链接会显示成同一个名字。用 `name` 做 salt 让两行共用同一个 egui
+/// Id，点击 / 双击 / 右键串到另一行。真名与目标是两条独立事实，合起来才唯一。
+fn row_salt(line: &FileLine) -> (String, String) {
+    (line.raw_name.clone(), line.target.clone())
 }
 
 /// 滚轮像素量 → 整行位移。`pointer_in_list` 为假时一律 0。
@@ -340,7 +340,7 @@ impl TerminalWindow {
             );
             let text_resp = list_ui.interact(
                 text_rect,
-                row_id(&line.name, &current_path, is_local),
+                egui::Id::new(("filer_row", row_salt(line))),
                 egui::Sense::click(),
             );
             let max_chars = (text_rect.width() / 6.6).floor().max(2.0) as usize;

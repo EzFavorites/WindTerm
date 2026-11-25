@@ -80,7 +80,8 @@ pub(super) fn paint(ui: &egui::Ui, image: &ScreenImage, geom: GridGeom, word_wra
         Some(text) => format!("{row}:{col}:{text}"),
         None => String::new(),
     };
-    let id = egui::Id::new(("hover_token", row, col, "builtin_tooltip"));
+    // 与 ip 菜单同一把口径：Id 只按窗格 + 种类定型，不随指针行列漂移。
+    let id = hover_anchor::hover_id(ui.unique_id(), "builtin_tooltip");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );
@@ -106,6 +107,16 @@ mod tests {
             text: text.to_string(),
             start: 0,
         }
+    }
+
+    /// 接线级：浮层 Id 只按窗格 + 种类定型；指针进浮层时行列变了也不能换钥匙。
+    #[test]
+    fn the_tooltip_id_is_per_pane_and_not_per_pointer_cell() {
+        let pane = egui::Id::new("pane_1");
+        let id = hover_anchor::hover_id(pane, "builtin_tooltip");
+        assert_eq!(id, hover_anchor::hover_id(pane, "builtin_tooltip"));
+        assert_ne!(id, hover_anchor::hover_id(pane, "ip_menu"));
+        assert_ne!(id, hover_anchor::hover_id(egui::Id::new("pane_2"), "builtin_tooltip"));
     }
 
     #[test]
