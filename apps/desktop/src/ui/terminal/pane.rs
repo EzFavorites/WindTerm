@@ -295,8 +295,6 @@ impl TerminalWindow {
                 history: tab.snapshot.history as i64,
                 cell_h,
                 wheel_lines: tab.config.wheel_lines.max(1) as i64,
-                mouse_reporting: tab.snapshot.mouse_reporting,
-                shift,
             };
             preview_hover_y = scrollbar_interact(
                 ui,
@@ -376,16 +374,11 @@ impl TerminalWindow {
             );
         }
 
-        // 悬停浮层的帧间锚点按**槽位身份**寻址：专注模式切 child、布局重排后
-        // ui.unique_id() 会变，浮层会闪退；TabSlot::index() 跨帧恒在。
-        let hover_id = egui::Id::new(("hover_token", slot.index()));
         if !bin && !tab.local_mode {
-            if let Some(hit) =
-                super::ip_hover::paint(ui, image, geom, tab.word_wrap, &self.triggers, hover_id)
-            {
-                self.pending_ip_hit = Some(hit);
-            }
-            super::builtin_hover::paint(ui, image, geom, tab.word_wrap, hover_id);
+            // 浮层 Id 取自标签身份 + 槽位，跨帧恒等；`ui.unique_id()` 随帧内控件数漂移。
+            let pane_id = super::hover_anchor::stable_pane_id(slot.index());
+            if let Some(hit) = super::ip_hover::paint(ui, pane_id, image, geom, tab.word_wrap, &self.triggers) { self.pending_ip_hit = Some(hit); }
+            super::builtin_hover::paint(ui, pane_id, image, geom, tab.word_wrap);
         }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {

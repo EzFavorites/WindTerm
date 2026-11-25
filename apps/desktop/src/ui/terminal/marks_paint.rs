@@ -126,24 +126,13 @@ pub(in crate::ui) fn paint(
         if params.whitespace == WhitespaceMode::InSelection {
             for sel in selections.items() {
                 if let Some(range) = sel.columns_on(line.row) {
-                    if let Some(rel) = selected_range_in_segment(range, from, to) {
+                    if let Some(rel) = selected_range_in_segment(range, from, to, col_shift) {
                         selected.push(rel);
                     }
                 }
             }
         }
-    /// 把内容行上的选区区间夹到当前段，返回段内相对列。
-///
-/// 段内夹取是软折语义的一部分：选区跨段时，本段只画自己那一段区间。
-fn selected_range_in_segment(range: (usize, usize), from: usize, to: usize) -> Option<(usize, usize)> {
-    let (sel_from, sel_to) = range;
-    if sel_from >= to || sel_to <= from {
-        return None;
-    }
-    Some((sel_from.max(from) - from, sel_to.min(to) - from))
-}
-
-    let row = marks::RowLine {
+        let row = marks::RowLine {
             cells,
             continuation: marks::is_wrapped(wraps, abs),
             // 下一行是续行 → 本行被硬折了，不是逻辑行结尾。查 `wraps` 而不是
@@ -157,6 +146,29 @@ fn selected_range_in_segment(range: (usize, usize), from: usize, to: usize) -> O
             draw_mark(painter, shift_mark(*mark, col_shift), origin, y, cell, font, &colours);
         }
     }
+}
+
+/// 选区的内容列区间 → 本段内的相对列区间；不相交或夹完为空时返回 `None`（不画）。
+///
+/// 段内夹取是软折语义的一部分：选区跨段时，本段只画自己那一段区间。
+///
+/// 关键在 [`segment_view`] 已经把段首的宽字符占位格切掉了：传给 `RowLine.cells`
+/// 的切片从 `from + col_shift` 开始，标记列也是相对这个起点的。夹取原点必须同步
+/// 右移 `col_shift`，否则段首一遇宽字符，选区整体左错一列（把占位格那一格算进
+/// 选区）。夹完两端重合即空区间，必须丢掉。
+fn selected_range_in_segment(
+    range: (usize, usize),
+    from: usize,
+    to: usize,
+    col_shift: usize,
+) -> Option<(usize, usize)> {
+    let start = from + col_shift;
+    if range.0 >= to || range.1 <= start {
+        return None;
+    }
+    let a = range.0.max(start) - start;
+    let b = range.1.min(to) - start;
+    (a < b).then_some((a, b))
 }
 
 /// 段首占位格：段可能正好起于宽字符的**右半格**（软折把两格切到两段上）。
@@ -325,6 +337,18 @@ mod tests {
         Vec2::new(x, y)
     }
 
+    fn test_palette() -> Palette {
+        Palette {
+            ansi: [term_core::grid::Rgb::new(0x33, 0x33, 0x33); 16],
+            default_fg: term_core::grid::Rgb::new(0xCC, 0xCC, 0xCC),
+            default_bg: term_core::grid::Rgb::new(0x1C, 0x1C, 0x1C),
+            ansi_source: String::new(),
+            theme_name: String::new(),
+            font_family: None,
+            font_weight: None,
+        }
+    }
+
     /// 空格符号是**居中的小方块**，边长 15% 格宽，且不越出格子。
     #[test]
     fn the_space_dot_is_a_small_square_centred_in_the_cell() {
@@ -440,20 +464,67 @@ mod tests {
         assert!(marks_for(0, 2).is_empty(), "一个汉字只挂一套标记");
     }
 
+    /// 段内选区夹取：内容列 → 段内相对列，跨段的部分不许渗进别的段。
+    #[test]
+    fn selection_ranges_are_clipped_to_the_segment_before_drawing() {
+        // 段 10..20（段首不是占位格，col_shift = 0）。前后两段一律不画。
+        assert_eq!(selected_range_in_segment((0, 10), 10, 20, 0), None);
+        assert_eq!(selected_range_in_segment((20, 30), 10, 20, 0), None);
+        // 跨段：左边露出的夹掉，右边按段尾截断，再减段起点。
+        assert_eq!(selected_range_in_segment((0, 15), 10, 20, 0), Some((0, 5)));
+        assert_eq!(selected_range_in_segment((15, usize::MAX), 10, 20, 0), Some((5, 10)));
+        // 整段命中。
+        assert_eq!(selected_range_in_segment((0, usize::MAX), 10, 20, 0), Some((0, 10)));
+    }
+
+    /// 段起于宽字符占位格时，选区起点要跟着 `segment_view` 一起右移一格。
+    /// 只选中占位格 / 夹完为空的区间都不许产出，否则 InSelection 会错一列。
+    #[test]
+    fn selection_clipping_skips_the_wide_placeholder_at_the_segment_start() {
+        let (from, to, shift) = (1, 3, 1);
+        // 选区只盖住占位格（内容列 1）：不画。
+        assert_eq!(selected_range_in_segment((1, 2), from, to, shift), None);
+        // 选区止于占位格：夹完是空区间，不画。
+        assert_eq!(selected_range_in_segment((0, 2), from, to, shift), None);
+        // 选区含占位格 + 后面的空格：空格在 cells 里是第 0 列，不是第 1 列。
+        assert_eq!(selected_range_in_segment((1, 3), from, to, shift), Some((0, 1)));
+        assert_eq!(selected_range_in_segment((0, 3), from, to, shift), Some((0, 1)));
+        // 段里只有占位格：任何选区都落空。
+        assert_eq!(selected_range_in_segment((0, usize::MAX), 1, 2, 1), None);
+    }
+
+    /// 接线级：`selected_range_in_segment` 直接喂 `push_row_marks` 的 `RowLine.selected`，
+    /// 宽字符段里只有真被选中的空格出方点，位置不偏。
+    #[test]
+    fn in_selection_marks_follow_the_clipped_range_into_the_wide_segment() {
+        let mut params = MarksParams::default();
+        params.whitespace = WhitespaceMode::InSelection;
+        let cells = [
+            Cell { ch: '中', wide: true, ..Cell::default() },
+            Cell::default(), // 占位格
+            Cell { ch: ' ', ..Cell::default() },
+        ];
+        let (visible, shift) = segment_view(&cells, 1, 3);
+        let selected: Vec<(usize, usize)> = selected_range_in_segment((1, 3), 1, 3, shift)
+            .into_iter()
+            .collect();
+        let row = marks::RowLine {
+            cells: visible,
+            continuation: false,
+            next_continuation: false,
+            selected: &selected,
+        };
+        let mut out = Vec::new();
+        marks::push_row_marks(&params, &row, &mut out);
+        let on_screen = out.into_iter().map(|m| shift_mark(m, shift)).collect::<Vec<_>>();
+        assert_eq!(on_screen, vec![Mark::SpaceDot { col: 1 }], "方点落在空格那一列，不是占位格");
+    }
+
     /// 全关时颜色表也照算不误——它只是取前景色乘 alpha，没有状态。
     /// 断言的是「浓度真的比正文淡」，否则标记会盖过正文。
     #[test]
     fn every_mark_colour_is_fainter_than_the_foreground() {
-        let palette = Palette {
-            ansi: [term_core::grid::Rgb::new(0x33, 0x33, 0x33); 16],
-            default_fg: term_core::grid::Rgb::new(0xCC, 0xCC, 0xCC),
-            default_bg: term_core::grid::Rgb::new(0x1C, 0x1C, 0x1C),
-            ansi_source: String::new(),
-            theme_name: String::new(),
-            font_family: None,
-            font_weight: None,
-        };
-        let c = MarkColours::new(&palette);
+        let c = MarkColours::new(&test_palette());
         for (name, col) in [
             ("dot", c.dot),
             ("guide", c.guide),
@@ -465,5 +536,61 @@ mod tests {
         }
         assert!(c.guide.a() < c.dot.a(), "参考线要比空白符号更淡");
         assert!(c.dot.a() < c.end.a(), "行尾标记要比空白符号更实");
+    }
+
+    /// 接线级：走完整 `paint`。段从宽字符占位格起，选区只选中它后面的空格；
+    /// 若 `paint` 没把 `segment_view` 的 `col_shift` 传给选区夹取，这格根本不会出点。
+    #[test]
+    fn paint_passes_the_wide_placeholder_shift_into_selection_clipping() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 240.0));
+        let mut image = ScreenImage::blank(4, 1, 0..1);
+        image.lines[0] = term_core::grid::LineSlice {
+            row: 0,
+            cells: vec![
+                Cell { ch: '中', wide: true, ..Cell::default() },
+                Cell::default(), // 占位格
+                Cell { ch: ' ', ..Cell::default() },
+                Cell { ch: 'x', ..Cell::default() },
+            ],
+        };
+        // 段 1..3：起点正是占位格，cells 切片里只有内容列 2 那个空格。
+        let segments = SegmentTable {
+            rows: vec![term_app::wrap::VisualRow {
+                line: 0,
+                start_col: 1,
+                width: 2,
+                ..term_app::wrap::VisualRow::default()
+            }],
+            cols: 4,
+        };
+        let selections = Selections::from_active(Some(term_app::selection::Selection::span(
+            term_app::selection::Pos::new(0, 2),
+            term_app::selection::Pos::new(0, 3),
+        )));
+        let mut params = MarksParams::default();
+        params.whitespace = WhitespaceMode::InSelection;
+        let origin = egui::pos2(20.0, 20.0);
+        let size = cell(10.0, 20.0);
+        let font = FontId::new(12.0, egui::FontFamily::Monospace);
+        let out = ctx.run(
+            egui::RawInput { screen_rect: Some(screen), ..Default::default() },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    paint(ui.painter(), &image, origin, size, &params, &[], &selections,
+                        &test_palette(), &font, &segments);
+                });
+            },
+        );
+        let dot_centres: Vec<f32> = out.shapes.iter().filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(r)
+                if (r.rect.width() - 1.5).abs() < 0.01 && (r.rect.height() - 1.5).abs() < 0.01 =>
+            {
+                Some(r.rect.center().x)
+            }
+            _ => None,
+        }).collect();
+        // 空格是段内第 1 列（占位格占第 0 列）：中心 x = 20 + 1*10 + 5。
+        assert_eq!(dot_centres, vec![35.0], "只选中的空格必须出点，且不许左错一列");
     }
 }

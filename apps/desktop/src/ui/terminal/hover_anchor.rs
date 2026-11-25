@@ -8,17 +8,24 @@
 
 use eframe::egui;
 
-/// 悬停浮层的 egui Id：**只按窗格（调用处的 `ui.unique_id()`）+ 种类定型**。
+/// 悬停浮层的 egui Id：**只按调用方给的稳定窗格 Id + 种类定型**。
 ///
-/// 用 `unique_id()` 而不是 `id()`：同一父 Ui 下多个 `new_child` 的 `id()` 都叫
-/// `"child"`，分屏的两个窗格会共用一把钥匙；`unique_id()` 带自增序号，才是
-/// 一块窗格一份。
+/// 调用方必须传跨帧恒等的 Id（生产走 [`stable_pane_id`]，由标签身份 + 槽位算出）。
+/// 旧写法传 `ui.unique_id()`：它带帧内的 auto-id salt，上游多画一个控件就换一把
+/// 钥匙，`Latch` 取不到上一帧锁住的锚点与内容，浮层在点到之前就闪退。也不能用 `ui.id()`：
+/// 同一父 Ui 下多个 `new_child` 的 `id()` 都叫 `"child"`，分屏的两片会串味。
 ///
 /// 指针移进浮层后，终端侧的 row/col 会变、甚至根本算不出 token；若 Id 里带
-/// row/col，`Latch` 就取不到上一帧锁住的锚点与内容，浮层当场闪退或点错 token。
-/// `row:col:token` 只作为 [`resolve`] 的参数，绝不参与 Id。
-pub(in crate::ui) fn hover_id(ui_id: egui::Id, kind: &str) -> egui::Id {
-    egui::Id::new(("hover_token", ui_id, kind))
+/// row/col，`Latch` 同样取不到上一帧的状态。`row:col:token` 只作为 [`resolve`]
+/// 的参数，绝不参与 Id。
+pub(in crate::ui) fn hover_id(pane_id: egui::Id, kind: &str) -> egui::Id {
+    egui::Id::new(("hover_token", pane_id, kind))
+}
+
+/// 调用方传给 [`hover_id`] 的稳定 Id：由槽位索引（`TabSlot::index()`，标签身份 +
+/// 底带标记）定型，跨帧恒等且两片窗格互异。绝不读 `ui.unique_id()`。
+pub(in crate::ui) fn stable_pane_id(slot_index: usize) -> egui::Id {
+    egui::Id::new(("hover_pane", slot_index))
 }
 
 #[derive(Clone)]
@@ -91,6 +98,36 @@ mod tests {
 
     #[derive(Clone, PartialEq, Eq, Debug)]
     struct Payload(&'static str);
+
+    /// 接线级：`unique_id()` 跟着帧内控件分配顺序漂移，不能当浮层钥匙；
+    /// 槽位派生的 Id 与「这一帧先画了几个控件」无关，跨帧恒等。
+    #[test]
+    fn a_slot_derived_id_does_not_drift_with_widget_allocation() {
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, 400.0));
+        let mut seen: Vec<(egui::Id, egui::Id, egui::Id)> = Vec::new();
+        for extra_widgets in [0usize, 1] {
+            let ctx = egui::Context::default();
+            let _ = ctx.run(
+                egui::RawInput { screen_rect: Some(screen), ..Default::default() },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        // 模拟上游控件数变化（弹层 / 提示一帧多画一个）。
+                        for _ in 0..extra_widgets {
+                            let _ = ui.new_child(egui::UiBuilder::new());
+                        }
+                        let child = ui.new_child(egui::UiBuilder::new());
+                        let pane = stable_pane_id(7);
+                        seen.push((child.unique_id(), pane, hover_id(pane, "ip_menu")));
+                    });
+                },
+            );
+        }
+        assert_eq!(seen.len(), 2);
+        assert_ne!(seen[0].0, seen[1].0, "上游多画一个控件，unique_id 就漂移");
+        assert_eq!(seen[0].1, seen[1].1, "槽位 Id 与帧内分配顺序无关");
+        assert_eq!(seen[0].2, seen[1].2, "浮层 Id 恒等，才能取回旧锚点与内容");
+        assert_ne!(stable_pane_id(7), stable_pane_id(8), "两片窗格互不串");
+    }
 
     #[test]
     fn the_anchor_is_latched_until_the_token_changes() {

@@ -19,25 +19,15 @@ const SB_MIN_THUMB: f64 = 12.0;
 
 /// 滚动条每帧所需的视口快照参数（几何 + 滚轮）。打包成一个值，避免 `interact`
 /// 越过 clippy `too_many_arguments` 的 7 参数上限；`paint` 只读其中两项。
+///
+/// 不收 `mouse_reporting` / `shift`：轨道滚轮无条件归本地回看（见下面滚轮分支），
+/// 与正文 `wheel_to_program` 的门控无关，留字段只会误导。
 #[derive(Clone, Copy)]
 pub(super) struct ScrollbarView {
     pub(super) rows: usize,
     pub(super) history: i64,
     pub(super) cell_h: f32,
     pub(super) wheel_lines: i64,
-    /// 鼠标报告开关 / Shift 豁免与正文共用同一份快照：滚滚动条时也不能
-    /// 「既滚程序又滚回看」（xterm 惯例，见 `pane.rs` 的 `wheel_to_program`）。
-    pub(super) mouse_reporting: bool,
-    pub(super) shift: bool,
-}
-
-/// 滚轮归本地回看还是归程序，与正文同一把尺子。
-///
-/// 裁决：滚动条是本地 chrome，但**滚轮手势**仍受鼠标报告门控——不开报告或
-/// 按住 Shift 才是本地手势；否则指针在轨道上时不能绕过豁免偷偷滚回看。
-/// 拖拽 / 点击跳转仍是本地操作，不走这条判据。
-fn wheel_is_local(mouse_reporting: bool, shift: bool) -> bool {
-    !mouse_reporting || shift
 }
 
 /// 轨道矩形：贴右边缘、占满内容高度（浮动叠加，不改 `avail_w` / `cols`）。
@@ -90,7 +80,6 @@ pub(super) fn interact(
     viewport: &mut Viewport,
 ) -> Option<f32> {
     let (rows, history, cell_h, wheel_lines) = (view.rows, view.history, view.cell_h, view.wheel_lines);
-    let _wheel_local = wheel_is_local(view.mouse_reporting, view.shift);
     if history <= 0 {
         return None;
     }
@@ -146,9 +135,9 @@ pub(super) fn interact(
 
     // 滚轮补位：指针在轨道上时，content 的 `resp.hovered()` 已不再是它（滚动条更靠上
     // 注册），原滚轮分支不触发；这里显式接住，避免「滚不动」死角（设计稿 §5.5）。
-    // 滚动条是本地 chrome：这一支**不读 mouse_reporting / Shift**——鼠标报告开着时
-    // content 把滚轮交给程序、mouse-report 帧也不上报轨道位置，只有这里能滚回看。
-    // Shift 的本地豁免语义仍由正文分支独占，此处不重复门控。
+    // 滚动条是本地 chrome：**轨道滚轮不读 mouse_reporting / Shift**，无条件滚回看——
+    // 鼠标报告开着时 content 把滚轮交给程序、mouse-report 帧也不上报轨道位置，
+    // 只有这里能滚回看；Shift 的本地豁免语义由正文分支独占，此处不重复门控。
     if resp.hovered() {
         let dy = ui.input(|i| i.raw_scroll_delta.y);
         if dy.abs() > f32::EPSILON {
@@ -235,15 +224,6 @@ mod tests {
     }
 
     #[test]
-    fn the_wheel_gate_matches_the_content_branch_and_shift_exempts_the_scrollbar() {
-        // 与 pane.rs 的 `wheel_to_program = mouse_reporting && !shift` 互补。
-        assert!(wheel_is_local(false, false), "关报告：滚轮永远归本地");
-        assert!(wheel_is_local(false, true));
-        assert!(!wheel_is_local(true, false), "开报告又没按 Shift：滚轮归程序");
-        assert!(wheel_is_local(true, true), "Shift 是本地手势的豁免键");
-    }
-
-    #[test]
     fn clicking_the_track_top_and_bottom_reaches_both_ends() {
         let tr = track();
         let (rows, history) = (24usize, 100usize);
@@ -256,7 +236,7 @@ mod tests {
     /// 注册进 `prev_pass`，第二帧再投递滚轮，才是生产路径的真实时序。
     fn wheel_after_a_warmup_frame(pointer: egui::Pos2) -> i64 {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 420.0));
-        let view = ScrollbarView { rows: 24, history: 100, cell_h: 16.0, wheel_lines: 1, mouse_reporting: false, shift: false };
+        let view = ScrollbarView { rows: 24, history: 100, cell_h: 16.0, wheel_lines: 1 };
         let mut viewport = Viewport::new();
         let ctx = egui::Context::default();
         for events in [

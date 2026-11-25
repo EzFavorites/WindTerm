@@ -1,7 +1,9 @@
 //! `close_on_click_outside` 的回归：关弹层那一击只删 Primary 的 release，
-//! 不整份替换 `PointerState`——同帧排在锚点后面的控件照旧 hover / 点击。
+//! **不清本帧已算好的 `clicked()` 边沿**，所以下游控件必须查 `click_consumed_at`
+//! 跳过；hover / release / 其它按钮仍照常工作。
 
 use super::{click_consumed_at, close_on_click_outside, config_menu_id};
+use crate::ui::shell::quick_command_bar::click_not_consumed;
 use eframe::egui;
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, Vec2};
 
@@ -17,6 +19,9 @@ struct Frame {
     open: bool,
     hover_after: Option<Pos2>,
     any_released: bool,
+    /// 未经闸门的原边沿：证明「只删 release」并没有清掉本帧 click。
+    raw_clicked: bool,
+    /// 生产控件走的判据：`clicked() && click_not_consumed()`。
     later_clicked: bool,
     consumed: bool,
 }
@@ -27,7 +32,14 @@ fn run_click(at: Pos2) -> Frame {
     let ctx = egui::Context::default();
     let screen = Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0));
     let later_rect = Rect::from_center_size(at, Vec2::splat(60.0));
-    let mut out = Frame { open: true, hover_after: None, any_released: false, later_clicked: false, consumed: false };
+    let mut out = Frame {
+        open: true,
+        hover_after: None,
+        any_released: false,
+        raw_clicked: false,
+        later_clicked: false,
+        consumed: false,
+    };
 
     let frames = [
         vec![Event::PointerMoved(at)],
@@ -50,7 +62,8 @@ fn run_click(at: Pos2) -> Frame {
                         out.open = ui.memory(|m| m.is_popup_open(config_menu_id()));
                         out.hover_after = ui.input(|i| i.pointer.hover_pos());
                         out.any_released = ui.input(|i| i.pointer.any_released());
-                        out.later_clicked = later.clicked();
+                        out.raw_clicked = later.clicked();
+                        out.later_clicked = out.raw_clicked && click_not_consumed(ui);
                         out.consumed = click_consumed_at(ui, at);
                     }
                 });
@@ -69,11 +82,12 @@ fn an_outside_click_closes_the_popup_and_records_the_consumed_position() {
 }
 
 #[test]
-fn the_consuming_click_does_not_wipe_hover_release_or_other_controls() {
+fn the_consuming_click_keeps_hover_and_release_but_blocks_the_later_control() {
     let frame = run_click(Pos2::new(600.0, 200.0));
     assert_eq!(frame.hover_after, Some(Pos2::new(600.0, 200.0)), "hover 不许被清空");
     assert!(frame.any_released, "同帧其它按钮的 release 边沿不许被抹掉");
-    assert!(frame.later_clicked, "锚点下的控件不该因为 PointerState 被换掉而失灵");
+    assert!(frame.raw_clicked, "只删 raw release 不会清掉帧首已算好的 click 边沿");
+    assert!(!frame.later_clicked, "点外收起后，下方控件的接线判据必须为 false");
 }
 
 #[test]

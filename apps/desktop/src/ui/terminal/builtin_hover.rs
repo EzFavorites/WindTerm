@@ -64,10 +64,10 @@ fn tooltip_at_pointer(image: &ScreenImage, row: i64, col: usize) -> Option<Strin
 /// 画浮层。未命中 / 软折 / 无指针时零分配、零像素变化。
 pub(super) fn paint(
     ui: &egui::Ui,
+    pane_id: egui::Id,
     image: &ScreenImage,
     geom: GridGeom,
     word_wrap: bool,
-    id: egui::Id,
 ) {
     if word_wrap {
         return;
@@ -86,8 +86,9 @@ pub(super) fn paint(
         Some(text) => format!("{row}:{col}:{text}"),
         None => String::new(),
     };
-    // Id 由调用方按槽位身份传入；行列只进 token，切 child / 布局重排后 Id 不变。
-    let id = id.with("builtin_tooltip");
+    // 与 ip 菜单同一把口径：Id 只按调用方给的稳定窗格 Id + 种类定型，
+    // 不随指针行列漂移，也不用随帧内控件数漂移的 `ui.unique_id()`。
+    let id = hover_anchor::hover_id(pane_id, "builtin_tooltip");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );
@@ -115,14 +116,15 @@ mod tests {
         }
     }
 
-    /// 接线级：浮层 Id 只按窗格 + 种类定型；指针进浮层时行列变了也不能换钥匙。
+    /// 接线级：paint 收的是调用方给的稳定窗格 Id（生产由 `stable_pane_id(slot)` 算）；
+    /// 指针进浮层时行列变了也不能换钥匙。
     #[test]
     fn the_tooltip_id_is_per_pane_and_not_per_pointer_cell() {
-        let pane = egui::Id::new("pane_1");
+        let pane = hover_anchor::stable_pane_id(1);
         let id = hover_anchor::hover_id(pane, "builtin_tooltip");
         assert_eq!(id, hover_anchor::hover_id(pane, "builtin_tooltip"));
         assert_ne!(id, hover_anchor::hover_id(pane, "ip_menu"));
-        assert_ne!(id, hover_anchor::hover_id(egui::Id::new("pane_2"), "builtin_tooltip"));
+        assert_ne!(id, hover_anchor::hover_id(hover_anchor::stable_pane_id(2), "builtin_tooltip"));
     }
 
     #[test]

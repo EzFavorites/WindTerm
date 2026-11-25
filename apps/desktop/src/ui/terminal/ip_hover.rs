@@ -132,6 +132,7 @@ fn payload_at_pointer(image: &ScreenImage, row: i64, col: usize, rules: &[Rule])
 /// 画悬停菜单。命中才建浮层，未命中时零分配、零像素变化。
 pub(super) fn paint(
     ui: &egui::Ui,
+    pane_id: egui::Id,
     image: &ScreenImage,
     geom: GridGeom,
     word_wrap: bool,
@@ -156,9 +157,9 @@ pub(super) fn paint(
         Some(Payload::Custom { matched, .. }) => format!("{row}:{col}:custom:{matched}"),
         None => String::new(),
     };
-    // Id 由调用方按槽位身份传入，这里只加种类后缀：聚焦模式切 child、布局重排
-    // 后仍跨帧稳定。行列只进 token（变化时才重设锚点），不进 Id（否则浮层闪退）。
-    let id = id.with("ip_menu");
+    // Id 只按调用方给的稳定窗格 Id + 种类定型：row:col:token 只作为 resolve 的参数。
+    // 指针移进浮层后行列会变，Id 不变才能取回上一帧锁住的锚点与菜单内容。
+    let id = hover_anchor::hover_id(pane_id, "ip_menu");
     let (anchor, payload) = hover_anchor::resolve(
         ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
     );
@@ -237,15 +238,16 @@ pub(super) fn paint(
 mod tests {
     use super::*;
 
-    /// 接线级：paint 用的 Id 只能由窗格 `ui.unique_id()` + 种类算出，不收 row/col。
+    /// 接线级：paint 收的是调用方给的**稳定**窗格 Id（生产由 `stable_pane_id(slot)` 算），
+    /// 不用 `ui.unique_id()`；row/col 只作 resolve 参数。
     /// 指针进浮层后 row/col 变了，锁存仍得靠同一把钥匙取回。
     #[test]
     fn the_menu_id_is_per_pane_and_not_per_pointer_cell() {
-        let pane = egui::Id::new("pane_1");
+        let pane = hover_anchor::stable_pane_id(1);
         let id = hover_anchor::hover_id(pane, "ip_menu");
         assert_eq!(id, hover_anchor::hover_id(pane, "ip_menu"), "同窗格恒等");
         assert_ne!(id, hover_anchor::hover_id(pane, "builtin_tooltip"), "不同浮层分开");
-        assert_ne!(id, hover_anchor::hover_id(egui::Id::new("pane_2"), "ip_menu"), "不同窗格分开");
+        assert_ne!(id, hover_anchor::hover_id(hover_anchor::stable_pane_id(2), "ip_menu"), "不同窗格分开");
     }
 
     #[test]

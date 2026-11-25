@@ -60,6 +60,16 @@ fn overflow_menu_id() -> egui::Id {
     egui::Id::new("quick_command_overflow")
 }
 
+/// 点外收起那一击的闸门：弹层关掉后，**排在锚点下面的控件不能顺带被点到**。
+///
+/// `close_on_click_outside` 只删 raw events 的 Primary release；egui 帧首已经算好的
+/// `clicked()` 边沿还在，所以生产里每一处 `.clicked()` 都必须再过这道闸（`pub(super)`
+/// 也让接线单测能查同一把判据）。
+pub(super) fn click_not_consumed(ui: &egui::Ui) -> bool {
+    !ui.input(|i| i.pointer.interact_pos())
+        .is_some_and(|pos| quick_config_menu::click_consumed_at(ui, pos))
+}
+
 /// 绘制期视图：借用配置里的字符串，不复制、不重新分配。
 pub(super) struct CmdView<'a> {
     pub label: &'a str,
@@ -229,6 +239,7 @@ pub(in crate::ui) fn draw_quick_command_bar(
             if cross
                 .on_hover_text(tr::t(lang, "Close quick command bar"))
                 .clicked()
+                && click_not_consumed(ui)
             {
                 actions.push(Action::Shell(ShellAction::ToggleQuickBar));
             }
@@ -237,6 +248,7 @@ pub(in crate::ui) fn draw_quick_command_bar(
             if gear
                 .on_hover_text(tr::t(lang, "Quick command bar settings"))
                 .clicked()
+                && click_not_consumed(ui)
             {
                 actions.push(Action::OpenQuickCommands);
             }
@@ -325,7 +337,7 @@ fn command_button(
     );
     let tip = tr::t(lang, "Send `{cmd}` to the current session (no Enter)")
         .replace("{cmd}", cmd.send);
-    if response.on_hover_text(tip).clicked() {
+    if response.on_hover_text(tip).clicked() && click_not_consumed(ui) {
         actions.push(Action::QuickCommand(cmd.send.to_string()));
     }
 }
@@ -358,6 +370,7 @@ fn overflow_menu(
     if response
         .on_hover_text(tr::t(lang, "More commands"))
         .clicked()
+        && click_not_consumed(ui)
     {
         ui.memory_mut(|mem| mem.toggle_popup(id));
     }
@@ -535,5 +548,61 @@ mod tests {
                     );
                 });
         });
+    }
+
+    /// 接线级：Config 弹层「点外收起」那一击，排在锚点下的命令按钮不许照发。
+    /// 与生产同序：先 `close_on_click_outside`，再画按钮；对照组不关弹层。
+    #[test]
+    fn a_consumed_outside_click_does_not_fire_the_command_button() {
+        let at = egui::pos2(600.0, 200.0);
+        let events = |click: bool| {
+            let mut v = vec![egui::Event::PointerMoved(at)];
+            if click {
+                for pressed in [true, false] {
+                    v.push(egui::Event::PointerButton {
+                        pos: at,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    });
+                }
+            }
+            v
+        };
+        let run = |consume: bool| -> usize {
+            let ctx = egui::Context::default();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+            let mut actions: Vec<Action> = Vec::new();
+            let config = QuickBarConfig::default();
+            let visible = [true; QUICK_GROUP_COUNT];
+            let cmd = CmdView { label: "ping ", send: "ping ", mark: QuickMark::Square };
+            for click in [false, true] {
+                let _ = ctx.run(
+                    egui::RawInput { screen_rect: Some(screen), events: events(click), ..Default::default() },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            if consume && click {
+                                quick_config_menu::close_on_click_outside(
+                                    ui,
+                                    egui::Rect::from_min_size(egui::pos2(100.0, 100.0), egui::vec2(98.0, 182.0)),
+                                    egui::Rect::from_min_size(egui::pos2(10.0, 560.0), egui::vec2(30.0, 22.0)),
+                                );
+                            }
+                            let m = Metrics::for_visible(ui, &config, &visible, Lang::En, &QuickBarDisplay::default());
+                            let rect = egui::Rect::from_min_size(
+                                egui::pos2(at.x - 5.0, at.y - m.button_h / 2.0),
+                                egui::vec2(120.0, m.button_h),
+                            );
+                            ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+                                super::command_button(ui, &cmd, egui::Color32::WHITE, &m, &mut actions, Lang::En);
+                            });
+                        });
+                    },
+                );
+            }
+            actions.len()
+        };
+        assert_eq!(run(false), 1, "没有点外收起时，按钮必须照常发出命令");
+        assert_eq!(run(true), 0, "点外收起那一击不许穿透到下方按钮");
     }
 }

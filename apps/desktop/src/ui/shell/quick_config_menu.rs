@@ -262,6 +262,10 @@ pub(super) fn click_consumed_at(ui: &egui::Ui, pos: egui::Pos2) -> bool {
 /// 一起清掉：同帧排在锚点后面的命令组按钮 / 齿轮没了指向色，自己的点击也丢了。
 /// 这里 raw events 只挑 Primary 的 release 删掉，其它按钮、按下与 hover 全留着；
 /// 同时又把位置记进 [`click_consumed_at`]，给锚点下的控件一条「跳过这一击」的判据。
+///
+/// 注意 egui 的 `clicked()` 边沿在帧首就由 raw events 算好存进 `PointerState`，
+/// 绘制期再删 release 已经改不了本帧的 `clicked()`。所以**消费必须靠下游查
+/// [`click_consumed_at`] 实现**——`quick_command_bar` 的每个按钮都过那道闸。
 fn consume_closing_click(ui: &egui::Ui, pos: egui::Pos2) {
     ui.ctx().input_mut(|i| {
         i.events.retain(|e| {
