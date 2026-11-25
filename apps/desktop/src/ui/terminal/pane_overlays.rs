@@ -89,6 +89,8 @@ pub(super) fn paint_overlays(
     palette: &Palette,
     geom: GridGeom,
     bin: bool,
+    // 活动标签的身份（分屏时只有它写 Find All 快照）。
+    find_owner: Option<term_core::session_runtime::SessionId>,
     toggles: OverlayToggles,
     // 与正文 / margin 同源的一帧折行配置（查找高亮与光标都按段表定位）。
     wrap_cfg: term_app::wrap::WrapConfig,
@@ -101,12 +103,7 @@ pub(super) fn paint_overlays(
     // 所以这里每帧把「当前事实窗口 + FindState」算出的结果写进 ctx，供它下一帧
     // 读取（find_bar 会校验 query，隔帧残留不会冒充新查询的结果）。不缓存计数：
     // 结果仍是 `app::find::matches` 的纯函数值，滚动后下一帧自然换掉。
-    ctx.data_mut(|d| {
-        d.insert_temp(
-            egui::Id::new("find_all_results"),
-            find::result_rows(&view.find, image),
-        )
-    });
+    super::find_results_slot::publish(ctx, find_owner, find::result_rows(&view.find, image));
     let image_cols = image.cols.max(1);
     let start_x = geom.start.x;
     let start_y = geom.start.y;
@@ -229,6 +226,7 @@ pub(super) fn paint_overlays(
             &tab.selections,
             palette,
             &fonts.font_id(),
+            &segment_table,
         );
     }
 
@@ -249,6 +247,7 @@ pub(super) fn paint_overlays(
             egui::pos2(start_x, start_y),
             Vec2::new(cell_w, cell_h),
             palette,
+            &segment_table,
         );
     }
 

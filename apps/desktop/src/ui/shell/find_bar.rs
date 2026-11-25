@@ -60,10 +60,9 @@ use term_app::i18n::Lang;
 use term_app::state::{FindDirection, FindState};
 use term_core::theme::CHROME_SCALE;
 
-/// 终端叠层每帧写入 `egui::Context` 的结果列表快照键（见 `pane_overlays.rs`）。
-/// 查找栏在 `CentralPanel` 之前绘制，取的是上一帧的值；`query` 不一致时丢弃，
-/// 不会把旧查询的结果画成新查询的答案。
-const FIND_RESULTS_ID: &str = "find_all_results";
+/// 查找栏在 `CentralPanel` 之前绘制，取的是上一帧由终端叠层写入的结果快照。
+/// `ui/terminal/find_results_slot.rs` 在读取时同时校验活动标签身份与 query，
+/// 分屏里别的叶子 / 旧查询都不会冒充当前答案。
 
 use super::glyph;
 
@@ -520,9 +519,7 @@ pub fn draw_find_bar(
 
     // Find All 展开时，在终端区上方画结果列表。默认关着，视觉基线零变化。
     if find_state.find_all_open {
-        let results = ui
-            .ctx()
-            .data(|d| d.get_temp::<FindResults>(egui::Id::new(FIND_RESULTS_ID)));
+        let results = crate::ui::terminal::find_results_slot::read(ui.ctx(), &find_state.query);
         draw_find_all_panel(ui, bar, find_state, results.as_ref(), lang, dispatch);
     }
 

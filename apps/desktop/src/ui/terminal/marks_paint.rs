@@ -25,7 +25,9 @@ use term_core::grid::{LineSlice, ScreenImage};
 use term_core::theme::Palette;
 
 use super::marks::{self, Mark, MarksParams, WhitespaceMode};
+use super::overlay_segments::segment_cell_range;
 use crate::theme::to_color32;
+use term_app::wrap::SegmentTable;
 
 /// 空格小方点的浓度。
 const DOT_ALPHA: f32 = 0.35;
@@ -84,12 +86,15 @@ pub(in crate::ui) fn paint(
     selections: &Selections,
     palette: &Palette,
     font: &FontId,
+    // 与正文 / margin / 查找高亮同源的一帧段表：软折后一条逻辑行占多段。
+    segments: &SegmentTable,
 ) {
     if !params.paints_row_marks() && params.column_marker.is_none() {
         return;
     }
     let colours = MarkColours::new(palette);
-    let grid_bottom = origin.y + image.lines.len() as f32 * cell.y;
+    // 竖线贯穿的是**屏幕行数**（软折后一段一行），不是逻辑行数。
+    let grid_bottom = origin.y + segments.rows.len() as f32 * cell.y;
 
     // 列标记先画：它是一条贯穿全屏的参考线，压在任何一行标记**之下**才不会
     // 在交点上盖住那些更细的符号。
@@ -107,9 +112,15 @@ pub(in crate::ui) fn paint(
     // 一批选区在同一行可能给出多段区间：`InSelection` 档要的是它们的并集判据。
     let mut selected: Vec<(usize, usize)> = Vec::with_capacity(selections.items().len());
 
-    for (i, line) in image.lines.iter().enumerate() {
+    for (i, seg) in segments.rows.iter().enumerate() {
+        let Some(line) = image.lines.get(seg.line) else {
+            continue;
+        };
         let y = origin.y + i as f32 * cell.y;
         let abs = abs_row(image, line);
+        // 段内夹取：标记只认这一段占的 cell，宽字符占位格也跟着段表走。
+        let (from, to) = segment_cell_range(seg, line.cells.len());
+        let cells = &line.cells[from..to];
         selected.clear();
         // 只有 `InSelection` 档要算选区区间：其余四档每帧白扫一遍选区没有意义。
         if params.whitespace == WhitespaceMode::InSelection {
@@ -120,7 +131,7 @@ pub(in crate::ui) fn paint(
             }
         }
         let row = marks::RowLine {
-            cells: &line.cells,
+            cells,
             continuation: marks::is_wrapped(wraps, abs),
             // 下一行是续行 → 本行被硬折了，不是逻辑行结尾。查 `wraps` 而不是
             // 查「下一行在不在视口里」：屏幕最后一行折下去的那一半在视口之外，

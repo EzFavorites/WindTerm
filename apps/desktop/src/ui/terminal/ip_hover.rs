@@ -5,7 +5,10 @@
 //! 菜单项变成「在哪个 shell 里执行什么命令」的意图。真正的写入在 `ip_probe`
 //! 帧末落地——绘制期不碰 PTY，也不持 OS 进程。
 
+use super::hover_anchor;
+use super::hover_hit;
 use super::pane_pointer::GridGeom;
+use super::trigger_menu;
 use crate::ui::*;
 use term_app::trigger::{self, Rule};
 use term_app::trigger_builtins::{self, Builtin};
@@ -16,16 +19,11 @@ use term_core::grid::ScreenImage;
 /// `find_in`，所以"输出时命中"与"悬停时能点到"是同一套判据。
 fn custom_menu_at_pointer<'a>(
     image: &ScreenImage,
-    geom: GridGeom,
-    pos: egui::Pos2,
+    row: i64,
+    col: usize,
     rules: &'a [Rule],
 ) -> Option<(&'a Rule, String)> {
-    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
-    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
-    if row < 0.0 || col < 0.0 {
-        return None;
-    }
-    let line = image.lines.get(row as usize)?;
+    let line = image.lines.get(row.max(0) as usize)?;
     let text = line.text();
     rules
         .iter()
@@ -37,8 +35,9 @@ fn custom_menu_at_pointer<'a>(
         })
         .find_map(|rule| {
             let (start, end) = trigger::match_in_line(rule, &text)?;
-            let col = col as usize;
-            if col < start || col >= end {
+            // match_in_line 给的是字符下标；中文前缀一个字占两格，必须查字形表。
+            let (from, to) = hover_hit::char_range_to_cols(&line.cells, start, end)?;
+            if col < from || col >= to {
                 return None;
             }
             let matched: String = text.chars().skip(start).take(end - start).collect();
@@ -46,12 +45,16 @@ fn custom_menu_at_pointer<'a>(
         })
 }
 
-/// 菜单项 → 触发器动作。四种动作都有执行器：`Open hyperlink` 走投影层的
-/// `sysopen::open`（与 Help / Search online 同一个 opener），不再画假禁用项。
+/// 菜单项 → 触发器动作。`Open hyperlink` 走投影层的 `sysopen::open`（与 Help /
+/// Search online 同一个 opener），不再画假禁用项。
 fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) -> Option<TriggerAction> {
     let expand = |text: &str| text.replace("${match}", matched);
     match item.action {
-        ActionKind::RunCommand => Some(TriggerAction::RunCommand(expand(&rule.config.action.os[0].command))),
+        // `RunCommand` 的载荷必须是命令 ID；配置里写的是正文时改走 SendLine，
+        // 否则窗口级 dispatch 拿它当 ID 查表，查不到就静默丢掉这次点击。
+        ActionKind::RunCommand => Some(trigger_menu::run_command_action(&expand(
+            &trigger_menu::command_of(rule, trigger_menu::host()).command,
+        ))),
         ActionKind::PlaySound => Some(TriggerAction::Beep),
         ActionKind::SendText => Some(TriggerAction::SendText(expand(&rule.config.send.text))),
         ActionKind::OpenHyperlink => {
@@ -64,6 +67,13 @@ fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) 
             Some(TriggerAction::OpenLink(url))
         }
     }
+}
+
+/// 浮层内容的帧间锁存值。`Rule` 可克隆，指针进入浮层期间沿用旧菜单。
+#[derive(Clone)]
+enum Payload {
+    Ip(String),
+    Custom { rule: Rule, matched: String },
 }
 
 fn ping_command(ip: &str) -> String {
@@ -85,24 +95,20 @@ fn trace_command(ip: &str) -> String {
 /// 指针所在 cell 是否落在某个 IP 的文本区间内。
 ///
 /// 软折开启时屏幕行 ≠ 逻辑行，这里不猜映射（宁可不弹，也不弹在错误的 IP 上）。
-fn ip_at_pointer(image: &ScreenImage, geom: GridGeom, pos: egui::Pos2) -> Option<String> {
-    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
-    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
-    if row < 0.0 || col < 0.0 {
-        return None;
-    }
-    let line = image.lines.get(row as usize)?;
+fn ip_at_pointer(image: &ScreenImage, row: i64, col: usize) -> Option<String> {
+    let line = image.lines.get(row.max(0) as usize)?;
     let text = line.text();
     trigger_builtins::detect(&text)
         .into_iter()
         .find(|found| {
-            if !matches!(found.kind, Builtin::Ipv4 | Builtin::Ipv6) {
-                return false;
-            }
-            // detect 返回的是字节偏移；IP 字面量恒为 ASCII，字符列 == 字节列。
-            let start = found.start;
-            let end = start + found.text.len();
-            (col as usize) >= start && (col as usize) < end
+            matches!(found.kind, Builtin::Ipv4 | Builtin::Ipv6)
+                && hover_hit::byte_range_to_cols(
+                    &text,
+                    &line.cells,
+                    found.start,
+                    found.start + found.text.len(),
+                )
+                .is_some_and(|(from, to)| col >= from && col < to)
         })
         .map(|found| found.text)
 }
@@ -121,62 +127,77 @@ pub(super) fn paint(
     let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else {
         return None;
     };
-    let mut picked: Option<(bool, String)> = None;
-    let mut clicked_actions: Vec<TriggerAction> = Vec::new();
-    let custom = if ip_at_pointer(image, geom, pos).is_none() {
-        custom_menu_at_pointer(image, geom, pos, rules)
+    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
+    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
+    if row < 0.0 || col < 0.0 {
+        return None;
+    }
+    let (row, col) = (row as i64, col as usize);
+    let fresh = if let Some(ip) = ip_at_pointer(image, row, col) {
+        Some(Payload::Ip(ip))
     } else {
-        None
+        custom_menu_at_pointer(image, row, col, rules).map(|(rule, matched)| Payload::Custom {
+            rule: rule.clone(),
+            matched: matched.clone(),
+        })
     };
-    let ip = match (ip_at_pointer(image, geom, pos), custom.as_ref()) {
-        (Some(ip), _) => Some(ip),
-        (None, Some((_, matched))) => Some(matched.clone()),
-        _ => None,
+    let token = match &fresh {
+        Some(Payload::Ip(ip)) => format!("{row}:{col}:ip:{ip}"),
+        Some(Payload::Custom { matched, .. }) => format!("{row}:{col}:custom:{matched}"),
+        None => String::new(),
     };
-    let Some(ip) = ip else {
+    // Id 带上行列与种类：同一行换一个 token 才重设锚点；指针进浮层时锁存旧内容。
+    let id = egui::Id::new(("hover_token", row, col, "ip_menu"));
+    let (anchor, payload) = hover_anchor::resolve(
+        ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
+    );
+    let Some(payload) = payload else {
         return None;
     };
-    let id = if custom.is_some() {
-        egui::Id::new("custom_trigger_menu")
-    } else {
-        egui::Id::new("ip_trigger_menu")
-    };
-    egui::Area::new(id)
+
+    let mut picked: Option<(bool, String)> = None;
+    let mut clicked_actions: Vec<TriggerAction> = Vec::new();
+    let response = egui::Area::new(id)
         .order(egui::Order::Tooltip)
-        .anchor(egui::Align2::LEFT_TOP, pos.to_vec2() + egui::vec2(10.0, 10.0))
+        .anchor(egui::Align2::LEFT_TOP, anchor.to_vec2())
         .show(ui.ctx(), |ui| {
-            if let Some((rule, matched)) = &custom {
-                ui.label(matched.as_str());
-                for item in &rule.config.menu.items {
-                    if item.separator {
-                        ui.separator();
-                        continue;
-                    }
-                    let action = menu_action(item, rule, matched);
-                    if ui.button(item.label.clone()).clicked() {
-                        // 不用 unwrap/expect：gate 4p 冻结了生产路径 panic 数。
-                        if let Some(action) = action {
-                            clicked_actions.push(action);
+            match &payload {
+                Payload::Custom { rule, matched } => {
+                    ui.label(matched.as_str());
+                    for item in &rule.config.menu.items {
+                        if item.separator {
+                            ui.separator();
+                            continue;
+                        }
+                        let action = menu_action(item, rule, matched);
+                        if ui.button(item.label.clone()).clicked() {
+                            // 不用 unwrap/expect：gate 4p 冻结了生产路径 panic 数。
+                            if let Some(action) = action {
+                                clicked_actions.push(action);
+                            }
                         }
                     }
                 }
-            } else {
-                ui.label(format!("IP: {ip}"));
-                if ui.button("Ping (remote session)").clicked() {
-                    picked = Some((false, ping_command(&ip)));
-                }
-                if ui.button("Traceroute (remote session)").clicked() {
-                    picked = Some((false, trace_command(&ip)));
-                }
-                ui.separator();
-                if ui.button("Ping (local shell)").clicked() {
-                    picked = Some((true, ping_command(&ip)));
-                }
-                if ui.button("Traceroute (local shell)").clicked() {
-                    picked = Some((true, trace_command(&ip)));
+                Payload::Ip(ip) => {
+                    ui.label(format!("IP: {ip}"));
+                    if ui.button("Ping (remote session)").clicked() {
+                        picked = Some((false, ping_command(ip)));
+                    }
+                    if ui.button("Traceroute (remote session)").clicked() {
+                        picked = Some((false, trace_command(ip)));
+                    }
+                    ui.separator();
+                    if ui.button("Ping (local shell)").clicked() {
+                        picked = Some((true, ping_command(ip)));
+                    }
+                    if ui.button("Traceroute (local shell)").clicked() {
+                        picked = Some((true, trace_command(ip)));
+                    }
                 }
             }
         });
+    hover_anchor::remember::<Option<Payload>>(ui, id, response.response.rect);
+
     let actions = if !clicked_actions.is_empty() {
         clicked_actions
     } else if let Some((local, command)) = picked {
@@ -190,11 +211,15 @@ pub(super) fn paint(
     } else {
         return None;
     };
-    let rule_id = custom
-        .as_ref()
-        .map(|(rule, _)| rule.id.clone())
-        .unwrap_or_else(|| "__builtin_ip".to_string());
-    Some(term_app::trigger::Hit { rule_id, actions, matched: ip })
+    let rule_id = match &payload {
+        Payload::Custom { rule, .. } => rule.id.clone(),
+        Payload::Ip(_) => "__builtin_ip".to_string(),
+    };
+    let matched = match &payload {
+        Payload::Custom { matched, .. } => matched.clone(),
+        Payload::Ip(ip) => ip.clone(),
+    };
+    Some(term_app::trigger::Hit { rule_id, actions, matched })
 }
 
 #[cfg(test)]
@@ -242,6 +267,34 @@ mod tests {
         assert_eq!(
             menu_action(&item, &rule, "https://fallback.test/x"),
             Some(TriggerAction::OpenLink("https://fallback.test/x".into()))
+        );
+    }
+
+    #[test]
+    fn a_custom_menu_run_command_item_uses_the_host_os_slot() {
+        let mut rule = Rule::default();
+        let texts = ["mac-cmd", "linux-cmd", "win-cmd"];
+        for (slot, text) in rule.config.action.os.iter_mut().zip(texts) {
+            slot.command = text.to_string();
+        }
+        let item = term_core::trigger::MenuItem {
+            action: ActionKind::RunCommand,
+            ..term_core::trigger::MenuItem::default()
+        };
+        let expected = trigger_menu::command_of(&rule, trigger_menu::host()).command.clone();
+        // 命令正文不是命令 ID：必须成为 SendLine，不能塞进 RunCommand 当 ID。
+        assert_eq!(
+            menu_action(&item, &rule, "x"),
+            Some(TriggerAction::SendLine(expected))
+        );
+        // 真 ID 则保持 RunCommand 契约，交给帧末窗口级 dispatch。
+        let id = term_app::menu::context_ids::LINE_ENDINGS;
+        rule.config.action.os[0].command = id.into();
+        rule.config.action.os[1].command = id.into();
+        rule.config.action.os[2].command = id.into();
+        assert_eq!(
+            menu_action(&item, &rule, "x"),
+            Some(TriggerAction::RunCommand(id.into()))
         );
     }
 }

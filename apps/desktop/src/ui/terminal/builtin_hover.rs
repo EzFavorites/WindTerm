@@ -6,6 +6,8 @@
 //! 这三个触发器只**展示**结果——不写 PTY、不改选区、不返回 `TriggerAction`
 //! （要执行动作的 IP 菜单走 `ip_hover.rs`，与本文件互不相干）。
 
+use super::hover_anchor;
+use super::hover_hit;
 use super::pane_pointer::GridGeom;
 use term_app::trigger_builtins::{self, Builtin, Found};
 use term_core::grid::ScreenImage;
@@ -37,23 +39,24 @@ pub(super) fn tooltip_text(found: &Found) -> Option<String> {
 
 /// 指针所在 cell 是否落在某个可悬停的内置片段上，命中则返回它的文案。
 ///
-/// 软折开启时屏幕行 ≠ 逻辑行，这里不猜映射（宁可不弹，也不弹在错误的片段上）；
-/// 三种 token 恒为 ASCII，`detect` 的字节偏移就是屏幕列。
-fn tooltip_at_pointer(image: &ScreenImage, geom: GridGeom, pos: egui::Pos2) -> Option<String> {
-    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
-    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
-    if row < 0.0 || col < 0.0 {
-        return None;
-    }
-    let line = image.lines.get(row as usize)?;
-    trigger_builtins::detect(&line.text())
+/// 软折开启时屏幕行 ≠ 逻辑行，这里不猜映射（宁可不弹，也不弹在错误的片段上）。
+/// `detect` 给的是字节偏移，中文前缀要先换成字形、再换成 cell 列。
+fn tooltip_at_pointer(image: &ScreenImage, row: i64, col: usize) -> Option<String> {
+    let line = image.lines.get(row.max(0) as usize)?;
+    let text = line.text();
+    trigger_builtins::detect(&text)
         .into_iter()
         .find(|found| {
             matches!(
                 found.kind,
                 Builtin::Hex | Builtin::Timestamp | Builtin::Archive
-            ) && (col as usize) >= found.start
-                && (col as usize) < found.start + found.text.len()
+            ) && hover_hit::byte_range_to_cols(
+                &text,
+                &line.cells,
+                found.start,
+                found.start + found.text.len(),
+            )
+            .is_some_and(|(from, to)| col >= from && col < to)
         })
         .and_then(|found| tooltip_text(&found))
 }
@@ -66,15 +69,31 @@ pub(super) fn paint(ui: &egui::Ui, image: &ScreenImage, geom: GridGeom, word_wra
     let Some(pos) = ui.input(|i| i.pointer.hover_pos()) else {
         return;
     };
-    let Some(text) = tooltip_at_pointer(image, geom, pos) else {
+    let row = ((pos.y - geom.start.y) / geom.cell.y).floor();
+    let col = ((pos.x - geom.start.x) / geom.cell.x).floor();
+    if row < 0.0 || col < 0.0 {
+        return;
+    }
+    let (row, col) = (row as i64, col as usize);
+    let fresh = tooltip_at_pointer(image, row, col);
+    let token = match &fresh {
+        Some(text) => format!("{row}:{col}:{text}"),
+        None => String::new(),
+    };
+    let id = egui::Id::new(("hover_token", row, col, "builtin_tooltip"));
+    let (anchor, payload) = hover_anchor::resolve(
+        ui, id, &token, pos, egui::vec2(10.0, 10.0), fresh,
+    );
+    let Some(text) = payload else {
         return;
     };
-    egui::Area::new(egui::Id::new("builtin_trigger_tooltip"))
+    let response = egui::Area::new(id)
         .order(egui::Order::Tooltip)
-        .anchor(egui::Align2::LEFT_TOP, pos.to_vec2() + egui::vec2(10.0, 10.0))
+        .anchor(egui::Align2::LEFT_TOP, anchor.to_vec2())
         .show(ui.ctx(), |ui| {
             ui.label(text);
         });
+    hover_anchor::remember::<Option<String>>(ui, id, response.response.rect);
 }
 
 #[cfg(test)]
@@ -142,5 +161,24 @@ mod tests {
             None,
             "换算越界只返回 None，不 panic"
         );
+    }
+
+    #[test]
+    fn a_hex_token_after_a_chinese_prefix_is_hittable() {
+        let mut image = ScreenImage::blank(30, 1, 0..1);
+        let text = "前缀 0xFF rest";
+        let mut col = 0usize;
+        for ch in text.chars() {
+            let wide = ('\u{4e00}'..='\u{9fff}').contains(&ch);
+            image.lines[0].cells[col] = term_core::grid::Cell { ch, wide, ..term_core::grid::Cell::default() };
+            col += 1;
+            if wide {
+                image.lines[0].cells[col] = term_core::grid::Cell::default();
+                col += 1;
+            }
+        }
+        let tooltip = tooltip_at_pointer(&image, 0, 5);
+        assert!(tooltip.as_deref().is_some_and(|s| s.starts_with("Hex 0xFF")), "前缀占 5 格，0xFF 在 5..9：{tooltip:?}");
+        assert_eq!(tooltip_at_pointer(&image, 0, 0), None, "中文那两格不该弹 hex");
     }
 }

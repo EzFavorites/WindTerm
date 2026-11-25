@@ -36,6 +36,10 @@ use crate::ui::*;
 pub(in crate::ui) struct PendingPaste {
     pub(in crate::ui) tab: crate::ui::terminal::TabSlot,
     pub(in crate::ui) text: String,
+    /// Vim 本地模式的 `p` / `P` 粘完要回到只读态：弹窗打开期间**不许**翻转，
+    /// 只有用户点 Yes 落地时才由 `terminal::vim_paste` 的漏斗临时清、写完恢复。
+    /// 普通粘贴（Cmd+V / 右键 / 中键）恒 `false`。
+    pub(in crate::ui) restore_local: bool,
 }
 
 /// 「这次粘贴要不要先问一句」——判据只有这一份。
@@ -290,7 +294,10 @@ impl TerminalWindow {
         if yes {
             if let Some(pending) = self.pending_paste.take() {
                 // 全文，不是 `preview.shown`：预览只是显示层。
-                self.commit_paste(pending.tab, &pending.text);
+                // Vim 的 `p` / `P` 在这里才翻转 local_mode（见 PendingPaste.restore_local）。
+                crate::ui::terminal::vim_paste::commit_with_local_cleared(
+                    self, pending.tab, &pending.text, pending.restore_local,
+                );
             }
         } else if no {
             self.pending_paste = None;

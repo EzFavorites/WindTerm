@@ -7,6 +7,8 @@ mod context_menu;
 /// `pub(in crate::ui)` 让 `comp/context_fixtures.rs` 能直接复用出图。
 pub(in crate::ui) mod context_rows;
 mod margin;
+/// 折叠列的指针几何命中：不依赖内容区 `Response`（margin 右键 interact 会抢走它）。
+mod fold_hit;
 /// 空白与符号可视化：**参数**与**纯决策**（零 `egui`，可无头单测）。
 ///
 /// `View ▸ Toggle Line Endings / Column Marker / Indent Guides / Wrap Symbols`、
@@ -22,6 +24,8 @@ mod vim_apply;
 mod marks;
 /// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
 mod marks_paint;
+/// 叠层标记的段内夹取（软折后按段而不按 `lines` 下标）。
+mod overlay_segments;
 /// `Mode ▸ Debug Mode` 的**绘制**：`Cell` → 属性位 / 色号种类 / 宽字符标记 → `painter` 调用。
 ///
 /// 它收的是 `&ScreenImage` 与一格几何（`origin` + `cell`），**不碰任何状态**——
@@ -67,6 +71,12 @@ pub(in crate::ui) mod tab_slot;
 /// 2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
 /// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
 /// 搬走的这一块本来就是自由函数，行为一行未改。
+/// 悬停浮层的纯几何：文本偏移 → 屏幕 cell 列（宽字符前缀不能偏列）。
+mod hover_hit;
+/// 悬停浮层的帧间锚点锁存（不追指针，指针进浮层继续 show）。
+mod hover_anchor;
+/// 自定义菜单 `Run command` 的载荷判据：命令 ID 走 dispatch，正文走 SendLine。
+mod trigger_menu;
 mod ip_hover;
 /// 官网 #47/#48/#49 三个内置触发器的悬停浮层（hex / 时间戳 / 压缩包）：
 /// 只展示换算结果，不写 PTY、不改选区。纯检测与换算在 `term_app::trigger_builtins`。
@@ -85,6 +95,13 @@ mod pane_preview;
 /// 粘贴的落地路径（`commit_paste`）与它的判据。从 `pane.rs` 拆出来：
 /// 把这 129 行塞进那边，把 `pane.rs` 顶到 518（上限 500）。
 mod paste;
+/// Find All 结果按标签身份发布 / 校验（分屏时不再互相覆盖）。
+pub(in crate::ui) mod find_results_slot;
+/// Vim `p` / `P` 的粘贴漏斗（临时离开只读 → 落地 → 恢复）与帧末触发器派发。
+pub(in crate::ui) mod vim_paste;
+#[cfg(test)]
+#[path = "vim_paste_tests.rs"]
+mod vim_paste_tests;
 mod script;
 /// 「运行脚本」窗口的两份清单：脚本库（读盘）与最近用过（读 prefs）。
 ///

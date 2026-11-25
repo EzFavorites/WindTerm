@@ -258,16 +258,22 @@ pub(in crate::ui) fn paint(
     origin: Pos2,
     cell: Vec2,
     palette: &Palette,
+    // 与正文 / margin / 查找高亮同源的一帧段表：软折后一条逻辑行占多段。
+    segments: &term_app::wrap::SegmentTable,
 ) {
-    if image.lines.is_empty() {
+    if segments.rows.is_empty() {
         return;
     }
     let colours = DebugColours::new(palette);
     let degrade = too_small(cell);
-    let cols = image.cols;
-    for (i, line) in image.lines.iter().enumerate() {
+    for (i, seg) in segments.rows.iter().enumerate() {
+        let Some(line) = image.lines.get(seg.line) else {
+            continue;
+        };
         let y = origin.y + i as f32 * cell.y;
-        let groups = row_marks(&line.cells, cols, pos2(origin.x, y), cell, &colours, degrade);
+        // 段内夹取：标记不许越过这一段占用的 cell 区间。
+        let cols = super::overlay_segments::segment_cell_range(seg, line.cells.len());
+        let groups = row_marks(&line.cells, cols.0..cols.1, pos2(origin.x, y), cell, &colours, degrade);
         for (_, marks) in groups {
             for (rect, colour) in marks {
                 painter.rect_filled(rect, 0.0, colour);
@@ -288,7 +294,7 @@ pub(in crate::ui) fn paint(
 /// 生产路径改成什么样都是绿的。现在 `paint` 与单测走同一条判据，抄本没有了。
 fn row_marks(
     cells: &[Cell],
-    cols: usize,
+    cols: std::ops::Range<usize>,
     origin: Pos2,
     cell: Vec2,
     colours: &DebugColours,
@@ -296,14 +302,19 @@ fn row_marks(
 ) -> Vec<(usize, Vec<(Rect, Color32)>)> {
     let mut out: Vec<(usize, Vec<(Rect, Color32)>)> = Vec::new();
     let mut skip_placeholder = false;
-    for (col, cell_data) in cells.iter().enumerate() {
+    let first = cols.start;
+    for col in cols {
+        let Some(cell_data) = cells.get(col) else {
+            break;
+        };
         let is_placeholder = skip_placeholder;
         skip_placeholder = cell_data.wide;
-        if is_placeholder || col >= cols || !decorate(cell_data) {
+        if is_placeholder || !decorate(cell_data) {
             continue;
         }
-        let cell_origin = pos2(origin.x + col as f32 * cell.x, origin.y);
-        out.push((col, cell_marks(cell_data, cell_origin, cell, colours, degrade)));
+        let rel = col.saturating_sub(first);
+        let cell_origin = pos2(origin.x + rel as f32 * cell.x, origin.y);
+        out.push((rel, cell_marks(cell_data, cell_origin, cell, colours, degrade)));
     }
     out
 }
@@ -644,7 +655,7 @@ mod tests {
             wide: false,
         };
         let cells = [glyph, placeholder];
-        let groups = row_marks(&cells, 2, pos2(0.0, 0.0), cell, &colours, false);
+        let groups = row_marks(&cells, 0..2, pos2(0.0, 0.0), cell, &colours, false);
         assert_eq!(
             groups.len(),
             1,
@@ -653,6 +664,26 @@ mod tests {
         assert_eq!(groups[0].0, 0, "留下的必须是字形格那一列");
         // 字形格：1 枚 BOLD pip + 1 条 wide 竖线 = 2 个矩形。
         assert_eq!(groups[0].1.len(), 2);
+    }
+
+    /// 软折段：只画段内那几格，且 x 从段起点（0）算，不越到相邻段上。
+    #[test]
+    fn a_soft_wrap_segment_never_draws_marks_outside_its_columns() {
+        let cell = default_cell();
+        let colours = DebugColours::new(&palette());
+        let mut attrs = Attrs::EMPTY;
+        attrs.insert(Attrs::BOLD);
+        let cells: Vec<Cell> = (0..12)
+            .map(|col| if (4..8).contains(&col) {
+                Cell { ch: 'x', attrs, ..Cell::default() }
+            } else {
+                Cell::default()
+            })
+            .collect();
+        // 第二段 5..10：只有 5、6、7 三格有标记，段内相对列 0、1、2。
+        let groups = row_marks(&cells, 5..10, pos2(0.0, 0.0), cell, &colours, false);
+        let cols: Vec<usize> = groups.iter().map(|(col, _)| *col).collect();
+        assert_eq!(cols, vec![0, 1, 2], "标记列必须夹到段内、并转成段内相对列");
     }
 
     /// 每个颜色都比正文淡，且 `dim < bold < rule` 这条浓度序成立。

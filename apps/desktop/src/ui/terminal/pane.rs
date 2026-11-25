@@ -377,11 +377,8 @@ impl TerminalWindow {
         if !bin && !tab.local_mode { if let Some(hit) = super::ip_hover::paint(ui, image, geom, tab.word_wrap, &self.triggers) { self.pending_ip_hit = Some(hit); } super::builtin_hover::paint(ui, image, geom, tab.word_wrap); }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         if !bin && !tab.local_mode {
-            let mods = ui.input(|i| i.modifiers);
-            pending_fold = margin_met.fold_click_cmd(
-                cell_w, rect.min, geom.start, geom.cell, image,
-                &tab.folds, &tab.fold_inputs(), &resp, mods,
-            );
+            let (click, mods) = ui.input(|i| (i.pointer.button_clicked(egui::PointerButton::Primary).then(|| i.pointer.press_origin()).flatten(), i.modifiers));
+            pending_fold = margin_met.fold_click_cmd(cell_w, rect.min, geom.start, geom.cell, image, &tab.folds, &tab.fold_inputs(), click, mods);
         }
 
         // xterm 鼠标报告：档位/编码读快照，字节由 term-core 纯函数产出后写回会话。
@@ -681,6 +678,7 @@ impl TerminalWindow {
             &self.palette,
             geom,
             bin,
+            if matches!(slot, TabSlot::Main(_)) && self.active == Some(tab.identity) { Some(tab.identity) } else { None },
             OverlayToggles { cursor_typing: self.hide_cursor_typing, search: self.highlight_search }, self.wrap_settings.with(tab.word_wrap),
         );
 
@@ -709,33 +707,9 @@ impl TerminalWindow {
         // 与事实窗口的绘制抢同一个 `self`（E0499）。
         // 同步输入 + 折叠列点击都要借整个窗口，攒到这里一次性落地。
         self.flush_deferred(sync_bytes, pending_fold);
-        if let Some(hit) = self.pending_ip_hit.take() { if let Some(t) = tab_of(&mut self.tabs, &mut self.shell_tabs, slot) { t.apply_trigger(hit, &mut Vec::new()); } }
-        // 粘贴的落地在这里而不是上面那个输入循环里：`tab` 的借用已经结束，
-        // 才能写 `self.pending_paste` / `self.command_history`。三条入口
-        // （Cmd+V / 右键 Paste / 中键）最后都汇到这一个 `Event::Paste`，
-        // 所以门控只加这一处就全覆盖——别分头去三处各改一遍。
-        // Vim 的 p/P 也汇到这里：`p` 粘完回远端，`P` 粘完仍留在本地模式。
-        let mut vim_restore_local = false;
-        if let Some(v) = vim_paste { if !v.remote {
-            tab_of(&mut self.tabs, &mut self.shell_tabs, slot).map(|t| t.local_mode = false);
-            vim_restore_local = true;
-        } paste = Some((v.text, v.alt)); }
-        if let Some((text, alt)) = paste {
-            if crate::ui::dialogs::confirm_paste::paste_needs_confirm(
-                alt,
-                self.paste_confirm_main,
-                self.paste_confirm_alt,
-            ) {
-                self.pending_paste = Some(dialogs::confirm_paste::PendingPaste {
-                    tab: slot,
-                    text,
-                });
-            } else {
-                // 直通：与弹窗 Yes 走**同一个** `commit_paste`。
-                self.commit_paste(slot, &text);
-            }
-        }
-        if vim_restore_local { tab_of(&mut self.tabs, &mut self.shell_tabs, slot).map(|t| t.local_mode = true); }
+        // 待触发命中、Vim p/P 与 Cmd+V 三条路都在新模块里收口：窗口级
+        // pending_trigger（pending_ip_hit）取走 → RunCommand 真派发 → 粘贴漏斗。
+        super::vim_paste::finish_actions(self, slot, vim_paste.map(|v| (v.text, v.alt)), paste);
         // 把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
         let history_scope = system_of(self);
         for line in completed_lines {

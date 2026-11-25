@@ -369,7 +369,7 @@ impl Tab {
                     // 由 paint_rows 铺一层淡底。只保留最近 64 行，避免长会话
                     // 把高亮表养大；复制 / 选区完全不受影响。
                     if let Some((row, _)) = self.view.cursor {
-                        let row = self.view.range.start + row;
+                        let row = super::highlights::absolute_row(row, self.view.range.start);
                         if !self.trigger_highlight_rows.contains(&row) {
                             self.trigger_highlight_rows.push(row);
                             if self.trigger_highlight_rows.len() > 64 {

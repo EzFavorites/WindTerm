@@ -14,7 +14,7 @@
 //! 不会出现「时间戳被行号压住」这种只有某个字号下才有的 bug。
 
 use crate::ui::*;
-use term_app::folds::{block_at, Folds};
+use term_app::folds::Folds;
 use term_app::margin::MarginState;
 use term_core::coords::HistoryRow;
 use term_core::grid::{GridSnapshot, ScreenImage};
@@ -46,7 +46,7 @@ const MAX_NUMBER_COLS: usize = 6;
 /// - Ctrl/Cmd：全部块的开关（无折 → FoldAll，已有折 → UnfoldAll）。
 /// - Alt（递归）/ Shift（同类型）：本仓块平坦无嵌套、无类型概念，原版语义没有
 ///   对应物——不假装支持，退回单块 ToggleAt。
-fn fold_cmd_for_modifiers(
+pub(super) fn fold_cmd_for_modifiers(
     mods: egui::Modifiers,
     folds_empty: bool,
     abs: term_core::coords::HistoryRow,
@@ -139,26 +139,13 @@ impl MarginMetrics {
         image: &ScreenImage,
         folds: &Folds,
         inputs: &[HistoryRow],
-        resp: &egui::Response,
+        click_at: Option<egui::Pos2>,
         mods: egui::Modifiers,
     ) -> Option<term_app::vocab::FoldCmd> {
-        if !self.fold_on || !resp.clicked() {
-            return None;
-        }
-        let (cx0, cx1) = (area_min.x + self.fold_center - cell_w * 0.5,
-                         area_min.x + self.fold_center + cell_w * 0.5);
-        let p = resp.interact_pointer_pos()?;
-        if !(cx0..=cx1).contains(&p.x) {
-            return None;
-        }
-        let row = ((p.y - geom_start.y) / geom_cell.y).floor().max(0.0) as usize;
-        let line = image.lines.get(row)?;
-        let abs = HistoryRow::new(image.history as i64 + line.row)?;
-        if folds.regions().iter().any(|r| r.start() == abs) || block_at(inputs, abs).is_some() {
-            Some(fold_cmd_for_modifiers(mods, folds.is_empty(), abs))
-        } else {
-            None
-        }
+        super::fold_hit::fold_click_at(
+            self.fold_on, self.fold_center, cell_w, area_min, geom_start, geom_cell,
+            image, folds, inputs, click_at, mods,
+        )
     }
 }
 

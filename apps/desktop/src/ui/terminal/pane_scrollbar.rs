@@ -50,6 +50,13 @@ fn thumb_rect(rect: egui::Rect, rows: usize, history: usize, scroll_top: u64) ->
     )
 }
 
+/// 点击轨道的逆映射：把「点在哪」当成滑块**中心**，与拖拽时的
+/// `y - grab`（grab 记的就是按下点到滑块上缘的距离）同一把尺子。
+/// 原先的 `ratio * history` 与滑块几何不同源，点一下会跳到不相干的位置。
+fn click_scroll_top(track: term_app::scrollbar::Track, rows: usize, history: usize, y: f64, thumb_height: f64) -> u64 {
+    scroll_top_of(track, rows, history, y - thumb_height / 2.0)
+}
+
 /// 绝对指针 y，换算成相对轨道顶的偏移；拿不到指针时返回 `None`。
 ///
 /// 单独成自由函数（不 capture `ui` 的闭包），避免与下面的 `ui.data_mut` 可变借用打架。
@@ -116,8 +123,7 @@ pub(super) fn interact(
     if resp.clicked() && !resp.dragged() {
         if let Some(y) = pointer_y(ui, &resp, tr) {
             if y < thumb_top || y > thumb_bottom {
-                let ratio = (y as f64 / tr.height() as f64).clamp(0.0, 1.0);
-                let st = (ratio * history as f64).round() as u64;
+                let st = click_scroll_top(track, rows, history, y as f64, th.height);
                 viewport.apply_scroll_top(st, history as u64);
                 ui.ctx().request_repaint();
             }
@@ -188,4 +194,35 @@ pub(super) fn paint(
         egui::Color32::from_gray(140)
     };
     painter.rect_filled(thumb, 0.0, color);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn track() -> term_app::scrollbar::Track {
+        term_app::scrollbar::Track { height: 400.0, min_thumb: SB_MIN_THUMB }
+    }
+
+    #[test]
+    fn a_click_at_the_thumb_centre_is_the_same_inverse_as_a_drag() {
+        let tr = track();
+        let (rows, history) = (24usize, 100usize);
+        for st in [0u64, 25, 50, 100] {
+            let th = thumb_of(tr, rows, history, st);
+            let centre = th.top + th.height / 2.0;
+            // 拖拽时 grab = y - thumb_top；点中心同样落在滑块中心。
+            assert_eq!(click_scroll_top(tr, rows, history, centre, th.height), st);
+            assert_eq!(scroll_top_of(tr, rows, history, centre - th.height / 2.0), st);
+        }
+    }
+
+    #[test]
+    fn clicking_the_track_top_and_bottom_reaches_both_ends() {
+        let tr = track();
+        let (rows, history) = (24usize, 100usize);
+        let th = thumb_of(tr, rows, history, 50);
+        assert_eq!(click_scroll_top(tr, rows, history, 0.0, th.height), 0);
+        assert_eq!(click_scroll_top(tr, rows, history, tr.height, th.height), history as u64);
+    }
 }
