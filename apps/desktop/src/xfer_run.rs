@@ -684,6 +684,13 @@ pub(crate) fn drive(
     actions: Vec<Action>,
     mut sample_meta: impl FnMut() -> FileMeta,
 ) -> Vec<DriveAction> {
+    // 真实 receiver 在一帧多个 ZFILE 时只保留末态快照；逐条取样会把末文件的
+    // mtime/size/resume 串给前面的文件（resume 串错会写错位置）。恢复安全门：
+    // 同帧多 FileStart 整批默认，宁可丢时间戳也不串数据。
+    let file_starts = actions
+        .iter()
+        .filter(|action| matches!(action, Action::FileStart { .. }))
+        .count();
     actions
         .into_iter()
         .map(|action| match action {
@@ -692,7 +699,7 @@ pub(crate) fn drive(
             Action::FileStart { name, size } => DriveAction::FileStart {
                 name,
                 size,
-                meta: sample_meta(),
+                meta: if file_starts > 1 { FileMeta::default() } else { sample_meta() },
             },
             Action::FileDone => DriveAction::FileDone,
             Action::Done => DriveAction::Done,
@@ -1478,9 +1485,8 @@ mod tests {
 
     #[test]
     fn each_file_start_in_one_frame_gets_its_own_meta_sample() {
-        // 非合规对端把两个 ZFILE 塞进同一帧：旧实现数出 >1 个 FileStart 就把
-        // 整批 mtime 抹成默认值。现在按动作逐条取样，两个文件各拿各的样本，
-        // 非 FileStart 动作一次都不取样。
+        // 同帧多 ZFILE 时真实 receiver 只剩末态，逐条取样会串味；安全门恢复后
+        // 这批元数据整批默认，非 FileStart 动作不取样。
         let first = FileMeta {
             mtime: Some(1_700_000_001),
             mode: Some(0o644),
@@ -1513,7 +1519,7 @@ mod tests {
             calls += 1;
             samples.next().unwrap_or_default()
         });
-        assert_eq!(calls, 2, "只有两个 FileStart 取样");
+        assert_eq!(calls, 0, "同帧多文件不取样，避免末态串味");
         let metas: Vec<FileMeta> = out
             .iter()
             .filter_map(|action| match action {
@@ -1521,7 +1527,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(metas, [first, second], "每个 FileStart 拿到独立样本");
+        assert_eq!(metas, [FileMeta::default(), FileMeta::default()], "同帧多文件不许串味");
     }
 
     #[test]
@@ -1600,7 +1606,7 @@ mod tests {
         assert_eq!(sampled.size, Some(5));
         assert_eq!(sampled.resume, 0);
 
-        let out = drive(actions, sampled);
+        let out = drive(actions, || sampled);
         let starts: Vec<_> = out
             .iter()
             .filter_map(|action| match action {
