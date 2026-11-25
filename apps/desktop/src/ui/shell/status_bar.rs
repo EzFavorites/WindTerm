@@ -423,8 +423,10 @@ mod tests {
             cursor: None,
             history: 1,
         };
-        win.view.find.visible = true;
-        win.view.find.query = "wake".into();
+        // 查找栏状态只由 reducer 写：测试也走同一条受控入口，不直接赋值（4g 门禁）。
+        use term_app::{action::Action, find::FindAction};
+        win.dispatch_action(Action::Find(FindAction::Open));
+        win.dispatch_action(Action::Find(FindAction::SetQuery("wake".to_string())));
         assert_eq!(win.find_hit(), Some((1, 1)), "前置条件：真的命中了");
 
         win.commit_note(Some("偏好写盘冲突".into()));
