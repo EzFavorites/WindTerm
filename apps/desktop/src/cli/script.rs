@@ -38,7 +38,8 @@ use crate::session_open::{open_session, OpenFailure};
 
 const USAGE: &str = "\
 term-desk script run <file.rhai> [--exec CMD | --session NAME] [--cols N] [--rows N]
-                                  [--timeout SECS] [--quiet]
+                                  [--timeout SECS] [--quiet] [--batch]
+                                  [--arg VALUE]... [--allow SPEC]
 
   在独立会话里跑一段 Rhai 脚本（腿 A 引擎）。原语是全局函数：
     write(text) / keys([key...]) / keys(key)
@@ -93,6 +94,11 @@ term-desk script run <file.rhai> [--exec CMD | --session NAME] [--cols N] [--row
   --cols / --rows   会话尺寸，默认 80×24
   --timeout SECS    沙箱墙钟上限，默认 30（同时钳制单次 wait）
   --quiet           不打印脚本返回值，只看退出码
+  --batch           批处理预算档：600 秒 / 5000 万操作（界面档是 30 秒 / 100 万）；
+                     显式 --timeout 仍会盖过档位里的墙钟
+  --arg VALUE       传给脚本的参数，`args()` / `args(0)` 读取（0 起）；可重复
+  --allow SPEC      本次运行的额外授权，如 fs=write:/tmp,process,ui,app=configure；
+                     与脚本头 `// @cap ...` 取并集，可重复（逗号拼接），不写进配置
 
 退出码：0 = 脚本跑完；1 = 会话起不来或脚本报错；2 = 用法 / 读文件失败。";
 
@@ -463,6 +469,14 @@ mod tests {
 
     fn argv(rest: &[&str]) -> Vec<String> {
         rest.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn usage_lists_every_flag_the_parser_accepts() {
+        // 参数早就实现了，USAGE 没跟上会让 `--arg/--allow/--batch` 只能用「猜」发现。
+        for flag in ["--arg", "--allow", "--batch"] {
+            assert!(USAGE.contains(flag), "USAGE 漏了 {flag}");
+        }
     }
 
     #[test]

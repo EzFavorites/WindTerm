@@ -34,6 +34,12 @@ use term_script::{ScriptDoc, TokenKind};
 /// `TextEdit` 的稳定 id（光标状态按 id 存取）。
 const EDITOR_ID: &str = "script_editor_text";
 
+/// 「新建」预填的起始模板（随产品交付的示例之一）。
+///
+/// 空白编辑器对新手不友好：他要同时想「API 叫什么」和「入口在哪」。模板把
+/// 这两件事写成可改的代码，路径仍留空——保存走「另存为」落到脚本库。
+const NEW_SCRIPT_TEMPLATE: &str = include_str!("../../../resources/scripts/00-template.rhai");
+
 /// 编辑器的全部状态。
 ///
 /// 放 `TerminalWindow` 上而不是 `ViewState`：里面有一个线程句柄（`ScriptRun`）
@@ -159,14 +165,16 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// 新建一个空白脚本：路径空着，但「另存为」预填到**脚本库**目录。
+    /// 新建一个带模板的脚本：路径空着，但「另存为」预填到**脚本库**目录。
     ///
     /// 预填的理由：`path` 空着时按保存只会先弹一行空白输入框，用户随手打一个
     /// `test.rhai` 就落进了当前工作目录——那不是他的脚本库，下次启动就找不到了。
-    /// 先把落点摆出来，用户想换随时能改。
+    /// 先把落点摆出来，用户想换随时能改。模板来自随产品交付的示例文件，
+    /// 与文档里的真实注册名同源，避免了「新建 = 空白，然后照旧手册写错」。
     pub(in crate::ui) fn open_new_script(&mut self, session: Option<SessionId>) {
         self.open_script_editor(session, None);
         if let Some(state) = self.script_editor.as_mut() {
+            state.doc = ScriptDoc::new(NEW_SCRIPT_TEMPLATE.to_string());
             state.save_as = script_run::default_script_path();
         }
     }
@@ -582,3 +590,14 @@ fn highlight_job(
 #[cfg(test)]
 #[path = "script_editor_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod template_tests {
+    use super::NEW_SCRIPT_TEMPLATE;
+
+    #[test]
+    fn the_new_script_template_uses_the_registered_facade_spelling() {
+        assert!(NEW_SCRIPT_TEMPLATE.contains("crt().screen.send("));
+        assert!(!NEW_SCRIPT_TEMPLATE.contains("crt.Screen"), "别把旧文档的 PascalCase 带进模板");
+    }
+}

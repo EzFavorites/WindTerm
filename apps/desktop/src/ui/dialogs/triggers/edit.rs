@@ -155,8 +155,11 @@ pub(super) fn match_box(
 
 // ── Send text ────────────────────────────────────────────────────────────
 
-/// Script 模式的占位脚本（视觉基线 `18-script-tab.png`）。
-const SCRIPT_HINT: &str = "E.g.:\n(captures) => {\n  return `echo ${captures.match}\\n`;\n}";
+/// Script 模式的占位脚本（视觉基线 `18-script-tab.png` 的位置不变）。
+///
+/// 后端只支持 `return "字面量"`（先展开 `${match}`）或纯文本；JS 箭头函数会被
+/// 原样当成文本发出去，所以占位必须用真能跑的写法。
+const SCRIPT_HINT: &str = "E.g.:\nreturn \"echo ${match}\"";
 
 /// `Send Text` 页面：Match + Send + Text/Script + Condition + Later + Captures。
 pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut term_app::trigger::Rule) {
@@ -294,5 +297,18 @@ pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut
         ));
     }
     sync_actions(rule);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SCRIPT_HINT;
+
+    #[test]
+    fn the_script_hint_uses_syntax_the_trigger_backend_actually_evaluates() {
+        // 占位若写 JS 箭头函数，用户照抄后会被原样当文本发出去——那是「写了跑不起来」。
+        assert!(!SCRIPT_HINT.contains("=>"), "占位不能是 JS 箭头函数：{SCRIPT_HINT}");
+        let body = SCRIPT_HINT.lines().nth(1).expect("第二行是示例表达式");
+        assert_eq!(term_core::trigger_script::eval(body), "echo ${match}");
+    }
 }
 

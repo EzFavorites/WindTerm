@@ -251,8 +251,10 @@ pub(super) fn text_block(
 }
 
 /// Script 模式的占位脚本（视觉基线 `18` / `31` 同源）。
-const SCRIPT_HINT: &str =
-    "E.g.:\n(captures) => {\n  return `echo ${captures.match}\\n`;\n}";
+///
+/// 与 `edit.rs` 一致：触发器 Script 模式只求值 `return "字面量"` 或纯文本，
+/// 不认 JS 箭头函数；`${match}` 在求值前由命中内核替换。
+const SCRIPT_HINT: &str = "E.g.:\nreturn \"echo ${match}\"";
 
 /// `Play sound` 分支：分组框 + `Sound Name` 下拉 + 时长 + `Test`。
 pub(super) fn sound_block(
@@ -327,4 +329,16 @@ pub(super) fn sound_block(
         mono(FS),
         rgb(c::TEXT_2),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SCRIPT_HINT;
+
+    #[test]
+    fn the_script_hint_uses_syntax_the_trigger_backend_actually_evaluates() {
+        assert!(!SCRIPT_HINT.contains("=>"), "占位不能是 JS 箭头函数：{SCRIPT_HINT}");
+        let body = SCRIPT_HINT.lines().nth(1).expect("第二行是示例表达式");
+        assert_eq!(term_core::trigger_script::eval(body), "echo ${match}");
+    }
 }

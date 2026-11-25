@@ -12,6 +12,10 @@ term-desk script run a.rhai --exec "ls"  # 用一次性命令会话代替本地 
 term-desk script run a.rhai --timeout 30 --quiet
 ```
 
+其余常用参数：`--batch`（批处理预算档）、`--arg X`（可重复，脚本用 `args()` 读）、
+`--allow fs=write:/tmp,process`（本次运行的额外授权）。完整列表见
+`apps/desktop/src/cli/script.rs` 的 `USAGE`，无参数打印的用法错误里也会带上它。
+
 窗口内的脚本编辑器使用同一套宿主 API，因此同一份脚本在 GUI 与 CLI 下行为
 一致（可用的宿主能力随上下文不同而收敛）。
 
@@ -64,18 +68,38 @@ term-desk script run a.rhai --timeout 30 --quiet
 > 重名时宿主会加后缀，返回值里带的是真名。
 
 脚本另有几个**脚本专属**原语，不在能力面上（因此不出现于 RPC 动词表）：
-`grep` / `grep_v`（标准正则的行级过滤）、`index`、以及 `crt` 兼容门面。
+`grep` / `grep_v`（标准正则的行级过滤）、`crt` 兼容门面。门面里
+`crt().get_tab(n).index()` 是标签对象的方法，不是全局函数。
 
-`crt` 门面提供的是 SecureCRT 的**对象形状**，转发到本仓动词：`crt.Screen.Send(...)`
-转发到 `write`、`crt.Screen.WaitForString(...)` 转发到 `read_until`（消费式）、
-`crt.Screen.Get(...)` 转发到 `region`。它们是**对象方法**，只能在 `crt.Screen`
-上调用——全局没有 `send` 或 `wait_for_string`。门面只提供形状，不提供 VBScript /
-Python 解释器。
+### `crt` 兼容门面与真实拼写
+
+门面提供 SecureCRT 的**对象形状**，但注册名是 Rhai 的 snake_case：入口是函数调用
+`crt()`，后面接小写属性与方法——`crt().screen.send(...)` 转发到 `write`、
+`crt().screen.wait_for_string(...)` 转发到 `read_until`（消费式）、
+`crt().screen.get(...)` 转发到 `region`。**当前没有注册 PascalCase 别名**
+（`crt.Screen.Send(...)` 之类会报 Function not found），所以照 CRT 手册抄下来的
+脚本要按下面的速查表改写。门面只提供形状，不提供 VBScript / Python 解释器。
+
+| SecureCRT 写法 | WindTerm / Rhai 写法 | 说明 |
+|---|---|---|
+| `#$language = "VBScript"` / `#$language = "Python"` 两行头 | 无 | 只有 Rhai；授权另用单行 `// @cap ...` 头 |
+| `Sub Main() ... End Sub` / `def main():` | 无 `main()`，顶层直接写语句 | 最后一条不带分号的表达式是脚本返回值 |
+| `/SSH2 ...`（Open 会话配置行） | `session_open(#{config: #{host: "...", username: "...", auth: "agent"}})` | 也可用 `session_open(#{profile: "会话名"})` 开库里的会话 |
+| `crt.Arguments` / `crt.Arguments(0)` | `args()` / `args(0)` | 0 起，越界给空串；门面对应 `crt().arguments()` / `crt().argument(i)` |
+| `crt.GetLastErrorMessage()` | `last_error()` | 门面对应 `crt().last_error()` |
+| `crt.Screen.WaitForString(p, secs)` | `crt().screen.wait_for_string(p, secs)` | 命中返回**到分隔符为止（含分隔符）**的文本并推进读游标；超时是显式错误，不返回「假装成功」的哨兵 |
+
+全局没有 `send` / `wait_for_string` 这类裸函数：要么用全局动词 `write` /
+`read_until`，要么走 `crt().screen.*` 门面。
 
 ## 执行环境
 
-- 脚本在受限预算内运行：执行时间、输出量、循环次数都有上限
-  （`crates/term-script/src/sandbox.rs`），超预算即中止并报错。
+- 脚本在受限预算内运行：墙钟、操作数和语法嵌套深度都有上限
+  （`crates/term-script/src/sandbox.rs`；交互档 30 秒 / 100 万操作，
+  `--batch` 批处理档 600 秒 / 5000 万操作），超预算即显式失败。
+  **没有输出字节配额这个旋钮**：输出侧的边界只有「每次取数只返回上次消费点
+  之后的文本」与固定 64 KiB 捕获窗口（超出保尾裁旧）；长输出要循环取数并当场
+  消费，不要指望一次 `read` 端回几 MB。
 - `secret` 只返回凭据的可用句柄语义，不把明文写进脚本变量以外的地方；
   脚本日志与错误信息不回显口令。
 - 脚本错误写进 `last_error`，不会让宿主进程崩溃。
@@ -83,13 +107,23 @@ Python 解释器。
 ## 示例
 
 ```rhai
+// @cap fs=write:/tmp
 // 开一个本地 shell、发一条命令、等提示符、把结果写进文件
 let info = session_open();          // 返回会话行；宿主按会话配置定名
 session_use(info["name"]);          // 绑定到这个名字
-write("uname -a\n");                // 写动词是 write，不是 send
+write("uname -a\r");                // 写动词是 write，不是 send；回车用 CR
 let out = read_until("$ ", 10);     // 流式：吃到分隔符为止（秒）
 fs_write("/tmp/uname.txt", out);
 session_close(info["name"]);
+```
+
+随产品附带的 5 个可直接改的示例在
+[`apps/desktop/resources/scripts/`](../apps/desktop/resources/scripts/)：
+自动登录、批量巡检落盘、抓命令输出、多标签下发、自动应答。每个文件头部都写了
+怎么运行、要改哪几处占位值，以及是否需要 `// @cap` 授权。
+
+```
+term-desk script run apps/desktop/resources/scripts/03-capture-output.rhai --batch
 ```
 
 等一个不确定的提示语时用 `wait`（不推进游标，返回已匹配到的文本）或 `wait_any`
@@ -104,6 +138,18 @@ write("<口令>\n");
 
 函数签名可能随版本演进；以 `term-desk capability --json` 与
 `crates/term-script/src/*.rs` 的注册表为准。
+
+## 与 CRT 的有意偏差
+
+这些不是「还没做」，而是刻意不照搬；照 CRT 手册写的脚本要按上表改写。
+
+| 偏差 | 现在的事实 |
+|---|---|
+| 无多语言解释器 | 只有 Rhai。门面提供 CRT 的**对象形状**，不解释 VBScript / Python，也不执行它们的语句 |
+| 无两行头 | `#$language = ...` 不解析；脚本头只有可选的 `// @cap ...`（授权，非语言选择） |
+| 超时显式失败 | `wait` / `wait_any` / `read_until` / `crt().screen.wait_for_string` 超时即报错，不返回哨兵值；原因可从 `last_error()` 读 |
+| 部分 API 需 caps 授权 | 文件、外部进程、剪贴板读、窗口与应用级状态默认全拒；用脚本头 `// @cap fs=write:/tmp,process` 或 CLI `--allow ...` 放行，只作用于本次运行 |
+| 无自定义对话框 / OLE | 不支持 CRT 的自定义窗体与 OLE 自动化；`crt().dialog` 只有 `message_box` / `prompt` / `file_open_dialog` / `file_save_dialog` 四种固定形态 |
 
 ## JSON-RPC 桥
 
