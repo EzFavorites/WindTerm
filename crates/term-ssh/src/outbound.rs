@@ -92,7 +92,7 @@ async fn http_connect(
     host: &str,
     port: u16,
 ) -> Result<BoxStream, SshError> {
-    let authority = format!("{host}:{port}");
+    let authority = connect_authority(host, port);
     let mut request = format!(
         "CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\nProxy-Connection: Keep-Alive\r\n"
     );
@@ -325,6 +325,21 @@ async fn read_exact_checked(
         })
 }
 
+/// HTTP `CONNECT` 的请求目标。IPv6 字面量必须写成 `[::1]:22`——裸冒号会让
+/// 代理把地址当成 `host:port:port` 解析失败（RFC 7230 的 authority 语法）。
+/// 已经是 `[...]` 形式的不再包一层，避免 `[[::1]]`。
+pub(crate) fn connect_authority(host: &str, port: u16) -> String {
+    let bare = host
+        .strip_prefix('[')
+        .and_then(|h| h.strip_suffix(']'))
+        .unwrap_or(host);
+    if bare.parse::<Ipv6Addr>().is_ok() {
+        format!("[{bare}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
 /// SOCKS5 的目标地址。IP 字面量按地址类型发，其余一律当**域名**发给代理，
 /// 由代理去做 DNS —— 这正是「DNS 可走代理」。
 fn encode_target(host: &str) -> Result<(u8, Vec<u8>), SshError> {
@@ -437,6 +452,17 @@ mod tests {
         assert_eq!(&addr[1..], b"db.internal");
         assert!(encode_target("").is_err());
         assert!(encode_target(&"x".repeat(256)).is_err());
+    }
+
+    #[test]
+    fn ipv6_connect_targets_are_bracketed() {
+        assert_eq!(connect_authority("::1", 22), "[::1]:22");
+        assert_eq!(connect_authority("2001:db8::1", 2200), "[2001:db8::1]:2200");
+        // 用户已经按 OpenSSH 写法加了方括号：不许变成双层。
+        assert_eq!(connect_authority("[::1]", 22), "[::1]:22");
+        // IPv4 / 域名原样。
+        assert_eq!(connect_authority("10.0.0.1", 22), "10.0.0.1:22");
+        assert_eq!(connect_authority("db.internal", 5432), "db.internal:5432");
     }
 
     #[test]

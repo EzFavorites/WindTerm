@@ -15,7 +15,9 @@
 //!
 //! 1. 锁屏？→ 直接关（连错误都不回：回了等于告诉对方「这里有个桥接」）；
 //! 2. 第一条必须 `{"method":"auth","params":{"token":"…"}}`，答 `{"result":{"ok":true}}`；
-//!    不是 `auth` 或 token 不对 → 回一个 `locked`（-32003）错误并关连接，**一次机会**；
+//!    不是 `auth` 或 token 不对 → 回一个 `locked`（-32003）错误并关连接，**一次机会**。
+//!    这三步都在 accept 循环里完成，**认证通过才 spawn 线程**——否则任意本机
+//!    进程可以只连不说话，把服务变成线程工厂；
 //! 3. 之后交给 `serve_stdio`，逐行一问一答；
 //! 4. 每次调用前再问一次锁屏（纵深防御）：中途锁屏的会话立刻开始拒绝，
 //!    但**不主动断连接**——断不断由客户端决定，我们只拒绝执行。
@@ -166,35 +168,50 @@ pub fn serve_on(bound: Bound, probe: Arc<dyn lock::LockProbe>) -> Result<(), Ser
         let token = bound.token.clone();
         let probe = Arc::clone(&probe);
         let pool = Arc::clone(&pool);
+        // **先鉴权再 spawn**：以前一条连接一 accept 就起线程，任意本机进程
+        // 可以只连上来不说话，把 accept 循环变成线程工厂（DoS）。token 不对
+        // 或握不上手的连接在 accept 这条串行路径上就被关掉，根本不占线程。
+        let ready = match preauth(stream, &token, probe.as_ref()) {
+            Ok(ready) => ready,
+            Err(err) => {
+                // 单条连接的 IO 故障不该杀掉服务（与 accept 失败同一纪律）。
+                let _ = err;
+                continue;
+            }
+        };
+        let Some((reader, mut writer)) = ready else {
+            continue;
+        };
         std::thread::spawn(move || {
-            let _ = handle(stream, &token, pool, probe);
+            let gated = LockedGate {
+                inner: surface::DeskSurface::new(pool),
+                probe,
+            };
+            let _ = term_bridge::transport::serve_stdio(&gated, reader, &mut writer);
         });
     }
     Ok(())
 }
 
-fn handle(
+/// 完成「锁屏探测 + token 握手」，只有真正的调用方才拿到一对流。
+/// 返回 `Ok(None)` 表示连接已按规矩关掉（锁屏 / 认证失败），不需要起线程。
+fn preauth(
     stream: TcpStream,
     token: &str,
-    pool: Arc<SessionPool>,
-    probe: Arc<dyn lock::LockProbe>,
-) -> std::io::Result<()> {
+    probe: &dyn lock::LockProbe,
+) -> std::io::Result<Option<(BufReader<TcpStream>, BufWriter<TcpStream>)>> {
     if probe.locked() == Some(true) {
         // 锁屏：连握手都不给。不回错误——回错误等于确认「这里有个桥接」。
         let _ = stream.shutdown(Shutdown::Both);
-        return Ok(());
+        return Ok(None);
     }
     stream.set_nodelay(true)?;
     let mut writer = BufWriter::new(stream.try_clone()?);
     let mut reader = BufReader::new(stream);
     if !authenticate(&mut reader, &mut writer, token)? {
-        return Ok(());
+        return Ok(None);
     }
-    let gated = LockedGate {
-        inner: surface::DeskSurface::new(pool),
-        probe,
-    };
-    term_bridge::transport::serve_stdio(&gated, reader, &mut writer)
+    Ok(Some((reader, writer)))
 }
 
 /// 握手首行的字节上限。一条 `auth` 请求不到 200 字节，8 KiB 足够宽松，

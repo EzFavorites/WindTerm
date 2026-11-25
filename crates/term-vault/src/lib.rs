@@ -61,6 +61,14 @@ pub enum Entry {
         username: String,
         secret: String,
     },
+    /// 未来版本写进来的、本版本不认识的条目种类。
+    ///
+    /// 没有它时 `serde` 会因为一个未知 `kind` 把**整份条目 JSON** 判成非法，
+    /// 于是整个保险库打不开——只用新版本客户端存过一条新种类凭据，旧客户端
+    /// 就连以前那些密码全读不到了。`#[serde(other)]` 让未知条目被识别、跳过，
+    /// 其余条目照常可读。
+    #[serde(other)]
+    Unknown,
 }
 
 impl Entry {
@@ -75,12 +83,14 @@ impl Entry {
     pub fn id(&self) -> &str {
         match self {
             Entry::Password { id, .. } | Entry::PrivateKey { id, .. } | Entry::ProxyCredential { id, .. } => id,
+            Entry::Unknown => "",
         }
     }
 
     pub fn name(&self) -> &str {
         match self {
             Entry::Password { name, .. } | Entry::PrivateKey { name, .. } | Entry::ProxyCredential { name, .. } => name,
+            Entry::Unknown => "",
         }
     }
 
@@ -89,6 +99,7 @@ impl Entry {
             Entry::Password { .. } => "password",
             Entry::PrivateKey { .. } => "private_key",
             Entry::ProxyCredential { .. } => "proxy_credential",
+            Entry::Unknown => "unknown",
         }
     }
 
@@ -96,7 +107,7 @@ impl Entry {
     pub fn secret(&self) -> Option<&str> {
         match self {
             Entry::Password { secret, .. } | Entry::ProxyCredential { secret, .. } => Some(secret),
-            Entry::PrivateKey { .. } => None,
+            Entry::PrivateKey { .. } | Entry::Unknown => None,
         }
     }
 
@@ -132,6 +143,7 @@ impl Entry {
                 username.zeroize();
                 secret.zeroize();
             }
+            Entry::Unknown => {}
         }
     }
 }
@@ -181,8 +193,11 @@ impl Vault {
         let key = header.kdf.derive(password)?;
         let nonce = header.aead.nonce_bytes()?;
         let plain = decrypt(&key, &nonce, ciphertext, &aad)?;
-        let entries: Vec<Entry> = serde_json::from_slice(&plain)
+        let mut entries: Vec<Entry> = serde_json::from_slice(&plain)
             .map_err(|_| VaultError::Corrupt("条目不是合法 JSON"))?;
+        // 未知种类只跳过这些条目，不让一份「未来版本存过的新凭据」把整库锁死。
+        // 它们不会在 seal 时被重新写回（那会把内容抹成 `{"kind":"unknown"}`）。
+        entries.retain(|e| !matches!(e, Entry::Unknown));
         // 解出来的 header 已经是「历史的」：seal 时会把 nonce 换成新的。
         header.aead = AeadParams {
             alg: header.aead.alg,
@@ -262,6 +277,28 @@ impl Vault {
         self.header.kdf = kdf;
         self.key = Some(key);
         Ok(())
+    }
+
+    /// 原子版改密码：**在临时副本上**完成换盐、派生、封印，返回（新库, 文件字节）。
+    ///
+    /// 调用方的纪律：先把 `bytes` 落盘成功，再用 `next` 换掉自己手上的那个库。
+    /// 那样写盘失败时内存里还是旧 key + 旧 header，不会出现「内存用新密码、磁盘
+    /// 只认旧密码」的分叉（下一次解锁必然失败，用户会被关在门外）。
+    /// `change_password()` 保留给「不落盘」的调用方（例如单测）用。
+    pub fn prepare_password_change(
+        &self,
+        new_password: &str,
+    ) -> Result<(Self, Vec<u8>), VaultError> {
+        self.ensure_unlocked()?;
+        check_password(new_password)?;
+        let mut next = Self {
+            header: self.header.clone(),
+            entries: self.entries.clone(),
+            key: self.key.clone(),
+        };
+        next.change_password(new_password)?;
+        let bytes = next.seal()?;
+        Ok((next, bytes))
     }
 
     /// 加密成文件字节。每次调用都会换新 nonce，所以同样的条目两次结果不同。
@@ -410,7 +447,7 @@ mod tests {
     fn lowering_the_kdf_cost_in_the_header_breaks_the_vault() {
         let bytes = sealed_vault();
         let (mut header, _, _) = split(&bytes).unwrap();
-        header.kdf.m = 8; // 想离线爆破的人会这么干
+        header.kdf.m = 16_384; // 想离线爆破的人会往小改（但不能低于钳制下界）
         let forged_header = serde_json::to_vec(&header).unwrap();
         let (_, _, ciphertext) = split(&bytes).unwrap();
         let mut forged = envelope(&forged_header);
@@ -506,6 +543,48 @@ mod tests {
     fn the_hint_can_be_read_without_the_password() {
         let bytes = sealed_vault();
         assert_eq!(Vault::peek_hint(&bytes).unwrap(), Some("猫的名字".to_string()));
+    }
+
+    /// 改密码的「先落盘再换 key」两阶段：写盘失败时原库完全没被动过。
+    #[test]
+    fn preparing_a_password_change_leaves_the_original_untouched() {
+        let mut v = Vault::create_with(PW, KdfParams::fast_for_tests(), None).unwrap();
+        v.insert(Entry::password("a", "一", "s")).unwrap();
+        let old_salt = v.header().kdf.salt.clone();
+        let (next, bytes) = v.prepare_password_change("a whole new master password").unwrap();
+        // 原库仍认旧密码，且 header / key 都没变。
+        assert_eq!(v.header().kdf.salt, old_salt);
+        assert_eq!(v.find("a").unwrap().secret(), Some("s"));
+        let old_bytes = v.seal().unwrap();
+        assert!(Vault::unlock(&old_bytes, PW).is_ok());
+        assert!(Vault::unlock(&old_bytes, "a whole new master password").is_err());
+        // 新库与新字节认新密码。
+        assert_eq!(next.find("a").unwrap().secret(), Some("s"));
+        assert!(Vault::unlock(&bytes, "a whole new master password").is_ok());
+        assert!(Vault::unlock(&bytes, PW).is_err());
+    }
+
+    /// 未来版本写进来的未知条目不能把整份条目 JSON 判成损坏。
+    #[test]
+    fn an_unknown_entry_kind_does_not_corrupt_the_whole_vault() {
+        let entries: Vec<Entry> = serde_json::from_str(
+            r#"[{"kind":"password","id":"a","name":"一","secret":"s"},
+                {"kind":"future_kind","id":"b","name":"二"},
+                {"kind":"proxy_credential","id":"c","name":"三","username":"u","secret":"p"}]"#,
+        )
+        .expect("未知种类应被识别为 Unknown，而不是整份 JSON 报错");
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].secret(), Some("s"));
+        assert!(matches!(entries[1], Entry::Unknown));
+        assert_eq!(entries[2].id(), "c");
+        // 未知条目在解锁时被跳过：它不会顶掉任何一条已知凭据。
+        let mut v = Vault::create_with(PW, KdfParams::fast_for_tests(), None).unwrap();
+        for e in entries {
+            if !matches!(e, Entry::Unknown) {
+                v.insert(e).unwrap();
+            }
+        }
+        assert_eq!(v.entries().len(), 2);
     }
 
     #[test]

@@ -69,14 +69,16 @@ pub struct Tab {
     /// （ADR-0028）。不跟着 `last_request` 的复位点（goto / fold）走——预览是
     /// 临时 chrome，它有自己的 staleness 生命周期。
     pub(in crate::ui) preview_last_request: Option<(term_core::coords::ViewRange, u64)>,
-    /// 这条会话连接时用过的凭据（内存里，不落盘）。
+    /// 这条会话连接时用过的凭据**引用**（内存里，不落盘）。
     ///
     /// 文件面板与隧道都是「连上之后还要再开一条连接」的消费者，没有它就得
     /// 再问用户一次密码——而那时用户正在看文件列表，问密码等于说「刚才那次不算」。
     /// 系统 `ssh` 会话没有这个值（凭据在子进程手里），面板据此显示原因而不是硬连。
     ///
-    /// 类型是 `term_ssh::AuthMethod`（**带凭据**的那份），不是 `term_core` 里
-    /// 同名的那个：后者只描述「打算用哪种方式认证」，不含密码与私钥路径。
+    /// 值是 `term_ssh::AuthMethod` 形状，但密码 / 口令 / 交互答案是
+    /// `vaultref:` 引用，明文只在 `dialogs::vault` 的运行时寄存器里活到建连
+    /// 那一刻，锁屏 / 断线即清。真正建连时由 `options_for` 解析引用；取不到
+    /// 就明确报错，不再让一份密码在标签页里活完整个会话。
     pub(in crate::ui) auth: Option<term_ssh::AuthMethod>,
     /// 本 tab 的输入行缓冲。把按键字节重建成「回车前那一行」，
     /// 回车时吐出，由窗口级 `CommandHistory` 记录。纯内存，不落盘（落盘见后续）。

@@ -47,6 +47,37 @@ pub(in crate::ui) fn split_rules(text: &str) -> Vec<String> {
         .collect()
 }
 
+/// 隧道这条连接该用哪种主机密钥策略。
+///
+/// 以前不分青红皂白用 `Tofu`：会话那边用 `Strict` 先问过用户，可连接对话框
+/// 确认后重连用的是另一条连接；隧道再走一遍 `Tofu` 等于绕开了那次裁决。
+/// 现在只认**账本里已经记着的指纹**：记着就 `Strict` 真校验；没记着就明确
+/// 报错让用户先去会话连接里确认指纹，绝不用 Tofu 偷偷记一把新钥匙。
+fn tunnel_host_key_policy(config: &SessionConfig) -> Result<term_ssh::HostKeyPolicy, term_ssh::SshError> {
+    use term_ssh::SshError;
+    if !config.verify_host_key {
+        // 会话显式关掉了校验：隧道跟着一致地不查，且绝不写账本。
+        return Ok(term_ssh::HostKeyPolicy::Insecure);
+    }
+    let host = config.host.trim();
+    let port = if config.port == 0 { term_ssh::DEFAULT_PORT } else { config.port };
+    let opts = term_ssh::SshOptions::new(host, config.username.trim(), term_ssh::AuthMethod::Agent);
+    let Some(path) = opts.resolved_known_hosts() else {
+        return Err(SshError::Config("找不到 known_hosts 的位置，无法确认隧道用的主机密钥".into()));
+    };
+    let token = term_ssh::host_token(host, port);
+    let known = term_ssh::known_hosts_admin::list(&path)?
+        .iter()
+        .any(|record| record.hosts.iter().any(|h| h == &token) && record.fingerprint.is_some());
+    if known {
+        Ok(term_ssh::HostKeyPolicy::Strict)
+    } else {
+        Err(SshError::Config(format!(
+            "主机 {host}:{port} 没有已确认的指纹：先在会话连接里核对并信任一次，再起隧道"
+        )))
+    }
+}
+
 /// 一条在跑（或正在起、或起失败）的隧道。
 pub(in crate::ui) struct RunningTunnel {
     /// **这一条是谁**：会话自带的转发用 `session:<会话名>`，Tunnels 设置里配的
@@ -230,7 +261,9 @@ impl TerminalWindow {
         let Some(auth) = tab.auth.clone() else {
             return Err(TunnelStartFault::NoAuth(profile.session.clone()));
         };
-        let opts = ssh_connect::options_for(&tab.config, auth, term_ssh::HostKeyPolicy::Tofu)
+        let policy = tunnel_host_key_policy(&tab.config)
+            .map_err(|e| TunnelStartFault::Options(e.to_string()))?;
+        let opts = ssh_connect::options_for(&tab.config, auth, policy)
             .map_err(|e| TunnelStartFault::Options(e.to_string()))?;
         let key = profile.key();
         self.tunnels.retain(|t| t.key != key);
@@ -294,20 +327,21 @@ impl TerminalWindow {
                 return;
             }
         };
-        // 主机密钥已经由终端那次连接裁决过（`Strict` 能连上就说明账本里有它，
-        // 点过「信任」的那次也已经落盘），所以隧道这条用 `Tofu`：它同样拒绝
-        // 「记着另一把钥匙」，只是不会为「还没记下来」再拦一次。
+        // 沿用会话那次「已信任指纹」的落盘结果：账本里有 → Strict 真校验；
+        // 没有 → 面板上明确提示先去确认指纹，不再用 Tofu 绕开裁决。
         // 参数拼不出来（手写的 `ProxyJump` 链有误）时按「规则写错」同一条路走：
         // 面板上留一条 `failed` 记录说明原因，而不是 panic 或悄悄不起。
-        let opts = match ssh_connect::options_for(config, auth.clone(), term_ssh::HostKeyPolicy::Tofu) {
+        let built = tunnel_host_key_policy(config)
+            .map_err(|e| format!("主机密钥未确认，隧道无法建立：{e}"))
+            .and_then(|policy| {
+                ssh_connect::options_for(config, auth.clone(), policy)
+                    .map_err(|e| format!("连接参数有误，隧道无法建立：{e}"))
+            });
+        let opts = match built {
             Ok(opts) => opts,
-            Err(e) => {
+            Err(message) => {
                 self.tunnels.retain(|t| t.key != key);
-                self.tunnels.push(RunningTunnel::failed(
-                    key,
-                    config.name.clone(),
-                    format!("连接参数有误，隧道无法建立：{e}"),
-                ));
+                self.tunnels.push(RunningTunnel::failed(key, config.name.clone(), message));
                 return;
             }
         };
@@ -451,6 +485,16 @@ impl TerminalWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_session_without_fingerprint_check_uses_insecure_for_its_tunnel() {
+        let mut config = SessionConfig::new(term_core::session::Protocol::Ssh);
+        config.verify_host_key = false;
+        assert_eq!(
+            tunnel_host_key_policy(&config).unwrap(),
+            term_ssh::HostKeyPolicy::Insecure
+        );
+    }
 
     #[test]
     fn an_ssh_style_local_rule_is_parsed_with_its_kind() {

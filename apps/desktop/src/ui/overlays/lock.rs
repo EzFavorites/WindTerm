@@ -31,7 +31,8 @@ impl TerminalWindow {
         let wrong = tr("Wrong master password");
         let unlock = tr("Unlock");
         let create = tr("Create vault & unlock");
-        let cancel_label = tr("Cancel");
+        // 有库时 Cancel 也要在：写盘失败 / 临时不想解锁时不能把人困在遮罩里。
+        let cancel_label = tr(if has_vault { "Cancel / stay locked" } else { "Cancel" });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.vertical_centered(|ui| {
@@ -57,7 +58,7 @@ impl TerminalWindow {
                     if ui.button(if has_vault { unlock } else { create }).clicked() {
                         submit = true;
                     }
-                    if !has_vault && ui.button(cancel_label).clicked() {
+                    if ui.button(cancel_label).clicked() {
                         cancel = true;
                     }
                 });
@@ -81,31 +82,39 @@ impl TerminalWindow {
     }
 
     /// 校验主密码：有库就解密一次，没库就创建一个空库。
-    /// 两种情况下内存里的 `vault` 都被重新挂上，连接流程不会突然发现锁着。
+    ///
+    /// **先挂载解锁成功的 Vault，再尽力写盘。** 写盘失败只记一条错误：
+    /// 主密码是对的，磁盘暂时写不进去（只读盘 / 满盘 / 权限）不该把人困在
+    /// 锁屏里——那会逼他反复输对一个密码，还是出不去。Cancel 也始终在场。
     fn verify_lock_password(&mut self, has_vault: bool) -> bool {
         let password = self.lock_password.clone();
         if password.is_empty() {
             return false;
         }
-        let result = if has_vault {
+        let unlocked = if has_vault {
             persist::load_vault()
                 .ok_or(())
                 .and_then(|bytes| Vault::unlock(&bytes, &password).map_err(|_| ()))
-                .and_then(|mut v| v.seal().map(|bytes| (v, bytes)).map_err(|_| ()))
+                .ok()
         } else {
-            Vault::create(&password)
-                .map_err(|_| ())
-                .and_then(|mut v| v.seal().map(|bytes| (v, bytes)).map_err(|_| ()))
+            Vault::create(&password).ok()
         };
-        match result {
-            Ok((vault, bytes)) if persist::save_vault(&bytes) => {
-                self.vault = Some(vault);
-                // 与主 Authentication 页解锁路径一致：历史纳入主密码模型。
-                self.load_history_from_vault();
-                true
+        let Some(mut vault) = unlocked else {
+            return false;
+        };
+        match vault.seal() {
+            Ok(bytes) if !persist::save_vault(&bytes) => {
+                self.log_note = Some("保险库已解锁，但写盘失败；本次运行仍可用".to_string());
             }
-            _ => false,
+            Err(e) => {
+                self.log_note = Some(format!("保险库已解锁，但重新封印失败：{e}"));
+            }
+            _ => {}
         }
+        self.vault = Some(vault);
+        // 与主 Authentication 页解锁路径一致：历史纳入主密码模型。
+        self.load_history_from_vault();
+        true
     }
 }
 

@@ -35,6 +35,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Notify;
 
+/// 收到远端 `Eof` 之后等 `Close` / 末尾数据的短兜底（见 `pump`）。
+const EOF_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 /// 一条在跑着的隧道。
 pub struct Tunnel {
     stop: Arc<Notify>,
@@ -422,9 +425,22 @@ async fn pump(mut channel: Channel<russh::client::Msg>, tcp: TcpStream) {
     // 而且每个循环都往 SSH 通道灌一条 EOF。远端那一侧还没收尾时（回应还在
     // 路上），我们又不能直接 break，所以只撤掉这一臂，继续转发反方向。
     let mut local_eof = false;
+    // 远端 Eof 只是半关闭：最后一批数据可能还在路上。一收到就 break 会把
+    // 反向数据吞掉；再给一段短兜底超时，服务端只发 Eof 也不至于挂死。
+    let mut remote_eof = false;
     loop {
         tokio::select! {
-            msg = channel.wait() => match msg {
+            msg = async {
+                let waiting = channel.wait();
+                if remote_eof {
+                    match tokio::time::timeout(EOF_GRACE, waiting).await {
+                        Ok(msg) => msg,
+                        Err(_) => Some(ChannelMsg::Close),
+                    }
+                } else {
+                    waiting.await
+                }
+            } => match msg {
                 Some(ChannelMsg::Data { data }) => {
                     if write_half.write_all(&data).await.is_err() {
                         break;
@@ -435,7 +451,8 @@ async fn pump(mut channel: Channel<russh::client::Msg>, tcp: TcpStream) {
                         break;
                     }
                 }
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) | None => break,
+                Some(ChannelMsg::Eof) => remote_eof = true,
+                Some(ChannelMsg::Close) | None => break,
                 _ => {}
             },
             n = read_half.read(&mut buf), if !local_eof => match n {

@@ -18,8 +18,9 @@
 use crate::ui::*;
 // ④-0：`Split` 的锚点是窗格身份（`PaneId`），不是下标。
 use crate::ui::layout::PaneId;
+use crate::ui::dialogs::vault;
 use std::path::PathBuf;
-use term_ssh::{AuthMethod as SshAuth, ConnectHandle, HostKeyPolicy, SshOptions};
+use term_ssh::{AuthMethod as SshAuth, ConnectHandle, SshOptions};
 
 /// 纯的那一半（`ask()` / `next()` / `options_for()`）。挂在本模块下而不是
 /// `dialogs` 下，是为了让它和状态机待在同一个作用域里——`Connector` 直接
@@ -85,8 +86,10 @@ pub(in crate::ui) struct Connector {
     pub(in crate::ui) auth: Option<SshAuth>,
     /// 连上之后落到哪儿。见 [`PendingOpen`]。
     pub(in crate::ui) pending: PendingOpen,
-    /// 用户已经点过「信任」的指纹：重连时改用 `Tofu`。
+    /// 用户已经点过「信任」的指纹与其对应的公钥本体。确认后先把它 pin 进
+    /// 账本，重连再用 Strict 真校验——不再让 Tofu 自己决定记哪把钥匙。
     accepted_fingerprint: Option<String>,
+    pub(in crate::ui) accepted_key: Option<String>,
 }
 
 impl Connector {
@@ -98,6 +101,7 @@ impl Connector {
             auth: None,
             pending: PendingOpen::Append,
             accepted_fingerprint: None,
+            accepted_key: None,
         }
     }
 
@@ -130,25 +134,32 @@ impl Connector {
 
     /// 起一次（或再起一次）后台连接。
     pub(in crate::ui) fn launch(&mut self, auth: SshAuth, ctx: &egui::Context) {
-        // 已经信任过的主机用 `Tofu`（记账后继续），否则 `Strict`（先问）。
-        let policy = if self.accepted_fingerprint.is_some() {
-            HostKeyPolicy::Tofu
-        } else {
-            FIRST_POLICY
+        // 真凭据只活到参数拼好这一刻；`self.auth` 只留一个运行时引用，
+        // Tab / 隧道 / 文件面板以后凭它（未锁定时）再取，锁屏即失效。
+        let real = match ssh_ask::resolve_auth(auth) {
+            Ok(auth) => auth,
+            Err(e) => {
+                self.step = Step::Failed {
+                    message: e.to_string(),
+                };
+                return;
+            }
         };
+        self.auth = Some(vault::stash_auth(&real, &self.config.name));
+        // 用户确认过的钥匙已经由 accept_host_key 写进账本；重连一律 Strict
+        // 真校验。用 Tofu 等于把「确认到重连之间服务器换钥匙」的 TOCTOU 敞着。
+        let policy = FIRST_POLICY;
         // 参数拼不出来（目前唯一的来源是手写的 `ProxyJump` 链）就停在失败窗口里，
         // 一句原话交给用户——**不要**退回直连：那会连到一台他没打算连的机器上。
-        let opts = match options_for(&self.config, auth.clone(), policy) {
+        let opts = match options_for(&self.config, real, policy) {
             Ok(opts) => opts,
             Err(e) => {
-                self.auth = Some(auth);
                 self.step = Step::Failed {
                     message: format!("跳板链（ProxyJump）写得不对：{e}"),
                 };
                 return;
             }
         };
-        self.auth = Some(auth);
         self.step = Step::Connecting;
         // 线程与结果队列都在库里（`ConnectHandle`）；`request_repaint` 经回调
         // 传进去——结果就绪时叫醒这一帧（之后空闲不重绘，不叫结果就躺着没人取）。
@@ -158,18 +169,58 @@ impl Connector {
 
     /// 用户给了密码：从「等密码」进入「连接中」。
     pub(in crate::ui) fn submit_password(&mut self, password: String, ctx: &egui::Context) {
+        // 这串密码会经回显 / 会话日志：先登记脱敏，再用于这一次握手。
+        term_io::log::register_secret(&password);
         self.launch(SshAuth::Password { password }, ctx);
     }
 
-    /// 用户点了「信任这把钥匙」：记下来，然后用同一份凭据重连。
+    /// 用户点了「信任这把钥匙」：把**用户看到的那把公钥本体**先 pin 进账本，
+    /// 再用 Strict 重连校验。以前这里只记指纹、重连用 Tofu，于是确认到重连的
+    /// 间隙里服务器若换了钥匙，Tofu 会把新钥匙写进账本并放行——一次 TOCTOU。
     pub(in crate::ui) fn accept_host_key(&mut self, ctx: &egui::Context) {
         let fingerprint = match &self.step {
             Step::NeedHostKey { fingerprint } => fingerprint.clone(),
             _ => return,
         };
-        self.accepted_fingerprint = Some(fingerprint);
-        if let Some(auth) = self.auth.clone() {
-            self.launch(auth, ctx);
+        let host = self.config.host.trim().to_string();
+        let port = if self.config.port == 0 {
+            term_ssh::DEFAULT_PORT
+        } else {
+            self.config.port
+        };
+        let Some(key_line) = term_ssh::SshChannel::take_presented_host_key(&host, port) else {
+            self.step = Step::Failed {
+                message: "没拿到刚才确认的那把服务器公钥，拒绝盲目信任；请重试连接".to_string(),
+            };
+            return;
+        };
+        let Some(path) = self.known_hosts_path() else {
+            self.step = Step::Failed {
+                message: "找不到 known_hosts 的位置，无法保存已确认的钥匙".to_string(),
+            };
+            return;
+        };
+        match term_ssh::known_hosts_admin::trust_openssh(&path, &host, port, &key_line) {
+            Ok(outcome) if ssh_ask::pin_matches(&fingerprint, &outcome.fingerprint) => {
+                self.accepted_key = Some(key_line);
+                self.accepted_fingerprint = Some(fingerprint);
+                if let Some(auth) = self.auth.clone() {
+                    self.launch(auth, ctx);
+                }
+            }
+            Ok(outcome) => {
+                self.step = Step::Failed {
+                    message: format!(
+                        "确认的指纹 {fingerprint} 与写入账本的钥匙 {} 不一致，已拒绝连接",
+                        outcome.fingerprint
+                    ),
+                };
+            }
+            Err(e) => {
+                self.step = Step::Failed {
+                    message: format!("保存已确认的主机密钥失败：{e}"),
+                };
+            }
         }
     }
 

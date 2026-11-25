@@ -42,6 +42,8 @@ struct ExecSpec {
     reject: bool,
     /// 额外再吐这么多 stdout 字节，用来压输出上限。
     flood: usize,
+    /// 只发 Eof，不发 Close：验半关闭仍能拿到 ExitStatus。
+    half_close: bool,
 }
 
 impl ExecSpec {
@@ -54,6 +56,7 @@ impl ExecSpec {
             send_exit_status: true,
             reject: false,
             flood: 0,
+            half_close: false,
         }
     }
 }
@@ -150,7 +153,9 @@ impl server::Handler for ExecHandler {
             session.exit_status_request(channel, self.spec.exit_code)?;
         }
         session.eof(channel)?;
-        session.close(channel)?;
+        if !self.spec.half_close {
+            session.close(channel)?;
+        }
         Ok(())
     }
 }
@@ -311,6 +316,23 @@ fn output_over_the_cap_is_truncated_and_still_captures_the_exit_code() {
         Some(0),
         "截断后仍要继续 drain 到 EOF，否则 exit_status 会丢"
     );
+}
+
+/// 服务端只发 Eof 不发 Close：一收到 Eof 就 break 的实现会丢掉 ExitStatus。
+/// 这里断言完整的 stdout + 退出码，并且是有界返回（EOF_GRACE 兜底）。
+#[test]
+fn a_half_closed_exec_channel_still_yields_the_exit_code() {
+    let mut spec = ExecSpec::new();
+    spec.half_close = true;
+    spec.stdout = b"tail\n".to_vec();
+    spec.exit_code = 9;
+    let (addr, _observed) = start_server(spec);
+    let started = Instant::now();
+
+    let out = exec_capture(&options(addr, "s3cret"), "tail").expect("半关闭应当正常收尾");
+    assert!(started.elapsed() < Duration::from_secs(12), "应当有界返回");
+    assert_eq!(out.stdout, b"tail\n".to_vec());
+    assert_eq!(out.exit_code, Some(9), "Eof 之后不能吞掉 ExitStatus");
 }
 
 #[test]

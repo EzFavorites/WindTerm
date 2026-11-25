@@ -211,6 +211,9 @@ impl Tab {
                 self.apply_trigger(hit, run_commands);
             }
         } else if !live && self.was_live {
+            // 断开边沿清掉这条会话的运行时凭据：Tab.auth 里只剩引用，没有
+            // 密码就再也取不到——凭据不再活完整场会话。重连会重新问保险库。
+            crate::ui::dialogs::vault::clear_session_secrets(&self.config.name);
             let hits = self.triggers.event(rules, TriggerOn::Disconnect, now);
             let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
             let sig = crate::automation::sources::disconnected_signal("", crate::automation::now_ms());

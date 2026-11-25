@@ -20,6 +20,35 @@ use crate::options::{HostKeyPolicy, SshOptions};
 /// 记录拒绝原因的信箱：`Handler` 只能返回 `false`，说不出为什么。
 pub(crate) type Rejection = Arc<Mutex<Option<SshError>>>;
 
+/// 最近一次收到的服务器公钥（openssh 单行），按 host:port 记。
+///
+/// `HostKeyProblem::Unknown` 只带指纹，不带钥匙本体；界面在用户确认后需要把
+/// **用户看过的那把** pin 进 known_hosts，否则重连时 Tofu 会把「那一刻服务器
+/// 给的那把」悄悄写进去（TOCTOU）。这里只记公钥，不含任何私密材料。
+static PRESENTED_KEYS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+fn presented_key(host: &str, port: u16) -> String {
+    format!("{host}:{port}")
+}
+
+pub(crate) fn remember_presented(host: &str, port: u16, key_line: &str) {
+    if let Ok(mut keys) = PRESENTED_KEYS.lock() {
+        let token = presented_key(host, port);
+        if let Some(slot) = keys.iter_mut().find(|(k, _)| k == &token) {
+            slot.1 = key_line.to_string();
+        } else {
+            keys.push((token, key_line.to_string()));
+        }
+    }
+}
+
+pub(crate) fn take_presented(host: &str, port: u16) -> Option<String> {
+    let token = presented_key(host, port);
+    let mut keys = PRESENTED_KEYS.lock().ok()?;
+    let at = keys.iter().position(|(k, _)| k == &token)?;
+    Some(keys.remove(at).1)
+}
+
 /// 校验主机密钥的客户端 `Handler`。
 pub(crate) struct HostKeyHandler {
     host: String,
@@ -80,6 +109,9 @@ impl russh::client::Handler for HostKeyHandler {
                 russh::keys::PublicKey::new(cert.public_key().clone(), "")
             }
         };
+        // 去掉注释再记：账本里只该有 token + 公钥本体（与 verify 的 Tofu 分支一致）。
+        let bare = russh::keys::PublicKey::new(key.key_data().clone(), String::new());
+        remember_presented(&self.host, self.port, &bare.to_openssh().unwrap_or_default());
         match known_hosts::verify(
             self.policy,
             &self.host,
@@ -268,6 +300,7 @@ pub(crate) fn take(rejection: &Rejection) -> Option<SshError> {
 }
 
 /// 本机 X server 的落点：`$DISPLAY` 解析后的两种可能。
+#[derive(Debug)]
 enum X11Target {
     /// 文件系统 unix socket（macOS/Linux 本机 `:0`）。
     Unix(PathBuf),
@@ -315,7 +348,12 @@ fn resolve_x11_target(display: Option<&str>) -> Option<X11Target> {
     // 含 host：`host:n.m`
     if let Some((host, num)) = display.rsplit_once(':') {
         if let Some(n) = parse_display_number(num) {
-            return Some(X11Target::Tcp(host.to_string(), 6000 + n as u16));
+            // `6000 + n as u16` 在 n > 57535 时溢出：debug 直接 panic，release
+            // 则绕回一个端口。先用 u32 饱和加法，再确认能装进 u16——装不下就
+            // 当作没有落点（拒绝通道），绝不给一个错的端口。
+            let port = u32::from(n).saturating_add(6000);
+            return (port <= u16::MAX as u32)
+                .then(|| X11Target::Tcp(host.to_string(), port as u16));
         }
     }
     None
@@ -448,5 +486,19 @@ mod tests {
         // 没有冒号的串、display 号不是数字 —— 一律无落点，不许 panic。
         assert!(resolve_x11_target(Some("nonsense")).is_none());
         assert!(resolve_x11_target(Some("localhost:abc")).is_none());
+    }
+
+    /// 6000 + display 溢出：以前 `n as u16` 会绕回/溢出，现在必须判无落点。
+    #[test]
+    fn an_oversized_display_number_never_overflows_into_a_port() {
+        assert!(resolve_x11_target(Some("localhost:59536")).is_none());
+        assert!(resolve_x11_target(Some("localhost:4294967295")).is_none());
+        match resolve_x11_target(Some("localhost:59535")) {
+            Some(X11Target::Tcp(host, port)) => {
+                assert_eq!(host, "localhost");
+                assert_eq!(port, u16::MAX);
+            }
+            other => panic!("边界值应当还能用：{other:?}"),
+        }
     }
 }

@@ -50,6 +50,10 @@ pub const EXEC_TIMEOUT: Duration = Duration::from_secs(30);
 /// 内层 `tokio::time::timeout` 已经覆盖所有正常路径，这一层只防运行时之外的卡死。
 const EXEC_JOIN_GRACE: Duration = Duration::from_secs(5);
 
+/// EOF 之后等 `Close` / `ExitStatus` / 末尾反向数据的短兜底。
+/// 一收到 EOF 就 break 会吞掉 `ExitStatus`，让 `exit_code` 永远是 None。
+const EXEC_EOF_GRACE: Duration = Duration::from_secs(2);
+
 /// 一次远端命令的全部可观察结果。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExecOutput {
@@ -146,9 +150,20 @@ async fn run_exec(auth: &Authenticated, command: &str) -> Result<ExecOutput, Ssh
     let mut stderr: Vec<u8> = Vec::new();
     let mut exit_code: Option<u32> = None;
     let mut truncated = false;
+    let mut eof = false;
 
     loop {
-        match channel.wait().await {
+        let waiting = channel.wait();
+        let msg = if eof {
+            match tokio::time::timeout(EXEC_EOF_GRACE, waiting).await {
+                Ok(msg) => msg,
+                // 服务端只发 EOF 不发 Close：按正常收尾处理，保留已收到的退出码。
+                Err(_) => None,
+            }
+        } else {
+            waiting.await
+        };
+        match msg {
             Some(ChannelMsg::Data { data }) => {
                 append_capped(&mut stdout, &mut stderr, &data, false, &mut truncated);
             }
@@ -168,7 +183,9 @@ async fn run_exec(auth: &Authenticated, command: &str) -> Result<ExecOutput, Ssh
             Some(ChannelMsg::Success) => {
                 // want_reply=true 的受理回执，exec 已被接受，继续等数据。
             }
-            Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
+            Some(ChannelMsg::Eof) => eof = true,
+            Some(ChannelMsg::Close) => break,
+            None if eof => break,
             None => {
                 // 通道在 EOF 之前就没了 = 连接被砍，不是「命令跑完了没输出」。
                 return Err(SshError::Channel(

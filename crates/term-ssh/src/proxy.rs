@@ -52,6 +52,20 @@ pub(crate) trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 pub(crate) type BoxStream = Box<dyn Stream>;
 
+/// `connect_timeout = 0` 的语义是「不设超时」。但 `tokio::time::timeout(0, …)`
+/// 是**立刻超时**——不统一映射的话，用户在表单里填 0 会在第一跳就失败。
+/// 所有阶段（TCP / 代理协商 / KEX / 开通道）都经这里换算成一个长兜底，
+/// 认证阶段另有自己的 120 秒下限（见 `handshake`）。
+pub(crate) const NO_TIMEOUT_FALLBACK: Duration = Duration::from_secs(120);
+
+fn stage_timeout(timeout: Duration) -> Duration {
+    if timeout.is_zero() {
+        NO_TIMEOUT_FALLBACK
+    } else {
+        timeout
+    }
+}
+
 /// 链上的一个端点：先握手的是第 0 跳，最后一个是用户真正要连的机器。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Target {
@@ -68,13 +82,7 @@ impl Target {
     /// 「第 2 跳连不上」对用户是两件事。
     pub(crate) fn label(&self) -> String {
         match self.hop {
-            Some(i) => format!(
-                "ProxyJump 第 {} 跳 ssh://{}@{}:{}",
-                i + 1,
-                self.user,
-                self.host,
-                self.port
-            ),
+            Some(i) => format!("ProxyJump 第 {} 跳 ssh://{}@{}:{}", i + 1, self.user, self.host, self.port),
             None if self.port == DEFAULT_PORT => format!("ssh://{}@{}", self.user, self.host),
             None => format!("ssh://{}@{}:{}", self.user, self.host, self.port),
         }
@@ -111,12 +119,7 @@ pub(crate) fn chain(opts: &SshOptions) -> Vec<Target> {
             hop: Some(i),
         })
         .collect();
-    targets.push(Target {
-        user: opts.user.clone(),
-        host: opts.host.clone(),
-        port: opts.port,
-        hop: None,
-    });
+    targets.push(Target { user: opts.user.clone(), host: opts.host.clone(), port: opts.port, hop: None });
     targets
 }
 
@@ -244,7 +247,7 @@ async fn dial(
     target: &Target,
     opts: &SshOptions,
 ) -> Result<(BoxStream, Option<SocketAddr>), SshError> {
-    let timeout = opts.connect_timeout;
+    let timeout = stage_timeout(opts.connect_timeout);
     let Some(proxy) = opts.outbound_proxy.as_ref() else {
         let addr = resolve_host(&target.host, target.port)?;
         let tcp = connect_tcp(addr, timeout, &target.label()).await?;
@@ -322,7 +325,8 @@ async fn handshake(
     let handler = HostKeyHandler::new(opts, Arc::clone(&rejection), forward, upstream);
 
     let connect = client::connect_stream(config, stream, handler);
-    let mut handle = match tokio::time::timeout(opts.connect_timeout, connect).await {
+    let stage_budget = stage_timeout(opts.connect_timeout);
+    let mut handle = match tokio::time::timeout(stage_budget, connect).await {
         Ok(Ok(h)) => h,
         Ok(Err(e)) => {
             // `check_server_key` 只能回 false，说不出理由；真理由记在 rejection 里。
@@ -344,10 +348,10 @@ async fn handshake(
     //
     // 下限 30 秒：认证要用的是**已经填好的**凭据（密码 / key / 交互答案都在
     // `SshOptions` 里），没有等人输入的场景，正常握手是毫秒级。
-    // `connect_timeout = 0`（不设超时）在这里按 120 秒兜底——「不限时」放给
-    // 认证阶段只会变成「界面永远转圈」。
+    // `connect_timeout = 0` 在 `stage_timeout` / 这里都映射成 120 秒兜底：
+    // 「不限时」放给 KEX 或认证只会变成「界面永远转圈」。
     let auth_budget = if opts.connect_timeout.is_zero() {
-        Duration::from_secs(120)
+        NO_TIMEOUT_FALLBACK
     } else {
         opts.connect_timeout.max(Duration::from_secs(30))
     };
@@ -370,6 +374,7 @@ async fn open_tunnel(
     origin: &(String, u16),
     timeout: Duration,
 ) -> Result<russh::Channel<client::Msg>, SshError> {
+    let timeout = stage_timeout(timeout);
     let request = handle.channel_open_direct_tcpip(
         &next.host,
         u32::from(next.port),
@@ -403,6 +408,12 @@ mod tests {
                 password: "x".to_string(),
             },
         )
+    }
+
+    #[test]
+    fn a_zero_stage_timeout_never_means_an_immediate_timeout() {
+        assert_eq!(stage_timeout(Duration::ZERO), NO_TIMEOUT_FALLBACK);
+        assert_eq!(stage_timeout(Duration::from_secs(5)), Duration::from_secs(5));
     }
 
     #[test]

@@ -19,6 +19,21 @@ pub const SALT_LEN: usize = 16;
 pub const KEY_LEN: usize = 32;
 pub const ALG: &str = "argon2id";
 
+/// 认证**之前**就能定下的 Argon2 参数上下界。
+///
+/// `m/t/p` 来自文件 header，而 header 在认证前就会被读到。恶意文件可以写
+/// `m = u32::MAX`，于是 `derive()` 里 `Params::new` 通过后 Argon2 真的去申请
+/// 4 TiB 内存——界面还没问主密码就 OOM 了。AAD 能防篡改，**不能**防这个：
+/// 篡改的检测发生在解密之后，而内存是在解密之前申请的。
+///
+/// 上限取 1 GiB / 10 轮 / 16 路（足够任何诚实的用户库），下限 1 MiB / 1 /
+/// 1（测试用的 `fast_for_tests()` 是 8 MiB，正常通过）。超界一律按「文件已损坏」
+/// 报，绝不尝试派生。
+pub const MAX_M_KIB: u32 = 1024 * 1024;
+pub const MAX_T: u32 = 10;
+pub const MAX_P: u32 = 16;
+pub const MIN_M_KIB: u32 = 1024;
+
 fn argon2_error(e: argon2::Error) -> VaultError {
     VaultError::Crypto(format!("Argon2 参数非法：{e}"))
 }
@@ -86,6 +101,14 @@ impl KdfParams {
         if self.alg != ALG {
             return Err(VaultError::Unsupported(format!("KDF {}", self.alg)));
         }
+        // **先钳制再派生**：这一步必须在任何 Argon2 内存分配之前完成。
+        // 参数越界说明文件被人改过（或干脆是伪造的），不是「参数有点极端」。
+        if !(MIN_M_KIB..=MAX_M_KIB).contains(&self.m)
+            || !(1..=MAX_T).contains(&self.t)
+            || !(1..=MAX_P).contains(&self.p)
+        {
+            return Err(VaultError::Corrupt("KDF 参数超出安全范围"));
+        }
         let salt = self.salt_bytes()?;
         let params = Params::new(self.m, self.t, self.p, Some(KEY_LEN)).map_err(argon2_error)?;
         let argon = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
@@ -144,5 +167,30 @@ mod tests {
         assert!(matches!(p.derive("x"), Err(VaultError::Corrupt(_))));
         p.salt = base64_encode(&[0u8; 8]);
         assert!(matches!(p.derive("x"), Err(VaultError::Corrupt(_))));
+    }
+
+    /// 恶意 header：参数越界必须在**分配内存之前**被挡下。
+    /// 这些用例刻意不检查错误信息里的具体文字，只要求「不是 Ok」——
+    /// 真去派生的那一下就会 OOM，测试进程自己先死了。
+    #[test]
+    fn hostile_kdf_parameters_are_rejected_before_derivation() {
+        for (m, t, p) in [
+            (u32::MAX, 1, 1),     // 4 TiB：OOM
+            (MAX_M_KIB + 1, 1, 1), // 刚过上界
+            (MIN_M_KIB - 1, 1, 1), // 低于下界
+            (8_192, MAX_T + 1, 1), // 迭代次数爆炸
+            (8_192, 1, MAX_P + 1), // 并行度爆炸
+            (8_192, 0, 1),
+            (8_192, 1, 0),
+        ] {
+            let params = KdfParams::with_cost(m, t, p);
+            assert!(
+                matches!(params.derive("x"), Err(VaultError::Corrupt(_))),
+                "({m}, {t}, {p}) 不该被接受"
+            );
+        }
+        // 边界本身仍可用（用测试档，避免真的跑 1 GiB）。
+        assert!(KdfParams::with_cost(MIN_M_KIB, 1, 1).derive("x").is_ok());
+        assert!(KdfParams::with_cost(MAX_M_KIB, 1, 1).alg == ALG);
     }
 }

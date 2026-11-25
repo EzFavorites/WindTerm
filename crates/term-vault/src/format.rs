@@ -28,6 +28,10 @@ pub const FORMAT_VERSION: u8 = 1;
 pub const NONCE_LEN: usize = 24;
 pub const TAG_LEN: usize = 16;
 const PREFIX_LEN: usize = MAGIC.len() + 1 + 1 + 4;
+/// header 长度字段的上界。认证前就会读它并据此切片：伪造一个 `u32::MAX`
+/// 不拦住的话，`bytes[PREFIX_LEN..body_at]` 直接越界 panic（生产路径的 panic），
+/// 或按长度去分配内存。真实 header 只有几百字节，16 KiB 已宽得离谱。
+pub const MAX_HEADER_LEN: usize = 16 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AeadParams {
@@ -121,6 +125,9 @@ pub fn split(bytes: &[u8]) -> Result<(Header, Vec<u8>, &[u8]), VaultError> {
         bytes[len_at + 2],
         bytes[len_at + 3],
     ]) as usize;
+    if header_len > MAX_HEADER_LEN {
+        return Err(VaultError::Corrupt("header 长度超出上限"));
+    }
     let body_at = PREFIX_LEN + header_len;
     if bytes.len() < body_at + TAG_LEN {
         return Err(VaultError::Corrupt("header 或密文被截断"));
@@ -202,5 +209,19 @@ mod tests {
         let env = envelope(&json);
         assert!(matches!(split(&env), Err(VaultError::Corrupt(_))), "没有密文");
         assert!(matches!(split(&env[..5]), Err(VaultError::Corrupt(_))), "连头都不全");
+    }
+
+    /// 恶意 header：长度字段写成 u32::MAX 时必须在切片之前报损坏，
+    /// 不能 panic，也不能按那个长度去分配。
+    #[test]
+    fn a_hostile_header_length_is_reported_as_corruption() {
+        let mut file = vec![0u8; PREFIX_LEN + 16];
+        file[..MAGIC.len()].copy_from_slice(MAGIC);
+        file[MAGIC.len()] = FORMAT_VERSION;
+        file[MAGIC.len() + 2..MAGIC.len() + 6].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(matches!(split(&file), Err(VaultError::Corrupt(_))));
+        file[MAGIC.len() + 2..MAGIC.len() + 6]
+            .copy_from_slice(&((MAX_HEADER_LEN as u32) + 1).to_le_bytes());
+        assert!(matches!(split(&file), Err(VaultError::Corrupt(_))));
     }
 }

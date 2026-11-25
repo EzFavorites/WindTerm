@@ -31,6 +31,28 @@ use term_core::log_opts::{self, LogOptions, LogType};
 /// 8 KiB，`tail -f` 就一直是空的。按时间刷一次，代价是每秒最多一次 write 系统调用。
 const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 
+/// 已知应答 / 密码登记表：写盘前统一脱敏。
+///
+/// 这些值是 UI 在提交密码框、OneKey 应答时登记的，只活在本进程内存里。
+/// 日志会跟着会话备份、贴到工单里——明文应答一旦落盘就是一次已发生的泄漏。
+static KNOWN_SECRETS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+pub fn register_secret(secret: &str) {
+    if !secret.is_empty() {
+        if let Ok(mut known) = KNOWN_SECRETS.lock() {
+            if !known.iter().any(|s| s == secret) { known.push(secret.into()); }
+        }
+    }
+}
+
+fn redact(bytes: &[u8]) -> Vec<u8> {
+    let known = KNOWN_SECRETS.lock().map(|k| k.clone()).unwrap_or_default();
+    if known.is_empty() { return bytes.to_vec(); }
+    let mut out = String::from_utf8_lossy(bytes).into_owned();
+    for secret in known { out = out.replace(&secret, "[redacted]"); }
+    out.into_bytes()
+}
+
 /// 日志目录：profile 目录下的 `logs/`。
 ///
 /// 与 `sessions.db` / `vault.ztv` 同一个地方的原因很实际：用户要备份或整体搬走配置时，
@@ -299,8 +321,8 @@ impl SessionLog {
     pub fn status(&self) -> LogStatus {
         let phase = match (&self.error, self.paused) {
             (Some(e), _) => LogPhase::Failed(e.clone()),
-            (None, true) => LogPhase::Paused,
-            (None, false) => LogPhase::Recording,
+            (None, paused) if paused => LogPhase::Paused,
+            (None, _) => LogPhase::Recording,
         };
         LogStatus {
             phase,
@@ -312,7 +334,9 @@ impl SessionLog {
         if self.error.is_some() {
             return;
         }
-        if let Err(e) = self.file.write_all(bytes) {
+        // 唯一的落盘漏斗：清洗文本与原始字节两条路都在这里脱敏。
+        let bytes = redact(bytes);
+        if let Err(e) = self.file.write_all(&bytes) {
             self.error = Some(format!("写入日志失败：{e}"));
             return;
         }
@@ -323,20 +347,14 @@ impl SessionLog {
 
     fn flush(&mut self) {
         if self.error.is_none() {
-            if let Err(e) = self.file.flush() {
-                self.error = Some(format!("刷新日志失败：{e}"));
-            }
+            if let Err(e) = self.file.flush() { self.error = Some(format!("刷新日志失败：{e}")); }
         }
         self.last_flush = Instant::now();
     }
 }
 
 /// 打开目标文件。`overwrite` 的三种取值对应视觉基线那两行单选 + 出厂态。
-fn open_target(
-    dir: &Path,
-    name: &str,
-    overwrite: Option<bool>,
-) -> std::io::Result<(File, PathBuf)> {
+fn open_target(dir: &Path, name: &str, overwrite: Option<bool>) -> std::io::Result<(File, PathBuf)> {
     let path = dir.join(name);
     if let Some(overwrite) = overwrite {
         let mut oo = OpenOptions::new();
@@ -375,25 +393,18 @@ fn with_suffix(name: &str, n: usize) -> String {
     if n == 1 {
         return name.to_string();
     }
-    match name.rfind('.') {
-        Some(i) if i > 0 => format!("{}-{n}{}", &name[..i], &name[i..]),
-        _ => format!("{name}-{n}"),
-    }
+    match name.rfind('.') { Some(i) if i > 0 => format!("{}-{n}{}", &name[..i], &name[i..]), _ => format!("{name}-{n}") }
 }
 
 fn now_stamp() -> term_core::log_opts::LogStamp {
     let (secs, millis) = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| (d.as_secs(), d.subsec_millis()))
+        .duration_since(std::time::UNIX_EPOCH).map(|d| (d.as_secs(), d.subsec_millis()))
         .unwrap_or((0, 0));
     term_core::log_opts::LogStamp { secs, millis }
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -402,6 +413,13 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     static NEXT: AtomicUsize = AtomicUsize::new(1);
+
+    #[test]
+    fn a_known_secret_never_reaches_the_log_file() {
+        register_secret("s3cret-for-log-test");
+        let bytes = redact(b"password: s3cret-for-log-test\n");
+        assert_eq!(String::from_utf8_lossy(&bytes), "password: [redacted]\n");
+    }
 
     /// 每个用例一个独立目录，跑完自己删。
     struct TempDir(PathBuf);

@@ -20,6 +20,47 @@ use std::path::{Path, PathBuf};
 use term_core::session::{AuthMethod, ProxyType};
 use term_ssh::{AuthMethod as SshAuth, HostKeyPolicy, OutboundProxy, ProxyKind, SshError, SshOptions};
 
+use crate::ui::dialogs::vault::{is_secret_ref, take_secret};
+
+/// `Tab.auth` / `Connector.auth` 里存的是「凭据引用」而不是明文。真正建连时
+/// 才从运行时寄存器取一次（取走即清空）；锁屏 / 断线后取不到就明确报错，
+/// 不拿一份活了整会话的密码去偷偷重连。
+pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
+    let missing = || {
+        SshError::Config(
+            "凭据已清理（保险库已锁定或会话已断开），请重新输入密码".to_string(),
+        )
+    };
+    match auth {
+        SshAuth::Password { password } if is_secret_ref(&password) => Ok(SshAuth::Password {
+            password: take_secret(&password).ok_or_else(missing)?,
+        }),
+        SshAuth::KeyboardInteractive { answers }
+            if answers.first().is_some_and(|a| is_secret_ref(a)) =>
+        {
+            let raw = take_secret(&answers[0]).ok_or_else(missing)?;
+            let decoded = serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default();
+            Ok(SshAuth::KeyboardInteractive { answers: decoded })
+        }
+        SshAuth::PrivateKey {
+            path,
+            passphrase: Some(passphrase),
+        } if is_secret_ref(&passphrase) => Ok(SshAuth::PrivateKey {
+            path,
+            passphrase: Some(take_secret(&passphrase).ok_or_else(missing)?),
+        }),
+        other => Ok(other),
+    }
+}
+
+/// 用户确认过的指纹，与随后这一次连接拿到的指纹是否同一把。
+/// 纯判据：只比字符串（寄存器/账本给出的都是 `SHA256:...`），给单测钉住
+/// 「换了钥匙指纹一定不同」这条 TOCTOU 防线。
+pub(in crate::ui) fn pin_matches(confirmed: &str, presented: &str) -> bool {
+    !confirmed.trim().is_empty()
+        && confirmed.trim().eq_ignore_ascii_case(presented.trim())
+}
+
 /// 首连用 `Strict`：图形界面应该**先问再信**。
 ///
 /// 与 `term_ssh` 的库默认值（`Tofu`）不同，这是刻意的：库的默认要对脚本友好
@@ -249,6 +290,8 @@ pub(crate) fn options_for(
     auth: SshAuth,
     policy: HostKeyPolicy,
 ) -> Result<SshOptions, SshError> {
+    // 引用 → 真凭据，只在这一刻取一次；取不到就报配置错，不静默用空密码。
+    let auth = resolve_auth(auth)?;
     let mut opts = SshOptions::new(config.host.trim(), config.username.trim(), auth.clone());
     if config.port != 0 {
         opts.port = config.port;

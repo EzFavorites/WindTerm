@@ -290,6 +290,31 @@ fn no_fallback_chain_keeps_the_single_primary() {
     assert_eq!(chain, vec![primary], "空 auth_chain → 只有首选");
 }
 
+/// 指纹确认后 pin 的钥匙必须与随后那次连接给出的完全一致（TOCTOU）。
+#[test]
+fn a_confirmed_fingerprint_only_matches_the_same_key() {
+    assert!(pin_matches(" SHA256:abc ", "sha256:abc"));
+    assert!(!pin_matches("SHA256:abc", "SHA256:def"));
+    assert!(!pin_matches("", "SHA256:abc"));
+    assert!(!pin_matches("SHA256:abc", ""));
+}
+
+/// 运行时寄存的凭据只活一次：取出即清空，锁屏时整批清掉。
+#[test]
+fn a_stashed_credential_is_taken_once_and_cleared_on_lock() {
+    let reference = crate::ui::dialogs::vault::stash_secret("test-runtime-secret", "hunter2");
+    assert!(crate::ui::dialogs::vault::is_secret_ref(&reference));
+    assert!(!reference.contains("hunter2"), "Tab/Connector 里不能有明文");
+    assert_eq!(
+        crate::ui::dialogs::vault::take_secret(&reference).as_deref(),
+        Some("hunter2")
+    );
+    assert!(crate::ui::dialogs::vault::take_secret(&reference).is_none());
+    let other = crate::ui::dialogs::vault::stash_secret("test-runtime-secret-2", "s3cret");
+    crate::ui::dialogs::vault::clear_runtime_secrets();
+    assert!(crate::ui::dialogs::vault::take_secret(&other).is_none());
+}
+
 #[test]
 fn options_for_wires_the_fallback_chain_into_ssh_options() {
     // 只看 `ui_fallback_chain` 还不够：它必须真的落到 `SshOptions.auth_chain` 上，

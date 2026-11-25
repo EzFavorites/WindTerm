@@ -70,6 +70,10 @@ struct MockServer {
     password: String,
     exit_code: u32,
     observed: Arc<Mutex<Observed>>,
+    /// 只接通道、不回 pty / shell 请求：用来验证客户端握手有界超时。
+    ignore_requests: bool,
+    /// 回数据 + ExitStatus + Eof 后**不发 Close**：验证半关闭不吞退出码。
+    half_close: bool,
 }
 
 impl server::Server for MockServer {
@@ -80,6 +84,8 @@ impl server::Server for MockServer {
             password: self.password.clone(),
             exit_code: self.exit_code,
             observed: Arc::clone(&self.observed),
+            ignore_requests: self.ignore_requests,
+            half_close: self.half_close,
         }
     }
 }
@@ -88,6 +94,8 @@ struct MockHandler {
     password: String,
     exit_code: u32,
     observed: Arc<Mutex<Observed>>,
+    ignore_requests: bool,
+    half_close: bool,
 }
 
 impl server::Handler for MockHandler {
@@ -115,6 +123,12 @@ impl server::Handler for MockHandler {
         reply: server::ChannelOpenHandle,
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
+        if self.ignore_requests {
+            // russh 的 ChannelOpenHandle 在 Drop 时会发「拒绝」回执；forget 掉它
+            // 才是真正的「服务端收到请求但一直不回」——客户端会卡在等待确认。
+            std::mem::forget(reply);
+            return Ok(());
+        }
         reply.accept().await;
         Ok(())
     }
@@ -132,7 +146,9 @@ impl server::Handler for MockHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.record(|o| o.pty = Some((col_width, row_height)));
-        let _ = session.channel_success(channel);
+        if !self.ignore_requests {
+            let _ = session.channel_success(channel);
+        }
         Ok(())
     }
 
@@ -141,8 +157,10 @@ impl server::Handler for MockHandler {
         channel: ChannelId,
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        let _ = session.channel_success(channel);
-        session.data(channel, &b"mock shell ready\r\n"[..])?;
+        if !self.ignore_requests {
+            let _ = session.channel_success(channel);
+            session.data(channel, &b"mock shell ready\r\n"[..])?;
+        }
         Ok(())
     }
 
@@ -166,6 +184,13 @@ impl server::Handler for MockHandler {
         session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.record(|o| o.received.extend_from_slice(data));
+        if data == b"half\r" && self.half_close {
+            session.data(channel, &b"last bytes\r\n"[..])?;
+            session.exit_status_request(channel, 0)?;
+            session.eof(channel)?;
+            // 刻意不 close：SSH 允许服务端半关闭，客户端必须自己收口。
+            return Ok(());
+        }
         if data == b"exit\r" || data == b"exit" {
             session.exit_status_request(channel, self.exit_code)?;
             session.eof(channel)?;
@@ -188,6 +213,15 @@ impl MockHandler {
 
 /// 起一个只监听本机的 mock 服务端，返回它的地址与共享的观测记录。
 fn start_server(password: &str, exit_code: u32) -> (SocketAddr, Arc<Mutex<Observed>>) {
+    start_server_with(password, exit_code, false, false)
+}
+
+fn start_server_with(
+    password: &str,
+    exit_code: u32,
+    ignore_requests: bool,
+    half_close: bool,
+) -> (SocketAddr, Arc<Mutex<Observed>>) {
     // 先借系统分一个空闲端口再放掉：russh 的 `run_on_address` 自己 bind，
     // 没法从外面拿「它绑到了哪」。这是它自己测试里用的同一招。
     let addr = std::net::TcpListener::bind(("127.0.0.1", 0))
@@ -200,6 +234,8 @@ fn start_server(password: &str, exit_code: u32) -> (SocketAddr, Arc<Mutex<Observ
         password: password.to_string(),
         exit_code,
         observed: Arc::clone(&observed),
+        ignore_requests,
+        half_close,
     };
     let log = Arc::clone(&observed);
 
@@ -448,4 +484,53 @@ fn strict_refuses_a_host_that_is_not_in_the_ledger() {
     assert!(!known.exists(), "Strict 拒绝后不该建 known_hosts");
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 认证通过后服务端对 `request_pty` 一直不回：russh 的回复等待没有内建超时，
+/// 以前 `connect()` 会永久阻塞在 `ready_rx.recv()`。断言**有界返回**。
+#[test]
+fn a_server_that_ignores_channel_requests_cannot_hang_connect() {
+    let (addr, _observed) = start_server_with("s3cret", 0, true, false);
+    let mut opts = options(addr, password("s3cret"));
+    opts.connect_timeout = Duration::from_secs(1);
+    let started = Instant::now();
+    let result = connect(opts);
+    let elapsed = started.elapsed();
+    assert!(result.is_err(), "服务端不回通道请求必须报失败，实际成功");
+    assert!(elapsed < Duration::from_secs(8), "应当有界返回，实际 {elapsed:?}");
+    let err = result.unwrap_err();
+    assert!(
+        err.to_string().contains("握手") || matches!(err, SshError::Connect(_)),
+        "{err:?}"
+    );
+}
+
+/// 服务端只发 Eof 不发 Close，且把 ExitStatus / 最后一批数据放在 Eof 附近：
+/// 一收到 Eof 就 break 的实现会丢掉它们。这里必须拿到数据 + 真实退出码。
+#[test]
+fn a_half_closed_channel_keeps_its_last_data_and_exit_status() {
+    let (addr, _observed) = start_server_with("s3cret", 0, false, true);
+    let mut ch = connect(options(addr, password("s3cret"))).expect("应当能连上");
+    ch.write(b"half\r");
+
+    let deadline = Instant::now() + Duration::from_secs(8);
+    let mut seen = String::new();
+    let mut status = None;
+    while Instant::now() < deadline {
+        let bytes = ch.drain();
+        if !bytes.is_empty() {
+            seen.push_str(&String::from_utf8_lossy(&bytes));
+        }
+        if let Some(text) = ch.poll() {
+            status = Some(text);
+        }
+        if status.is_some() && seen.contains("last bytes") {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(seen.contains("last bytes"), "Eof 附近的数据被吞了：{seen:?}");
+    assert_eq!(status.as_deref(), Some(" exited"), "Eof 之后丢了 ExitStatus：{status:?}");
+    let _ = ch.drain();
+    assert!(ch.finished());
 }

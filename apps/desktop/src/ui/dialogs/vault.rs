@@ -13,10 +13,98 @@
 //! 用户在看凭据的地方就能把库打开，顺序是单向的。
 
 use crate::ui::*;
+use std::cell::RefCell;
+use std::collections::HashMap;
 use term_core::onekey;
 use term_runtime::persist;
 use term_vault::{Entry, Vault};
 use super::settings_live::save_prefs;
+
+/// 运行时凭据寄存处的「引用」前缀。`Tab.auth` / `Connector.auth` 只存这个字符串，
+/// 真正的明文放在下面线程本地的寄存器里，lock / 断开时清零。
+const SECRET_REF_PREFIX: &str = "vaultref:";
+
+struct RuntimeSecret(Vec<u8>);
+
+impl Drop for RuntimeSecret {
+    fn drop(&mut self) {
+        for byte in &mut self.0 {
+            *byte = 0;
+        }
+    }
+}
+
+thread_local! {
+    static RUNTIME_SECRETS: RefCell<HashMap<String, RuntimeSecret>> = RefCell::new(HashMap::new());
+}
+
+/// 把一个凭据存进运行时寄存器，返回只含 id 的引用串。
+pub(in crate::ui) fn stash_secret(id: &str, value: &str) -> String {
+    RUNTIME_SECRETS.with(|secrets| {
+        secrets
+            .borrow_mut()
+            .insert(id.to_string(), RuntimeSecret(value.as_bytes().to_vec()));
+    });
+    format!("{SECRET_REF_PREFIX}{id}")
+}
+
+/// 引用串吗？（`options_for` 据此决定要不要从寄存器里取。）
+pub(in crate::ui) fn is_secret_ref(value: &str) -> bool {
+    value.starts_with(SECRET_REF_PREFIX)
+}
+
+/// 取出并**消耗**一份凭据：连接只拿一次，之后寄存器里不再留明文。
+pub(in crate::ui) fn take_secret(reference: &str) -> Option<String> {
+    let id = reference.strip_prefix(SECRET_REF_PREFIX)?;
+    RUNTIME_SECRETS.with(|secrets| {
+        secrets
+            .borrow_mut()
+            .remove(id)
+            .map(|secret| String::from_utf8_lossy(&secret.0).into_owned())
+    })
+}
+
+/// 把一次认证里的密码类字段换成引用；私钥路径等非秘密原样留着。
+pub(in crate::ui) fn stash_auth(auth: &term_ssh::AuthMethod, id: &str) -> term_ssh::AuthMethod {
+    use term_ssh::AuthMethod as A;
+    match auth {
+        A::Password { password } if !is_secret_ref(password) => A::Password {
+            password: stash_secret(id, password),
+        },
+        A::KeyboardInteractive { answers }
+            if !answers.first().is_some_and(|a| is_secret_ref(a)) =>
+        {
+            let raw = serde_json::to_string(answers).unwrap_or_else(|_| "[]".to_string());
+            A::KeyboardInteractive {
+                answers: vec![stash_secret(&format!("{id}:ki"), &raw)],
+            }
+        }
+        A::PrivateKey {
+            path,
+            passphrase: Some(passphrase),
+        } if !is_secret_ref(passphrase) => A::PrivateKey {
+            path: path.clone(),
+            passphrase: Some(stash_secret(&format!("{id}:pk"), passphrase)),
+        },
+        other => other.clone(),
+    }
+}
+
+/// 清空运行时凭据：锁屏 / 断开时调用。之后任何复用（SFTP / 隧道）都会
+/// 明确报「凭据已清理」，而不是偷偷拿一份活了整会话的明文去连。
+pub(in crate::ui) fn clear_runtime_secrets() {
+    RUNTIME_SECRETS.with(|secrets| secrets.borrow_mut().clear());
+}
+
+/// 只清一条会话的（断线重连时其它会话仍可复用自己的凭据）。
+pub(in crate::ui) fn clear_session_secrets(session: &str) {
+    RUNTIME_SECRETS.with(|secrets| {
+        let mut map = secrets.borrow_mut();
+        map.remove(session);
+        map.remove(&format!("{session}:ki"));
+        map.remove(&format!("{session}:pk"));
+    });
+}
 
 /// Authentication 页里那块解锁区。
 #[derive(Default)]
@@ -60,6 +148,11 @@ impl TerminalWindow {
         self.onekeys
             .iter()
             .filter_map(|k| self.onekey_autofill(&k.name).map(|v| (k.name.clone(), v)))
+            .map(|(name, value)| {
+                // 应答会经过终端回显 / 自动日志：登记后日志写入端统一脱敏。
+                term_io::log::register_secret(&value);
+                (name, value)
+            })
             .collect()
     }
 
@@ -81,24 +174,30 @@ impl TerminalWindow {
             self.vault_form.error = Some("两次输入的新主密码不一致".to_string());
             return;
         }
-        let Some(vault) = self.vault.as_mut() else {
+        let Some(vault) = self.vault.as_ref() else {
             return;
         };
-        if let Err(e) = vault.change_password(&self.vault_form.new_password) {
-            self.vault_form.error = Some(e.to_string());
+        // 在临时副本里换盐 / 派生 / 封印；只有落盘成功才把新 key 提交到
+        // `self.vault`。旧实现先改内存再写盘，写失败时内存认新密码、磁盘只认
+        // 旧密码，下次解锁必失败——那是把用户关在门外。
+        let prepared = vault.prepare_password_change(&self.vault_form.new_password);
+        let (next, bytes) = match prepared {
+            Ok(pair) => pair,
+            Err(e) => {
+                self.vault_form.error = Some(e.to_string());
+                return;
+            }
+        };
+        if !persist::save_vault(&bytes) {
+            self.vault_form.error = Some("写不进保险库文件；主密码未更改，原密码仍然有效".to_string());
             return;
         }
-        match vault.seal() {
-            Ok(bytes) if persist::save_vault(&bytes) => {
-                self.vault_form.changing = false;
-                self.vault_form.new_password.clear();
-                self.vault_form.new_confirm.clear();
-                self.vault_form.error = None;
-                self.log_note = Some("Master password changed".to_string());
-            }
-            Ok(_) => self.vault_form.error = Some("写不进保险库文件".to_string()),
-            Err(e) => self.vault_form.error = Some(e.to_string()),
-        }
+        self.vault = Some(next);
+        self.vault_form.changing = false;
+        self.vault_form.new_password.clear();
+        self.vault_form.new_confirm.clear();
+        self.vault_form.error = None;
+        self.log_note = Some("Master password changed".to_string());
     }
 
     /// 解锁 / 创建。`creating` 由调用方按 `persist::has_vault ` 决定。
@@ -129,17 +228,21 @@ impl TerminalWindow {
     }
 
     fn adopt_vault(&mut self, mut vault: Vault) {
+        // 主密码正确 ⇒ 先挂载；seal / save 只是「顺手刷新文件」，失败不该
+        // 把这次解锁判成失败（与锁屏那条路径同一纪律）。
         match vault.seal() {
-            Ok(bytes) if persist::save_vault(&bytes) => {
-                self.vault = Some(vault);
-                self.vault_form = VaultForm::default();
-                // 解锁 / 创建成功后把历史一并纳入主密码模型：保险库里有条目
-                // 就以它为准（它可能比明文文件新），否则把明文历史吸收进来。
-                self.load_history_from_vault();
+            Ok(bytes) if !persist::save_vault(&bytes) => {
+                self.vault_form.error = Some("已解锁，但写不进保险库文件；本次运行仍可用".to_string());
             }
-            Ok(_) => self.vault_form.error = Some("写不进保险库文件".to_string()),
-            Err(e) => self.vault_form.error = Some(e.to_string()),
+            Err(e) => self.vault_form.error = Some(format!("已解锁，但重新封印失败：{e}")),
+            _ => {}
         }
+        self.vault = Some(vault);
+        self.vault_form.password.clear();
+        self.vault_form.confirm.clear();
+        // 解锁 / 创建成功后把历史一并纳入主密码模型：保险库里有条目
+        // 就以它为准（它可能比明文文件新），否则把明文历史吸收进来。
+        self.load_history_from_vault();
     }
 
     /// 解锁后从保险库读历史。库里的条目是权威源；读到了就替换内存副本并删掉
@@ -160,8 +263,14 @@ impl TerminalWindow {
                     crate::now_secs(),
                 );
                 self.command_history = history;
+                // 解析成功才删明文：解析失败时明文是用户唯一的历史副本，
+                // 删掉它等于「迁移失败还顺手毁掉原件」。
+                persist::delete_command_history();
+            } else {
+                self.vault_form.error = Some(
+                    "保险库里的历史解析失败；明文历史已保留，请先修复或重建历史".to_string(),
+                );
             }
-            persist::delete_command_history();
         }
     }
 
@@ -197,6 +306,7 @@ impl TerminalWindow {
     /// 顺序是有讲究的：**先落会话列表**再写引用——`set_vault_entry` 是一次
     /// `UPDATE`，行不在就什么都不会发生（新建的会话还没存过库时就是这种情况）。
     pub(in crate::ui) fn remember_password(&mut self, session: &str, password: &str) -> Result<(), String> {
+        term_io::log::register_secret(password);
         let bytes = {
             let Some(vault) = self.vault.as_mut() else {
                 return Err("保险库锁着".to_string());
@@ -232,17 +342,37 @@ impl TerminalWindow {
     ///（若 vault 解锁）写进 vault 条目 `onekey:<name>`。锁着时草稿**丢失**
     /// ——页脚已写清「credentials not saved」。
     pub(in crate::ui) fn save_onekeys(&mut self) {
+        // 应答 / 密码先登记到日志脱敏表（即使写盘失败也不该在日志里显形）。
+        if let Some((_, password)) = &self.onekeys_password_draft {
+            term_io::log::register_secret(password);
+        }
+        if let Some((_, password)) = &self.onekeys_autofill_draft {
+            term_io::log::register_secret(password);
+        }
+        if let Some((_, answers)) = &self.onekeys_ki_draft {
+            for answer in answers {
+                term_io::log::register_secret(answer);
+            }
+        }
         let names: Vec<String> = self.onekeys.iter().map(|k| k.name.clone()).collect();
+        // 三处写盘**累计错误**，不再静默吞掉：任何一处失败都要让用户看到
+        // 「credentials not saved」，否则 prefs 存了方案、密码却没进 vault。
+        let mut errors: Vec<String> = Vec::new();
         // 密码草稿 → vault（解锁才写）。草稿按**方案名**键控：下标在删/复制之后
         // 会错位，早先的 `(usize, String)` 会把密码写到隔壁方案上。
         if let Some((name, password)) = self.onekeys_password_draft.take() {
             if self.vault_unlocked() && !password.is_empty() && names.contains(&name) {
                 let id = onekey::vault_id(&name);
                 if let Some(vault) = self.vault.as_mut() {
-                    if vault.upsert(Entry::password(&id, &name, &password)).is_ok() {
-                        if let Ok(bytes) = vault.seal() {
-                            persist::save_vault(&bytes);
-                        }
+                    match vault.upsert(Entry::password(&id, &name, &password)) {
+                        Ok(()) => match vault.seal() {
+                            Ok(bytes) if !persist::save_vault(&bytes) => {
+                                errors.push(format!("{name}: 写不进保险库文件"))
+                            }
+                            Err(e) => errors.push(format!("{name}: {e}")),
+                            _ => {}
+                        },
+                        Err(e) => errors.push(format!("{name}: {e}")),
                     }
                 }
             }
@@ -252,17 +382,15 @@ impl TerminalWindow {
             if self.vault_unlocked() && names.contains(&name) {
                 let id = onekey::ki_vault_id(&name);
                 if let Some(vault) = self.vault.as_mut() {
-                    if vault
-                        .upsert(Entry::password(
-                            &id,
-                            &name,
-                            &onekey::encode_ki_answers(&answers),
-                        ))
-                        .is_ok()
-                    {
-                        if let Ok(bytes) = vault.seal() {
-                            persist::save_vault(&bytes);
-                        }
+                    match vault.upsert(Entry::password(&id, &name, &onekey::encode_ki_answers(&answers))) {
+                        Ok(()) => match vault.seal() {
+                            Ok(bytes) if !persist::save_vault(&bytes) => {
+                                errors.push(format!("{name}: 写不进保险库文件"))
+                            }
+                            Err(e) => errors.push(format!("{name}: {e}")),
+                            _ => {}
+                        },
+                        Err(e) => errors.push(format!("{name}: {e}")),
                     }
                 }
             }
@@ -272,20 +400,49 @@ impl TerminalWindow {
         if let Some((name, password)) = self.onekeys_autofill_draft.take() {
             if self.vault_unlocked() && names.contains(&name) && !password.is_empty() {
                 if let Some(vault) = self.vault.as_mut() {
-                    if vault
-                        .upsert(Entry::password(
-                            &onekey::autofill_vault_id(&name),
-                            &name,
-                            &password,
-                        ))
-                        .is_ok()
-                    {
-                        if let Ok(bytes) = vault.seal() {
-                            persist::save_vault(&bytes);
-                        }
+                    match vault.upsert(Entry::password(&onekey::autofill_vault_id(&name), &name, &password)) {
+                        Ok(()) => match vault.seal() {
+                            Ok(bytes) if !persist::save_vault(&bytes) => {
+                                errors.push(format!("{name}: 写不进保险库文件"))
+                            }
+                            Err(e) => errors.push(format!("{name}: {e}")),
+                            _ => {}
+                        },
+                        Err(e) => errors.push(format!("{name}: {e}")),
                     }
                 }
             }
+        }
+        // Send 栏不是密码栏：谁把保险库里的密码 / 应答抄进 `expect.send`，
+        // 就等于把明文写进 prefs.json。保存时清掉这些值并明确报错。
+        for scheme in &mut self.onekeys {
+            let mut protected: Vec<String> = Vec::new();
+            if let Some(vault) = self.vault.as_ref() {
+                for id in [
+                    onekey::vault_id(&scheme.name),
+                    onekey::ki_vault_id(&scheme.name),
+                    onekey::autofill_vault_id(&scheme.name),
+                ] {
+                    if let Some(raw) = vault.find(&id).and_then(|e| e.secret()) {
+                        protected.push(raw.to_string());
+                        protected.extend(onekey::decode_ki_answers(raw));
+                    }
+                }
+            }
+            for expect in &mut scheme.expects {
+                if !expect.send.is_empty() && protected.contains(&expect.send) {
+                    expect.send.clear();
+                    errors.push(format!("{}: Send 不能填密码，请用 Password 组", scheme.name));
+                }
+            }
+        }
+        if errors.is_empty() {
+            self.vault_form.error = None;
+        } else {
+            let detail = errors.join("；");
+            // 页脚/状态栏可见的一次性提示：明文凭据没写进保险库就是没保存。
+            self.vault_form.error = Some(format!("credentials not saved: {detail}"));
+            self.log_note = Some(format!("credentials not saved: {detail}"));
         }
         // 方案名改过之后，vault 里的条目 id 也要跟着改（旧 id 变成孤儿）。
         // 简单而诚实：只写 prefs；旧 id 残留由 `onekey_password` 的
@@ -298,10 +455,12 @@ impl TerminalWindow {
     }
 
     /// 锁定：内存里的条目与密钥就地清零，文件不动。
+    /// 同时清掉运行时凭据寄存器——`Tab.auth` 里的引用没有密码就取不到东西了。
     pub(in crate::ui) fn lock_vault(&mut self) {
         if let Some(mut vault) = self.vault.take() {
             vault.lock();
         }
+        clear_runtime_secrets();
     }
 
     /// Authentication 页里那块「凭据保险库」。
@@ -341,9 +500,11 @@ impl TerminalWindow {
                 if ui.button("Change password").clicked() {
                     self.submit_change_password();
                 }
-                if let Some(error) = &self.vault_form.error {
-                    ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
-                }
+            }
+            // 写盘失败（改密码 / OneKey 凭据没落库）必须一直可见，不能只在
+            // 「改密码」展开时才显示——那等于让用户以为凭据保存好了。
+            if let Some(error) = &self.vault_form.error {
+                ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
             }
             ui.add(
                 egui::Label::new(

@@ -21,7 +21,7 @@
 //! （比如 `logout` 之后那句 `Connection closed.`）。
 
 use std::net::SocketAddr;
-use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -36,6 +36,30 @@ use crate::options::SshOptions;
 /// 每帧最多搬多少字节，免得一次 `find /` 把一帧卡住。
 /// 与 `term-runtime` 的 `FRAME_BUDGET` 同值：两处都是「一帧的预算」，不该不一样。
 const FRAME_BUDGET: usize = 256 * 1024;
+
+/// 会话层握手（建链 + 认证 + open_session + pty + shell）的总预算。
+///
+/// 传输层每一段各自有超时，但服务端可以在**认证之后**对通道请求一直不回：
+/// `channel_open_session` / `request_pty` / `request_shell` 的 russh 回复等待
+/// 没有内建超时，于是 `connect()` 会永久阻塞在 `ready_rx.recv()`。
+/// `connect_timeout = 0` 的「不设超时」在这里按 120 秒兜底——界面不能转圈 forever。
+pub const HANDSHAKE_FALLBACK: Duration = Duration::from_secs(120);
+
+/// 收到 `Eof` 之后再等多久 `Close` / `ExitStatus`。
+///
+/// SSH 的半关闭允许服务端先发 EOF、随后才送退出码或最后一批反向数据；
+/// 一收到 EOF 就 `break` 会把它们全吞掉（状态栏显示 "connection closed" 而不是
+/// 真实退出码）。兜底超时保证服务端只发 EOF 不关通道时也不会把会话挂死。
+pub const EOF_GRACE: Duration = Duration::from_secs(2);
+
+/// 本次会话握手实际用的预算。0 = 不设超时，按 [`HANDSHAKE_FALLBACK`] 兜底。
+fn handshake_budget(opts: &SshOptions) -> Duration {
+    if opts.connect_timeout.is_zero() {
+        HANDSHAKE_FALLBACK
+    } else {
+        opts.connect_timeout
+    }
+}
 
 /// Supervisor → 工作线程。
 enum Command {
@@ -60,6 +84,16 @@ pub struct SshChannel {
     description: String,
     /// 线程句柄只用来「别在收尾时丢掉它」；连接靠 drop 关闭（见 `Drop`）。
     _worker: Option<JoinHandle<()>>,
+}
+
+impl SshChannel {
+    /// 取走最近一次「用户眼前那把服务器公钥」（openssh 单行）。
+    ///
+    /// 指纹确认之后用它把**同一把钥匙** pin 进 known_hosts，然后以 Strict
+    /// 重连做真校验；绝不在重连那一刻让 Tofu 把服务器临时换给的钥匙记进去。
+    pub fn take_presented_host_key(host: &str, port: u16) -> Option<String> {
+        crate::handler::take_presented(host, port)
+    }
 }
 
 impl std::fmt::Debug for SshChannel {
@@ -93,13 +127,17 @@ pub fn connect(opts: SshOptions) -> Result<SshChannel, SshError> {
     let (emit_tx, emit_rx) = channel();
     let (ready_tx, ready_rx) = channel::<Result<(), SshError>>();
 
+    let budget = handshake_budget(&opts) + Duration::from_secs(5);
     let name = format!("term-ssh-{}", opts.host);
     let worker = std::thread::Builder::new()
         .name(name)
         .spawn(move || run_worker(opts, cmd_rx, emit_tx, ready_tx))
         .map_err(|e| SshError::Local(format!("无法启动 SSH 线程：{e}")))?;
 
-    match ready_rx.recv() {
+    // 内层 `handshake()` 已有超时；这里再兜一次「线程还没进 runtime 就卡住」
+    // 的内层管不到的窗口（建 runtime 之前不会执行 tokio::time::timeout）。
+    let outcome = ready_rx.recv_timeout(budget);
+    match outcome {
         Ok(Ok(())) => Ok(SshChannel {
             out: emit_rx,
             cmd: cmd_tx,
@@ -113,12 +151,16 @@ pub fn connect(opts: SshOptions) -> Result<SshChannel, SshError> {
             Err(e)
         }
         // 线程连 `ready` 都没发就没了：通常是 panic 在建运行时之前。
-        Err(_) => {
+        Err(RecvTimeoutError::Disconnected) => {
             let _ = worker.join();
             Err(SshError::Local(
                 "SSH 线程在握手完成前退出（可能是平台不支持或内存不足）".to_string(),
             ))
         }
+        // 二次兜底：不等线程（join 会重新变成无限阻塞），让它自己收摊。
+        Err(RecvTimeoutError::Timeout) => Err(SshError::Channel(format!(
+            "{budget:?} 内没有收到握手结果（服务端不回应或本机资源不足）"
+        ))),
     }
 }
 
@@ -152,10 +194,19 @@ async fn session(
     emit: Sender<Emit>,
     ready: Sender<Result<(), SshError>>,
 ) {
-    let (handle, mut channel) = match handshake(&opts).await {
-        Ok(pair) => pair,
-        Err(e) => {
+    let budget = handshake_budget(&opts);
+    let (handle, mut channel) = match tokio::time::timeout(budget, handshake(&opts)).await {
+        Ok(Ok(pair)) => pair,
+        Ok(Err(e)) => {
             let _ = ready.send(Err(e));
+            return;
+        }
+        // 服务端在认证之后对 open_session / pty / shell 一直不回时，russh 的
+        // 回复等待没有内建超时——这一层必须自己收口，否则 `connect()` 永久阻塞。
+        Err(_) => {
+            let _ = ready.send(Err(SshError::Channel(format!(
+                "{budget:?} 内没有完成会话握手（服务端不回应通道请求）"
+            ))));
             return;
         }
     };
@@ -254,10 +305,23 @@ async fn pump(
     // 服务器报上来的退出码。有它就用它，没有（连接被砍）就是另一种措辞。
     let mut exit_status: Option<u32> = None;
     let mut signalled = false;
+    // SSH 半关闭：Eof 只表示服务端不再写，ExitStatus / 反向数据可能还在路上。
+    let mut eof = false;
 
     loop {
         tokio::select! {
-            msg = channel.wait() => match msg {
+            msg = async {
+                let waiting = channel.wait();
+                if eof {
+                    // 只发 Eof 不发 Close 的服务端不能把会话挂死；兜底按 Close 收尾。
+                    match tokio::time::timeout(EOF_GRACE, waiting).await {
+                        Ok(msg) => msg,
+                        Err(_) => Some(ChannelMsg::Close),
+                    }
+                } else {
+                    waiting.await
+                }
+            } => match msg {
                 Some(ChannelMsg::Data { data }) => {
                     if emit.send(Emit::Data(data.to_vec())).is_err() {
                         // Supervisor 已经不在了：没人看屏幕，直接收摊。
@@ -273,7 +337,8 @@ async fn pump(
                 }
                 Some(ChannelMsg::ExitStatus { exit_status: code }) => exit_status = Some(code),
                 Some(ChannelMsg::ExitSignal { .. }) => signalled = true,
-                Some(ChannelMsg::Eof) | Some(ChannelMsg::Close) => break,
+                Some(ChannelMsg::Eof) => eof = true,
+                Some(ChannelMsg::Close) => break,
                 // 通道没了（连接断掉）：与对端关闭同等对待，但措辞不同。
                 None => return finish_lost(exit_status),
                 _ => {}
@@ -481,6 +546,21 @@ mod tests {
                 .unwrap(),
         );
         assert_eq!(screen, 0);
+    }
+
+    #[test]
+    fn a_zero_connect_timeout_uses_the_handshake_fallback() {
+        let mut opts = SshOptions::new(
+            "h",
+            "u",
+            crate::options::AuthMethod::Password {
+                password: "x".into(),
+            },
+        );
+        opts.connect_timeout = Duration::ZERO;
+        assert_eq!(handshake_budget(&opts), HANDSHAKE_FALLBACK);
+        opts.connect_timeout = Duration::from_secs(7);
+        assert_eq!(handshake_budget(&opts), Duration::from_secs(7));
     }
 
     #[test]

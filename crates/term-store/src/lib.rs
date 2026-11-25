@@ -136,12 +136,35 @@ impl Store {
                 params![position as i64, name],
             )?;
         }
+        // 一条凭据引用只给一条会话：按身份找回后打标记，避免两条同名身份的
+        // 会话共用同一个 vault id（那会让「改了其中一条的密码」影响另一条）。
+        let mut claimed: Vec<usize> = Vec::new();
         for (position, session) in sessions.iter().enumerate() {
             let mut row = Row_::of(session, position);
-            row.vault_entry_id = kept
+            // 先按名字取（最常见）；改名后名字对不上，再按**稳定身份**找回。
+            // 身份取 (protocol, host, port, username)：改名只动 name，不动这些。
+            let by_name = kept
                 .iter()
-                .find(|(name, _)| name == &session.name)
-                .and_then(|(_, id)| id.clone());
+                .position(|(name, _, _, _, _, _)| name == &session.name);
+            let found = by_name.or_else(|| {
+                let proto = session.protocol.label().to_string();
+                kept.iter().enumerate().find_map(|(at, row)| {
+                    if claimed.contains(&at) || row.5.is_none() {
+                        return None;
+                    }
+                    (row.1 == proto
+                        && row.2 == session.host
+                        && row.3 == i64::from(session.port)
+                        && row.4 == session.username)
+                        .then_some(at)
+                })
+            });
+            if let Some(at) = found {
+                row.vault_entry_id = kept[at].5.clone();
+                if !claimed.contains(&at) {
+                    claimed.push(at);
+                }
+            }
             tx.execute(
                 "INSERT INTO sessions
                    (name, group_name, protocol, host, port, username, vault_entry_id, position, config)
@@ -188,12 +211,18 @@ impl Store {
         Ok(n > 0)
     }
 
-    fn vault_entries(&self) -> Result<Vec<(String, Option<String>)>, StoreError> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT name, vault_entry_id FROM sessions ORDER BY position")?;
+    /// (name, protocol, host, port, username, vault_entry_id)。
+    /// 前五项构成稳定身份，最后一项是要保留的引用。
+    fn vault_entries(
+        &self,
+    ) -> Result<Vec<(String, String, String, i64, String, Option<String>)>, StoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT name, protocol, host, port, username, vault_entry_id FROM sessions ORDER BY position",
+        )?;
         let rows = stmt
-            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+            })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(rows)
     }
@@ -291,6 +320,36 @@ mod tests {
             .unwrap();
         assert_eq!(store.vault_entry("Prod").unwrap().as_deref(), Some("vault-7"));
         assert!(store.set_vault_entry("Prod", None).unwrap());
+        assert_eq!(store.vault_entry("Prod").unwrap(), None);
+    }
+
+    /// 改名只是改了显示名，凭据引用必须跟着走。按 name 匹配的旧实现会在
+    /// 保存改名后的列表时把引用抹成 NULL——用户下次连接又要输一次密码。
+    #[test]
+    fn renaming_a_session_keeps_its_credential_reference() {
+        let mut store = Store::open_in_memory().unwrap();
+        let original = ssh_session("Prod", "Servers");
+        store
+            .save(&["Servers".to_string()], &[original.clone()])
+            .unwrap();
+        store.set_vault_entry("Prod", Some("vault-7")).unwrap();
+
+        let mut renamed = original;
+        renamed.name = "Prod (renamed)".to_string();
+        store
+            .save(&["Servers".to_string()], &[renamed.clone()])
+            .unwrap();
+        assert_eq!(
+            store.vault_entry("Prod (renamed)").unwrap().as_deref(),
+            Some("vault-7")
+        );
+        assert_eq!(store.vault_entry("Prod").unwrap(), None, "旧名字已不存在");
+
+        // 身份不同（换了主机）的同名会话不能捡到别人的引用。
+        let mut other = renamed.clone();
+        other.host = "10.0.0.99".to_string();
+        other.name = "Prod".to_string();
+        store.save(&["Servers".to_string()], &[other]).unwrap();
         assert_eq!(store.vault_entry("Prod").unwrap(), None);
     }
 

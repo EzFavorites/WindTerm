@@ -48,6 +48,9 @@ pub(crate) async fn authenticate(
             Err(e @ SshError::Auth(_)) => last = Some(e),
             // 本地根本用不了（私钥读不出来 / 需要口令却没给）→ 等同不可用，继续。
             Err(e @ SshError::Key(_)) => last = Some(e),
+            // 某一种本地方式不可用（典型：没有 ssh-agent / 平台不支持）≠ 整条链
+            // 的本地环境坏了。它和「私钥读不出来」是同一类：换下一种方式继续。
+            Err(e) if method_is_unavailable(&e) => last = Some(e),
             // 通道 / 本地环境 / 配置错误：换一种认证方式也不会好，直接返回，
             // 不用「继续试」掩盖真正的病因。
             Err(e) => return Err(e),
@@ -60,6 +63,29 @@ pub(crate) async fn authenticate(
             partial_success: false,
         })
     }))
+}
+
+/// 这条 `Local` 错误是说「**这一种方式**在本机用不了」，还是说「整条连接的
+/// 本地环境坏了」。
+///
+/// agent 路径会为「连不上 `$SSH_AUTH_SOCK`」「索要身份失败」「签名失败」
+/// 「平台不支持」返回 `Local`——它们都只否定了 agent 这一种方式，后面还有
+/// 密码 / 私钥可以试。以前链里遇到 `Local` 就整体返回，于是开发机上没起
+/// ssh-agent 时，一个配了 `agent → password` 回退链的会话连输入密码的机会
+/// 都没有。这里只按**消息里的语义**归类（错误类型不分这几种），其余 `Local`
+/// （起不了运行时 / 发不出请求）仍立即终止。
+pub(crate) fn method_is_unavailable(e: &SshError) -> bool {
+    let SshError::Local(msg) = e else {
+        return false;
+    };
+    [
+        "连不上 ssh-agent",
+        "ssh-agent 索要身份列表失败",
+        "ssh-agent 签名失败",
+        "此平台暂不支持 ssh-agent",
+    ]
+    .iter()
+    .any(|needle| msg.contains(needle))
 }
 
 /// 用**某一种**方式认证一次。成功返回 `Ok(())`，失败返回带方式的 `AuthProblem`
@@ -235,4 +261,40 @@ async fn authenticate_with_agent(
     Err(SshError::Local(
         "此平台暂不支持 ssh-agent 认证，请改用密码或私钥文件".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 纯判据：agent 的四种「不可用」要继续下一种方式；真正影响整条连接的
+    /// 本地错误不能继续（继续只会把病因藏起来）。
+    #[test]
+    fn an_unavailable_agent_is_only_a_failed_method() {
+        for msg in [
+            "连不上 ssh-agent（$SSH_AUTH_SOCK）：no such file",
+            "向 ssh-agent 索要身份列表失败：broken pipe",
+            "ssh-agent 签名失败（可能是不支持这把钥匙）：denied",
+            "此平台暂不支持 ssh-agent 认证，请改用密码或私钥文件",
+        ] {
+            assert!(method_is_unavailable(&SshError::Local(msg.into())), "{msg}");
+        }
+    }
+
+    #[test]
+    fn a_real_local_failure_still_stops_the_chain() {
+        for msg in [
+            "无法创建异步运行时：out of memory",
+            "无法启动 SSH 线程：resource busy",
+            "发送认证请求失败：connection reset",
+        ] {
+            assert!(!method_is_unavailable(&SshError::Local(msg.into())), "{msg}");
+        }
+        assert!(!method_is_unavailable(&SshError::Key("no key".into())));
+        assert!(!method_is_unavailable(&SshError::Auth(AuthProblem {
+            user: "u".into(),
+            method: "password",
+            partial_success: false,
+        })));
+    }
 }
