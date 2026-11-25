@@ -62,6 +62,9 @@ pub mod context_ids {
     pub const SAVE_SESSION: &str = "Terminal.Save";
     pub const LINE_ENDINGS: &str = "View.ToggleLineEndings";
     pub const WRAP_SYMBOLS: &str = "View.ToggleWrapSymbols";
+    /// ⋮ 弹层的 `Word Wrap` 行：2026-11-24 已接线（`Tab.word_wrap` 的软折开关）。
+    /// UI 侧不许写 ID 字面量（4e），所以在这里给出唯一的数据层入口。
+    pub const TEXT_TOGGLE_WORD_WRAP: &str = "Text.ToggleWordWrap";
     pub const SEARCH_ONLINE: &str = "Text.SearchOnline";
 
     /// 终端**内容**右键的四条真实命令。它们不在菜单栏里，但和标签右键的

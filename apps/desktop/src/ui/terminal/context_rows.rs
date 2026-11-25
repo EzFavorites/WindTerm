@@ -276,7 +276,7 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     // work + gate 后按台账启用，悬停理由不再说 `Not wired`；勾读活动标签的
     // `Tab.word_wrap`（夹具字面量 true 只标基线当时那一格）。快捷键「Alt+M,
     // Alt+W」**与绑定表同源**（`Text.ToggleWordWrap` 有条目），不是字面量偏差。
-    command_check("Word Wrap", "Alt+M, Alt+W", Some(0), "Text.ToggleWordWrap", true),
+    command_check("Word Wrap", "Alt+M, Alt+W", Some(0), term_app::menu::context_ids::TEXT_TOGGLE_WORD_WRAP, true),
     // 这两条命令已接线（`parse.rs:106/109` → MarksKnob → Tab.marks），接真；
     // 勾走 `live_check` 现读活动标签，不读尾部的夹具字面量 false。
     //
