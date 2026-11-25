@@ -66,6 +66,9 @@ pub(in crate::ui) use popup_lists::{
 };
 pub(in crate::ui) use sysmon_bar::{sysmon_bar_frame, SYSMON_BAR_H};
 pub(in crate::ui) use quick_command_bar::draw_quick_command_bar;
+// 2026-11-25：点外收起那一击的判据不止快捷栏按钮要用——终端的折叠列点击与
+// xterm 鼠标报告同样得跳过它，所以按原样再导出，判据只有 `click_not_consumed` 一份。
+pub(in crate::ui) use quick_command_bar::click_not_consumed;
 // 2026-11-17：`×` / `⚙` 收归 `glyph` 一处。原先 `paint_close_cross` 住在
 // `tab_bar`，`paint_gear` 住在 `panels/session_icons`，`quick_command_bar` 还有
 // 第三套（排字体字形）——四份实现各自长歪。现在全部指向 `glyph`，调用点的

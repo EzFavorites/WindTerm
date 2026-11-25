@@ -63,9 +63,12 @@ fn overflow_menu_id() -> egui::Id {
 /// 点外收起那一击的闸门：弹层关掉后，**排在锚点下面的控件不能顺带被点到**。
 ///
 /// `close_on_click_outside` 只删 raw events 的 Primary release；egui 帧首已经算好的
-/// `clicked()` 边沿还在，所以生产里每一处 `.clicked()` 都必须再过这道闸（`pub(super)`
-/// 也让接线单测能查同一把判据）。
-pub(super) fn click_not_consumed(ui: &egui::Ui) -> bool {
+/// `clicked()` 边沿还在，所以生产里每一处 `.clicked()` 都必须再过这道闸。
+///
+/// 2026-11-25：终端的「折叠列点击」与「xterm 鼠标报告」也要过这一道（见
+/// `terminal::pane_click_gate`），所以放到 `pub(in crate::ui)`；判据仍只有这一份，
+/// 接线单测查的也是它本身。
+pub(in crate::ui) fn click_not_consumed(ui: &egui::Ui) -> bool {
     !ui.input(|i| i.pointer.interact_pos())
         .is_some_and(|pos| quick_config_menu::click_consumed_at(ui, pos))
 }

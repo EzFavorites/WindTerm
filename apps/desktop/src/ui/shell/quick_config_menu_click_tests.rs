@@ -4,6 +4,8 @@
 
 use super::{click_consumed_at, close_on_click_outside, config_menu_id};
 use crate::ui::shell::quick_command_bar::click_not_consumed;
+// 终端侧两个分支的真实闸门：与 pane.rs 调用的是同一对函数。
+use crate::ui::terminal::pane_click_gate::{fold_click_allowed, mouse_encoding_allowed};
 use eframe::egui;
 use egui::{Event, PointerButton, Pos2, RawInput, Rect, Vec2};
 
@@ -24,6 +26,9 @@ struct Frame {
     /// 生产控件走的判据：`clicked() && click_not_consumed()`。
     later_clicked: bool,
     consumed: bool,
+    /// 终端折叠列 / xterm 鼠标报告两个分支的同一帧判据。
+    fold_allowed: bool,
+    mouse_allowed: bool,
 }
 
 /// 跑两帧：第一帧预热（egui 的命中测试用上一帧 widget rect），第二帧投递点击。
@@ -39,6 +44,8 @@ fn run_click(at: Pos2) -> Frame {
         raw_clicked: false,
         later_clicked: false,
         consumed: false,
+        fold_allowed: false,
+        mouse_allowed: false,
     };
 
     let frames = [
@@ -65,6 +72,8 @@ fn run_click(at: Pos2) -> Frame {
                         out.raw_clicked = later.clicked();
                         out.later_clicked = out.raw_clicked && click_not_consumed(ui);
                         out.consumed = click_consumed_at(ui, at);
+                        out.fold_allowed = fold_click_allowed(ui, out.raw_clicked);
+                        out.mouse_allowed = mouse_encoding_allowed(ui);
                     }
                 });
             },
@@ -101,4 +110,19 @@ fn clicks_on_the_popup_or_anchor_are_neither_closed_nor_consumed() {
     assert!(frame.open, "点在锚点上不该收起");
     assert!(!frame.consumed, "锚点自己的点击要原样留给开关按钮");
     assert!(frame.later_clicked);
+}
+
+/// 接线级：收起弹层那一击同帧**不触发折叠、不编码鼠标**。
+/// 判据走的是 `pane.rs` 两个分支真正调用的 `pane_click_gate` 函数，而不是复制品。
+#[test]
+fn the_dismissing_click_also_blocks_terminal_fold_and_mouse_encoding() {
+    let outside = run_click(Pos2::new(600.0, 200.0));
+    assert!(outside.raw_clicked, "帧首边沿仍在——证明不是靠清 `clicked()` 实现的");
+    assert!(!outside.fold_allowed, "点外收起后同帧不许翻折叠列");
+    assert!(!outside.mouse_allowed, "点外收起后同帧不许往会话编码鼠标");
+
+    // 对照组：点在弹层里不消费，终端两个分支照常放行。
+    let inside = run_click(Pos2::new(340.0, 120.0));
+    assert!(inside.fold_allowed, "弹层内的点击不该挡住终端折叠");
+    assert!(inside.mouse_allowed, "弹层内的点击不该挡住鼠标报告");
 }

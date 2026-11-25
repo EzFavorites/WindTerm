@@ -156,14 +156,19 @@ pub(in crate::ui) fn paint(
 /// 的切片从 `from + col_shift` 开始，标记列也是相对这个起点的。夹取原点必须同步
 /// 右移 `col_shift`，否则段首一遇宽字符，选区整体左错一列（把占位格那一格算进
 /// 选区）。夹完两端重合即空区间，必须丢掉。
+///
+/// 原点右移后可能**越过段尾**：零宽段（`from == to`）或段里只有占位半格时
+/// `from + col_shift == to + 1`。这一步必须和 [`segment_view`] 一样先 `.min(to)`，
+/// 并在 `start >= to` 时直接丢掉——否则 `range.1.min(to) - start` 是 `usize` 下溢
+/// （debug 直接 panic，release 环绕成一个巨大区间，画出完全错位的选区）。
 fn selected_range_in_segment(
     range: (usize, usize),
     from: usize,
     to: usize,
     col_shift: usize,
 ) -> Option<(usize, usize)> {
-    let start = from + col_shift;
-    if range.0 >= to || range.1 <= start {
+    let start = (from + col_shift).min(to);
+    if start >= to || range.0 >= to || range.1 <= start {
         return None;
     }
     let a = range.0.max(start) - start;
@@ -493,6 +498,38 @@ mod tests {
         assert_eq!(selected_range_in_segment((0, usize::MAX), 1, 2, 1), None);
     }
 
+    /// 零宽段夹在宽字符前驱之后：`segment_view` 的 `col_shift` 会把起点推过段尾。
+    /// 选区夹取必须同样 `.min(to)` 并在 `start >= to` 时丢掉，不能 `usize` 下溢
+    /// （旧写法在 debug 下这里直接 panic）。
+    #[test]
+    fn a_zero_width_segment_after_a_wide_cell_never_underflows() {
+        // 段 [1,1) 起于「中」的占位半格（cells[0].wide），shift = 1 → start = 2 > to。
+        for range in [(0, 1), (1, 2), (0, usize::MAX), (usize::MAX - 1, usize::MAX)] {
+            assert_eq!(
+                selected_range_in_segment(range, 1, 1, 1),
+                None,
+                "零宽段里任何选区都不该产出（range = {range:?}）"
+            );
+        }
+        // 段里只有占位半格：[1,2) + shift=1 → start == to，同样是空区间。
+        assert_eq!(selected_range_in_segment((0, usize::MAX), 1, 2, 1), None);
+        // 没有宽前驱的零宽段：start == from == to，也不产出。
+        assert_eq!(selected_range_in_segment((0, usize::MAX), 4, 4, 0), None);
+    }
+
+    /// 跨段：选区顺着内容列伸进本段，起点先跳过占位格，终点夹在本段尾，
+    /// 绝不把下一段的列算进来（第四轮的「减 col_shift」口径保持不动）。
+    #[test]
+    fn selection_clipping_across_segments_stops_at_the_segment_tail() {
+        // 段 3..8，段首是宽字符占位格 → 可画内容从内容列 4 起，共 4 格。
+        let (from, to, shift) = (3, 8, 1);
+        assert_eq!(selected_range_in_segment((0, 4), from, to, shift), None, "只盖到占位格");
+        assert_eq!(selected_range_in_segment((0, 5), from, to, shift), Some((0, 1)));
+        assert_eq!(selected_range_in_segment((7, usize::MAX), from, to, shift), Some((3, 4)));
+        assert_eq!(selected_range_in_segment((8, usize::MAX), from, to, shift), None, "下一段的事");
+        assert_eq!(selected_range_in_segment((0, usize::MAX), from, to, shift), Some((0, 4)));
+    }
+
     /// 接线级：`selected_range_in_segment` 直接喂 `push_row_marks` 的 `RowLine.selected`，
     /// 宽字符段里只有真被选中的空格出方点，位置不偏。
     #[test]
@@ -592,5 +629,59 @@ mod tests {
         }).collect();
         // 空格是段内第 1 列（占位格占第 0 列）：中心 x = 20 + 1*10 + 5。
         assert_eq!(dot_centres, vec![35.0], "只选中的空格必须出点，且不许左错一列");
+    }
+
+    /// 接线级：零宽段 + 宽字符前驱 + 覆盖全局的选区，走完整 `paint` 必须安静地
+    /// 画出零个图元。旧写法在 `range.1.min(to) - start` 这一帧直接 `usize` 下溢。
+    #[test]
+    fn paint_with_a_zero_width_segment_and_a_global_selection_draws_nothing() {
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 240.0));
+        let mut image = ScreenImage::blank(4, 1, 0..1);
+        image.lines[0] = term_core::grid::LineSlice {
+            row: 0,
+            cells: vec![
+                Cell { ch: '中', wide: true, ..Cell::default() },
+                Cell::default(), // 占位半格
+                Cell { ch: ' ', ..Cell::default() },
+                Cell { ch: 'x', ..Cell::default() },
+            ],
+        };
+        // 段 [1,1) 正落在占位半格上，宽度为 0：`segment_view` 的 shift=1 把起点推到 2。
+        let segments = SegmentTable {
+            rows: vec![term_app::wrap::VisualRow {
+                line: 0,
+                start_col: 1,
+                width: 0,
+                ..term_app::wrap::VisualRow::default()
+            }],
+            cols: 4,
+        };
+        let selections = Selections::from_active(Some(term_app::selection::Selection::span(
+            term_app::selection::Pos::new(0, 0),
+            term_app::selection::Pos::new(0, 4),
+        )));
+        let mut params = MarksParams::default();
+        params.whitespace = WhitespaceMode::InSelection;
+        let font = FontId::new(12.0, egui::FontFamily::Monospace);
+        let out = ctx.run(
+            egui::RawInput { screen_rect: Some(screen), ..Default::default() },
+            |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    paint(
+                        ui.painter(), &image, egui::pos2(20.0, 20.0), cell(10.0, 20.0),
+                        &params, &[], &selections, &test_palette(), &font, &segments,
+                    );
+                });
+            },
+        );
+        // 只数空白方点那种 1.5px 小方块——CentralPanel 自己会铺一块背景 rect。
+        let dots = out.shapes.iter().filter(|clipped| match &clipped.shape {
+            egui::Shape::Rect(r) => {
+                (r.rect.width() - 1.5).abs() < 0.01 && (r.rect.height() - 1.5).abs() < 0.01
+            }
+            _ => false,
+        }).count();
+        assert_eq!(dots, 0, "零宽段不该画出任何空白方点");
     }
 }

@@ -8,6 +8,7 @@ use crate::ui::*;
 use super::tab_slot::{line_cache, selection_text_mut, selection_text_ref, tab_of, TabSlot};
 use super::completion_popup;
 use super::{bin, ensure_view, margin, select};
+use super::pane_click_gate;
 // 正文二选一与正文之后的叠层各自成文件（单文件 500 行上限）。
 // 两个都是**自由函数**——`draw_tab` 手上握着借自 `self.tabs` 的 `&mut Tab`，
 // 方法调用会同时要 `&mut self`（E0499），所以那边只收拆分好的借用。
@@ -381,15 +382,22 @@ impl TerminalWindow {
             super::builtin_hover::paint(ui, pane_id, image, geom, tab.word_wrap);
         }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
+        // 2026-11-25：`clicked()` 边沿在帧首就算好了，点外收起只删 release 挡不住它，
+        // 所以原始边沿还要过 `pane_click_gate`——收起弹层那一击不许顺手翻折叠。
         if !bin && !tab.local_mode {
             let (click, mods) = ui.input(|i| (i.pointer.button_clicked(egui::PointerButton::Primary).then(|| i.pointer.press_origin()).flatten(), i.modifiers));
-            pending_fold = margin_met.fold_click_cmd(cell_w, rect.min, geom.start, geom.cell, image, &tab.folds, &tab.fold_inputs(), click, mods);
+            let allowed = pane_click_gate::fold_click_allowed(ui, click.is_some());
+            pending_fold = allowed.then(|| margin_met.fold_click_cmd(cell_w, rect.min, geom.start, geom.cell, image, &tab.folds, &tab.fold_inputs(), click, mods)).flatten();
         }
 
         // xterm 鼠标报告：档位/编码读快照，字节由 term-core 纯函数产出后写回会话。
         // CellMotion 的「跨格判重」把上一格存在本窗格的临时数据里（ui.data_mut），
         // 不改 Tab / mod.rs 的结构；Bin 没有字符坐标，整段不发。
-        if !bin && tab.snapshot.mouse_reporting && !shift && !tab.local_mode {
+        // 同折叠列：点外收起那一击的 Primary release 边沿仍在帧首快照里，
+        // 不挡住就会往会话编码一个本不该有的 click（`pane_click_gate`）。
+        if !bin && tab.snapshot.mouse_reporting && !shift && !tab.local_mode
+            && pane_click_gate::mouse_encoding_allowed(ui)
+        {
             let pos = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).map(|p| (p.x, p.y));
             let mut frame = ui.input(|i| {
                 use egui::PointerButton as B;

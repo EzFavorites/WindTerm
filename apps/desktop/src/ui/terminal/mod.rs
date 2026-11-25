@@ -40,6 +40,9 @@ mod overlay_segments;
 mod debug_paint;
 pub(in crate::ui) mod completion_popup;
 mod pane;
+/// 弹层点外收起那一击的终端侧闸门：折叠列点击 / xterm 鼠标报告两个分支共用。
+/// `pub(in crate::ui)` 让 shell 侧的接线单测直接调到生产同一把判据。
+pub(in crate::ui) mod pane_click_gate;
 /// 正文**二选一**：字符网格（`view::paint_rows`）还是 hex 转储（`bin::paint`），
 /// 含 `Text ▸ Highlight Caret Line` 那个视口行号的算法。
 ///
