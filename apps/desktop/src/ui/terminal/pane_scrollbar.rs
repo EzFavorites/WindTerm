@@ -90,7 +90,7 @@ pub(super) fn interact(
     viewport: &mut Viewport,
 ) -> Option<f32> {
     let (rows, history, cell_h, wheel_lines) = (view.rows, view.history, view.cell_h, view.wheel_lines);
-    let wheel_local = wheel_is_local(view.mouse_reporting, view.shift);
+    let _wheel_local = wheel_is_local(view.mouse_reporting, view.shift);
     if history <= 0 {
         return None;
     }
@@ -256,7 +256,7 @@ mod tests {
     /// 注册进 `prev_pass`，第二帧再投递滚轮，才是生产路径的真实时序。
     fn wheel_after_a_warmup_frame(pointer: egui::Pos2) -> i64 {
         let rect = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(800.0, 420.0));
-        let view = ScrollbarView { rows: 24, history: 100, cell_h: 16.0, wheel_lines: 1 };
+        let view = ScrollbarView { rows: 24, history: 100, cell_h: 16.0, wheel_lines: 1, mouse_reporting: false, shift: false };
         let mut viewport = Viewport::new();
         let ctx = egui::Context::default();
         for events in [

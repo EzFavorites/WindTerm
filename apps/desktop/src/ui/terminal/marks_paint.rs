@@ -132,7 +132,18 @@ pub(in crate::ui) fn paint(
                 }
             }
         }
-        let row = marks::RowLine {
+    /// 把内容行上的选区区间夹到当前段，返回段内相对列。
+///
+/// 段内夹取是软折语义的一部分：选区跨段时，本段只画自己那一段区间。
+fn selected_range_in_segment(range: (usize, usize), from: usize, to: usize) -> Option<(usize, usize)> {
+    let (sel_from, sel_to) = range;
+    if sel_from >= to || sel_to <= from {
+        return None;
+    }
+    Some((sel_from.max(from) - from, sel_to.min(to) - from))
+}
+
+    let row = marks::RowLine {
             cells,
             continuation: marks::is_wrapped(wraps, abs),
             // 下一行是续行 → 本行被硬折了，不是逻辑行结尾。查 `wraps` 而不是
