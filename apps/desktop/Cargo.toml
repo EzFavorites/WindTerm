@@ -23,7 +23,9 @@ term-paths = { path = "../../crates/term-paths" }
 term-profile = { path = "../../crates/term-profile" }
 # 整窗主题按名字加载（`theme::load_palette_named`）：真实路径，不经门面。
 term-import = { path = "../../crates/term-import" }
-term-app = { path = "../../crates/term-app", features = ["planned"] }
+# `planned` 已不需要显式开：`trigger` / `trigger_regex` 都因真读者回到默认编译面，
+# 那个 feature 现在只挂零读者的 `structure`，桌面端不引用它。
+term-app = { path = "../../crates/term-app" }
 eframe = "0.29"
 egui = "0.29"
 epaint = "0.29"

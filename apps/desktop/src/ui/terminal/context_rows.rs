@@ -24,7 +24,7 @@
 use eframe::egui;
 use term_app::i18n::{t, Lang};
 use term_app::margin::MarginPart;
-use term_app::shortcut_map::KeyBindingMap;
+use term_app::shortcut_map::{display_chord, KeyBindingMap};
 
 use crate::ui::shell::{
     apply_popup_style, draw_menu_row, menu_separator, rows_width, CheckCell, MenuRowState, RowLook,
@@ -140,10 +140,10 @@ const fn swatches() -> Row {
 ///
 /// 有命令 ID 的行直接问 `display`（含用户重绑，按当前平台写 `Ctrl` / `Meta`）；
 /// 视觉基线里 Clear / Zoom / Select All 等行没有绑定表条目（也不许为此新增
-/// 命令 ID），它们照基线记为 macOS 的 `Meta+`，这里只把主修饰键换成
-/// `Platform::primary_label()`——`display` 内部用的正是同一个入口，所以两处
-/// 不会因为各写一份 `if macos` 而分叉。`Meta` 与 `Ctrl` 都是 4 个字符，
-/// 固定快捷键列的宽度公式不需要改。
+/// 命令 ID），它们的 `shortcut` 列统一记成语义写法 `Cmd+…`，与菜单栏同一条
+/// [`display_chord`] 路径折成平台文案——旧实现在这里手写主修饰键替换，
+/// 两份逻辑一旦分叉，非 gate 行就会在 Win/Linux 上显示错的修饰键，现已删除。
+/// `Cmd` / `Meta` / `Ctrl` 都是 4 个字符，固定快捷键列的宽度公式不需要改。
 fn shortcut_on_platform(r: &Row, map: &KeyBindingMap) -> String {
     if let Some(id) = r.gate {
         let shown = map.display(id);
@@ -151,11 +151,7 @@ fn shortcut_on_platform(r: &Row, map: &KeyBindingMap) -> String {
             return shown;
         }
     }
-    let label = map.platform().primary_label();
-    if label == "Meta" {
-        return r.shortcut.to_string();
-    }
-    r.shortcut.replace("Meta+", &format!("{label}+"))
+    display_chord(r.shortcut, map.platform())
 }
 
 const fn sep() -> Row {
@@ -177,7 +173,7 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
     // 已选中的文本**，不碰剪贴板。两行因此各接各的 `Work`。
     row(
         "Paste Selected Text",
-        "Meta+Shift+X",
+        "Cmd+Shift+X",
         Some(6),
         Some(Work::PasteSelection),
     ),
@@ -187,40 +183,40 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
     // 渲染读者在 `pane_overlays.rs`；原先手绘 disabled 是「假灰」，现在按台账接真。
     command("Highlight Text", "", Some(0), term_app::menu::context_ids::HIGHLIGHT_TEXT),
     sep(),
-    row("Find", "Meta+F", Some(0), Some(Work::Find)),
+    row("Find", "Cmd+F", Some(0), Some(Work::Find)),
     // 菜单树里 `Search Online ▸` 有一棵真子树（`Text.SearchOnline` 已接线），
     // 原来用 `sub()` 画成灰箭头，与菜单栏不一致；改用 `sub_live` 读同一棵树。
     sub_live("Search Online", Some(0), "Search Online"),
     sep(),
     row(
         "Clear Scrollback",
-        "Meta+Shift+L",
+        "Cmd+Shift+L",
         Some(6),
         Some(Work::ClearScrollback),
     ),
-    row("Clear Screen", "Meta+L", Some(6), Some(Work::ClearScreen)),
+    row("Clear Screen", "Cmd+L", Some(6), Some(Work::ClearScreen)),
     row("Clear All", "", Some(6), Some(Work::ClearAll)),
     sep(),
-    row("Select All", "Meta+Shift+A", Some(7), Some(Work::SelectAll)),
+    row("Select All", "Cmd+Shift+A", Some(7), Some(Work::SelectAll)),
     // 2026-11-19：`Text.SelectCommand` 已接线（OSC 133 命令选区），接真。
     command("Select Command", "Ctrl+Shift+/", Some(7), term_app::menu::context_ids::SELECT_COMMAND),
     sep(),
     row(
         "Goto Previous Command",
-        "Meta+Shift+Left",
+        "Cmd+Shift+Left",
         Some(5),
         Some(Work::GotoCommand { next: false }),
     ),
     row(
         "Goto Next Command",
-        "Meta+Shift+Right",
+        "Cmd+Shift+Right",
         Some(5),
         Some(Work::GotoCommand { next: true }),
     ),
     row("Session Triggers", "", Some(8), Some(Work::ManageTriggers)),
     sep(),
     // 2026-11-17 用户要求：`Transfer Binary` 展开后要与「Tool ▸ Transfer Binary」
-    // **一致**（视觉基线里 Send 三条一组 / Receive 三条一组 / Cancel 带 `Meta+C`，
+    // **一致**（视觉基线里 Send 三条一组 / Receive 三条一组 / Cancel 带 `Cmd+C`（即主修饰键），
     // 中间两条分隔线）。做法同下面的 `Log`：读同一棵菜单树，不抄第二份。
     sub_live("Transfer Binary", Some(0), "Transfer Binary"),
     sep(),
@@ -256,13 +252,13 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     // 与内容菜单同一行同一条动作：粘的是**屏幕上的选区**，不是剪贴板。
     row(
         "Paste Selected Text",
-        "Meta+Shift+X",
+        "Cmd+Shift+X",
         Some(9),
         Some(Work::PasteSelection),
     ),
     sep(),
     // 2026-11-19：`Terminal.Save` 已接线（CenterPage::Save → 保存到会话库），接真。
-    command("Save Session", "Meta+S", Some(0), term_app::menu::context_ids::SAVE_SESSION),
+    command("Save Session", "Cmd+S", Some(0), term_app::menu::context_ids::SAVE_SESSION),
     sep(),
     // Word Wrap 命令已接线（Mode ▸ Word Wrap / `Text.ToggleWordWrap`）；这里仍按
     // 视觉基线画灰勾选，因为这份 ⋮ 弹层的手绘行没有接 Work/gate，不是命令未接线。
@@ -273,8 +269,8 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     command_check("Line Endings", "Alt+T, Alt+E", Some(0), term_app::menu::context_ids::LINE_ENDINGS, false),
     command_check("Wrap Symbols", "Alt+T, Alt+W", Some(0), term_app::menu::context_ids::WRAP_SYMBOLS, false),
     sep(),
-    row("Zoom In", "Meta+=", Some(5), Some(Work::Zoom(1))),
-    row("Zoom Out", "Meta+-", Some(5), Some(Work::Zoom(-1))),
+    row("Zoom In", "Cmd+=", Some(5), Some(Work::Zoom(1))),
+    row("Zoom Out", "Cmd+-", Some(5), Some(Work::Zoom(-1))),
     sep(),
     row(
         "Split View Horizontally",
@@ -288,7 +284,7 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
         Some(0),
         Some(Work::Split(false)),
     ),
-    row("Full Screen", "Meta+F11", Some(0), Some(Work::FullScreen)),
+    row("Full Screen", "Cmd+F11", Some(0), Some(Work::FullScreen)),
 ];
 
 /// 视觉基线那排七色圆点：红 / 橙 / 黄 / 绿 / 蓝 / 青 / 紫。
@@ -643,9 +639,9 @@ pub(in crate::ui) fn margin_rows(
         sub(t(lang, "Folds"), Some(0)),
         sep(),
         // 手绘框架不展开子菜单，Zoom 用三行内联（功能可用 + 同风格）。
-        row(t(lang, "Zoom In"), "Meta+=", Some(5), Some(Work::Zoom(1))),
-        row(t(lang, "Zoom Out"), "Meta+-", Some(5), Some(Work::Zoom(-1))),
-        row(t(lang, "Zoom Reset"), "Meta+0", Some(5), Some(Work::Zoom(0))),
+        row(t(lang, "Zoom In"), "Cmd+=", Some(5), Some(Work::Zoom(1))),
+        row(t(lang, "Zoom Out"), "Cmd+-", Some(5), Some(Work::Zoom(-1))),
+        row(t(lang, "Zoom Reset"), "Cmd+0", Some(5), Some(Work::Zoom(0))),
     ]
 }
 

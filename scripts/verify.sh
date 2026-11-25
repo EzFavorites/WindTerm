@@ -91,12 +91,13 @@ if cargo check --workspace --target-dir "$TARGET" --quiet 2>/dev/null; then
 else
   bad "编译失败"
 fi
-# `term-app` 的 `planned` feature 默认**不编译**：structure / trigger /
-# trigger_regex 三个模块已实现、已测试，但全仓没有一个调用点（2026-11-12 实测
-# 外部引用全为 0；`tmux_layout` 因 B2 真读者已提回默认面）。默认不编不等于可以
-# 烂——这里编一次，让它们跟着类型系统走。
+# `term-app` 的 `planned` feature 默认**不编译**：现在只剩 `structure` 一个模块。
+# 2026-11-12 审查时 `trigger` / `trigger_regex` 也在清单里，但那个结论过期了：
+# `apps/desktop` 随后把触发器接进会话执行 / 规则编辑 / hover 检测等真实路径，
+# 两者已提回默认编译面（`apps/desktop/Cargo.toml` 也不再显式开本 feature）。
+# 默认不编不等于可以烂——这里编一次，让剩下的模块跟着类型系统走。
 if cargo check -p term-app --features planned --target-dir "$TARGET" --quiet 2>/dev/null; then
-  ok "term-app --features planned 编译通过（3 个未接线模块未腐烂）"
+  ok "term-app --features planned 编译通过（未接线模块未腐烂）"
 else
   bad "term-app --features planned 编译失败（未接线模块已腐烂）"
 fi

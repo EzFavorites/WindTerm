@@ -45,3 +45,49 @@ fn prefs_rev_advances_after_a_successful_write() {
         assert_eq!(win.app_snapshot().prefs_rev, generation + 1);
     });
 }
+
+/// 冲突失败不能再静默丢掉：写盘失败原因由每帧的 sync_prefs_rev 取走，
+/// 用 `SaveError::message()` 上屏到 `log_note`，取走后清空。
+#[test]
+fn a_conflicting_prefs_save_reaches_the_status_bar_note() {
+    with_temp_profile(|| {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let tab = fake_tab(&pool, &ctx, 0, &closes);
+        let mut win: TerminalWindow = window_with(pool, &ctx, vec![tab]);
+        let _ = crate::ui::dialogs::shortcuts::take_startup_migration_notice();
+
+        let mut prefs = term_profile::prefs::Prefs::default();
+        prefs.language = "en".to_string();
+        assert!(term_profile::prefs::save(&prefs));
+        assert_eq!(term_profile::prefs::last_save_error(), None);
+
+        // 另一个进程 / 编辑器改了盘上内容，而窗口手里那份快照已经过期。
+        let path = term_paths::profile_dir()
+            .expect("临时 profile 目录")
+            .join(term_profile::prefs::PREFS_FILE);
+        std::fs::write(&path, r#"{"language":"zh-CN"}"#).unwrap();
+        prefs.font_size = 20.0;
+        assert!(!term_profile::prefs::save(&prefs));
+        assert_eq!(
+            term_profile::prefs::last_save_error(),
+            Some(term_profile::prefs::SaveError::Conflict)
+        );
+
+        win.sync_prefs_rev(&ctx);
+        assert!(
+            win.log_note
+                .as_deref()
+                .is_some_and(|n| n.contains("请重新打开设置页")),
+            "冲突必须用 SaveError::message() 上屏：{:?}",
+            win.log_note
+        );
+        assert_eq!(term_profile::prefs::last_save_error(), None, "取走后必须清空");
+
+        // 下一帧不再重复弹同一条提示。
+        win.log_note = None;
+        win.sync_prefs_rev(&ctx);
+        assert!(win.log_note.is_none());
+    });
+}

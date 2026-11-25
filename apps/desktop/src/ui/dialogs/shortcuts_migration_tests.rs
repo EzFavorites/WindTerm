@@ -53,3 +53,29 @@ fn reset_clears_both_shortcut_fields() {
         assert!(saved.shortcut_overrides.is_empty());
     });
 }
+
+/// 启动期迁移的两类丢弃项必须汇总到提示，不能只躺在测试里。
+#[test]
+fn startup_migration_reports_dropped_and_rejected_bindings() {
+    let _ = take_startup_migration_notice();
+
+    // ① 越界旧下标（新字段为空时走迁移）。
+    let mut old = term_profile::prefs::Prefs::default();
+    old.shortcut_overrides = vec![(999, "Cmd+Q".into()), (1, "Cmd+F".into())];
+    let (_map, _seq) = build_runtime(&old);
+    let note = take_startup_migration_notice().expect("越界项必须汇总到启动提示");
+    assert!(note.contains("#999"), "{note}");
+    assert!(!note.contains("#1"), "合法下标的绑定不该报丢弃：{note}");
+    assert_eq!(take_startup_migration_notice(), None, "提示只上屏一次");
+
+    // ② 冲突的用户绑定被 KeyBindingMap 回滚，也要一并报出来。
+    let mut fresh = term_profile::prefs::Prefs::default();
+    fresh.shortcut_bindings = vec![
+        ("Text.Find".into(), "Cmd+F".into()),
+        ("Text.FindNext".into(), "Cmd+F".into()),
+    ];
+    let (_map, _seq) = build_runtime(&fresh);
+    let note = take_startup_migration_notice().expect("冲突项必须汇总到启动提示");
+    assert!(note.contains("Text.FindNext"), "{note}");
+    assert_eq!(take_startup_migration_notice(), None);
+}

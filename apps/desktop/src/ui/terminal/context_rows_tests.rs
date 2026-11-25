@@ -18,9 +18,10 @@ fn terminal_menu_keeps_the_reference_row_order_and_groups() {
     assert_eq!(TERMINAL_ROWS.iter().filter(|r| r.submenu).count(), 4, "4 个子菜单箭头");
     // 快捷键列逐字对齐视觉基线，不许悄悄改键位。
     let find = TERMINAL_ROWS.iter().find(|r| r.label == "Find").unwrap();
-    assert_eq!(find.shortcut, "Meta+F");
+    // 列里存语义写法 `Cmd+`（平台主修饰键），展示时才折成 `Meta+` / `Ctrl+`。
+    assert_eq!(find.shortcut, "Cmd+F");
     let goto = TERMINAL_ROWS.iter().find(|r| r.label == "Goto Previous Command").unwrap();
-    assert_eq!(goto.shortcut, "Meta+Shift+Left");
+    assert_eq!(goto.shortcut, "Cmd+Shift+Left");
 }
 
 #[test]
@@ -333,4 +334,31 @@ fn right_click_shortcuts_follow_the_real_platform() {
     assert_eq!(shortcut_on_platform(save, &win), "Ctrl+S");
     // 字面 Alt 两段键不是主修饰键，任何平台都照基线原样。
     assert_eq!(shortcut_on_platform(wrap, &win), "Alt+M, Alt+W");
+}
+
+/// 用户重绑后右键列必须跟菜单栏同一条映射：有 gate 的行问 `map.display`，
+/// 不再拿基线里的出厂键硬画。否则「右键写 Meta+S、菜单写 Ctrl+Shift+S」
+/// 这种两处不一致会让用户以为重绑没生效。
+#[test]
+fn a_user_rebind_shows_in_both_the_menu_and_the_right_click_column() {
+    use term_app::shortcut_map::{KeyBindingMap, Platform};
+    let save = VIEW_ROWS.iter().find(|r| r.label == "Save Session").unwrap();
+    let user = vec![(
+        term_app::menu::context_ids::SAVE_SESSION.to_string(),
+        "Cmd+Shift+S".to_string(),
+    )];
+    for platform in [Platform::Macos, Platform::Windows] {
+        let map = KeyBindingMap::new(&user, platform);
+        let menu = map.display(term_app::menu::context_ids::SAVE_SESSION);
+        assert_eq!(menu, display_chord("Cmd+Shift+S", platform));
+        assert_eq!(
+            shortcut_on_platform(save, &map),
+            menu,
+            "右键列与菜单栏必须同源：{platform:?}"
+        );
+    }
+    // 非 gate 行仍按平台折出厂基线（`Cmd+` → `Ctrl+`），不会被重绑误伤。
+    let find = TERMINAL_ROWS.iter().find(|r| r.label == "Find").unwrap();
+    let win = KeyBindingMap::new(&user, Platform::Windows);
+    assert_eq!(shortcut_on_platform(find, &win), "Ctrl+F");
 }

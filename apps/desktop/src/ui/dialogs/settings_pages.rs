@@ -181,7 +181,8 @@ const ONEKEYS_NOTE: &str = "Credentials stored here are used automatically by SS
 ///
 /// `Tabs` 同一天先写成专句（「五项缺口」），随后被接走了三项、整页改成手绘，
 /// 那句就**删掉**而不是留着：一张八行里已经有三行能动的页，再说「五项全缺」
-/// 是反向的谎。它现在的说明在 `settings_live_tabs.rs` 的 `TABS_NOTE`。
+/// 是反向的谎。后来整页都接成真控件，`settings_live_tabs.rs` 里的说明也一并
+/// 移除——这里不再有 `TABS_NOTE` 可以指，别再拿旧名字当作还活着的文案。
 /// `Terminal` 走了同一条路（那句「三处缺口 / 粘贴门控没有闸」在粘贴确认
 /// 接上之后已经是假话），说明搬去 `settings_live_terminal.rs` 的 `TERMINAL_NOTE`。
 ///

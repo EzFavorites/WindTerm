@@ -6,7 +6,9 @@
 //!
 //! 这里一个命令 ID 字面量都没有：`dispatch(id)` 拿映射层给出的 ID。
 //! 重绑先构造候选映射、跑冲突检测，再经 `save_prefs` 写回 `shortcut_bindings`；
-//! 老 prefs 的 `shortcut_overrides`（数组下标）在 `build_runtime` 里一次性迁移。
+//! 老 prefs 的 `shortcut_overrides`（数组下标）在 `build_runtime` 里一次性迁移，
+//! 走完整的 `migrate_legacy_with_report` 入口：越界下标与被回滚的冲突绑定
+//! 汇总成启动提示，经首帧的 `sync_prefs_rev` 上屏，不再静默丢弃。
 //!
 //! **两段式键**（`Alt+W, Alt+H`）同样来自映射层：`sequence_table` 从绑定派生
 //! 运行期表，纯层 `KeySeqState` 判定「这一击是前缀 / 命中 / 放过」。单段与
@@ -17,6 +19,16 @@ use crate::ui::*;
 use super::settings_live::save_prefs;
 use term_app::shortcuts::{self, Chord, SeqStep};
 use term_app::shortcut_map::{KeyBindingMap, Platform};
+
+/// 启动期迁移丢弃项的汇总提示。放在这里而不是窗口字段上，是因为
+/// `build_runtime` 在 `construct.rs` 里被调用，早于 `TerminalWindow` 构造完成；
+/// 首帧的前置阶段取走一次，写进状态栏的 `log_note`。
+static STARTUP_MIGRATION_NOTICE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// 取走启动期迁移提示（取走即清空，只上屏一次）。
+pub(in crate::ui) fn take_startup_migration_notice() -> Option<String> {
+    STARTUP_MIGRATION_NOTICE.lock().ok().and_then(|mut slot| slot.take())
+}
 
 /// 命令 ID 的展示名。设置页那张表仍带人类可读 label，新映射层只认 ID。
 fn label_for(id: &str) -> String {
@@ -44,12 +56,38 @@ pub(in crate::ui) fn build_runtime(
         Ok("macos") => Platform::Macos,
         _ => Platform::current(),
     };
-    let user = if prefs.shortcut_bindings.is_empty() {
-        term_app::shortcut_map::migrate_legacy(&prefs.shortcut_overrides)
+    // 完整迁移入口：新字段为空时才按下标快照迁移，越界项进 dropped_indices；
+    // 新字段非空时以它为准（旧下标字段理应已被写口清空）。两条分支都走
+    // `migrate_legacy_with_report`，简版 `migrate_legacy` 会把丢弃报告扔掉。
+    let migration = if prefs.shortcut_bindings.is_empty() {
+        term_app::shortcut_map::migrate_legacy_with_report(&prefs.shortcut_overrides, &[])
     } else {
-        prefs.shortcut_bindings.clone()
+        term_app::shortcut_map::migrate_legacy_with_report(&[], &prefs.shortcut_bindings)
     };
-    let map = KeyBindingMap::new(&user, platform);
+    let map = KeyBindingMap::new(&migration.bindings, platform);
+
+    // 两类丢弃项：越界的旧下标 + 与既有绑定冲突而被回滚的用户绑定。
+    // 它们过去只有测试读，用户看到的是「绑定莫名其妙没了」。
+    let mut dropped: Vec<String> = migration
+        .dropped_indices
+        .iter()
+        .map(|index| format!("#{index}"))
+        .collect();
+    dropped.extend(
+        map.rejected_user_bindings()
+            .iter()
+            .map(|(id, chord)| format!("{id}={chord}")),
+    );
+    if !dropped.is_empty() {
+        if let Ok(mut slot) = STARTUP_MIGRATION_NOTICE.lock() {
+            *slot = Some(format!(
+                "快捷键迁移丢弃 {} 项：{}",
+                dropped.len(),
+                dropped.join("，")
+            ));
+        }
+    }
+
     let seq = sequence_table(&map);
     (map, seq)
 }

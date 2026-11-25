@@ -33,8 +33,7 @@
 
 use crate::persist::{fingerprint_bytes, write_atomic_if_unchanged, AtomicWriteError};
 use serde::{Deserialize, Serialize};
-use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use term_core::command_history::CommandHistory;
@@ -117,6 +116,33 @@ pub struct ScriptEntry {
     pub description: String,
     #[serde(default = "default_true")]
     pub enabled: bool,
+}
+
+/// 一份 [`Prefs`] 快照「从哪份盘上字节读来」的基线指纹。
+///
+/// 这是**元数据，不是用户偏好**：不落盘（`#[serde(skip)]`），也不参与
+/// [`Prefs`] 的相等比较——读回的快照和手写的期望值在调用方眼里必须相等。
+/// 指纹绑在**实例**上而不是线程上：同线程里另一次无关的 `load()` 绝不能把
+/// 一份已经过期的快照「洗白」成最新（那正是旧实现「明明冲突却通过」的漏洞）。
+/// `Cell` 让 `save(&Prefs)` 在成功后把基线上移到刚写出的字节，而不必把全仓
+/// 十几处写口全改成 `&mut`。
+#[derive(Clone, Debug, Default)]
+pub struct ExpectedFingerprint(Cell<Option<u64>>);
+
+impl ExpectedFingerprint {
+    fn get(&self) -> Option<u64> {
+        self.0.get()
+    }
+
+    fn set(&self, fingerprint: Option<u64>) {
+        self.0.set(fingerprint);
+    }
+}
+
+impl PartialEq for ExpectedFingerprint {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -638,6 +664,10 @@ pub struct Prefs {
     /// 上面的出厂值，不影响同文件里的其它设置。
     #[serde(default)]
     pub completion: term_core::completion::Settings,
+    /// 这份快照的盘上基线指纹。**不要手写**：只由 [`load`] / 成功的
+    /// [`save`] 维护，见 [`ExpectedFingerprint`]。
+    #[serde(skip)]
+    pub expected_fingerprint: ExpectedFingerprint,
 }
 
 /// `command_history_save` 的出厂默认：开（视觉基线设置页出厂态是勾上的）。
@@ -814,6 +844,8 @@ impl Default for Prefs {
             // I-AC：与 serde 默认逐项对齐——出厂时补全整体关闭，界面与
             // 视觉基线那张六勾全空、1 字符 / 7 行 / Nowhere 的截图一致。
             completion: term_core::completion::Settings::default(),
+            // 出厂快照没有盘上基线：第一次写不比对，写完再记。
+            expected_fingerprint: ExpectedFingerprint::default(),
         }
     }
 }
@@ -1059,31 +1091,10 @@ fn prefs_path() -> Option<PathBuf> {
     Some(term_paths::profile_dir()?.join(PREFS_FILE))
 }
 
-// 本线程最后一次「亲眼看到」的每份 prefs 文件内容指纹。
-//
-// `load()` 记下读到的字节，`save()` 成功后记下写出的字节——两者都是这条
-// load-modify-save 链路上我们见过的版本。别的线程 / 进程各有自己的表，
-// 互不干扰，这正是「两个进程」的分界。写盘前的比较就是拿盘上现在的
-// 指纹问这张表：不一致说明有人在我们读完之后动过文件。
+// 最近一次写盘失败的原因。只是一条「给 UI 看的一次性提示」，不是冲突判据：
+// 判据绑在每份 Prefs 实例的 `expected_fingerprint` 上（见上文）。
 thread_local! {
-    static SEEN: RefCell<HashMap<PathBuf, u64>> = RefCell::new(HashMap::new());
     static LAST_SAVE_ERROR: Cell<Option<SaveError>> = const { Cell::new(None) };
-}
-
-fn remember(path: &Path, fingerprint: u64) {
-    SEEN.with(|seen| {
-        seen.borrow_mut().insert(path.to_path_buf(), fingerprint);
-    });
-}
-
-fn forget(path: &Path) {
-    SEEN.with(|seen| {
-        seen.borrow_mut().remove(path);
-    });
-}
-
-fn baseline(path: &Path) -> Option<u64> {
-    SEEN.with(|seen| seen.borrow().get(path).copied())
 }
 
 /// 写偏好失败的原因。`save()` 的 `bool` 只够调用方知道「没写成」，
@@ -1115,18 +1126,24 @@ impl SaveError {
 }
 
 /// 最近一次 [`save`] / [`save_to_path`] / [`save_checked`] 的失败原因；
-/// 成功时清空。本线程本地，和 [`SEEN`] 同一条边界——UI 在自己的线程上
-/// 写完就能取到，用来决定要不要弹「请重做」的提示。
+/// 成功时清空。本线程本地——UI 在自己的线程上写完就能取到，用来决定是否
+/// 弹「请重做」的提示。
 pub fn last_save_error() -> Option<SaveError> {
     LAST_SAVE_ERROR.with(|e| e.get())
+}
+
+/// UI 已经把 [`last_save_error`] 画成提示后清空它，免得下一次正常保存之前
+/// 一直挂着上次的「请重做」。每帧的首置阶段会取一次（见 `pre_update_gate`）。
+pub fn clear_last_save_error() {
+    LAST_SAVE_ERROR.with(|e| e.set(None));
 }
 
 /// 读偏好。文件不存在 / 读不出来 / JSON 坏了都返回 `None`——调用方据此
 /// 保持默认值，不需要区分是哪一种失败（都不该拦住启动）。
 ///
 /// **读的宽容不等于写的宽容**：这三种失败对「能不能覆盖」的答案完全不同，
-/// 写路径会用 [`read_disk`] 再问一次（见 [`save`]）。读到这里时还会记下
-/// 这份字节的指纹，作为随后那次 save 的乐观锁基线。
+/// 写路径会用 [`read_disk`] 再问一次（见 [`save`]）。读到这里时还会把这份
+/// 字节的指纹记在**返回的实例上**，作为随后那次 save 的冲突基线。
 pub fn load() -> Option<Prefs> {
     prefs_path().and_then(|p| load_from(&p))
 }
@@ -1157,12 +1174,17 @@ pub fn exists() -> bool {
 /// 并返回 `false`：宁可让用户这一下改动不生效（下次打开设置页还看到旧值，
 /// 改动再点一次就是了），也不要把原文件换成出厂值。
 ///
-/// # 跨进程的 load-modify-save
+/// # 跨进程的 load-modify-save：best-effort 冲突提示，不是事务
 ///
 /// 光保全坏文件还不够：两个进程都读到同一份**合法**的旧文件，各改一个键，
 /// 后写者会把先写者那一项整份盖回去，而且没有任何报错。所以写前再读一次
-/// 指纹，与本线程 `load()` / 上次成功 `save()` 记下的基线比对——不一致就是
-/// [`SaveError::Conflict`]，写被拒绝，用户重做即可，绝不静默回退。
+/// 指纹，与**这份实例自己**在 `load()` / 上次成功 `save()` 记下的基线比对——
+/// 不一致就是 [`SaveError::Conflict`]，写被拒绝，用户重做即可，绝不静默回退。
+///
+/// 这是 best-effort 的提示，**不是 CAS、也不是事务**：读指纹与 rename 之间
+/// 仍有一个极短的窗口，并行到那一步的写仍可能被覆盖；它挡的是「用户手改 /
+/// 另一个进程已经落盘，而我手里是一份陈旧快照」这种常见事故。基线绑在实例
+/// 上，同线程另一次无关的 `load()` 不会把过期快照洗白。
 ///
 /// 这一步的代价是每次写多读一遍这个几百字节的文件——设置页的写只在
 /// 「松手 / 点一下」时发生，不在每帧。
@@ -1237,9 +1259,11 @@ fn read_disk(path: &Path) -> (Option<u64>, Result<Prefs, LoadError>) {
 fn save_to_checked(path: &Path, prefs: &Prefs) -> Result<u64, SaveError> {
     let (fingerprint, parsed) = read_disk(path);
 
-    // 乐观锁：盘上的内容必须还是我们见过的那一份。没基线（第一次写、
-    // 手改后从未 load 过的显式路径写）才跳过——那种调用方没有可过期的快照。
-    if let Some(want) = baseline(path) {
+    // best-effort 冲突提示：盘上的内容必须还是**这份实例**见过的那一份。
+    // 没基线（第一次写、手改后从未 load 过的显式路径写）才跳过——那种调用方
+    // 没有可过期的快照。判据不在线程全局表里，所以同线程别的 load/save 改
+    // 不到这份快照的基线，「明明冲突却通过」不再可能。
+    if let Some(want) = prefs.expected_fingerprint.get() {
         if fingerprint != Some(want) {
             return Err(SaveError::Conflict);
         }
@@ -1262,8 +1286,8 @@ fn save_to_checked(path: &Path, prefs: &Prefs) -> Result<u64, SaveError> {
     };
     match write_atomic_if_unchanged(path, fingerprint, json.as_bytes()) {
         Ok(new_fingerprint) => {
-            // 接下来同一进程再 save 时，基线上移到这次写出的字节。
-            remember(path, new_fingerprint);
+            // 这份实例下一次 save 时，基线上移到这次写出的字节。
+            prefs.expected_fingerprint.set(Some(new_fingerprint));
             Ok(new_fingerprint)
         }
         Err(AtomicWriteError::Conflict) => Err(SaveError::Conflict),
@@ -1297,14 +1321,14 @@ enum LoadError {
 
 /// 宽容版：界面只要「读到就用，读不到就用默认值」这一个动作。
 ///
-/// 顺手记下这次**亲眼看到**的字节指纹：随后 `load-modify-save` 里的 save
-/// 就是拿它跟盘上内容比，发现别人动过就拒写（见 [`save_checked`]）。
-/// 文件不存在时清掉旧基线，免得上次保存的指纹把这次「从零开始」误判成冲突。
+/// 顺手把这次**亲眼看到**的字节指纹记在**读出来的这份实例上**：随后
+/// `load-modify-save` 里的 save 就是拿它跟盘上内容比，发现别人动过就拒写
+/// （见 [`save_checked`]）。文件不存在时新实例天然没有基线，不会误判。
+/// 关键在于这里不写任何线程全局表——同线程另一次 load 不会洗白旧快照。
 fn load_from(path: &Path) -> Option<Prefs> {
-    let (fingerprint, parsed) = read_disk(path);
-    match fingerprint {
-        Some(fp) => remember(path, fp),
-        None => forget(path),
+    let (fingerprint, mut parsed) = read_disk(path);
+    if let Ok(prefs) = &mut parsed {
+        prefs.expected_fingerprint.set(fingerprint);
     }
     parsed.ok()
 }
@@ -2544,7 +2568,7 @@ mod tests {
 
     /// 两个进程各自 load 了同一份合法 prefs、各改一个键：后写者不许把先写者
     /// 的键整份盖回去，也不许假装成功。本线程扮演进程 B（先读、后写），
-    /// 另一个线程扮演进程 A（中间读改并写）——线程本地的 SEEN 表就是进程边界。
+    /// 另一个线程扮演进程 A（中间读改并写）——两份实例各带各的基线，互不干扰。
     #[test]
     fn two_writers_on_different_keys_do_not_silently_regress() {
         let path = tmp();
@@ -2600,5 +2624,32 @@ mod tests {
         let fresh = load_from(&path).unwrap();
         assert!(save_to(&path, &fresh));
         assert_eq!(last_save_error(), None);
+        clear_last_save_error();
+    }
+
+    /// 旧实现的「明明冲突却通过」：基线放在线程本地表里，同线程任何一次
+    /// 无关 `load()` 都会把它刷成最新指纹，于是手里那份陈旧快照反而通过
+    /// 了冲突检查。判据移到实例上以后这件事不能再发生。
+    #[test]
+    fn an_unrelated_load_cannot_make_a_stale_snapshot_pass() {
+        let path = tmp();
+        let base = Prefs { language: "en".to_string(), ..Prefs::default() };
+        assert!(save_to(&path, &base));
+
+        let mut stale = load_from(&path).expect("旧快照读到基线");
+        // 另一个进程 / 编辑器改了盘上内容。
+        std::fs::write(&path, r#"{"language":"zh-CN"}"#).unwrap();
+        // 同一线程又读了一次（例如渲染另一页时）：旧表在这里把基线洗白。
+        let _fresh = load_from(&path).expect("另一次 load 是无关动作");
+
+        stale.font_size = 20.0;
+        assert!(!save_to(&path, &stale), "陈旧快照不得因为同线程另一次 load 而通过");
+        assert_eq!(last_save_error(), Some(SaveError::Conflict));
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            r#"{"language":"zh-CN"}"#,
+            "被拒的写不能改动盘上内容"
+        );
+        clear_last_save_error();
     }
 }

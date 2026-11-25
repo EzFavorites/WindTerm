@@ -62,7 +62,10 @@ const LABEL_W: f32 = 110.0;
 pub(in crate::ui) fn save_prefs(edit: impl FnOnce(&mut term_runtime::prefs::Prefs)) {
     let mut prefs = term_runtime::prefs::load().unwrap_or_default();
     edit(&mut prefs);
-    term_runtime::prefs::save(&prefs);
+    // 失败原因（尤其是「别人改过，请重做」）留在 prefs 层的 last_save_error
+    // 里；每帧首置阶段的 sync_prefs_rev 取一次，用 SaveError::message() 写进
+    // 状态栏的 log_note。这里不另存第二份提示，免得两处文案分叉。
+    let _ = term_runtime::prefs::save_checked(&prefs);
 }
 
 /// 「读不出来的 prefs.json 已经另存了一份」的提示条。
@@ -274,9 +277,8 @@ pub(in crate::ui) fn filer(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             // 先重列再落盘：列表与勾选态同一帧对上，写盘慢一点也看不出来。
             win.reload_local_dir();
             // load-modify-save：只动这一个位，语言 / 历史 / 搜索模板原样保留。
-            let mut prefs = term_runtime::prefs::load().unwrap_or_default();
-            prefs.filer_show_hidden = on;
-            term_runtime::prefs::save(&prefs);
+            // 与其余写口共用同一 helper，失败提示才不会漏在这一个页面上。
+            save_prefs(|prefs| prefs.filer_show_hidden = on);
         }
     });
     // 视觉基线没有页脚说明；灰行理由挂在 hover 上。
@@ -428,12 +430,12 @@ pub(in crate::ui) fn command_history(win: &mut TerminalWindow, ui: &mut egui::Ui
     }
     if persist {
         // load-modify-save：只动这三个字段。整份重建会把语言 / 启动策略 /
-        // 光标样式悄悄清掉。
-        let mut prefs = term_runtime::prefs::load().unwrap_or_default();
-        prefs.command_history_days = days;
-        prefs.command_history_size = size;
-        prefs.command_history_save = save;
-        term_runtime::prefs::save(&prefs);
+        // 光标样式悄悄清掉。统一走 save_prefs，失败也进同一条提示通道。
+        save_prefs(|prefs| {
+            prefs.command_history_days = days;
+            prefs.command_history_size = size;
+            prefs.command_history_save = save;
+        });
     }
 }
 

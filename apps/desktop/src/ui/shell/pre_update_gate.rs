@@ -45,6 +45,18 @@ impl TerminalWindow {
                 ctx.request_repaint();
             }
         }
+        // 启动期快捷键迁移丢弃项（越界旧下标 / 冲突用户绑定）只提示一次。
+        if let Some(note) = crate::ui::dialogs::shortcuts::take_startup_migration_notice() {
+            self.log_note = Some(note);
+            ctx.request_repaint();
+        }
+        // 写盘失败也在这一处上屏：光返回 bool 没人看，等于冲突静默丢掉。
+        // 取走即清空，下一次正常保存之后不会还挂着上次的「请重做」。
+        if let Some(err) = term_profile::prefs::last_save_error() {
+            self.log_note = Some(err.message().to_string());
+            term_profile::prefs::clear_last_save_error();
+            ctx.request_repaint();
+        }
     }
 
     /// 模态期间的键盘收口：灰罩只吞鼠标，键盘在这里按**白名单**统一处理。

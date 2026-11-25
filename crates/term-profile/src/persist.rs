@@ -26,7 +26,7 @@
 //! 照 `term-ssh/src/known_hosts_admin.rs::write_atomic` 的范式，零新依赖。
 //! rename 失败会 `remove_file` 清掉临时文件，目录里不许留半截账本。
 //!
-//! # 跨进程 load-modify-save 的乐观锁
+//! # 跨进程 load-modify-save 的 best-effort 冲突提示
 //!
 //! 唯一临时名只保证「两次原子写不互相踩临时文件」，挡不住更常见的那次事故：
 //! 两个进程都 load 了旧 `prefs.json`，各自改一个键再 save，后写的那份把先写
@@ -34,6 +34,10 @@
 //! 一次文件指纹，与调用方 load 时记下的基线比对；不一致就返回
 //! [`AtomicWriteError::Conflict`]，由 `prefs::save` 翻译成明确错误让 UI 提示用户
 //! 重做，绝不静默覆盖。
+//!
+//! 这是 best-effort 的提示，**不是 CAS、也不是事务**：读指纹与 rename 之间
+//! 仍留有一个极短的窗口，恰好挤进来的写仍可能被盖掉。它挡的是「别人已经
+//! 改过盘、而我手里是陈旧快照」这类日常事故，不承诺串行化整段事务。
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -123,16 +127,17 @@ pub(crate) fn fingerprint_bytes(bytes: &[u8]) -> u64 {
     hasher.finish()
 }
 
-/// 只在 `path` 的当前内容等于 `expected` 时才原子写。
+/// 只在 `path` 的当前内容等于 `expected` 时才原子写（best-effort）。
 ///
 /// `expected = None` 表示调用方没有基线（例如第一次写、或手改文件读不出来），
 /// 此时退化为普通原子写。返回写完后新内容的指纹，调用方把它记成下一次的
 /// 基线；冲突与 IO 失败分开报，让 UI 能说出「有人改过，请重做」而不是
 /// 笼统的「保存失败」。
 ///
-/// 注意这是**乐观检测**而不是事务：读指纹与 rename 之间仍有一个极短的窗口。
-/// 对 `prefs.json` 这种「用户点一下才写一次」的文件足够；真要串行化整段
-/// load-modify-save，得让调用方持有锁跨过 load 与 save，那是另一刀。
+/// 注意这是**尽力而为的检测**，不是 CAS / 事务：读指纹与 rename 之间仍有
+/// 一个极短的窗口。对 `prefs.json` 这种「用户点一下才写一次」的文件足够；
+/// 真要串行化整段 load-modify-save，得让调用方持有锁跨过 load 与 save，
+/// 那是另一刀。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AtomicWriteError {
     /// 基线已过期：盘上内容在 load 之后被别的进程（或用户手改）动过。
@@ -552,7 +557,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compare_and_swap_write_refuses_an_overwritten_baseline() {
+    fn a_best_effort_conflict_check_refuses_an_overwritten_baseline() {
         let path = tmp_file().with_file_name("prefs.json");
         let first = write_atomic_if_unchanged(&path, None, b"{\"language\":\"en\"}").unwrap();
         assert_eq!(Some(first), file_fingerprint(&path), "指纹必须对应刚写下的字节");
