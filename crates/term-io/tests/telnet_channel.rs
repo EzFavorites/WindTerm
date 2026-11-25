@@ -66,13 +66,28 @@ impl MockServer {
             let mut conn: TcpStream = loop {
                 match listener.accept() {
                     Ok((conn, _)) => break conn,
-                    Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                    // 非阻塞 accept 在负载/信号下也可能返回 Interrupted。过去
+                    // 只容忍 WouldBlock，偶发的 Interrupted 会让线程 panic、
+                    // 监听器随之 drop，后面所有连接都变成 Connection refused。
+                    Err(err)
+                        if matches!(
+                            err.kind(),
+                            ErrorKind::WouldBlock | ErrorKind::Interrupted
+                        ) =>
+                    {
                         if thread_stop.load(Ordering::SeqCst) {
                             return;
                         }
                         thread::sleep(Duration::from_millis(2));
                     }
-                    Err(err) => panic!("mock 服务端 accept 失败：{err}"),
+                    // 任何 accept 失败都只重试，不让线程退出：线程一退，
+                    // listener 随之 drop，客户端就会拿到 Connection refused。
+                    Err(_) => {
+                        if thread_stop.load(Ordering::SeqCst) {
+                            return;
+                        }
+                        thread::sleep(Duration::from_millis(2));
+                    }
                 }
             };
             let _ = conn.set_read_timeout(Some(Duration::from_millis(20)));
