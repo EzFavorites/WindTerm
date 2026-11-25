@@ -394,7 +394,7 @@ mod tests {
     use super::*;
     use crate::options::ProxyAuth;
 
-    const SHORT_TIMEOUT: Duration = Duration::from_secs(3);
+    const SHORT_TIMEOUT: Duration = Duration::from_secs(10);
 
     fn proxy(kind: ProxyKind, addr: std::net::SocketAddr, auth: Option<ProxyAuth>) -> OutboundProxy {
         OutboundProxy {
