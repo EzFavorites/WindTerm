@@ -76,9 +76,10 @@ term-desk script run a.rhai --timeout 30 --quiet
 门面提供 SecureCRT 的**对象形状**，但注册名是 Rhai 的 snake_case：入口是函数调用
 `crt()`，后面接小写属性与方法——`crt().screen.send(...)` 转发到 `write`、
 `crt().screen.wait_for_string(...)` 转发到 `read_until`（消费式）、
-`crt().screen.get(...)` 转发到 `region`。**当前没有注册 PascalCase 别名**
-（`crt.Screen.Send(...)` 之类会报 Function not found），所以照 CRT 手册抄下来的
-脚本要按下面的速查表改写。门面只提供形状，不提供 VBScript / Python 解释器。
+`crt().screen.get(...)` 转发到 `region`。对象上的 PascalCase 别名也已注册
+（`crt().Screen.Send(...)`、`crt().GetTab(1)` 可用），所以照 CRT 手册抄下来的脚本
+大多能直接跑；注意入口必须写成函数调用 `crt()`，不是属性 `crt.`。下面的速查表
+只是风格参考，不是必改清单。门面只提供形状，不提供 VBScript / Python 解释器。
 
 | SecureCRT 写法 | WindTerm / Rhai 写法 | 说明 |
 |---|---|---|
