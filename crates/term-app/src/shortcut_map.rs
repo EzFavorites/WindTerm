@@ -19,6 +19,11 @@
 use crate::shortcuts::{self, Chord};
 use std::sync::OnceLock;
 
+// prefs 两份字段的收敛规则拆到子模块，给本文件的 4j 余量腾地方；调用方看到的
+// 路径仍是 `term_app::shortcut_map::*`，这里只做透明再导出。
+mod prefs;
+pub use prefs::{drop_rejected_bindings, normalized_prefs_fields, reset_prefs_fields};
+
 /// 出厂展示文案的缓存。每个 id 只 leak 一次（条目数有界 = 绑定表长度），
 /// 让兼容接口 `menu::shortcut_text` 仍返回 `&'static str` 而不再手写第二份。
 static DISPLAY_CACHE: OnceLock<std::collections::HashMap<&'static str, &'static str>> =
@@ -276,43 +281,6 @@ pub fn migrate_legacy(overrides: &[(usize, String)]) -> Vec<(String, String)> {
     migrate_legacy_with_report(overrides, &[]).bindings
 }
 
-/// 写盘前把两份字段收敛到「新字段 + 旧字段为空」的形态。
-///
-/// 与 [`migrate_legacy_with_report`] 同一套规则，但以整个 `prefs` 的两份输入为
-/// 参数，方便调用方直接在 `save_prefs` 的闭包里写回两个字段。
-pub fn normalized_prefs_fields(
-    bindings: &[(String, String)],
-    overrides: &[(usize, String)],
-) -> (Vec<(String, String)>, Vec<(usize, String)>) {
-    let migration = migrate_legacy_with_report(overrides, bindings);
-    (migration.bindings, migration.overrides)
-}
-
-/// Reset 必须同时清两份字段：只清新字段时，下次读盘迁移会把旧下标重新点亮。
-pub fn reset_prefs_fields() -> (Vec<(String, String)>, Vec<(usize, String)>) {
-    (Vec::new(), Vec::new())
-}
-
-/// 写盘前把被回滚的冲突绑定从用户绑定里剔除。
-///
-/// [`KeyBindingMap::new`] 只把冲突项记进 `rejected_user_bindings`：调用方若照原样
-/// 写回 prefs，下次重启会再次冲突、再报一次提示，而那条绑定永远不生效。剔除
-/// 规则放在数据层，UI 的启动时清理与重绑写口共用同一份口径。
-pub fn drop_rejected_bindings(
-    bindings: &[(String, String)],
-    rejected: &[(String, String)],
-) -> Vec<(String, String)> {
-    bindings
-        .iter()
-        .filter(|binding| {
-            !rejected
-                .iter()
-                .any(|r| r.0 == binding.0 && r.1 == binding.1)
-        })
-        .cloned()
-        .collect()
-}
-
 /// 两段按键是否是真前缀（差一段以上、且短的逐段等于长的开头）。
 ///
 /// 相等不算前缀：那是 [`KeyBindingMap::conflicts`] 的另一半判据。
@@ -537,36 +505,6 @@ mod tests {
         assert!(migration.overrides.is_empty(), "旧字段必须在写盘时清空");
     }
 
-    /// 模拟「迁移写盘 → Reset → 重启读盘」的完整一圈：Resets 不清旧字段时，
-    /// 第二次读盘会按下标重新点亮绑定，用户看到的是「Reset 后又复活」。
-    #[test]
-    fn migrated_bindings_do_not_come_back_after_reset_and_restart() {
-        let legacy = vec![(11usize, "Cmd+L".to_string())];
-        let first = migrate_legacy_with_report(&legacy, &[]);
-        assert_eq!(
-            first.bindings,
-            vec![("Window.WindowList".to_string(), "Cmd+L".to_string())]
-        );
-        // 写盘：新字段写结果、旧字段清空。
-        let (bindings, overrides) = (first.bindings, first.overrides);
-        assert!(overrides.is_empty());
-        assert!(!bindings.is_empty());
-
-        // Reset：两份字段一起清。
-        let (bindings, overrides) = reset_prefs_fields();
-        assert!(bindings.is_empty() && overrides.is_empty());
-
-        // 重启：simulate load-modify-save 的收敛，仍然全空。
-        let (restart_bindings, restart_overrides) = normalized_prefs_fields(&bindings, &overrides);
-        assert!(restart_bindings.is_empty(), "Reset 后不许复活");
-        assert!(restart_overrides.is_empty());
-        assert_eq!(
-            KeyBindingMap::new(&restart_bindings, Platform::Macos).display("Window.WindowList"),
-            default_display("Window.WindowList"),
-            "Reset 后应回到出厂和弦，不是旧下标指向的重绑和弦"
-        );
-    }
-
     #[test]
     fn a_new_field_wins_and_the_old_field_is_cleared() {
         let new = vec![("Text.Find".to_string(), "Cmd+F".to_string())];
@@ -588,20 +526,6 @@ mod tests {
         assert!(!map.user_bindings().iter().any(|(id, _)| id == "Text.Paste"));
         let pressed = shortcuts::parse_chord_seq("Cmd+Shift+F").unwrap();
         assert_eq!(map.dispatch(&pressed), Some("Text.Find"));
-    }
-
-    #[test]
-    fn dropped_rejected_bindings_do_not_conflict_again_on_restart() {
-        let user = vec![
-            ("Text.Find".to_string(), "Cmd+Shift+F".to_string()),
-            ("Text.Paste".to_string(), "Cmd+Shift+F".to_string()),
-            ("Window.WindowList".to_string(), "Cmd+L".to_string()),
-        ];
-        let map = KeyBindingMap::new(&user, Platform::Macos);
-        let kept = drop_rejected_bindings(&user, map.rejected_user_bindings());
-        assert_eq!(kept, vec![user[0].clone(), user[2].clone()]);
-        let restarted = KeyBindingMap::new(&kept, Platform::Macos);
-        assert!(restarted.rejected_user_bindings().is_empty());
     }
 
     #[test]

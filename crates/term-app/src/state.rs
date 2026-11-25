@@ -73,7 +73,8 @@ pub struct FindState {
     /// `W`（Match Whole Word）：命中两端必须是词边界。
     ///
     /// 与 `case_sensitive` 同一条纪律——**只由 `reduce` 写**，投影层只读；
-    /// 匹配集合在 `term_core::find::find_matches_in` 里算，这里不存结果。
+    /// 匹配集合由 `app::find::matches` 现算：字面走缓存包装
+    /// `find_matches_literal_cached`，正则走 term-core 的正则引擎；这里不存结果。
     pub whole_word: bool,
     /// `.*`（Regular Expression）：查询串按正则解释。与大小写 / 整词同一纪律，
     /// 只由 `reduce` 写；匹配集合在 `find::matches` 里按这一位选字面 / 正则引擎。

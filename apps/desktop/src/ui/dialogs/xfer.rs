@@ -22,6 +22,17 @@
 
 use crate::ui::kit::window::{DialogId, DialogWindow};
 
+/// 拖放预填的显式事实：原始路径表 + 填进输入框的那段文本。
+///
+/// 多条路径用 `;` 拼成文本会丢掉「哪段是一个文件」的事实——文件名本身就能含
+/// `;`。所以把 `Vec<PathBuf>` 原样带在弹层上，确认时交给驱动层逐条处理；`text`
+/// 只在「输入框内容仍是预填原文」时用作凭据，用户一改就整份作废。
+#[derive(Clone, Debug)]
+pub(in crate::ui) struct DroppedPaths {
+    pub paths: Vec<PathBuf>,
+    pub text: String,
+}
+
 /// 文件传输提示里的两个动作按钮：沿用裸 `ui.button` 的尺寸，
 /// 绘制收在 `kit::footer`（与 SSH 流程那几个同源）。
 fn action_button(ui: &mut egui::Ui, label: &str) -> bool {
@@ -58,8 +69,15 @@ pub(in crate::ui) struct XferPrompt {
     /// 拖放可能落进一个真名里带 `;` 的文件（例如 `/tmp/a;b.txt`）。只有带着这个
     /// 事实，驱动侧的 `send_target_paths` 才启用「整条路径存在就当单路径」闸门；
     /// 用户手动输入的 `a;b` 保持 `false`，始终按多文件碎片判定。事实放在弹层上
-    /// 一路传到 `start_with_literal`，不在驱动层靠路径形状猜来源。
+    /// 一路传到 `start_with_policy` 的 `literal_single` 参数，不在驱动层靠路径
+    /// 形状猜来源。用户一改输入框就清掉（见 `draw_prompt`）。
     pub literal_single: bool,
+    /// 多文件拖放拿到的原始路径表（`modem_drop` 填入）。
+    ///
+    /// 单条时也带着，但驱动侧只用 `literal_single` 那条闸门；多条时它是唯一能
+    /// 保住「含 `;` 的文件名不被拆」的事实，交给 `start_with_policy`。用户改动
+    /// 输入框后与 `literal_single` 一起清空，避免拿旧事实发新路径。
+    pub dropped: Option<DroppedPaths>,
     /// 接收完成后是否用系统默认程序打开目标目录（X/Y/ZMODEM 文档都有此条）。
     pub open_after: bool,
     /// 接收侧同名冲突策略（官网 page/14 七档，见 `xfer_conflict::POLICIES`）。发送侧不用，
@@ -120,10 +138,23 @@ impl XferPrompt {
             path: String::new(),
             // 菜单/自动触发打开的弹层都是用户手动填路径，不是拖放单条。
             literal_single: false,
+            dropped: None,
             open_after: false,
             policy: Default::default(),
             error: None,
         })
+    }
+
+    /// 只有输入框内容仍是拖放预填原文时，原始路径表才是当前事实。
+    ///
+    /// 别处（自动上传 / 手改文本）写过 `path` 后这张表就是旧快照，不能拿它发
+    /// 新路径；与 `literal_single` 一起由 `draw_prompt` 在用户编辑时清空是主路，
+    /// 这里再按文本比对兜一道。
+    pub(in crate::ui) fn usable_dropped_paths(&self, path: &std::path::Path) -> Option<Vec<PathBuf>> {
+        self.dropped
+            .as_ref()
+            .filter(|d| d.text == path.to_string_lossy())
+            .map(|d| d.paths.clone())
     }
 
     /// 窗口标题。
@@ -220,6 +251,14 @@ pub(in crate::ui) fn draw_prompt(ctx: &egui::Context, prompt: &mut XferPrompt) -
                     .hint_text(placeholder)
                     .desired_width(f32::INFINITY),
             );
+            // egui 只在输入框真收到用户事件时 mark_changed：拖放预填是在画之前
+            // 写进 prompt.path 的，不会误触这里。手一改，来源事实立刻作废——
+            // 否则预填的 `literal_single` / 路径表会把用户新敲的 `a;b` 当成
+            // 一条拖放文件吞掉（那本该发两个文件）。
+            if resp.changed() {
+                prompt.literal_single = false;
+                prompt.dropped = None;
+            }
             // 首次打开把焦点放进来；已经有控件拿着焦点就不抢（否则点 Cancel 的
             // 那一帧会被拉回输入框）。
             if ui.memory(|m| m.focused().is_none()) {
@@ -355,6 +394,122 @@ mod tests {
             "首尾空白要去掉"
         );
         assert!(prompt.error.is_none());
+    }
+
+    /// 拖放预填一条路径后，用户手输 `a;b` 必须失去拖放事实，按两个文件发。
+    ///
+    /// 走真 egui 事件而不是手改字段：这里要钉的是 `TextEdit::changed` 那根线，
+    /// 字段手动置位绕过了它，等于没测。
+    #[test]
+    fn editing_a_dropped_path_sends_two_typed_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "desk-xfer-prompt-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("a");
+        let b = dir.join("b");
+        std::fs::write(&a, b"AAA").unwrap();
+        std::fs::write(&b, b"BBB").unwrap();
+
+        let ctx = egui::Context::default();
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let input_id = egui::Id::new("xfer_path_input");
+        let mut prompt = XferPrompt::from(XferCmd::Send(XferProtocol::Zmodem)).unwrap();
+        // 模拟 modem_drop 的拖放预填：一条路径 + 单条事实 + 原始路径表。
+        let prefill = a.to_string_lossy().into_owned();
+        prompt.path = prefill.clone();
+        prompt.literal_single = true;
+        prompt.dropped = Some(DroppedPaths {
+            paths: vec![a.clone()],
+            text: prefill.clone(),
+        });
+
+        let frame = |ctx: &egui::Context, prompt: &mut XferPrompt, events: Vec<egui::Event>| {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(screen),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    let _ = draw_prompt(ctx, prompt);
+                },
+            );
+        };
+        // Area 首帧是 sizing pass：先跑两帧空输入再动光标 / 送事件。
+        frame(&ctx, &mut prompt, Vec::new());
+        frame(&ctx, &mut prompt, Vec::new());
+        let mut state = egui::TextEdit::load_state(&ctx, input_id).unwrap_or_default();
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::one(
+            egui::text::CCursor::new(prefill.chars().count()),
+        )));
+        egui::TextEdit::store_state(&ctx, input_id, state);
+        ctx.memory_mut(|m| m.request_focus(input_id));
+        assert!(
+            prompt.literal_single && prompt.dropped.is_some(),
+            "预填本身不是用户改动，不许清掉拖放事实"
+        );
+
+        // 用户在末尾键入 `;<b 的绝对路径>`：拼接出两条路径的文本。
+        frame(
+            &ctx,
+            &mut prompt,
+            vec![egui::Event::Text(format!(";{}", b.display()))],
+        );
+        let typed = format!("{};{}", a.display(), b.display());
+        assert_eq!(prompt.path, typed, "用户键入后输入框应是两条路径");
+        assert!(!prompt.literal_single, "手改后必须失去「拖放单条」事实");
+        assert!(prompt.dropped.is_none(), "手改后旧的拖放路径表必须作废");
+
+        // 确认 → 驱动层按手输分号拆两条（不是拖放整条优先）。
+        assert_eq!(confirm(&mut prompt), Outcome::Start(PathBuf::from(&typed)));
+        let files = crate::xfer_run::collect_send_files(
+            std::path::Path::new(&typed),
+            prompt.literal_single,
+        )
+        .expect("手输的两条路径都存在");
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"], "拖放预填后手输 a;b 要发两个文件");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropped_paths_are_used_only_while_the_input_is_still_the_prefill() {
+        let mut prompt = XferPrompt::from(XferCmd::Send(XferProtocol::Zmodem)).unwrap();
+        let paths = vec![
+            PathBuf::from("/tmp/a;b.txt"),
+            PathBuf::from("/tmp/c.txt"),
+        ];
+        let text = paths
+            .iter()
+            .map(|p| p.to_string_lossy().into_owned())
+            .collect::<Vec<_>>()
+            .join(";");
+        prompt.dropped = Some(DroppedPaths {
+            paths: paths.clone(),
+            text: text.clone(),
+        });
+
+        // 文本没动：显式路径表可用，含 `;` 的文件名不会被拆。
+        assert_eq!(
+            prompt.usable_dropped_paths(std::path::Path::new(&text)),
+            Some(paths.clone())
+        );
+        // 文本变了（用户手输 / 自动路径覆盖）：旧表是过期快照，一律不认。
+        assert_eq!(
+            prompt.usable_dropped_paths(std::path::Path::new("/tmp/other")),
+            None
+        );
+        prompt.dropped = None;
+        assert_eq!(
+            prompt.usable_dropped_paths(std::path::Path::new(&text)),
+            None
+        );
     }
 
     #[test]

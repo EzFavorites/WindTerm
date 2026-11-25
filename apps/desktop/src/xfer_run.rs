@@ -203,11 +203,25 @@ impl XferHandle {
         protocol: XferProtocol,
         target: PathBuf,
     ) -> Result<Self, String> {
-        Self::start_with_policy(pool, session, kind, protocol, target, Default::default(), false)
+        Self::start_with_policy(
+            pool,
+            session,
+            kind,
+            protocol,
+            target,
+            Default::default(),
+            false,
+            None,
+        )
     }
 
     /// 带同名冲突策略的入口。`literal_single` 是 UI 传来的显式事实：`target`
     /// 是否为拖放进来的**一条**本地路径；手动输入的 `a;b` 传 false，按多文件语法判定。
+    ///
+    /// `explicit_paths` 是拖放拿到的路径表：Some 时逐条展开，绝不按 `;` 拆——
+    /// 多文件里文件名含 `;` 是合法的，拼成文本就丢了「这是两条」的事实；手输
+    /// 路径传 None，仍按 `send_target_paths` 的碎片判定。`target` 用于展示与
+    /// 接收侧目录校验。
     pub fn start_with_policy(
         pool: Arc<SessionPool>,
         session: SessionId,
@@ -216,8 +230,19 @@ impl XferHandle {
         target: PathBuf,
         policy: crate::xfer_conflict::ConflictPolicy,
         literal_single: bool,
+        explicit_paths: Option<Vec<PathBuf>>,
     ) -> Result<Self, String> {
-        Self::start_impl(pool, session, kind, protocol, target, policy, 0, literal_single)
+        Self::start_impl(
+            pool,
+            session,
+            kind,
+            protocol,
+            target,
+            policy,
+            0,
+            literal_single,
+            explicit_paths,
+        )
     }
 
     /// 断点续传：本地已有目标文件的前 `offset` 字节，协议层回 ZRPOS(offset)，
@@ -240,6 +265,7 @@ impl XferHandle {
             crate::xfer_conflict::ConflictPolicy::Resume,
             offset,
             false,
+            None,
         )
     }
 
@@ -252,6 +278,7 @@ impl XferHandle {
         policy: crate::xfer_conflict::ConflictPolicy,
         resume_offset: u64,
         literal_single: bool,
+        explicit_paths: Option<Vec<PathBuf>>,
     ) -> Result<Self, String> {
         if pool.state(session).is_none() {
             return Err(format!("控制面里查不到这个会话（id={session}）"));
@@ -291,8 +318,12 @@ impl XferHandle {
             XferKind::Send => {
                 // 协议层是零 IO 的，盘只能在这里读；整读进内存是 `add_file` 的要求。
                 // 单文件走的就是原来那一次 `add_file`，线上字节逐字节不变。
-                let files = collect_send_files(&target, literal_single)
-                    .map_err(|err| err.to_string())?;
+                let files = match &explicit_paths {
+                    // 拖放的路径表是显式事实：逐条展开，不经过 `;` 拼接/拆分。
+                    Some(paths) => collect_explicit_send_files(paths),
+                    None => collect_send_files(&target, literal_single),
+                }
+                .map_err(|err| err.to_string())?;
                 if files.is_empty() {
                     return Err(format!(
                         "发送目标里没有可发送的普通文件：{}",
@@ -1220,9 +1251,20 @@ pub(crate) fn collect_send_files(
     target: &Path,
     literal_single: bool,
 ) -> Result<Vec<SendFile>, SendFilesError> {
+    collect_explicit_send_files(&send_target_paths(target, literal_single))
+}
+
+/// 拖放拿到的路径表 → 待发文件。**每一条都是一份**，不经过 `;` 拼接或拆分。
+///
+/// 多文件拖放里文件名含 `;` 是合法的：`a;b.txt` 与 `c.txt` 两条拖进来，文本形态
+/// 是 `a;b.txt;c.txt`，拆不掉哪一段来自哪个文件。调用方把原始 `Vec<PathBuf>`
+/// 作为显式事实传到这里，才能逐条保真。展开与重名拒绝规则与手输路径共用。
+pub(crate) fn collect_explicit_send_files(
+    paths: &[PathBuf],
+) -> Result<Vec<SendFile>, SendFilesError> {
     let mut files = Vec::new();
-    for path in send_target_paths(target, literal_single) {
-        expand_send_path(&path, &mut files)?;
+    for path in paths {
+        expand_send_path(path, &mut files)?;
     }
     // 同名文件落盘会互相覆盖：批处理里这是数据丢失，不如当场拒绝。
     let mut seen = std::collections::BTreeSet::new();
@@ -1317,11 +1359,11 @@ fn read_send_file(path: &Path) -> Result<SendFile, SendFilesError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_send_files, drive, pump, resolve_name, zmodem_config, Action, DriveAction, Engine,
-        FileMeta, Progress, Sink, ZRxEngine,
+        collect_explicit_send_files, collect_send_files, drive, pump, resolve_name, zmodem_config,
+        Action, DriveAction, Engine, FileMeta, Progress, Sink, ZRxEngine,
     };
     use crate::xfer_conflict::ConflictPolicy;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::Mutex;
     use std::time::{Duration, UNIX_EPOCH};
     use term_zmodem::frame::{self, CrcKind, FrameEnd, FrameType};
@@ -1354,6 +1396,28 @@ mod tests {
         let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
         assert_eq!(names, ["a;b"], "拖放单条不许被拆成三份");
         assert_eq!(files[0].data, b"WHOLE");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 多文件拖放：其中一条文件名带 `;`，靠显式路径表保真，不能按拼接文本拆。
+    #[test]
+    fn explicit_dropped_paths_keep_a_semicolon_in_a_file_name() {
+        let dir = temp_dir("collect-dropped-multi");
+        let semi = dir.join("a;b.txt");
+        let plain = dir.join("c.txt");
+        std::fs::write(&semi, b"SEMI").unwrap();
+        std::fs::write(&plain, b"PLAIN").unwrap();
+
+        // 若退化成 `a;b.txt;c.txt` 这段文本再拆，会得到三条都不存在的碎片。
+        let joined = format!("{};{}", semi.display(), plain.display());
+        assert!(collect_send_files(Path::new(&joined), false).is_err());
+
+        let files = collect_explicit_send_files(&[semi.clone(), plain.clone()])
+            .expect("显式路径表该逐条保真");
+        let names: Vec<&str> = files.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, ["a;b.txt", "c.txt"], "分号是文件名的一部分，不是分隔符");
+        assert_eq!(files[0].data, b"SEMI");
+        assert_eq!(files[1].data, b"PLAIN");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

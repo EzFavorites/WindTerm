@@ -91,6 +91,52 @@ fn startup_migration_reports_dropped_and_rejected_bindings() {
     });
 }
 
+/// 写盘失败时不许报「已清理」：prefs 根本没改，按提示重启只会重报同一批冲突。
+/// 失败原因留给 `last_save_error` 通道（首帧的 sync_prefs_rev 会上屏）。
+#[test]
+fn a_failed_cleanup_save_does_not_report_already_cleaned() {
+    let _ = take_startup_migration_notice();
+    term_profile::prefs::clear_last_save_error();
+
+    // 把 profile 目录指向一个普通文件：`save_checked` 的读 / create_dir_all 必失败。
+    let blocker = std::env::temp_dir().join(format!(
+        "windterm-prefs-blocker-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    ));
+    std::fs::write(&blocker, b"not a directory").expect("夹具需要造出不可写的 profile 路径");
+    let previous = std::env::var("WINDTERM_PROFILE_DIR").ok();
+    std::env::set_var("WINDTERM_PROFILE_DIR", &blocker);
+
+    let mut broken = term_profile::prefs::Prefs::default();
+    // 两条不同命令抢同一串按键 → 有冲突项，会触发启动清理写盘。
+    broken.shortcut_bindings = vec![
+        ("Text.Find".into(), "Cmd+F".into()),
+        ("Text.FindNext".into(), "Cmd+F".into()),
+    ];
+    let (_map, _seq) = build_runtime(&broken);
+
+    match previous {
+        Some(value) => std::env::set_var("WINDTERM_PROFILE_DIR", value),
+        None => std::env::remove_var("WINDTERM_PROFILE_DIR"),
+    }
+    let _ = std::fs::remove_file(&blocker);
+
+    assert_eq!(
+        take_startup_migration_notice(),
+        None,
+        "写盘失败绝不能谎称已经清理"
+    );
+    assert!(
+        term_profile::prefs::last_save_error().is_some(),
+        "失败原因必须留在 last_save_error 通道上屏"
+    );
+    term_profile::prefs::clear_last_save_error();
+}
+
 /// 被回滚的绑定必须在启动时剔除并写回：重启后既不重报提示，也不再参与冲突。
 #[test]
 fn rejected_bindings_are_cleaned_on_startup_and_not_reported_again() {

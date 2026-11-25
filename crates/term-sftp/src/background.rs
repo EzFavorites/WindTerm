@@ -853,7 +853,8 @@ async fn transfer_and_report(
 /// 一次传输的终态：**成功就是 `Done`**，哪怕用户恰好在最后一刻按了 Stop。
 ///
 /// `Ok(bytes)` 说明整份数据已经落盘，传输开始时造出来的分片已经被完整文件取代。
-/// 此时再报 `Cancelled { kept: false }` 既撒谎（文件并不处在「partial removed」状态），
+/// 此时再报 `Cancelled { kept: false }` 既撒谎（成功落盘的文件并不处在
+/// 「partial removed」状态；空树更是一件都没产生，准确说法是「已取消（未产生文件）」），
 /// 又会让队列把它记成 `FailReason::Cancelled`。成功之后没有需要撤销的东西，所以这里
 /// **不复核**取消旗：空树与展开期那两个真正没有检查点的窗口，由 [`tree_and_report`]
 /// 里的显式 `cancelled_tree` 覆盖，不靠末尾这一下。
@@ -883,6 +884,10 @@ fn stop_event(path: String, error: TransferError) -> Event {
 }
 
 /// walk 入口的取消检查（连空树也覆盖：循环里没有任何检查点）。
+///
+/// 空树走到这里时一件文件都没产生：上报的是「已取消（未产生文件）」——携带
+/// `Cancelled { kept: false }` 让队列记成取消，而不是 UI 常态文案里的
+/// 「partial removed」（那是真传了一半又删掉分片时才说的）。
 fn cancelled_tree(root: String, opts: &TransferOpts<'_>) -> Option<Event> {
     opts.cancel
         .is_cancelled()
@@ -972,7 +977,8 @@ mod background_cancel_tests {
     }
 
     /// 成功之后才按 Stop：整份文件已落盘，终态必须是 `Done`，不能写成
-    /// `Cancelled { kept: false }`（那会让 UI 显示 partial removed、队列记 Cancelled）。
+    /// `Cancelled { kept: false }`（那会让 UI 显示 partial removed、队列记 Cancelled；
+    /// 空树的正确文案是「已取消（未产生文件）」）。
     /// 单文件与整棵树共用这一条终态判据，所以两边都跑一遍。
     #[test]
     fn a_stop_after_success_still_reports_done() {

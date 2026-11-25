@@ -232,6 +232,10 @@ impl TerminalWindow {
         // 拖放进来的单条路径才带这个事实（弹层由 modem_drop 置位）；手动输入
         // 的 `a;b` 保持 false，驱动侧只按碎片判定，不启「整条存在优先」闸门。
         let literal_single = prompt.literal_single;
+        // 多文件拖放拿到的原始路径表：文件名含 `;` 时不能用拼接文本再拆，逐条
+        // 交给驱动层。只有输入框内容仍是预填原文才认；用户/自动路径改动后
+        // 文本会对不上，退回手输路径的判定（弹层的可变路径也会在用户编辑时清掉）。
+        let dropped_paths = prompt.usable_dropped_paths(&path);
         // 一次只跑一个：起第二个会把旧句柄丢掉，而它的 `Drop` 就是取消——
         // 用户会看到上一次传输莫名其妙停了。挡住，让他自己决定取消还是等。
         if let Some(job) = self.xfer.as_ref() {
@@ -245,7 +249,7 @@ impl TerminalWindow {
             self.xfer_prompt_error("这个标签没有活着的会话".to_string());
             return;
         };
-        match XferHandle::start_with_policy(
+        let started = XferHandle::start_with_policy(
             self.pool.clone(),
             session,
             kind,
@@ -253,7 +257,9 @@ impl TerminalWindow {
             path.clone(),
             policy,
             literal_single,
-        ) {
+            dropped_paths,
+        );
+        match started {
             Ok(handle) => {
                 self.xfer = Some(XferJob {
                     handle,

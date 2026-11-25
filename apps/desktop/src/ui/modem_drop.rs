@@ -5,7 +5,7 @@
 //! 把「拖进来的本地路径」变成弹层里的一段文本。
 
 use eframe::egui;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use term_app::action::{XferCmd, XferProtocol};
 
 use crate::ui::*;
@@ -39,6 +39,14 @@ fn modem_path_text(paths: &[String]) -> String {
         [only] => only.clone(),
         many => many.join(";"),
     }
+}
+
+/// 拖放路径表原样转成 `PathBuf` 表：每条独立，绝不拼接 / 拆分。
+///
+/// 多条里有文件名含 `;` 时，文本形态 `/tmp/a;b.txt;/tmp/c.txt` 已经丢了
+/// 「哪一段属于哪个文件」的事实；只有这张表是可靠的，随弹层传到驱动层。
+fn modem_dropped_paths(paths: &[String]) -> Vec<PathBuf> {
+    paths.iter().map(PathBuf::from).collect()
 }
 
 /// 「拖进来的只有一条」这个事实，随弹层一路传到驱动层。
@@ -92,8 +100,15 @@ pub(in crate::ui) fn poll(ctx: &egui::Context, win: &mut TerminalWindow) {
     };
     win.dispatch_action(Action::Xfer(XferCmd::Send(protocol)));
     if let Some(prompt) = win.xfer_prompt.as_mut() {
-        prompt.path = modem_path_text(&paths);
+        let text = modem_path_text(&paths);
+        prompt.path = text.clone();
         prompt.literal_single = modem_literal_single(&paths);
+        // 原始路径表是比 `;` 文本更强的事实：多条里有文件名含 `;` 时只有它能
+        // 保住「这是两条」。用户一改输入框，弹层会把这份事实连同 literal 清掉。
+        prompt.dropped = Some(crate::ui::dialogs::xfer::DroppedPaths {
+            paths: modem_dropped_paths(&paths),
+            text,
+        });
     }
     ctx.request_repaint();
 }
@@ -137,6 +152,21 @@ mod tests {
         let b = "/tmp/c.txt".to_string();
         assert_eq!(modem_path_text(&[a.clone(), b.clone()]), format!("{a};{b}"));
         assert_eq!(modem_path_text(&[]), "");
+    }
+
+    #[test]
+    fn a_multi_drop_with_a_semicolon_name_keeps_each_path_as_a_fact() {
+        // 文件名含 `;` 时拼接文本有歧义：按 `;` 拆会得到三条不存在的碎片。
+        let paths = vec!["/tmp/a;b.txt".to_string(), "/tmp/c.txt".to_string()];
+        let joined = modem_path_text(&paths);
+        assert_eq!(joined, "/tmp/a;b.txt;/tmp/c.txt");
+        assert_eq!(joined.split(';').count(), 3, "文本形态确实分不清来源");
+
+        // 显式路径表保真：两条就是两条，驱动层逐条展开（见 xfer_run 的用例）。
+        assert_eq!(
+            modem_dropped_paths(&paths),
+            vec![PathBuf::from(&paths[0]), PathBuf::from(&paths[1])]
+        );
     }
 
     #[test]
