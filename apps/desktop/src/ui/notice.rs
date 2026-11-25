@@ -24,6 +24,11 @@ pub(in crate::ui) enum NoticeKind {
     Recovered,
     /// 界面某帧内部出错，已跳过该帧。
     UiPanic,
+    /// 错误类提示（转义写错 / 偏好写盘冲突 / 待发送被丢弃）。
+    ///
+    /// 与那两条一样走 `Order::Foreground`：状态栏左区在连接 / 隧道 / 日志
+    /// 状态下会被更高优先级标签占住，单靠 `log_note` 会把这类提示吃掉。
+    Error,
 }
 
 /// 一条提示。
@@ -54,6 +59,19 @@ impl Notice {
             text: format!("界面内部错误（第 {times} 次，已跳过该帧，会话未受影响）：{}", clip(reason)),
         }
     }
+
+    /// 错误类提示：同一句话既进状态栏左区，也占这条前景浮层。
+    pub(in crate::ui) fn error(text: &str) -> Self {
+        Self {
+            kind: NoticeKind::Error,
+            text: clip(text),
+        }
+    }
+
+    /// 前景条上的文本（供状态栏把错误抢到高优先级那一路）。
+    pub(in crate::ui) fn text(&self) -> &str {
+        &self.text
+    }
 }
 
 /// 连续崩到这么多次就不再主动要重绘。
@@ -82,13 +100,63 @@ impl TerminalWindow {
         self.frame_panics = 0;
     }
 
+    /// 一帧里攒下的提示落地。
+    ///
+    /// `note` 是每帧新建的局部缓冲（`let mut note = None`），由 `poll_with_note`
+    /// / `lifecycle_events::poll` 写入。帧末在这里交回窗口：普通提示只进
+    /// `log_note`，错误类还升到前景 Notice——后者不会被「复制成功 / 模式切换」
+    /// 这些普通提示冲掉，状态栏被连接 / 隧道标签占住时也看得见。
+    pub(in crate::ui) fn commit_note(&mut self, note: Option<String>) {
+        let Some(text) = note else {
+            return;
+        };
+        self.log_note = Some(text.clone());
+        self.raise_error_notice(&text);
+    }
+
+    /// 把一条错误类提示抬到前景条。
+    ///
+    /// 恢复 / 帧 panic 的通知优先，不被错误提示顶掉；同一句话也不重复抬，
+    /// 否则用户点 × 之后下一帧又会冒出来。
+    pub(in crate::ui) fn raise_error_notice(&mut self, text: &str) {
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.kind != NoticeKind::Error)
+        {
+            return;
+        }
+        if self
+            .notice
+            .as_ref()
+            .is_some_and(|n| n.kind == NoticeKind::Error && n.text == text)
+        {
+            return;
+        }
+        self.notice = Some(Notice::error(text));
+    }
+
+    /// 状态栏左区要念的错误提示。只有错误类越过其它标签的优先级。
+    pub(in crate::ui) fn error_notice_text(&self) -> Option<&str> {
+        self.notice
+            .as_ref()
+            .filter(|n| n.kind == NoticeKind::Error)
+            .map(Notice::text)
+    }
+
     /// 画提示条（在 `draw` 的最前面调，理由见模块注释）。
     pub(in crate::ui) fn draw_notice(&mut self, ctx: &egui::Context) {
         let Some(notice) = &self.notice else {
             return;
         };
         if draw(ctx, notice) {
+            // 错误提示点 × 就别让下一帧的同名 note 又把它抬回来。
+            let clear_log = notice.kind == NoticeKind::Error
+                && self.log_note.as_deref() == Some(notice.text.as_str());
             self.notice = None;
+            if clear_log {
+                self.log_note = None;
+            }
             // 用户点了 ×：这一帧的交互要落地（否则提示条要等下一次输入才消失）。
             ctx.request_repaint();
         }
@@ -115,6 +183,8 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, notice: &Notice) -> bool {
         NoticeKind::Recovered => (egui::Color32::from_rgb(0xDC, 0xB4, 0x3C), egui::Color32::from_rgb(0x2A, 0x24, 0x18)),
         // 界面内部错误：红色，明确「出问题了」。
         NoticeKind::UiPanic => (egui::Color32::from_rgb(0xD9, 0x5C, 0x5C), egui::Color32::from_rgb(0x2C, 0x1C, 0x1C)),
+        // 操作失败：同属红色系，但边框比帧 panic 略亮一档。
+        NoticeKind::Error => (egui::Color32::from_rgb(0xE0, 0x6C, 0x4C), egui::Color32::from_rgb(0x2C, 0x1C, 0x1C)),
     };
     let mut dismissed = false;
     egui::Area::new(egui::Id::new("zterm-notice"))
@@ -160,6 +230,70 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, notice: &Notice) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
+    use term_core::trigger::{Rule, TriggerAction, TriggerOn};
+
+    /// 真实的每帧调用形态：`log_note` 长期非空（旧值一直在），但传给 poll 的
+    /// 是本帧新建的空缓冲，帧末再交回窗口。若照旧把 `&mut self.log_note`
+    /// 当局部缓冲传进去，`note.is_none()` 恒 false，转义错误就永远丢失。
+    #[test]
+    fn an_escape_error_is_reported_with_a_nonempty_window_note_in_the_real_frame_shape() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let tab = fake_tab(&pool, &ctx, 0, &closes);
+        let mut win = window_with(pool, &ctx, vec![tab]);
+        win.log_note = Some("上一帧：配置已保存".into());
+
+        let mut rule = Rule::default();
+        rule.id = "bad-escape".into();
+        rule.enabled = true;
+        rule.on = TriggerOn::BeforeConnect;
+        rule.actions = vec![TriggerAction::SendText(r"\x0".into())];
+        win.triggers = vec![rule];
+        win.lifecycle_events
+            .lock()
+            .expect("事件队列")
+            .push(TriggerOn::BeforeConnect);
+
+        // 与 `mod.rs::draw` / `lifecycle_events::poll` 同一形态。
+        let mut note = None;
+        crate::ui::lifecycle_events::poll(&mut win, 100, &mut Vec::new(), &mut note);
+        win.commit_note(note.take());
+
+        let reported = win.log_note.as_deref().expect("错误不能被旧提示吃掉");
+        assert!(reported.contains("转义写错"), "note={reported:?}");
+        assert!(reported.contains("\\x 需要两位十六进制"), "note={reported:?}");
+        assert!(
+            win.error_notice_text().is_some_and(|t| t.contains("转义写错")),
+            "错误类还要走前景通道"
+        );
+    }
+
+    /// 错误类提示用前景 Notice 独立存活：普通提示写进单槽 `log_note` 不会
+    /// 把它冲掉（「请重做」被复制 / 模式切换吃掉的那一路）。
+    #[test]
+    fn an_error_notice_outlives_ordinary_notes_in_the_single_slot() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(pool.clone(), &ctx, vec![fake_tab(&pool, &ctx, 0, &closes)]);
+
+        win.commit_note(Some("请重新打开设置页再试一次".into()));
+        // 普通提示同一帧后到，只覆盖状态栏那条单槽。
+        win.log_note = Some("已复制".into());
+        assert_eq!(win.log_note.as_deref(), Some("已复制"));
+        assert_eq!(
+            win.error_notice_text(),
+            Some("请重新打开设置页再试一次"),
+            "前景错误提示不能被普通提示冲掉"
+        );
+        // 同一句不重复抬：点 × 之后下一帧不该自己长回来。
+        win.raise_error_notice("请重新打开设置页再试一次");
+        win.notice = None;
+        win.commit_note(None);
+        assert!(win.notice.is_none());
+    }
 
     /// 语义坑：**一帧画好了不等于没出过错**。错一次、之后全好是最常见的情形，
     /// 也正是最容易变成「什么都没发生过」的情形——所以提示条只能由用户点 × 撤掉。

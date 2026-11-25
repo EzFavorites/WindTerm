@@ -883,10 +883,13 @@ impl TerminalWindow {
         // 「方案名 → 密码」表给本帧所有标签共用（锁着时是空表，静默跳过）。
         let n = self.tabs.len(); let autofill = self.onekey_autofill_map();
         let mut run_commands: Vec<String> = Vec::new();
+        // 每帧新建局部缓冲：`log_note` 长期非空，直接拿它当 &mut 传进去会让
+        // note.is_none() 恒 false，转义错误就永远丢失（见 notice.rs 判据）。
+        let mut note = None;
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll_with_note(rules, &mut run_commands, self.auto_reconnect, &self.onekeys, &autofill, &mut self.log_note) {
+            if self.tabs[i].poll_with_note(rules, &mut run_commands, self.auto_reconnect, &self.onekeys, &autofill, &mut note) {
                 changed = true;
             }
         }
@@ -894,11 +897,13 @@ impl TerminalWindow {
         // 一条都不能漏。少了哪一条，它的字节环就没人搬（tap 是无界 channel），
         // 而面板这边还照旧画着上一帧——长输出等于一条静默的内存泄漏。
         for tab in &mut self.shell_tabs {
-            if tab.poll_with_note(rules, &mut run_commands, false, &[], &autofill, &mut self.log_note) {
+            if tab.poll_with_note(rules, &mut run_commands, false, &[], &autofill, &mut note) {
                 changed = true;
             }
         }
-        lifecycle_events::poll(self, crate::now_secs(), &mut run_commands);
+        lifecycle_events::poll(self, crate::now_secs(), &mut run_commands, &mut note);
+        // 帧末交回窗口：错误提示同时抬到前景 Notice，不被普通提示覆盖。
+        self.commit_note(note.take());
         self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self); upload_picker::draw(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话

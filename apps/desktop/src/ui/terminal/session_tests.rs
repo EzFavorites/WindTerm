@@ -260,3 +260,97 @@ fn the_connect_edge_is_reported_once_per_connection_and_consumed() {
     assert!(!tab.is_live());
     assert!(!tab.take_just_connected(), "断开不该被认成连上");
 }
+
+/// 造一条带假 tap 的标签，方便把「本帧输出」直接塞进 `poll`。
+fn tab_with_tap(
+    id: &str,
+) -> (
+    term_core::session_runtime::SessionId,
+    crate::ui::Tab,
+    std::sync::mpsc::Sender<Vec<u8>>,
+) {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let ch = WriteChannel {
+        writes: Writes::default(),
+        finished: false,
+    };
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        term_core::session::SessionConfig::new(term_core::session::Protocol::Shell),
+        Box::new(ch),
+        egui::Id::new(id),
+        &ctx,
+    );
+    let (tx, rx) = std::sync::mpsc::channel();
+    tab.raw.attach(crate::hex_tap::HexTap::new(rx));
+    (
+        tab.session().expect("夹具带一条会话"),
+        tab,
+        tx,
+    )
+}
+
+fn later_rule(id: &str, secs: &str) -> term_core::trigger::Rule {
+    let mut rule = term_core::trigger::Rule::default();
+    rule.id = id.into();
+    rule.enabled = true;
+    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.pattern = "wake".into();
+    rule.literal = true;
+    rule.config.send.later_secs = secs.into();
+    rule.actions = vec![term_core::trigger::TriggerAction::SendText("LATER".into())];
+    rule
+}
+
+/// `due` 的补调条件不能挂在 `live &&` 上：会话没了之后同样没有输出事件，
+/// Send Later 就永远卡在队列里（静默期 / 断连后都不触发）。
+#[test]
+fn a_due_send_later_is_checked_even_after_the_session_is_gone() {
+    let (_sid, mut tab, tx) = tab_with_tap("due-after-disconnect");
+    let rules = [later_rule("later-gone", "2")];
+    let autofill = std::collections::HashMap::new();
+
+    super::session::set_test_now(Some(100));
+    // 直接把标签转成断开态，`was_live` 也清掉，不触发断连边沿的丢弃逻辑。
+    tab.session = None;
+    tab.was_live = false;
+    tx.send(b"wake".to_vec()).expect("送一次输出");
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+
+    super::session::set_test_now(Some(102));
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert_eq!(
+        tab.triggers.pending_count(),
+        0,
+        "静默期（且会话已断）也必须补调 due，不能只靠输出事件"
+    );
+    super::session::set_test_now(None);
+}
+
+/// 断连边沿显式抽干队列并提示：会话已经不在，排着的发送既送不出去，
+/// 也不能留到下一条会话上诈尸。
+#[test]
+fn a_disconnect_edge_discards_pending_sends_and_reports_it() {
+    let (_sid, mut tab, tx) = tab_with_tap("discard-on-disconnect");
+    let rules = [later_rule("later-discard", "5")];
+    let autofill = std::collections::HashMap::new();
+
+    super::session::set_test_now(Some(100));
+    tx.send(b"wake".to_vec()).expect("送一次输出");
+    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    assert_eq!(tab.triggers.pending_count(), 1);
+
+    // 模拟显式断开：`was_live` 还留着 true，下一帧就是断连边沿。
+    tab.session = None;
+    let mut note = None;
+    super::session::set_test_now(Some(101));
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &autofill, &mut note);
+
+    assert_eq!(tab.triggers.pending_count(), 0, "队列必须抽干，不能留给下一条会话");
+    let note = note.expect("丢弃必须上屏，不能静默");
+    assert!(note.contains("丢弃"), "note={note:?}");
+    assert!(note.contains("未送达"), "note={note:?}");
+    super::session::set_test_now(None);
+}

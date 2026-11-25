@@ -260,6 +260,9 @@ impl Tab {
             for hit in hits {
                 self.apply_trigger(hit, run_commands, note);
             }
+            // 断连边沿：排队中的 Send Condition / Send Later 显式取走并丢弃。
+            // 会话已不在，这些发送落不了地；静默留着会在下一条会话上诈尸。
+            self.discard_pending_sends(now, note);
             // 掉线边沿：显式 Disconnect / 本地 shell / 已达上限都不排；
             // 其余按 1/2/4/8 秒退避，尝试次数在连上时清零。
             if auto_reconnect
@@ -272,21 +275,25 @@ impl Tab {
                 }
             }
         }
-        if live && !self.local_mode {
-            // Idle 只在「距上次输出至少 idle_secs 秒、且本段空闲还没报过」时命中；
-            // `feed` 一旦有输出就把 `idle_fired` 清空，下一段空闲重新开始计。
-            let hits = self.triggers.event(rules, TriggerOn::Idle, now);
-            let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
-            let at = crate::automation::now_ms();
-            let quiet = crate::automation::quiet_since(self.shadow.last_output(), at);
-            let sig = crate::automation::sources::idle_signal("", quiet, at);
-            self.shadow_check(sig, &v1);
-            for hit in hits {
-                self.apply_trigger(hit, run_commands, note);
+        // 只有「只读查看」才整段跳过；不能拿 `live &&` 把 `due` 一起关掉——
+        // 会话断掉之后没有输出事件，Send Later 本来就该在这条安静期里到期。
+        if !self.local_mode {
+            if live {
+                // Idle 只在「距上次输出至少 idle_secs 秒、且本段空闲还没报过」时命中；
+                // `feed` 一旦有输出就把 `idle_fired` 清空，下一段空闲重新开始计。
+                let hits = self.triggers.event(rules, TriggerOn::Idle, now);
+                let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
+                let at = crate::automation::now_ms();
+                let quiet = crate::automation::quiet_since(self.shadow.last_output(), at);
+                let sig = crate::automation::sources::idle_signal("", quiet, at);
+                self.shadow_check(sig, &v1);
+                for hit in hits {
+                    self.apply_trigger(hit, run_commands, note);
+                }
             }
             // Send Later 的到期只靠输出事件驱动是不够的：远端在命中之后安静下来，
             // 就再也不会有 `on_line_break` / `on_prompt` / `due` 的机会，定时发送
-            // 永远不落地。空闲段每帧补一次 `due`。
+            // 永远不落地。空闲段每帧补一次 `due`（断开之后也一样）。
             // `moved` 那一帧已经在输出分支调过 `due`（它会取走到期项），这里跳过，
             // 避免同一帧把同一条命中发两遍。
             if !moved {
@@ -439,6 +446,22 @@ impl Tab {
                     }
                 }
             }
+        }
+    }
+
+    /// 断连边沿把排队的发送意图取走并丢弃，同时报一条提示。
+    ///
+    /// `Matcher::reset` 只清尾巴 / 冷却 / 一次性表，不清 trigger queue；会话
+    /// 已经不在，这些命中发不出去，留到下一次连接就会变成一条迟到的发送。
+    /// 这里用公开的事件 / 时钟入口把队列抽干，一条都不应用，并让用户知道
+    /// 「刚才排队的没送出去」。
+    pub(in crate::ui) fn discard_pending_sends(&mut self, now: u64, note: &mut Option<String>) {
+        let mut dropped = self.triggers.on_prompt(now).len();
+        dropped += self.triggers.on_line_break(now).len();
+        // `u64::MAX` 让所有 Send Later 都算到期，连未到期的也一并丢弃。
+        dropped += self.triggers.due(u64::MAX).len();
+        if dropped > 0 && note.is_none() {
+            *note = Some(format!("会话已断开，{dropped} 条待发送触发器已丢弃（未送达）"));
         }
     }
 

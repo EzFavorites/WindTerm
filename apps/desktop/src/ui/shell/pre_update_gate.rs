@@ -45,16 +45,20 @@ impl TerminalWindow {
                 ctx.request_repaint();
             }
         }
-        // 启动期快捷键迁移丢弃项（越界旧下标 / 冲突用户绑定）只提示一次。
+        // 同一帧可能既有启动期迁移丢弃项，又有写盘失败（两者都只提示一次）。
+        // 先都取到局部表里再拼成一条：过去后者直接覆盖前者，且前者已被 take
+        // 掉，那条提示就永久丢了。两个槽都取走即清空，不会下一帧重复弹。
+        let mut notices = Vec::new();
         if let Some(note) = crate::ui::dialogs::shortcuts::take_startup_migration_notice() {
-            self.log_note = Some(note);
-            ctx.request_repaint();
+            notices.push(note);
         }
-        // 写盘失败也在这一处上屏：光返回 bool 没人看，等于冲突静默丢掉。
-        // 取走即清空，下一次正常保存之后不会还挂着上次的「请重做」。
         if let Some(err) = term_profile::prefs::last_save_error() {
-            self.log_note = Some(err.message().to_string());
+            notices.push(err.message().to_string());
             term_profile::prefs::clear_last_save_error();
+        }
+        if !notices.is_empty() {
+            // commit_note 同时抬到前景 Notice（错误类不会被普通提示冲掉）。
+            self.commit_note(Some(notices.join("\n")));
             ctx.request_repaint();
         }
     }

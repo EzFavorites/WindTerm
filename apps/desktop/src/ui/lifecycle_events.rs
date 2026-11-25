@@ -8,7 +8,10 @@ use crate::ui::*;
 use term_core::trigger::TriggerOn;
 
 /// 取走队列并按活动标签的目标上下文求值。`now` 与 Matcher 同源（秒）。
-pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut Vec<String>) {
+///
+/// `note` 是调用方每帧新建的局部缓冲，不是 `win.log_note` 本身——后者长期非空，
+/// 直接拿它当缓冲会让错误提示因 `note.is_none()` 恒 false 而丢失。
+pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut Vec<String>, note: &mut Option<String>) {
     let events: Vec<TriggerOn> = match win.lifecycle_events.lock() {
         Ok(mut q) => q.drain(..).collect(),
         Err(_) => return,
@@ -18,9 +21,8 @@ pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut
     }
     let rules = win.triggers.clone();
     let slot = win.active_slot();
-    // 与 tabs 不相交的字段：借用检查允许同时拿。转义写错要落到状态行，
-    // 不许再静默吞掉（SendText / SendLine / LocalSendLine 同一条口径）。
-    let note = &mut win.log_note;
+    // 转义写错要落到本帧缓冲（帧末由调用方交回窗口），不许再静默吞掉
+    // （SendText / SendLine / LocalSendLine 同一条口径）。
     if let Some(tab) = win.tabs.get_mut(slot) {
         let system = tab.config.system.clone();
         let session = tab.config.name.clone();

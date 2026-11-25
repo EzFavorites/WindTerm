@@ -91,3 +91,48 @@ fn a_conflicting_prefs_save_reaches_the_status_bar_note() {
         assert!(win.log_note.is_none());
     });
 }
+
+/// 两个提示槽同帧都有内容时，后者不能吃掉前者：过去
+/// `STARTUP_MIGRATION_NOTICE` 被 take 之后又被 `last_save_error` 覆盖，
+/// 那条迁移提示就永久丢了。现在拼成一条；两个槽都取走即清空。
+#[test]
+fn a_startup_migration_notice_and_a_save_error_are_kept_in_the_same_frame() {
+    with_temp_profile(|| {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win: TerminalWindow = window_with(pool.clone(), &ctx, vec![fake_tab(&pool, &ctx, 0, &closes)]);
+        let _ = crate::ui::dialogs::shortcuts::take_startup_migration_notice();
+
+        // ① 启动期迁移丢弃项（真实 build_runtime 写入静态提示槽）。
+        let mut old = term_profile::prefs::Prefs::default();
+        old.shortcut_overrides = vec![(999, "Cmd+Q".into())];
+        let _ = crate::ui::dialogs::shortcuts::build_runtime(&old);
+
+        // ② 同帧的写盘冲突。
+        let mut prefs = term_profile::prefs::Prefs::default();
+        prefs.language = "en".into();
+        assert!(term_profile::prefs::save(&prefs));
+        let path = term_paths::profile_dir()
+            .expect("临时 profile 目录")
+            .join(term_profile::prefs::PREFS_FILE);
+        std::fs::write(&path, r#"{"language":"zh-CN"}"#).unwrap();
+        prefs.font_size = 20.0;
+        assert!(!term_profile::prefs::save(&prefs));
+
+        win.sync_prefs_rev(&ctx);
+        let note = win.log_note.as_deref().expect("两条提示都要上屏");
+        assert!(note.contains("#999"), "迁移提示不能丢：{note:?}");
+        assert!(note.contains("请重新打开设置页"), "写盘错误也不能丢：{note:?}");
+        assert_eq!(
+            crate::ui::dialogs::shortcuts::take_startup_migration_notice(),
+            None,
+            "两个槽都取走即清空"
+        );
+        assert_eq!(term_profile::prefs::last_save_error(), None);
+        assert!(
+            win.error_notice_text().is_some_and(|t| t.contains("请重新打开设置页")),
+            "组合提示也要走前景通道"
+        );
+    });
+}

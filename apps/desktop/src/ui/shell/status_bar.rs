@@ -209,6 +209,12 @@ impl TerminalWindow {
     /// 左区：没有事件时永远只有一个词 `Ready`；有事件时换成那一条。
     /// 这些标签都由各自的功能模块从事实状态现算，状态栏只是念出来。
     fn status_text(&self) -> String {
+        // 错误类提示有最高优先级：它在前台 Notice 里也有一份，状态栏这一路
+        // 也必须能念出来——否则连接 / 隧道 / 日志标签一在，「请重做」就永远
+        // 看不见（只断言 `log_note` 字段的测试发现不了这一层遮挡）。
+        if let Some(err) = self.error_notice_text() {
+            return err.to_string();
+        }
         if let Some(label) = self.connecting_label() {
             return label;
         }
@@ -288,6 +294,36 @@ fn civil_from_days(z: i64) -> (i64, i64, i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
+
+    /// 渲染级判据：错误提示要盖过更高优先级的标签。
+    /// 只断言 `log_note` 字段不够——`status_text` 在只读模式下先 return，
+    /// 字段在但左区根本不念，等于没上屏。
+    #[test]
+    fn an_error_notice_is_rendered_in_the_status_bar_over_a_higher_priority_label() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let mut win = window_with(
+            pool.clone(),
+            &ctx,
+            vec![fake_tab(&pool, &ctx, 0, &closes)],
+        );
+        win.tabs[0].local_mode = true;
+        assert!(win.local_mode_on(), "夹具要先真的处于更高优先级状态");
+        let before = win.status_text();
+        assert!(!before.contains("请重新打开设置页"), "前置条件：错误还没上屏");
+
+        win.commit_note(Some("请重新打开设置页再试一次".into()));
+        let rendered = win.status_text();
+        assert!(
+            rendered.contains("请重新打开设置页再试一次"),
+            "状态栏左区必须念出错误，而不是 Local mode：{rendered:?}"
+        );
+        // 普通提示随后写进单槽，也不该把前景错误从渲染里挤掉。
+        win.log_note = Some("已复制".into());
+        assert!(win.status_text().contains("请重新打开设置页再试一次"));
+    }
 
     #[test]
     fn epoch_and_golden_timestamp_round_trip() {
