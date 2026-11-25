@@ -293,9 +293,30 @@ fn eat_shortcut_events(ctx: &egui::Context, eaten: &[(egui::Modifiers, egui::Key
 
 impl TerminalWindow {
     /// 把用户覆盖按命令 ID 写回 `prefs.json`，使重启后仍生效。
+    ///
+    /// 写口统一走数据层的 `normalized_prefs_fields`：新字段落迁移结果、
+    /// 旧下标字段清空。不在 UI 里自己写一遍迁移规则——两边一旦分叉，
+    /// 老文件里残留的 `shortcut_overrides` 会在下次读盘时把旧绑定复活。
     fn persist_shortcuts(&mut self) {
         let bindings = self.shortcuts.user_bindings();
-        save_prefs(|p| p.shortcut_bindings = bindings);
+        save_prefs(|p| {
+            let (bindings, overrides) =
+                term_app::shortcut_map::normalized_prefs_fields(&bindings, &p.shortcut_overrides);
+            p.shortcut_bindings = bindings;
+            p.shortcut_overrides = overrides;
+        });
+    }
+
+    /// `Reset to defaults`：两份字段一起清，不能只清新字段。
+    fn reset_persisted_shortcuts(&mut self) {
+        let (bindings, overrides) = term_app::shortcut_map::reset_prefs_fields();
+        save_prefs(|p| {
+            // Prefs 的方法是持久化层唯一的 Reset 写口；数据层给的两份空值
+            // 再覆盖一次，任一侧以后改了规则都不会出现「只清了一半」。
+            p.reset_shortcut_bindings();
+            p.shortcut_bindings = bindings;
+            p.shortcut_overrides = overrides;
+        });
     }
 
     /// 绑定表窗口（默认关）。列出全部绑定、允许重绑、能清空覆盖。
@@ -335,8 +356,8 @@ impl TerminalWindow {
                 if ui.button("Reset to defaults").clicked() {
                     self.shortcuts = KeyBindingMap::new(&[], self.shortcuts.platform());
                     self.shortcut_capture = None;
-                    // 清空覆盖同样写回，之后所有条目回到出厂和弦。
-                    self.persist_shortcuts();
+                    // 清空覆盖 + 旧下标字段一起写回，否则重启后迁移把旧绑定复活。
+                    self.reset_persisted_shortcuts();
                 }
                 if ui.button("Close").clicked() {
                     self.view.show_shortcuts = false;
@@ -348,6 +369,11 @@ impl TerminalWindow {
         }
     }
 }
+
+/// 写时迁移 / Reset 双清的往返判据需要构造真命令 ID，按 4e 门禁单独成文件。
+#[cfg(test)]
+#[path = "shortcuts_migration_tests.rs"]
+mod shortcuts_migration_tests;
 
 #[cfg(test)]
 mod tests {

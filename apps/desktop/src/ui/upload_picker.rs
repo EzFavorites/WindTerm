@@ -114,6 +114,19 @@ fn append_dropped_notice(notes: &mut Vec<String>, dropped: usize) {
     });
 }
 
+/// 确认时如果有路径已经失效（`paths_to_upload_picks` 丢弃的），必须在回执里
+/// 写明条数；全被丢弃时给出明确错误，不能画成「上传成功」。
+fn append_dropped_notice(notes: &mut Vec<String>, dropped: usize) {
+    if dropped == 0 {
+        return;
+    }
+    notes.push(if notes.is_empty() {
+        format!("所选 {dropped} 条路径都已失效，未入队")
+    } else {
+        format!("{dropped} 条路径已失效，未入队")
+    });
+}
+
 /// 把手输的一行解析成绝对路径并加入选择；相对路径以当前列出的目录为基准。
 fn add_typed(picker: &mut UploadPicker, dir: &Path) {
     let raw = picker.typed.trim();
@@ -277,7 +290,8 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, win: &mut TerminalWindow) {
         } else {
             notes = upload_receipt(notes, &skipped);
         }
-        win.note_multi_upload(notes);        ctx.request_repaint();
+        win.note_multi_upload(notes);
+        ctx.request_repaint();
     } else if !cancel {
         win.upload_picker = Some(picker);
     }
