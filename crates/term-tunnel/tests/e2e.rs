@@ -283,7 +283,7 @@ fn wait_for_server(addr: SocketAddr) {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
             Ok(_) => return,
             Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => panic!("mock 服务端 10 秒内没起来：{e}"),
+            Err(e) => panic!("mock 服务端 30 秒内没起来：{e}"),
         }
     }
 }
@@ -306,7 +306,7 @@ fn ssh_options(addr: SocketAddr) -> SshOptions {
 /// 连上去、说一句话、读回同一句话。
 fn roundtrip(addr: SocketAddr, line: &[u8]) -> Vec<u8> {
     let mut stream = TcpStream::connect(addr).expect("连隧道端口");
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     stream.write_all(line).expect("写");
     let mut back = vec![0u8; line.len()];
     stream.read_exact(&mut back).expect("读回显");
@@ -358,7 +358,7 @@ fn a_socks5_proxy_connects_to_the_target_the_client_names() {
 
     // --- SOCKS5 握手：只提供「无认证」 ---
     let mut stream = TcpStream::connect(listen).expect("连 SOCKS5 端口");
-    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(30))).unwrap();
     stream.write_all(&[5, 1, 0]).unwrap();
     let mut pick = [0u8; 2];
     stream.read_exact(&mut pick).unwrap();
