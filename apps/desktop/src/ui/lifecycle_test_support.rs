@@ -281,7 +281,7 @@ pub(in crate::ui) fn window_with(
         palette_input: String::new(),
         goto_input: String::new(),
         center_input: String::new(),
-        lock_password: String::new(),
+        lock_password: String::new(), show_lock_password: false,
         shortcuts: term_app::shortcut_map::KeyBindingMap::new(&[], term_app::shortcut_map::Platform::Macos),
         shortcut_capture: None,
         shortcut_new_id: String::new(),

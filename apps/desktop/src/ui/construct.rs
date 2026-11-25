@@ -355,7 +355,7 @@ impl TerminalWindow {
             palette_input: String::new(),
             goto_input: String::new(),
             center_input: String::new(),
-            lock_password: String::new(),
+            lock_password: String::new(), show_lock_password: false,
             shortcuts: shortcut_map,
             shortcut_capture: None,
             shortcut_new_id: String::new(),

@@ -26,13 +26,21 @@ pub(in crate::ui) fn action_state(win: &TerminalWindow, id: &str) -> (MenuRowSta
     (state, why)
 }
 
-/// 访问字母的位置按**英文 key** 算（例外表全是英文原文）；中文显示文本划首字。
-fn underline_for(text: &str, label: &str) -> Option<usize> {
-    if text == label {
-        term_app::menu::access_char_pos(label)
-    } else {
-        Some(0)
-    }
+/// 这一级菜单每一行的下划线位置：英文取原版词位，中文取显示文字里的等效位置，
+/// 同级撞字符时由纯层往后挪。一次算一整级，逐行拿——不能单行算，否则看到的
+/// 只是「这一行本来该划哪」，并不知道同级已经占走了哪些字母。
+fn row_positions(win: &TerminalWindow, items: &[Item]) -> Vec<Option<usize>> {
+    let keys: Vec<&'static str> = items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Action { label, .. }
+            | Item::Check { label, .. }
+            | Item::Submenu { label, .. } => Some(*label),
+            Item::Separator => None,
+        })
+        .collect();
+    let shown: Vec<&'static str> = keys.iter().map(|key| win.tr(key)).collect();
+    term_app::menu::access_positions_unique(&shown, &keys)
 }
 
 /// 一条 `CheckState::Live` 的勾**此刻**该不该画 —— 走完整的强类型链路，不认字符串。
@@ -108,13 +116,14 @@ fn draw_action_row(
     id: &str,
     check: CheckCell,
     look: RowLook,
+    underline: Option<usize>,
 ) {
     let (state, why) = action_state(win, id);
     let text = win.tr(label);
     let response = draw_menu_row(
         ui,
         text,
-        underline_for(text, label),
+        underline,
         &win.shortcuts.display(id),
         RowLook {
             state,
@@ -160,16 +169,17 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
         indent: reserve_check_column(items),
         cells: widest_cells(win, items),
     };
+    let mut positions = row_positions(win, items).into_iter();
     for item in items {
         match item {
             Item::Action { label, id } => {
-                draw_action_row(win, ui, label, id, CheckCell::None, look)
+                draw_action_row(win, ui, label, id, CheckCell::None, look, positions.next().flatten())
             }
             Item::Check { label, id, checked } => {
                 // 先算勾再进 `&mut` 那一侧：`live_check` 只借 `&TerminalWindow`，
                 // 在实参位置调用会与外层的 `&mut` 撞车（E0502）。
                 let cell = check_cell(win, id, *checked);
-                draw_action_row(win, ui, label, id, cell, look)
+                draw_action_row(win, ui, label, id, cell, look, positions.next().flatten())
             }
             Item::Separator => menu_separator(ui),
             // 一条命令都没有的子菜单不画成能点开的样子。
@@ -179,12 +189,11 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
             // 但点开只看见一条横线，是比缺一项更坏的体验——画成灰行，悬停
             // 说明原因，与未接线命令行（`Not wired (placeholder)`）同一口径。
             Item::Submenu { label, items } if !has_command(items) => {
-                // 下划线传 `None`：其它子菜单走 `ui.menu_button`，本来就不画访问
-                // 字母的下划线。只给灰行加一条，会让它看上去像另一种控件。
+                let underline = positions.next().flatten();
                 draw_menu_row(
                     ui,
                     win.tr(label),
-                    None,
+                    underline,
                     "",
                     RowLook {
                         state: MenuRowState::Disabled,
@@ -195,6 +204,9 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
                 .on_disabled_hover_text(win.tr("Not wired (placeholder)"));
             }
             Item::Submenu { label, items } => {
+                // 真子菜单走 `ui.menu_button`：它的标题是 WidgetText，不带下划线。
+                // 这里仍消费一个位置，下一行拿到的才是「同级没被它占走」的字母。
+                let _underline = positions.next().flatten();
                 let title = win.tr(label);
                 // 2026-11-15 用户反馈「二级菜单要停一下还得点、展开位置也不在
                 // 右侧」的根因：上一版用 `egui::menu::menu_custom_button`。那是
@@ -233,6 +245,7 @@ fn draw_static_row(
     check: CheckCell,
     look: RowLook,
     highlighted: &[&str],
+    underline: Option<usize>,
 ) -> egui::Response {
     let (real, _) = action_state(win, id);
     let selected = ui_was_selected(label, id, highlighted);
@@ -245,7 +258,7 @@ fn draw_static_row(
     draw_menu_row(
         ui,
         text,
-        underline_for(text, label),
+        underline,
         &win.shortcuts.display(id),
         RowLook {
             state,
@@ -278,19 +291,37 @@ pub(in crate::ui) fn draw_menu_items_static(
         indent: reserve_check_column(items),
         cells: widest_cells(win, items),
     };
+    let mut positions = row_positions(win, items).into_iter();
     let mut picked = None;
     for item in items {
         match item {
             Item::Action { label, id } => {
-                let response =
-                    draw_static_row(win, ui, label, id, CheckCell::None, look, highlighted);
+                let response = draw_static_row(
+                    win,
+                    ui,
+                    label,
+                    id,
+                    CheckCell::None,
+                    look,
+                    highlighted,
+                    positions.next().flatten(),
+                );
                 if ui_was_selected(label, id, highlighted) && picked.is_none() {
                     picked = Some(response.rect);
                 }
             }
             Item::Check { label, id, checked } => {
                 let cell = check_cell(win, id, *checked);
-                let response = draw_static_row(win, ui, label, id, cell, look, highlighted);
+                let response = draw_static_row(
+                    win,
+                    ui,
+                    label,
+                    id,
+                    cell,
+                    look,
+                    highlighted,
+                    positions.next().flatten(),
+                );
                 if ui_was_selected(label, id, highlighted) && picked.is_none() {
                     picked = Some(response.rect);
                 }
@@ -309,7 +340,7 @@ pub(in crate::ui) fn draw_menu_items_static(
                 let response = draw_menu_row(
                     ui,
                     text,
-                    underline_for(text, label),
+                    positions.next().flatten(),
                     "",
                     RowLook { state, ..look },
                     true,

@@ -394,6 +394,8 @@ pub struct TerminalWindow {
     center_input: String,
     /// V1-3：锁屏主密码的跨帧缓冲（受控输入，不进 ViewState）。
     lock_password: String,
+    /// 锁屏密码框的「显示明文」开关（原版密码框右侧的小眼睛）。
+    show_lock_password: bool,
     /// V1-2：快捷键映射层（出厂表 + 用户覆盖 + 平台展示）与重绑捕获态。
     /// 捕获态记的是**命令 ID**，不是表下标——表增删项不会把用户绑定挪到别的命令。
     shortcuts: term_app::shortcut_map::KeyBindingMap,

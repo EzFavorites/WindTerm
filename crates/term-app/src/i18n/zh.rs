@@ -292,6 +292,8 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Move Group To Group" => "移动组到组",
         "Reset Layout" => "重置布局",
         "Lock Screen" => "锁定屏幕",
+        "Screen Locked" => "屏幕锁定",
+        "Password" => "密码",
         "Activate Next View" => "激活下一个视图",
         "Activate Previous View" => "激活上一个视图",
         "Pair" => "配对",

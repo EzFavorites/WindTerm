@@ -25,6 +25,7 @@ mod demo;
 mod fonts;
 // 原始字节 tee 的消费端（`Receiver` 这类资源留在 app 层，界面只拿句柄）。
 mod hex_tap;
+mod native_picker;
 mod shot;
 mod script_app;
 mod script_clip;

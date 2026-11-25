@@ -175,7 +175,15 @@ pub enum Item {
 pub fn access_char_pos(label_en: &str) -> Option<usize> {
     const EXCEPTIONS: &[(&str, &str)] = &[
         ("New Window", "Window"),
-        ("Open Recent", "Recent"),
+        // 原版 `menu.config` 写的是 `Open Rece&nt`——划的是 n，不是 Recent 的 R。
+        ("Open Recent", "nt"),
+        // 以下五条同样按原版 `menu.config` 的 `&` 位置取词，避免同级的
+        // Select / Syntax / Window 重复占首字母。
+        ("Select To", "To"),
+        ("Select Column To", "Column"),
+        ("Syntax Schemes", "yntax"),
+        ("Window Opacity", "Opacity"),
+        ("Set Tab Color", "Color"),
         ("Save Selection As", "Selection"),
         ("Close All Views", "All"),
         ("Close Window", "Window"),
@@ -224,6 +232,73 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
     }
     // 默认：首字符。
     label_en.char_indices().next().map(|(i, _)| i)
+}
+
+/// 同一个字符能不能当访问键：空白和标点划了没有意义，也不会被键盘命中。
+fn usable_access_char(c: char) -> bool {
+    c.is_alphanumeric()
+}
+
+/// 给**同一级**菜单逐行分配访问字母的下划线位置。
+///
+/// `access_char_pos` 只认单条英文标签，不知道旁边那行占了哪个字母，于是
+/// `Select*` / `Margin*` / `Show*` 这些同族行全划首字，按 Alt+S 根本分不清。
+/// 这里在原版优先位置（`keys`）之上加一道同级去重：先用原版的词位，撞了就在
+/// 本行**实际显示的文字**（`shown`，中文时与英文不同）里往后找没被占的字符，
+/// 再从头兜一圈；整行都撞才留空。返回顺序与 `shown` 一一对应。
+pub fn access_positions_unique(shown: &[&str], keys: &[&str]) -> Vec<Option<usize>> {
+    let preferred: Vec<Option<usize>> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, key)| {
+            if shown.get(i).copied() == Some(*key) {
+                access_char_pos(key)
+            } else {
+                shown
+                    .get(i)
+                    .and_then(|text| {
+                        text.char_indices()
+                            .find(|(_, c)| usable_access_char(*c))
+                            .map(|(pos, _)| pos)
+                    })
+            }
+        })
+        .collect();
+    access_positions_from(shown, &preferred)
+}
+
+/// 与 [`access_positions_unique`] 同一套去重，但**优先位置由调用方给**：
+/// 右键菜单每行自带视觉基线的 `acc`，不能让 `access_char_pos` 把它改掉。
+pub fn access_positions_from(shown: &[&str], preferred: &[Option<usize>]) -> Vec<Option<usize>> {
+    let mut used = std::collections::HashSet::new();
+    shown
+        .iter()
+        .enumerate()
+        .map(|(i, text)| {
+            let preferred = preferred.get(i).copied().flatten();
+            let mut candidates = Vec::new();
+            if let Some(pos) = preferred {
+                candidates.push(pos);
+            }
+            candidates.extend(
+                text.char_indices()
+                    .filter(|(pos, c)| usable_access_char(*c) && Some(*pos) != preferred)
+                    .map(|(pos, _)| pos),
+            );
+            let chosen = candidates.into_iter().find(|pos| {
+                text[*pos..]
+                    .chars()
+                    .next()
+                    .is_some_and(|c| !used.contains(&c.to_ascii_lowercase()))
+            });
+            if let Some(pos) = chosen {
+                if let Some(c) = text[pos..].chars().next() {
+                    used.insert(c.to_ascii_lowercase());
+                }
+            }
+            chosen
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -329,7 +404,7 @@ mod tests {
         // 下划线：默认首字母，例外词取词首。
         assert_eq!(access_char_pos("Save Session"), Some(0));
         assert_eq!(access_char_pos("New Window"), Some(4));
-        assert_eq!(access_char_pos("Open Recent"), Some(5));
+        assert_eq!(access_char_pos("Open Recent"), Some(9)); // 原版 Open Rece&nt
         assert_eq!(access_char_pos("Save Selection As"), Some(5));
         assert_eq!(access_char_pos("Close All Views"), Some(6));
         assert_eq!(access_char_pos("Close Window"), Some(6));
@@ -397,6 +472,76 @@ mod tests {
                 "Terminal.OpenLogSettings",
             ]
         );
+    }
+
+    /// 原版 `menu.config` 里显式写 `&` 的几处：下划线位置必须与它一致。
+    #[test]
+    fn original_ampersand_positions_are_preserved() {
+        assert_eq!(access_char_pos("Open Recent"), Some(9));
+        assert_eq!(access_char_pos("Select To"), Some(7));
+        assert_eq!(access_char_pos("Select Column To"), Some(7));
+        assert_eq!(access_char_pos("Syntax Schemes"), Some(1));
+        assert_eq!(access_char_pos("Window Opacity"), Some(7));
+        assert_eq!(access_char_pos("Set Tab Color"), Some(8));
+    }
+
+    /// 同一级不能有两个访问键：此前 `Select*` / `Margin*` / `Show*` 等族全划首字。
+    #[test]
+    fn no_repeated_access_key_in_any_menu_level() {
+        fn label(item: &Item) -> Option<&'static str> {
+            match item {
+                Item::Action { label, .. } | Item::Check { label, .. }
+                | Item::Submenu { label, .. } => Some(label),
+                Item::Separator => None,
+            }
+        }
+        fn walk(items: &[Item], path: &str) {
+            let rows: Vec<&'static str> = items.iter().filter_map(label).collect();
+            let positions = access_positions_unique(&rows, &rows);
+            let mut seen = std::collections::HashSet::new();
+            for (row, pos) in rows.iter().zip(positions) {
+                let Some(pos) = pos else { continue };
+                let c = row[pos..].chars().next().expect("位置来自本行");
+                assert!(
+                    seen.insert(c.to_ascii_lowercase()),
+                    "{path} ▸ {row} 的访问键 {c} 与同级重复"
+                );
+            }
+            for item in items {
+                if let Item::Submenu { label, items } = item {
+                    walk(items, &format!("{path} ▸ {label}"));
+                }
+            }
+        }
+        let tree = menus();
+        let top: Vec<&'static str> = tree.iter().map(|m| m.label).collect();
+        let positions = access_positions_unique(&top, &top);
+        let mut seen = std::collections::HashSet::new();
+        for (menu, pos) in top.iter().zip(positions) {
+            if let Some(pos) = pos {
+                let c = menu[pos..].chars().next().expect("位置来自本行");
+                assert!(seen.insert(c.to_ascii_lowercase()), "{menu} 的顶级访问键重复");
+            }
+        }
+        for menu in &tree {
+            walk(&menu.items, menu.label);
+        }
+    }
+
+    /// 中文按**显示的字**去重，不再一律划首字。
+    #[test]
+    fn translated_rows_get_distinct_access_keys() {
+        let keys = ["Select", "Select To", "Select Column To"];
+        let shown = ["选择", "选择到", "选择列到"];
+        let positions = access_positions_unique(&shown, &keys);
+        let chars: Vec<char> = positions
+            .iter()
+            .zip(shown)
+            .filter_map(|(pos, text)| pos.map(|p| text[p..].chars().next().expect("位置有效")))
+            .collect();
+        assert_eq!(chars.len(), 3);
+        let unique: std::collections::HashSet<char> = chars.into_iter().collect();
+        assert_eq!(unique.len(), 3, "中文同级也要不重复");
     }
 }
 

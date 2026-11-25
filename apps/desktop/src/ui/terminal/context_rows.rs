@@ -367,7 +367,24 @@ pub(in crate::ui) fn draw_context_rows(
         indent: rows.iter().any(|r| r.check.is_some()),
         cells: 0,
     };
-    for r in rows {
+    // 同一级右键行的访问键也不许重复：保留每行基线 `acc` 作为优先位置，
+    // 撞了就在本行文字里往后挪（中文按显示的字去重）。
+    let shown: Vec<&'static str> = rows.iter().map(|r| t(lang, r.label)).collect();
+    let preferred: Vec<Option<usize>> = rows
+        .iter()
+        .zip(&shown)
+        .map(|(r, text)| {
+            if r.separator || r.swatches {
+                None
+            } else if *text == r.label {
+                r.acc
+            } else {
+                Some(0)
+            }
+        })
+        .collect();
+    let accs = term_app::menu::access_positions_from(&shown, &preferred);
+    for (idx, r) in rows.iter().enumerate() {
         if r.separator {
             menu_separator(ui);
             continue;
@@ -389,9 +406,8 @@ pub(in crate::ui) fn draw_context_rows(
             draw_children_row(win, lang, ui, r, &base, work);
             continue;
         }
-        let text = t(lang, r.label);
-        // 中文文案按首字划下划线（与 `menu_items::underline_for` 同一口径）。
-        let acc = if text == r.label { r.acc } else { Some(0) };
+        let text = shown[idx];
+        let acc = accs[idx];
         // `gate` 的行是菜单树里来的命令：可用性问**同一个**判据
         // （`is_implemented` × 日志写入端状态），与菜单栏里那一份逐行相同。
         let (state, why) = match r.gate {
@@ -510,7 +526,7 @@ fn submenu_popup(
 /// `access_char_pos`），所以「右键里的 Log」与「Session ▸ Log」逐行相同。
 fn tree_rows(items: &[term_app::menu::Item]) -> Vec<Row> {
     use term_app::menu::Item;
-    items
+    let mut rows: Vec<Row> = items
         .iter()
         .map(|it| match it {
             Item::Action { label, id } => Row {
@@ -533,7 +549,17 @@ fn tree_rows(items: &[term_app::menu::Item]) -> Vec<Row> {
             // 三层以上子菜单（`Log` 里没有）：保持灰箭头，不递归。
             Item::Submenu { label, .. } => sub(label, Some(0)),
         })
-        .collect()
+        .collect();
+    // 菜单树那一份的 acc 已逐行由 access_char_pos 算出；这里再按同级去重一次，
+    // 保证右键展开的 Log 与菜单栏展开的 Log 不仅同源、也同键。
+    let labels: Vec<&'static str> = rows.iter().map(|r| r.label).collect();
+    let positions = term_app::menu::access_positions_unique(&labels, &labels);
+    for (row, pos) in rows.iter_mut().zip(positions) {
+        if !row.separator {
+            row.acc = pos;
+        }
+    }
+    rows
 }
 
 /// 菜单树里同名子菜单的条目（`"Log"` → Session 菜单下那 7 条命令 + 3 条分隔线）。

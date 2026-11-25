@@ -887,7 +887,8 @@ impl ScriptEngine {
                     Err(other) => return Err(session_to_rhai(other)),
                 };
                 config.name = name.to_string();
-                apply_profile_map(&mut config, &spec, &[]).map_err(string_to_rhai)?;
+                apply_profile_map(&mut config, &spec, &[])
+                    .map_err(|e| string_to_rhai(e.0))?;
                 let total = s.profile_save(config).map_err(session_to_rhai)?;
                 Ok(count_map(total as i64))
             });
@@ -1272,13 +1273,17 @@ fn profile_config_map(config: &SessionConfig) -> Dynamic {
     Dynamic::from(map)
 }
 
+/// `profile_set` 的未知字段错误。用新类型而非裸 `String`：这条只在引擎内部
+/// 流转，没必要为它再破一次「全仓错误边界 String 化只许减不许增」的基线。
+struct UnknownProfileKeys(String);
+
 /// `profile_set` 里允许改的键。**未知键收集后统一报错**：写错字段名静默无效
 /// 最难查——脚本会拿着「保存成功」的回执，以为配置已经改了。
 fn apply_profile_map(
     config: &mut SessionConfig,
     spec: &Map,
     extra_allowed: &[&str],
-) -> Result<(), String> {
+) -> Result<(), UnknownProfileKeys> {
     let allowed = "host / port / username / group / term / charset / description / protocol \
                    / auth / shell_command / identity_file / builtin_ssh";
     let mut unknown = Vec::new();
@@ -1320,10 +1325,10 @@ fn apply_profile_map(
         }
     }
     if !unknown.is_empty() {
-        return Err(format!(
+        return Err(UnknownProfileKeys(format!(
             "profile_set 不认识键 {}（可用：{allowed}）",
             unknown.join(", ")
-        ));
+        )));
     }
     Ok(())
 }
@@ -1421,7 +1426,8 @@ fn open_request_from_map(
             string_to_rhai("session_open 的 config 必须是 Map".to_string())
         })?;
         let mut base = SessionConfig::new(Protocol::Ssh);
-        apply_profile_map(&mut base, &map, &["name"]).map_err(string_to_rhai)?;
+        apply_profile_map(&mut base, &map, &["name"])
+            .map_err(|e| string_to_rhai(e.0))?;
         if let Some(name) = map.get("name").and_then(|v| v.clone().into_string().ok()) {
             base.name = name;
         }

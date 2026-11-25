@@ -114,6 +114,7 @@ mod tests {
         "Properties", "New Group",
         "Import", "Shell Sessions", "WindTerm Sessions", "No session available",
         "Settings", "Close sidebar", "Filter", "Session Popup", "🔒 Screen locked",
+        "Screen Locked", "Password",
         "Enter the vault master password to unlock.",
         "No vault yet — set a master password, or cancel to leave.",
         "Master password", "Wrong master password", "Unlock",

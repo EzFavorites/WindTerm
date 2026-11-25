@@ -29,6 +29,10 @@ term-app = { path = "../../crates/term-app" }
 eframe = "0.29"
 egui = "0.29"
 epaint = "0.29"
+# 文件/目录选择一律唤起系统对话框（NSOpenPanel / Win32 公共对话框 / XDG portal），
+# 不再自己列目录做「假文件管理器」。rfd 只用同步 API；调用放在后台线程，
+# 回执经共享槽取（ui/ 里因此没有任何 channel 端）。截图/无头运行不会开它。
+rfd = "0.15"
 # 字体选择器：要读装在本机的字面（字族名 / 字重 / 是否等宽 + `.ttc` 里第几面）。
 # `ttf-parser` 早就躺在依赖图里（`epaint → ab_glyph → owned_ttf_parser → ttf-parser`
 # 0.25.1），这里只是把它提成直接依赖，不多编一行代码、也不改「零 C 依赖」。

@@ -73,8 +73,8 @@ enum Entry {
 }
 
 /// 兼容终端菜单每行第一个字母都带下划线（S̲plit / F̲loat / Ëxplorer / …）。
-/// 位置复用主菜单那张访问键表；翻译成中文时按 `menu_items::underline_for`
-/// 的同一口径划首字。
+/// 位置复用主菜单那张访问键表 `access_char_pos`；翻译成中文时划首字。
+/// 这一组是固定三行，彼此不撞键。
 fn labelled(lang: Lang, key: &'static str) -> (String, Option<usize>) {
     let text = i18n::t(lang, key).to_string();
     let underline = if text == key {
