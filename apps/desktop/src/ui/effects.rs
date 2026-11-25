@@ -535,11 +535,13 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
-    /// `Mode ▸ Debug Mode` 的落点：翻**当前标签**的调试覆盖层，**不落盘**。
+    /// `Mode ▸ Debug Mode` 的落点：翻**当前标签**的调试覆盖层，并在日志槽
+    /// 空闲时顺带起一份**原始字节排障日志**（见 `debug_log::sync_debug_log`）。
     ///
     /// 与 [`Self::toggle_hex_mode`] 同形，但**没有**「切过去要跟随」那种尾部
-    /// 副作用：调试覆盖层不改视口、不改环、不改任何输入路径——它只是让
-    /// `pane_overlays.rs` 多画一遍已被渲染的信息，一个字都不动。
+    /// 副作用：**覆盖层**不改视口、不改环、不改任何输入路径——它只是让
+    /// `pane_overlays.rs` 多画一遍已被渲染的信息；落盘的排障日志由
+    /// `debug_log::sync_debug_log` 负责，两者共用一个开关但不共用一个槽。
     ///
     /// 没有活动标签时静默——菜单能在没有标签的窗口里点到（与 `toggle_hex_mode` 同）。
     ///

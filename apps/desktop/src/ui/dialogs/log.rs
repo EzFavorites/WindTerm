@@ -125,6 +125,12 @@ impl TerminalWindow {
             }
             let Some(dir) = dir.clone() else { continue };
             let tab = &self.tabs[i];
+            // Debug Mode 的排障日志占着同一个日志槽：重连边沿不能把用户没
+            // 请求的常规日志盖上去。Paused 也算占用（is_recording 含 Paused），
+            // 否则刚恢复的会话会把人家的暂停日志悄悄换掉。
+            if tab.log_status().is_recording() {
+                continue;
+            }
             tab.log_start(dir, &tab.config.name, &opts);
         }
     }

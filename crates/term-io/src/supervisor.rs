@@ -91,6 +91,8 @@ enum Command {
     LogStop,
     LogPause,
     LogResume,
+    /// 往当前日志追加一行诊断标记（错误 / 状态迁移）。没在记录时是空操作。
+    LogNote(String),
     /// ADR-0019：登记一次输出等待（脚本 / 桥接 / agent 的 `wait` 原语）。
     ///
     /// `ack` 由监管者线程在**把登记放进匹配队列后**发回：调用方拿到
@@ -409,6 +411,11 @@ impl SupervisorHandle {
 
     pub fn resume_log(&self) {
         self.send_cmd(Command::LogResume);
+    }
+
+    /// 诊断标记：错误 / 关键状态迁移写进当前日志，便于事后按文件排查。
+    pub fn log_note(&self, text: &str) {
+        self.send_cmd(Command::LogNote(text.to_string()));
     }
 
     pub fn close(&mut self) {
@@ -958,6 +965,9 @@ fn run(
     let mut queued: Option<Command> = None;
     // 日志写入端。`None` = 没在记录。
     let mut log: Option<SessionLog> = None;
+    // 写盘 / flush 失败只存在 SessionLog 内部；没有这条闸门，界面会一直显示
+    // 「Recording」，用户以为记上了，事后才发现文件是空的。失败只上报一次。
+    let mut log_failure_reported = false;
     // wait 匹配器（ADR-0019）：登记经命令队列生效，匹配在输出流上做。
     // 清洗器跨 chunk 保留解析状态——与 vt 吃同一份字节，语义同源。
     let mut cleaner = TextCleaner::new();
@@ -1037,6 +1047,7 @@ fn run(
                     match SessionLog::create_for(&dir, &session, &host, vt.cols, vt.rows, &opts) {
                         Ok(l) => {
                             let _ = ev_tx.send(Event::Log(l.status()));
+                            log_failure_reported = false;
                             log = Some(l);
                         }
                         Err(e) => {
@@ -1070,6 +1081,12 @@ fn run(
                     if let Some(l) = log.as_mut() {
                         l.resume();
                         let _ = ev_tx.send(Event::Log(l.status()));
+                    }
+                }
+                Command::LogNote(text) => {
+                    // 没在记录就丢弃：诊断标记没有第二个去处，也不该为它建文件。
+                    if let Some(l) = log.as_mut() {
+                        l.note(&text);
                     }
                 }
                 Command::RegisterWaiter {
@@ -1192,6 +1209,12 @@ fn run(
                 // 顺序反了也不影响，但「先记再消费」在排查崩溃时更保险。
                 if let Some(l) = log.as_mut() {
                     l.write(&bytes);
+                    if !log_failure_reported
+                        && matches!(l.status().phase, crate::log::LogPhase::Failed(_))
+                    {
+                        log_failure_reported = true;
+                        let _ = ev_tx.send(Event::Log(l.status()));
+                    }
                 }
                 // 非破坏性 tee：VT 照吃这一份，另拷一份给 UI（hex 视图）。
                 // 顺序钉在 `log.write` 之后、`stamp_row` / `process` 之前：
@@ -1339,6 +1362,9 @@ fn run(
     // 结束标记，否则「日志停在半行」到底是崩溃还是正常结束就分不出来。
     if let Some(mut l) = log.take() {
         l.finish();
+        if !log_failure_reported && matches!(l.status().phase, crate::log::LogPhase::Failed(_)) {
+            let _ = ev_tx.send(Event::Log(l.status()));
+        }
     }
 }
 
@@ -1537,6 +1563,10 @@ impl Session for SupervisedSession {
 
     fn resume_log(&self) {
         self.handle.resume_log();
+    }
+
+    fn log_note(&self, text: &str) {
+        self.handle.log_note(text);
     }
 
     fn close(&mut self) {

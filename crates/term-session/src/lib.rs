@@ -658,6 +658,11 @@ impl SessionPool {
         self.with(id, |s| s.resume_log()).is_some()
     }
 
+    /// 往该会话的当前日志追加一行诊断标记。没在记录时是空操作。
+    pub fn log_note(&self, id: SessionId, text: &str) {
+        let _ = self.with(id, |s| s.log_note(text));
+    }
+
     /// 关闭并移除一个会话。返回它之前是否存在。
     pub fn close(&self, id: SessionId) -> bool {
         self.fire_event(TriggerOn::BeforeDisconnect);

@@ -125,6 +125,16 @@ impl TerminalWindow {
         } else {
             self.log_note = Some(text.clone());
         }
+        // 状态栏是一帧的易失状态：刷新、关窗、重开都拿不回这句话。把它同步
+        // 写进当前会话日志（若正在记录），事后排查才有据可查。同一句已经
+        // 在前景条上就不再重复写，避免每帧刷日志。
+        let already = self.error_notice_text().is_some_and(|cur| cur.contains(&text));
+        if !already {
+            let active = self.active_slot();
+            if let Some(id) = self.tabs.get(active).and_then(|t| t.session) {
+                self.pool.log_note(id, &text);
+            }
+        }
         self.raise_error_notice(&text);
     }
 

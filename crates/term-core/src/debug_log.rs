@@ -11,6 +11,9 @@ pub fn options() -> LogOptions {
     LogOptions {
         log_type: LogType::All,
         file_name: format!("debug_{DEFAULT_FILE_NAME}"),
+        // 用户日志的出厂值是 0（∞），但排障日志会一直开着，长会话无界增长
+        // 会把盘写满。给个有限上限，复用 log.rs 已有的轮转与 `# rotated from`。
+        max_size_mb: 16,
         ..LogOptions::default()
     }
 }
@@ -24,5 +27,6 @@ mod tests {
         let opts = options();
         assert_eq!(opts.mode(), LogType::All, "排障要看见转义序列，不能清洗");
         assert_eq!(opts.file_name, format!("debug_{DEFAULT_FILE_NAME}"));
+        assert!(opts.max_bytes().is_some(), "排障日志必须有轮转上限");
     }
 }

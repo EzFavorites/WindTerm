@@ -48,9 +48,29 @@ pub fn register_secret(secret: &str) {
 fn redact(bytes: &[u8]) -> Vec<u8> {
     let known = KNOWN_SECRETS.lock().map(|k| k.clone()).unwrap_or_default();
     if known.is_empty() { return bytes.to_vec(); }
-    let mut out = String::from_utf8_lossy(bytes).into_owned();
-    for secret in known { out = out.replace(&secret, "[redacted]"); }
-    out.into_bytes()
+    // 字节级替换：Debug 日志是 LogType::All，承诺保留**原始字节**（含转义序列
+    // 与非 UTF-8 的旧编码）。走 from_utf8_lossy 会把它们统统改写成 U+FFFD，
+    // 保真就没了——脱敏不能靠破坏字节流来实现。
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        let mut hit = None;
+        for secret in &known {
+            let pat = secret.as_bytes();
+            if !pat.is_empty() && bytes[i..].starts_with(pat) {
+                hit = Some(pat.len());
+                break;
+            }
+        }
+        if let Some(n) = hit {
+            out.extend_from_slice(b"[redacted]");
+            i += n;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    out
 }
 
 /// 日志目录：profile 目录下的 `logs/`。
@@ -156,6 +176,17 @@ impl SessionLog {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// 追加一行诊断标记到当前日志（错误、状态迁移等）。
+    ///
+    /// 只有正在记录的会话才有地方写；`raw_write` 是唯一的脱敏漏斗，
+    /// 所以标记文本也走同一套已知凭据替换。写完立刻 flush——出问题之后
+    /// 用户要马上能看到这一行，而不是等 8 KiB 攒满。
+    pub fn note(&mut self, text: &str) {
+        let line = format!("# {} {}\n", log_opts::iso(now_secs()), text.replace('\n', " "));
+        self.raw_write(line.as_bytes());
+        self.flush();
     }
 
     /// 头部注释块。`rotated_from` = 轮转出来的新文件，记一笔上一份是谁，
@@ -626,6 +657,19 @@ mod tests {
         assert_ne!(a.path(), b.path(), "同名同秒必须落到不同文件");
         // 序号插在扩展名前，`ls` 里还能按扩展名筛。
         assert!(b.path().to_string_lossy().contains("-2.log"));
+    }
+
+    /// 脱敏必须逐字节保真：raw 日志里的非 UTF-8 与转义序列不能被改写。
+    #[test]
+    fn redaction_keeps_non_utf8_bytes_intact() {
+        register_secret("TOPSECRET_XYZ");
+        let input = [0x1b, b'[', b'3', b'1', b'm', 0xff, 0xfe, b'T', b'O', b'P'];
+        let out = redact(&input);
+        // 0xff/0xfe 若走 from_utf8_lossy 会变成三个字节的 U+FFFD。
+        assert!(out.windows(2).any(|w| w == [0xff, 0xfe]), "非 UTF-8 被改写：{out:?}");
+        assert_eq!(&out[..5], &input[..5], "转义序列必须原样保留");
+        let with_secret = b"aTOPSECRET_XYZb";
+        assert_eq!(redact(with_secret), b"a[redacted]b");
     }
 
     #[test]

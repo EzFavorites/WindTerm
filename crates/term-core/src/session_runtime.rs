@@ -378,6 +378,10 @@ pub trait Session: Send {
 
     fn resume_log(&self) {}
 
+    /// 往**当前**会话日志里追加一行诊断标记（错误 / 状态迁移）。
+    /// 默认空实现：没有日志文件时写一行的请求直接丢弃，不该因此报错。
+    fn log_note(&self, _text: &str) {}
+
     /// 关闭会话。之后 `state` 应报告 [`SessionState::Finished`]。
     fn close(&mut self);
 }

@@ -142,7 +142,8 @@ pub struct Tab {
     ///
     /// 与 [`Tab::mode`] / [`Tab::hex`] / [`Tab::marks`] 完全同一套两层模型：归 tab
     /// 而不是 `ViewState`，**出厂 false，切换不落盘**——所以没有「上次那个状态」，
-    /// 重启后新窗口一律是关的。落地见 `ui/effects.rs::toggle_debug_mode`。
+    /// 重启后新窗口一律是关的。落地见 `ui/effects.rs::toggle_debug_mode`
+    /// （同一开关还会按需起 `debug_log_active` 记录的那份排障日志）。
     ///
     /// 它**不进** `DisplayMode`：那是**互斥排版**（`pane_body.rs` 的 if/else 二选
     /// 一），而调试覆盖是**叠加**——两者正交，能同时成立。`bin` 是一个被 13 处
