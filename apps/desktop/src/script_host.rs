@@ -337,10 +337,109 @@ impl ProfileCatalog for DeskProfiles {
     }
 }
 
+// ── 应用级脚本动词的桌面落点（2026-11-25）──────────────────────────
+//
+// `app_command` / `app_catalog` 在脚本侧只认端口（见 term-script 的 surface.rs），
+// 命令 ID 的解释留在有 `term-app` 的这一侧：ID 字面量因此一处都不用抄到 ui/。
+//
+// 注意：`AppControl` 的 `DeskApp` 实现在 `script_app.rs`（本批次禁止改动，属另一
+// 批次所有权）。这里先把「ID → Action」与「三处清单合一」做成可测的纯函数，
+// 供那一处直接调用；合并点见交付报告。
+
+/// 把脚本给的命令 ID 交给唯一入口 `Action::parse`。未知 ID 返回 `None`，
+/// 上层据此回 `dispatched: false`，绝不假装执行成功。
+pub fn parse_app_command(id: &str) -> Option<term_app::action::Action> {
+    term_app::action::Action::parse(id)
+}
+
+/// `app_command(id)` 的回执：只看 ID 是否被识别，不在这里碰 UI。
+pub fn desk_app_command(id: &str) -> term_script::CommandAck {
+    term_script::CommandAck::dispatched(parse_app_command(id).is_some())
+}
+
+/// CRT 兼容门面清单。只列顶层门面对象——它们不在 `term-core::surface`
+/// （迁移层不属于能力面），但脚本自省时应当看得见「有这一族写法」。
+const CRT_FACADE: &[(&str, &str)] = &[
+    ("crt", "SecureCRT 兼容门面根对象"),
+    ("crt.Screen", "屏幕读写 / 等待的门面子对象"),
+    ("crt.Session", "连接与会话的门面子对象"),
+    ("crt.Dialog", "交互问答的门面子对象"),
+    ("crt.Clipboard", "剪贴板的门面子对象"),
+    ("crt.Window", "窗口的门面子对象"),
+];
+
+/// `app_catalog()`：应用命令台账 + 脚本能力面 + CRT 门面，三处合一。
+///
+/// 每组按 `source` 标明来源，脚本据此判断该用 `app_command(id)` 还是直接调
+/// 同名全局函数。清单是纯数据的拼接，不缓存——能力台账/动词表本来就是静态的。
+pub fn desk_app_catalog() -> Vec<term_script::CatalogEntry> {
+    let mut out = Vec::new();
+    for cap in term_app::capability::inventory() {
+        let summary = cap
+            .feature
+            .map(|f| format!("应用命令（能力：{}）", f.name()))
+            .unwrap_or_else(|| "应用命令".to_string());
+        out.push(term_script::CatalogEntry {
+            id: cap.id.to_string(),
+            summary,
+            source: "app".to_string(),
+        });
+    }
+    for spec in term_core::surface::script_specs() {
+        out.push(term_script::CatalogEntry {
+            id: spec.name.to_string(),
+            summary: spec.summary.to_string(),
+            source: "script".to_string(),
+        });
+    }
+    for (name, summary) in CRT_FACADE {
+        out.push(term_script::CatalogEntry {
+            id: (*name).to_string(),
+            summary: (*summary).to_string(),
+            source: "crt".to_string(),
+        });
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use term_core::session::OpenRequest;
+
+    /// `app_command` 的桌面落点必须与菜单同入口：认得出的 ID 报已派发，
+    /// 认不出的显式报未派发（不静默成功）。
+    #[test]
+    fn desk_app_command_uses_the_one_action_parse_entry() {
+        assert!(desk_app_command("Terminal.ClearScreen").dispatched);
+        assert!(desk_app_command("Window.TogglePaneTmux").dispatched);
+        assert!(!desk_app_command("No.SuchCommand").dispatched);
+        assert_eq!(
+            parse_app_command("Terminal.ClearScreen"),
+            Some(term_app::action::Action::Tab(
+                term_app::vocab::TabAction::ClearScreen
+            ))
+        );
+    }
+
+    /// 自省清单三处都在，且脚本动词（含新加的 app_command / app_catalog
+    /// 与改为两端可见的 describe）与 CRT 门面各占一组。
+    #[test]
+    fn desk_app_catalog_merges_app_script_and_crt_sources() {
+        let rows = desk_app_catalog();
+        for source in ["app", "script", "crt"] {
+            assert!(rows.iter().any(|r| r.source == source), "{source} 组缺失");
+        }
+        assert!(rows.iter().any(|r| r.id == "Terminal.ClearScreen" && r.source == "app"));
+        for name in ["app_command", "app_catalog", "describe"] {
+            assert!(
+                rows.iter()
+                    .any(|r| r.id == name && r.source == "script"),
+                "自省清单漏了 {name}"
+            );
+        }
+        assert!(rows.iter().any(|r| r.id == "crt.Screen" && r.source == "crt"));
+    }
 
     /// ADR-0025 阶段 5：界面那条路新开的会话必须**真的**被递回来。
     ///

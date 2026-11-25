@@ -206,17 +206,32 @@ fn tree_rows_carry_both_the_gate_and_the_dispatch_id() {
     assert_eq!(rows.iter().filter(|r| r.separator).count(), 3);
 }
 
-/// 三种「清」是三条不同的动作，不是同一个动作的三个名字。
+/// 三种「清」是三条不同的命令 ID，不是同一个命令的三个名字。
 ///
-/// 这条同时守住内核链路：`ClearScrollback` 只丢历史、`ClearScreen` 清屏、
-/// `ClearAll` 两者都清——三个 `Work` 变体各自落到 `Terminal` 上三个不同的
-/// 方法（`clear_scrollback` / `clear` / `clear_screen_and_scrollback`）。
+/// 2026-11-25 起它们不再是私有 `Work` 变体，而是数据层的三个 ID，通过
+/// `Work::Command(id)` → `dispatch(id)` → `Action::parse` 落到投影层三个
+/// 不同的方法（`clear_scrollback` / `clear` / `clear_all`）。两处判态同源。
 #[test]
 fn the_three_clear_commands_are_three_distinct_actions() {
     let work = |label: &str| TERMINAL_ROWS.iter().find(|r| r.label == label).unwrap().work;
-    assert!(matches!(work("Clear Scrollback"), Some(Work::ClearScrollback)));
-    assert!(matches!(work("Clear Screen"), Some(Work::ClearScreen)));
-    assert!(matches!(work("Clear All"), Some(Work::ClearAll)));
+    let id = |label: &str| match work(label) {
+        Some(Work::Command(id)) => id,
+        other => panic!("{label} 必须走命令 ID 通道：{other:?}"),
+    };
+    let ids = [
+        id("Clear Scrollback"),
+        id("Clear Screen"),
+        id("Clear All"),
+    ];
+    assert_eq!(ids[0], term_app::menu::context_ids::CLEAR_SCROLLBACK);
+    assert_eq!(ids[1], term_app::menu::context_ids::CLEAR_SCREEN);
+    assert_eq!(ids[2], term_app::menu::context_ids::CLEAR_ALL);
+    assert_eq!(ids[0], "Terminal.ClearScrollback");
+    assert_eq!(ids[1], "Terminal.ClearScreen");
+    assert_eq!(ids[2], "Terminal.ClearAll");
+    for id in ids {
+        assert!(term_app::capability::is_implemented(id), "{id} 台账未接线");
+    }
     // 上一条 / 下一条命令是**方向相反**的两条，不能都推给同一支。
     assert!(matches!(
         work("Goto Previous Command"),
@@ -273,15 +288,15 @@ fn previously_fake_grey_rows_now_carry_a_real_command() {
     }
 }
 
-/// 2026-11-19：`Copy Command` 从真占位接成真动作（复用 OSC 133 命令边界）。
-/// 它没有独立命令 ID，所以走 `Work::CopyCommand` 而不是 `Work::Command`。
+/// `Copy Command` 现在是数据层命令 ID，与菜单项走同一条 `Work::Command` 派发。
 #[test]
 fn copy_command_is_now_a_real_action() {
     let r = TERMINAL_ROWS.iter().find(|x| x.label == "Copy Command").unwrap();
     assert!(
-        matches!(r.work, Some(Work::CopyCommand)),
-        "Copy Command 已接线，必须能派发（2026-11-19）"
+        matches!(r.work, Some(Work::Command(term_app::menu::context_ids::COPY_COMMAND))),
+        "Copy Command 必须走命令 ID 通道"
     );
+    assert_eq!(r.gate, Some(term_app::menu::context_ids::COPY_COMMAND));
     assert_eq!(row_state(r, None), MenuRowState::Enabled);
 }
 

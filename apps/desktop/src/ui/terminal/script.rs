@@ -637,6 +637,9 @@ impl TerminalWindow {
             None => return,
         };
         let mut options = self.script_run_options(&path).with_budget(budget);
+        // 已登记脚本的调用参数取自注册表（`ScriptEntry.args`），与界面里编辑的
+        // 那一份同源；按路径直接跑（面板 / 命令面板 / 按钮栏）都能拿到同一组。
+        options.args = registered_script_args(&path);
         if background {
             options = options.with_background();
         }
@@ -686,6 +689,24 @@ impl TerminalWindow {
     }
 }
 
+/// 按路径查已登记脚本的 `args`。读盘失败 / 没登记时给空串组——按路径直接跑
+/// 的脚本本来就不要求先登记，参数缺省为空才是正常语义。
+fn registered_script_args(path: &str) -> Vec<String> {
+    term_profile::prefs::load()
+        .map(|prefs| args_from_prefs(&prefs, path))
+        .unwrap_or_default()
+}
+
+/// 纯查表，便于单测：同一路径的 `ScriptEntry.args` 原样交给 `RunOptions.args`。
+fn args_from_prefs(prefs: &term_profile::prefs::Prefs, path: &str) -> Vec<String> {
+    prefs
+        .scripts
+        .iter()
+        .find(|entry| entry.path == path)
+        .map(|entry| entry.args.clone())
+        .unwrap_or_default()
+}
+
 enum ScriptAction {
     None,
     Close,
@@ -725,6 +746,23 @@ pub(in crate::ui) fn note_recorded_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn registered_script_args_reach_the_run_options() {
+        let mut prefs = term_profile::prefs::Prefs::default();
+        prefs.scripts.push(term_profile::prefs::ScriptEntry {
+            name: "备份".into(),
+            path: "/tmp/backup.rhai".into(),
+            args: vec!["--all".into(), "42".into()],
+            description: String::new(),
+            enabled: true,
+        });
+        assert_eq!(
+            args_from_prefs(&prefs, "/tmp/backup.rhai"),
+            vec!["--all".to_string(), "42".to_string()]
+        );
+        assert!(args_from_prefs(&prefs, "/tmp/other.rhai").is_empty());
+    }
 
     #[test]
     fn the_status_line_tells_apart_idle_running_done_and_failed() {

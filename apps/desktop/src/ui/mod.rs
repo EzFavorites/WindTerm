@@ -398,6 +398,9 @@ pub struct TerminalWindow {
     /// 捕获态记的是**命令 ID**，不是表下标——表增删项不会把用户绑定挪到别的命令。
     shortcuts: term_app::shortcut_map::KeyBindingMap,
     shortcut_capture: Option<String>,
+    /// 「Add binding」的自定义命令 ID 输入缓冲。用户可写任意 ID（包括已登记
+    /// 脚本的 `Script.RunFile:<路径>`）；与 `palette_input` 同类，跨帧存活。
+    shortcut_new_id: String,
     /// 两段式键（`Alt+W, Alt+H`）的等待态与解析好的运行期表。
     ///
     /// 都活在窗口上而不是 `ViewState`：前缀是**跨帧的控件状态**，不是业务事实。

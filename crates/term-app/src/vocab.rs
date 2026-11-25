@@ -20,6 +20,10 @@
 
 pub mod tmux_palette;
 
+/// `Script.RunFile:<路径>` 的 ID 前缀（不是完整 ID）。路径是任意串，不进枚举；
+/// 放在词表层是因为入口层 `parse` 只许依赖本模块，而它必须认这个前缀。
+pub const RUN_FILE_PREFIX: &str = "Script.RunFile:";
+
 /// 一个能力就是一个可独立演进的纵切面。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FeatureId {
@@ -803,6 +807,22 @@ pub enum TabAction {
         target: Option<usize>,
         slot: Option<usize>,
     },
+    // ── 终端内容右键的四条真实命令（2026-11-25 统一入口）──
+    //
+    // 这四条原先在投影层的私有 `Work` 枚举里直接调 `tab.clear()` /
+    // `copy_command()`，绕开了 `Action::parse`：于是它们既没有命令 ID，也进不了
+    // `capability` 台账，脚本 / 快捷键 / 命令面板都碰不到。提升到这里后，右键
+    // 只发 ID，`dispatch` 走与其它命令完全相同的 parse → reduce → Effect 通道。
+    // 四条都作用在**活动标签**，所以沿用 `Action::Tab` / `Effect::Tab` 这一对
+    // 现成的纯层通道，不另造第二套 Effect。
+    /// 复制 OSC 133 标记的当前整条命令（不是选区）到剪贴板。
+    CopyCommand,
+    /// 只清当前屏幕，历史保留。
+    ClearScreen,
+    /// 只丢历史（回看），屏幕留着。
+    ClearScrollback,
+    /// 清屏 + 清历史。
+    ClearAll,
 }
 
 /// 一个可停靠面板的身份。
@@ -1174,4 +1194,10 @@ pub enum Action {
     /// 也不该为一条纯 UI 意图凭空造一个副作用）。消费点是另一半——
     /// `apps/desktop` 的 `dispatch_action` 认这个变体，就地开地址栏。
     AddressBar,
+    /// 运行一个已登记脚本（映射键 / 按钮栏 / 命令面板的 `Script.RunFile:<path>`）。
+    ///
+    /// 路径是任意串，做成枚举变体不会让 `Action` 认识文件系统——它只携带文本，
+    /// 真正读文件、起线程的是投影层。reducer 对它不写状态、不产 Effect，
+    /// 消费点在 `apps/desktop` 的 `dispatch_action`（与 `AddressBar` 同一形态）。
+    RunScript(String),
 }

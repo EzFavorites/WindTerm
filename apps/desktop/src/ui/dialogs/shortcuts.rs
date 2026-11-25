@@ -408,6 +408,28 @@ impl TerminalWindow {
                 self.shortcut_capture = Some(id);
             }
             ui.separator();
+            // 自定义绑定：用户可输入**任意**命令 ID（包括已登记脚本的映射键），
+            // 不要求它出现在出厂表里。ID 只是绑定表的键，派发仍走 dispatch(id)
+            // → Action::parse；未知 ID 按下时不会假装执行成功。
+            ui.horizontal(|ui| {
+                ui.label("Command ID:");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.shortcut_new_id)
+                        .desired_width(220.0)
+                        .hint_text("custom command id"),
+                );
+                if ui.button("Add binding").clicked() {
+                    let id = self.shortcut_new_id.trim().to_string();
+                    if !id.is_empty() {
+                        self.shortcut_capture = Some(id);
+                        self.shortcut_new_id.clear();
+                    }
+                }
+            });
+            if self.shortcut_capture.is_some() {
+                ui.label("Now press the new combination (Cmd/Ctrl/Alt + key).");
+            }
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Reset to defaults").clicked() {
                     self.shortcuts = KeyBindingMap::new(&[], self.shortcuts.platform());
@@ -433,6 +455,22 @@ mod shortcuts_migration_tests;
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// 「Add binding」接受任意命令 ID：绑定表按 ID 键控，不要求它出现在出厂
+    /// 表里。用户自定义脚本键（映射键）因此也能绑定，展示名退回原始 ID。
+    #[test]
+    fn custom_binding_accepts_an_id_outside_the_default_table() {
+        let id = "Script.RunFile:/tmp/a.rhai";
+        let user = vec![(id.to_string(), "Cmd+Shift+K".to_string())];
+        let map = KeyBindingMap::new(&user, Platform::Macos);
+        assert!(
+            map.rows().iter().any(|(key, _)| key == id),
+            "自定义 ID 必须能进绑定表"
+        );
+        assert_eq!(label_for(id), id, "没有翻译的 ID 原样显示，不能变成空串");
+        assert!(static_id(id).is_none(), "它不在出厂表里，这是自定义绑定的前提");
+    }
 
     #[test]
     fn every_default_binding_parses_to_a_chord() {

@@ -13,7 +13,8 @@
 //! 不制造第二份语义。判据：
 //!
 //! - 两个前端都能用它 → [`Exposure::Both`]（绝大多数会话动词）；
-//! - 只有远程需要（当前只有 `describe`：脚本侧拿不到动词表也不需要）→ `Rpc`；
+//! - 只有远程需要 → `Rpc`（2026-11-25 起此档为空：`describe` 也对脚本可见了，
+//!   保留这个变体是因为它是数据模型的一档，删掉会让未来只给远程的动词无处可放）；
 //! - 只有脚本需要（例如 `cursor_pos`，远程从 `screen` 的结果字段就能拿到
 //!   同样的两个数，单列一个方法只是多一次往返）→ `Script`。
 //!
@@ -66,7 +67,7 @@ pub enum MethodKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Exposure {
-    /// 只对 JSON-RPC 桥可见（当前只有自省类的 `describe`）。
+    /// 只对 JSON-RPC 桥可见（当前没有：自省的 `describe` 两端都可见）。
     Rpc,
     /// 只对脚本引擎可见（远程有等价的更省往返的表达，不必单列）。
     Script,
@@ -149,7 +150,9 @@ pub static METHODS: &[MethodSpec] = &[
         params_schema: NO_PARAMS,
         result_schema: r#"{"type":"object","properties":{"methods":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"summary":{"type":"string"},"kind":{"type":"string","enum":["introspect","read","write","session_lifecycle","stream"]},"params_schema":{"type":"object"},"result_schema":{"type":"object"}},"required":["name","summary","kind","params_schema","result_schema"]}}},"required":["methods"]}"#,
         kind: MethodKind::Introspect,
-        exposure: Exposure::Rpc,
+        // 2026-11-25：自省不该只有远程客户端能看。脚本侧同样要能问「有哪些
+        // 动词」——它从本表直接生成回答，不另抄一份清单。
+        exposure: Exposure::Both,
     },
     MethodSpec {
         name: "session_list",
@@ -786,6 +789,33 @@ pub static METHODS: &[MethodSpec] = &[
         kind: MethodKind::Write,
         exposure: Exposure::Script,
     },
+    // ── 统一命令入口（2026-11-25） ───────────────────────────
+    //
+    // 菜单 / 右键 / 快捷键 / 命令面板与脚本以前各有一套派发路径。这两条动词把
+    // 「命令 ID」提升为脚本可见的一等公民：`app_command` 走与菜单完全相同的
+    // `Action::parse`，`app_catalog` 把三处清单（应用命令 / 本表的脚本动词 /
+    // CRT 门面）合成一份，脚本不必硬编码 ID。
+    MethodSpec {
+        name: "app_command",
+        summary: "按命令 ID 派发一条应用命令（菜单、右键、命令面板里的同一个 ID）。\
+                   只在 app 授权下可用；ID 解析不出 Action 时返回 dispatched=false，\
+                   **不假装执行成功**。与菜单点击走同一条 Action::parse → reducer → \
+                   Effect 通道，不另开字符串旁路。",
+        params_schema: r#"{"type":"object","properties":{"command":{"type":"string","minLength":1,"description":"命令 ID（取 app_catalog 的 id；例如 Terminal.ClearScreen）"}},"required":["command"]}"#,
+        result_schema: r#"{"type":"object","properties":{"ok":{"type":"boolean","description":"恒为 true；宿主拒绝 / 没界面走 error 分支"},"dispatched":{"type":"boolean","description":"命令 ID 是否被识别为真实 Action；false 表示什么都没做"}},"required":["ok","dispatched"]}"#,
+        kind: MethodKind::Write,
+        exposure: Exposure::Script,
+    },
+    MethodSpec {
+        name: "app_catalog",
+        summary: "列出可派发的全部命令 ID 与脚本动词：应用命令面（term-app 台账）、\
+                   本表的脚本动词、CRT 兼容门面三组按 source 区分。脚本据此发现 ID，\
+                   不必把菜单里的字符串抄进脚本。无界面的宿主显式报不支持。",
+        params_schema: NO_PARAMS,
+        result_schema: r#"{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"summary":{"type":"string"},"source":{"type":"string","enum":["app","script","crt"]}},"required":["id","summary","source"]}}},"required":["entries"]}"#,
+        kind: MethodKind::Read,
+        exposure: Exposure::Script,
+    },
 ];
 
 /// 按名字查方法条目（**不分前端**）。`None` = 这个方法不在能力面上（调用方应报
@@ -1076,13 +1106,20 @@ mod tests {
     }
 
     #[test]
-    fn every_exposure_is_used() {
-        for exposure in [Exposure::Rpc, Exposure::Script, Exposure::Both] {
+    fn every_used_exposure_has_a_projection() {
+        // `describe` 改为两端可见后，Rpc-only 这一档暂时为空——空不是缺陷：
+        // 变体留着，将来真有「只给远程桥、脚本拿不到」的动词时仍有位置。
+        // 真正要钉的是**非空**的两档各自都有投影，别让可见性标注退化成装饰。
+        for exposure in [Exposure::Script, Exposure::Both] {
             assert!(
                 METHODS.iter().any(|spec| spec.exposure == exposure),
                 "{exposure:?} 没有任何方法使用——可见性标注退化成了装饰"
             );
         }
+        assert!(
+            find("describe").is_some_and(|s| s.exposure.on_script()),
+            "自省必须对脚本可见"
+        );
     }
 
     #[test]

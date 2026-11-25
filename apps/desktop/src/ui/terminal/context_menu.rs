@@ -20,7 +20,7 @@ use term_app::mouse::{RightClickAction, RightClickDecision};
 use term_app::tab::TabAction;
 
 use super::context_rows::{draw_context_rows, Work, TERMINAL_ROWS};
-use super::tab_slot::{selection_text_ref, tab_of, TabSlot};
+use super::tab_slot::{selection_text_ref, TabSlot};
 
 impl TerminalWindow {
     /// `Terminal ▸ Mouse Actions ▸ Right click:` 的三档分派（2026-11-18）。
@@ -122,8 +122,6 @@ impl TerminalWindow {
                         self.ctx.copy_text(text);
                     }
                 }
-                // 2026-11-19：复制整条命令（OSC 133 边界），与 `Copy` 不同。
-                Work::CopyCommand => self.copy_command(),
                 Work::Paste => self.request_paste(),
                 // 「粘贴选中」粘的是**屏幕上选中的那几个字**，与剪贴板无关
                 // （2026-11-17 用户校正：它不是 Paste 的别名）。所以不走
@@ -154,21 +152,9 @@ impl TerminalWindow {
                     }
                 }
                 Work::Find => self.dispatch_action(Action::Find(FindAction::Open)),
-                Work::ClearScreen => {
-                    if let Some(tab) = tab_of(&mut self.tabs, &mut self.shell_tabs, slot) {
-                        tab.clear();
-                    }
-                }
-                Work::ClearScrollback => {
-                    if let Some(tab) = tab_of(&mut self.tabs, &mut self.shell_tabs, slot) {
-                        tab.clear_scrollback();
-                    }
-                }
-                Work::ClearAll => {
-                    if let Some(tab) = tab_of(&mut self.tabs, &mut self.shell_tabs, slot) {
-                        tab.clear_all();
-                    }
-                }
+                // Copy Command / Clear Screen / Clear Scrollback / Clear All 已提升为
+                // 数据层命令 ID，走下面的 `Work::Command(id)` → `dispatch(id)`，与菜单
+                // 栏、快捷键、脚本 `app_command` 完全同一条 Action 通道。
                 // 与菜单栏 `Text.GotoPreviousCommand` / `Text.GotoNextCommand`
                 // 走同一条 `Op`：两处入口一份位移规则。
                 Work::GotoCommand { next } => {

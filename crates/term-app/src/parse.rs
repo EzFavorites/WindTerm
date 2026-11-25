@@ -268,6 +268,13 @@ pub(crate) fn tab_parse(id: &str) -> Option<TabAction> {
         "Terminal.TabCopyName" => TabAction::CopyName,
         "Terminal.TabCopyUrl" => TabAction::CopyUrl,
         "Terminal.TabColor" => TabAction::Color { target: None, slot: None },
+        // 终端内容右键的四条真实命令（ID 数据表在 menu.rs::context_ids）。
+        // 与标签右键那十条共用 `Action::Tab` / `Effect::Tab` 这一条纯层通道，
+        // 右键 UI 因此只发 ID，不再直接调投影层的 clear / copy 方法。
+        "Terminal.CopyCommand" => TabAction::CopyCommand,
+        "Terminal.ClearScreen" => TabAction::ClearScreen,
+        "Terminal.ClearScrollback" => TabAction::ClearScrollback,
+        "Terminal.ClearAll" => TabAction::ClearAll,
         _ => return None,
     })
 }
@@ -437,9 +444,23 @@ pub(crate) fn address_parse(id: &str) -> Option<Action> {
     })
 }
 
+/// 脚本运行命令：`Script.RunFile:<路径>`。路径是任意串，所以这里判断前缀，
+/// 不把「ID 字面量」散落到投影层；前缀常量在 `menu.rs` 的数据层。
+pub(crate) fn run_file_parse(id: &str) -> Option<Action> {
+    let prefix = RUN_FILE_PREFIX;
+    id.strip_prefix(prefix)
+        .filter(|path| !path.trim().is_empty())
+        .map(|path| Action::RunScript(path.trim().to_string()))
+}
+
 impl Action {
     /// 命令 ID → 能力动作的唯一入口。未接线的命令返回 `None`。
     pub fn parse(id: &str) -> Option<Action> {
+        // `Script.RunFile:<路径>` 的载荷是任意串，先认前缀；它和菜单命令走
+        // 同一个 `Action` 通道，但不是固定 ID 表中的一条。
+        if let Some(action) = run_file_parse(id) {
+            return Some(action);
+        }
         // 地址栏是本层唯一**没有子枚举**的动作——它没有 reducer，也不产
         // `Effect`（见 `Action::AddressBar` 的注释），所以走自己那个
         // [`address_parse`]。放在链首：它的 ID 与 `center_parse` 里那批
@@ -557,7 +578,8 @@ impl Action {
             | Action::TmuxCommand(_)
             | Action::TmuxFeed(_)
             | Action::QuickCommand(_)
-            | Action::QuickGroupToggle(_) => FeatureId::Shell,
+            | Action::QuickGroupToggle(_)
+            | Action::RunScript(_) => FeatureId::Shell,
         }
     }
 }
@@ -567,121 +589,5 @@ impl Action {
 mod local_mode_tests;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// 10 条栅格可视化命令的**入口表**：ID → 旋钮 → 归属能力。
-    ///
-    /// 这一条与 `apps/desktop/src/ui/terminal/marks_menu_tests.rs` 是一对：
-    /// 这里钉「ID 有没有被认出来、认出的是哪一个旋钮」，那边钉「认出来之后
-    /// 屏幕上真的变了没有」。缺了任何一半，「点了没反应」都能溜过去——
-    /// 只钉前者会得到「命令能点、但写错了旋钮」；只钉后者会得到
-    /// 「某个 ID 根本不在这张表里，测试用的却是私有方法」。
-    ///
-    /// 五档空白模式的编号是这张表里唯一容易错位的一处（`Whitespace(0..=4)`
-    /// 必须与 `WhitespaceMode::ALL` 同序），所以逐条写死，不用循环生成：
-    /// 循环会跟着实现一起歪，写死的期望值不会。
-    #[test]
-    fn the_ten_marks_commands_parse_to_their_own_knob_and_feature() {
-        let table: [(&str, MarksKnob); 10] = [
-            ("View.ToggleLineEndings", MarksKnob::LineEndings),
-            ("View.ToggleColumnMarker", MarksKnob::ColumnMarker),
-            ("View.ToggleIndentGuides", MarksKnob::IndentGuides),
-            ("View.ToggleWrapSymbols", MarksKnob::WrapSymbols),
-            ("View.WhiteSpacesHideAll", MarksKnob::Whitespace(0)),
-            ("View.WhiteSpacesShowAll", MarksKnob::Whitespace(1)),
-            ("View.WhiteSpacesShowInSelection", MarksKnob::Whitespace(2)),
-            ("View.WhiteSpacesShowInLineStart", MarksKnob::Whitespace(3)),
-            ("View.WhiteSpacesShowInLineEnd", MarksKnob::Whitespace(4)),
-            ("Text.HighlightCaretLine", MarksKnob::CaretLine),
-        ];
-        for (id, knob) in table {
-            let action = Action::parse(id)
-                .unwrap_or_else(|| panic!("{id} 解析不出动作——菜单里它就是灰的"));
-            assert_eq!(
-                action,
-                Action::Shell(ShellAction::Marks(knob)),
-                "{id} 认成了别的动作"
-            );
-            // 归属必须是 `Marks` 而不是被 `Action::Shell(_)` 那条兜底吞掉：
-            // 后者会让这十条散进「窗口 chrome」那一大堆里，能力面数不清。
-            assert_eq!(action.feature(), FeatureId::Marks, "{id} 归属错");
-            assert!(
-                crate::capability::is_implemented(id),
-                "{id} 必须在已接线集合里"
-            );
-        }
-        // 五档编号与 `Prefs.view_whitespace` 同序：写错一位的表现是
-        // 「点 Show All，画出 In Selection 的样子」，肉眼极难发现。
-        assert_eq!(table[4].1, MarksKnob::Whitespace(0), "Hide All 是 0");
-        assert_eq!(table[8].1, MarksKnob::Whitespace(4), "In Line End 是 4");
-    }
-
-    /// 十条之外没有第二条路径：`View.WhiteSpaces`（不带档位后缀）不是一个命令。
-    ///
-    /// 菜单里那五个 ID 各带一档，给一个「没有档位的父级 ID」补 arm 只会得到
-    /// 「点父级等于点某一档」的隐性默认值——正是 `View ▸ Hex Base` 当初拒掉的形状。
-    #[test]
-    fn there_is_no_parent_id_for_the_white_spaces_group() {
-        for id in [
-            "View.WhiteSpaces",
-            "View.Symbols",
-            "View.ToggleWhiteSpaces",
-            "Text.HighlightCaretLineOn",
-        ] {
-            assert_eq!(Action::parse(id), None, "{id} 不该是一条命令");
-        }
-    }
-
-    /// 折叠族九条：ID → 意图，**逐条**写死。
-    ///
-    /// 不用循环：这九条的期望值一共九个不同变体，写成表也就省几行，而漏一条时
-    /// 循环版的反例只有 `"{id}"`，还得回去数第几条。判据钉的是「哪一条 ID 认成
-    /// 哪一个动作」——`View.FoldAll` 与 `View.Fold` 只差三个字母，混淆一次就是
-    /// 「点了 Fold All 只折了一个块」这种半对的行为。
-    #[test]
-    fn the_nine_fold_commands_parse_to_their_own_variant() {
-        assert_eq!(Action::parse("View.Fold"), Some(Action::Fold(FoldCmd::Fold)));
-        assert_eq!(
-            Action::parse("View.Unfold"),
-            Some(Action::Fold(FoldCmd::Unfold))
-        );
-        assert_eq!(
-            Action::parse("View.FoldInside"),
-            Some(Action::Fold(FoldCmd::FoldInside))
-        );
-        assert_eq!(
-            Action::parse("View.UnfoldInside"),
-            Some(Action::Fold(FoldCmd::UnfoldInside))
-        );
-        assert_eq!(
-            Action::parse("View.FoldAll"),
-            Some(Action::Fold(FoldCmd::FoldAll))
-        );
-        assert_eq!(
-            Action::parse("View.UnfoldAll"),
-            Some(Action::Fold(FoldCmd::UnfoldAll))
-        );
-        assert_eq!(
-            Action::parse("Text.MarginFold"),
-            Some(Action::Fold(FoldCmd::Toggle))
-        );
-        assert_eq!(
-            Action::parse("Text.GotoPreviousFold"),
-            Some(Action::Fold(FoldCmd::Previous))
-        );
-        assert_eq!(
-            Action::parse("Text.GotoNextFold"),
-            Some(Action::Fold(FoldCmd::Next))
-        );
-        // 九条都归 `Margin`（折叠就是 margin 折叠标记列的内容，见 `feature()`）。
-        assert_eq!(
-            Action::parse("View.Fold").map(|a| a.feature()),
-            Some(FeatureId::Margin)
-        );
-        // 反向：折叠子菜单以外没有第二条「没有档位的父级 ID」。
-        for id in ["View.Folds", "View.FoldInsideAll", "Text.Fold"] {
-            assert_eq!(Action::parse(id), None, "{id} 不该是一条命令");
-        }
-    }
-}
+#[path = "parse_tests.rs"]
+mod parse_tests;

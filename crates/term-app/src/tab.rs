@@ -173,10 +173,8 @@ mod tests {
     /// 上一条只证明了名单的**内容**对；这一条证明名单真的被命令面板用上了。
     #[test]
     fn the_command_palette_does_not_offer_context_only_commands() {
-        let wired_ids: BTreeSet<&str> = crate::palette::entries(crate::palette::PaletteMode::Command)
-            .iter()
-            .map(|e| e.id)
-            .collect();
+        let wired = crate::palette::entries(crate::palette::PaletteMode::Command);
+        let wired_ids: BTreeSet<&str> = wired.iter().map(|e| e.id.as_str()).collect();
         assert!(
             !wired_ids.is_empty(),
             "可执行列表被过滤空了，下面的断言会恒真，这条测试就失去意义"
@@ -190,10 +188,8 @@ mod tests {
         }
         // 但它不能从面板里彻底消失：`Anything`（全量）范围仍要能查到，
         // 否则用户就再也看不到「有这么一条命令」了。
-        let all_ids: BTreeSet<&str> = crate::palette::entries(crate::palette::PaletteMode::Anything)
-            .iter()
-            .map(|e| e.id)
-            .collect();
+        let all = crate::palette::entries(crate::palette::PaletteMode::Anything);
+        let all_ids: BTreeSet<&str> = all.iter().map(|e| e.id.as_str()).collect();
         assert!(
             all_ids.contains("Terminal.TabActivate"),
             "上下文命令应仍在全量列表里可见"

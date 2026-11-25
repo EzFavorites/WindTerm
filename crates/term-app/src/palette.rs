@@ -47,11 +47,17 @@ pub use crate::vocab::PaletteAction;
 
 // 留在这里会让 `palette → capability → action → palette` 成环。
 
-/// 一条面板条目。全是菜单树里的 `&'static str`，不拥有任何数据。
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// 一条面板条目。
+///
+/// `label` / `id` 拥有数据：绝大多数条目来自菜单树的静态串，但「已登记脚本」
+/// 的名字与 `Script.RunFile:<路径>` 是用户数据，不能塞进 `&'static str`。
+/// `menu` 仍是静态分组名（脚本条目统一归 `Script`），文案翻译只需要它。
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Entry {
-    pub label: &'static str,
-    pub id: &'static str,
+    pub label: String,
+    /// 菜单树条目的静态文案 key（`i18n::t` 只收 `&'static str`）；脚本条目为空串。
+    pub key: &'static str,
+    pub id: String,
     /// 顶级菜单名：既用于显示分组，也参与搜索。
     pub menu: &'static str,
     pub implemented: bool,
@@ -63,8 +69,9 @@ fn collect(items: &[Item], menu: &'static str, out: &mut Vec<Entry>) {
             // 可勾选行也是命令（`Item::Check`）：搜索里照样能搜到，
             // `implemented` 照旧由能力台账决定，勾选态与本结构无关。
             Item::Action { label, id } | Item::Check { label, id, .. } => out.push(Entry {
-                label,
-                id,
+                label: (*label).to_string(),
+                key: label,
+                id: (*id).to_string(),
                 menu,
                 implemented: capability::is_implemented(id),
             }),
@@ -76,6 +83,19 @@ fn collect(items: &[Item], menu: &'static str, out: &mut Vec<Entry>) {
 
 /// 按菜单顺序收集条目；`Command` 只留可执行的。
 pub fn entries(mode: PaletteMode) -> Vec<Entry> {
+    // 纯层没有脚本注册表（那是 term-profile 的事），所以默认不带脚本条目；
+    // 投影层用 `entries_with_scripts` 把「已登记脚本」并进来。
+    entries_with_scripts(mode, &[])
+}
+
+/// 一条登记脚本在面板里的映射：`Script.RunFile:<path>`，与按钮栏 / 触发器
+/// 共用同一个命令 ID 形状。脚本是用户数据（名字 + 路径），所以这里收 owned 串。
+pub fn script_run_id(path: &str) -> String {
+    format!("{}{}", crate::menu::context_ids::RUN_FILE_PREFIX, path)
+}
+
+/// 带「已登记脚本」的条目清单。`scripts` 是 `(显示名, 路径)`。
+pub fn entries_with_scripts(mode: PaletteMode, scripts: &[(String, String)]) -> Vec<Entry> {
     let mut out = Vec::new();
     for menu in menu::menus() {
         collect(&menu.items, menu.label, &mut out);
@@ -84,8 +104,9 @@ pub fn entries(mode: PaletteMode) -> Vec<Entry> {
     // 分组名单独叫 `Tab`，面板显示时才知道这一组来自标签右键。
     for entry in crate::tab::SHADOW_ENTRIES {
         out.push(Entry {
-            label: entry.label,
-            id: entry.id,
+            label: entry.label.to_string(),
+            key: entry.label,
+            id: entry.id.to_string(),
             menu: "Tab",
             implemented: capability::is_implemented(entry.id),
         });
@@ -95,16 +116,50 @@ pub fn entries(mode: PaletteMode) -> Vec<Entry> {
     // 仍在 tmux 面板内按解析出的窗格集合校验后下发。
     for (label, id, _) in crate::vocab::tmux_palette::TMUX_PALETTE {
         out.push(Entry {
-            label,
-            id,
+            label: (*label).to_string(),
+            key: label,
+            id: (*id).to_string(),
             menu: "Tmux",
             implemented: capability::is_implemented(id),
+        });
+    }
+    // 终端内容右键的四条命令不在菜单栏里，但它们是真实可点入口；与标签右键
+    // 影子入口同理，面板要能搜到并执行它们。ID 取自同一张数据层表。
+    for (label, id) in crate::menu::context_ids::TERMINAL_CONTEXT_COMMANDS {
+        out.push(Entry {
+            label: (*label).to_string(),
+            key: label,
+            id: (*id).to_string(),
+            menu: "Terminal",
+            implemented: capability::is_implemented(id),
+        });
+    }
+    // tmux 浮层开关：此前它是只挂在 parse 臂上的孤儿命令，面板查不到；
+    // 现在与其余入口同源，输入 `TogglePaneTmux` 就能找到并执行。
+    out.push(Entry {
+        label: "Toggle Tmux Panel".to_string(),
+        key: "Toggle Tmux Panel",
+        id: crate::menu::context_ids::TOGGLE_PANE_TMUX.to_string(),
+        menu: "Window",
+        implemented: capability::is_implemented(crate::menu::context_ids::TOGGLE_PANE_TMUX),
+    });
+    // 已登记脚本：与按钮栏 / 触发器共用 `Script.RunFile:<path>` 这一条 Action
+    // 通道，不在面板里另开字符串派发旁路。
+    for (name, path) in scripts {
+        out.push(Entry {
+            label: name.clone(),
+            key: "",
+            id: script_run_id(path),
+            menu: "Script",
+            implemented: true,
         });
     }
     if mode == PaletteMode::Command {
         // `CONTEXT_ONLY` 里的命令 ID 路径是构造上的空转（缺 target 就没有意义），
         // 列出来只会让用户点了没反应。它们仍在 `Anything` 模式里可见。
-        out.retain(|e| e.implemented && !crate::tab::CONTEXT_ONLY.contains(&e.id));
+        out.retain(|e| {
+            e.implemented && !crate::tab::CONTEXT_ONLY.contains(&e.id.as_str())
+        });
     }
     out
 }
@@ -113,8 +168,13 @@ pub fn entries(mode: PaletteMode) -> Vec<Entry> {
 ///
 /// 这是纯函数值，不是状态：搜索框每改一个字就重算一次，窗口换了也不会过期。
 pub fn filtered(state: &PaletteState) -> Vec<Entry> {
+    filtered_with_scripts(state, &[])
+}
+
+/// `filtered` 的带脚本版本：投影层每帧把已登记脚本喂进来，纯层不认识 prefs。
+pub fn filtered_with_scripts(state: &PaletteState, scripts: &[(String, String)]) -> Vec<Entry> {
     let q = state.query.trim().to_lowercase();
-    entries(state.mode)
+    entries_with_scripts(state.mode, scripts)
         .into_iter()
         .filter(|e| {
             q.is_empty()
@@ -134,14 +194,36 @@ pub fn selected_entry(state: &PaletteState) -> Option<Entry> {
     if list.is_empty() {
         return None;
     }
-    Some(list[state.selected % list.len()])
+    Some(list[state.selected % list.len()].clone())
 }
 
 /// `Confirm` 时要执行的命令 ID；选中占位项时为 `None`（点了不会假装成功）。
-pub fn confirm_id(state: &PaletteState) -> Option<&'static str> {
+pub fn confirm_id(state: &PaletteState) -> Option<String> {
     selected_entry(state)
         .filter(|e| e.implemented)
         .map(|e| e.id)
+}
+
+/// 带脚本的 `confirm_id`：与 `Confirm` 的 reducer 路径共用同一个 ID 出口。
+pub fn confirm_id_with_scripts(state: &PaletteState, scripts: &[(String, String)]) -> Option<String> {
+    selected_entry_with_scripts(state, scripts)
+        .filter(|e| e.implemented)
+        .map(|e| e.id)
+}
+
+/// `selected_entry` 的带脚本版本。
+pub fn selected_entry_with_scripts(
+    state: &PaletteState,
+    scripts: &[(String, String)],
+) -> Option<Entry> {
+    if !state.visible {
+        return None;
+    }
+    let list = filtered_with_scripts(state, scripts);
+    if list.is_empty() {
+        return None;
+    }
+    Some(list[state.selected % list.len()].clone())
 }
 
 /// 纯函数：只改 `PaletteState`。执行本身由顶层 `reduce` 递归派发。
@@ -229,7 +311,7 @@ mod tests {
         // 菜单里允许同一命令两个入口，inventory() 按 id 去重。
         let inventory = capability::inventory();
         let panel_ids: std::collections::BTreeSet<&str> =
-            all.iter().map(|e| e.id).collect();
+            all.iter().map(|e| e.id.as_str()).collect();
         let tmux_ids: std::collections::BTreeSet<&str> = crate::vocab::tmux_palette::TMUX_PALETTE
             .iter()
             .map(|(_, id, _)| *id)
@@ -241,7 +323,7 @@ mod tests {
         assert_eq!(inventory.len(), panel_ids.len() - tmux_ids.len() + bars_only);
 
         let mut wired_ids: std::collections::BTreeSet<&str> =
-            wired.iter().map(|e| e.id).collect();
+            wired.iter().map(|e| e.id.as_str()).collect();
         for id in crate::tab::CONTEXT_ONLY {
             if capability::is_implemented(id) {
                 wired_ids.insert(id);
@@ -352,5 +434,26 @@ mod tests {
         );
         reduce(&mut s, PaletteAction::Select(3));
         assert_eq!(s.selected, 0);
+    }
+
+    /// 已登记脚本与菜单命令走同一条 ID → Action 通道：面板里给出
+    /// `Script.RunFile:<path>`，Confirm 解析出的 `Action::RunScript` 带着路径。
+    #[test]
+    fn registered_scripts_are_listed_and_parse_back_to_their_path() {
+        let scripts = vec![("备份".to_string(), "/tmp/backup.rhai".to_string())];
+        let mut s = open(PaletteMode::Command);
+        reduce(&mut s, PaletteAction::SetQuery("备份".into()));
+        let rows = filtered_with_scripts(&s, &scripts);
+        assert_eq!(rows.len(), 1, "脚本按显示名可被搜到");
+        assert_eq!(rows[0].id, "Script.RunFile:/tmp/backup.rhai");
+        assert_eq!(rows[0].menu, "Script");
+        assert!(rows[0].implemented);
+        let id = confirm_id_with_scripts(&s, &scripts).expect("脚本可执行");
+        assert_eq!(
+            crate::vocab::Action::parse(&id),
+            Some(crate::vocab::Action::RunScript("/tmp/backup.rhai".to_string()))
+        );
+        // 空路径不是命令（与 dispatch 那边的 run_file_target 同一判据）。
+        assert_eq!(crate::vocab::Action::parse("Script.RunFile:"), None);
     }
 }

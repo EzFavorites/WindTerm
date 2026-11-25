@@ -623,6 +623,15 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
+    /// 对活动标签执行一条清理动作。先取下标再借用标签，避免
+    /// `get_mut(active_slot())` 同时借 `self` 引发的 E0502。
+    fn with_active_tab(&mut self, f: impl FnOnce(&mut crate::ui::Tab)) {
+        let active = self.active_slot();
+        if let Some(tab) = self.tabs.get_mut(active) {
+            f(tab);
+        }
+    }
+
     /// 标签右键 10 个动作的**唯一**落地点。
     ///
     /// `target = None` 是命令 ID 路径（命令面板 / 快捷键），取当前活动标签；
@@ -678,6 +687,14 @@ impl TerminalWindow {
                 let i = index(target, self.active_slot());
                 self.set_tab_color(i, slot);
             }
+            // 终端内容右键的四条真实命令。此前它们在 `context_menu.rs` 的私有
+            // `Work` 里直接调这三个方法，绕过 `Action::parse`；现在右键只发
+            // 命令 ID，走到这里与菜单 / 快捷键 / 脚本 `app_command` 同一条路。
+            // 复用的是右键一直在用的三个 `Tab` 方法，没有第二套清理语义。
+            TabAction::CopyCommand => self.copy_command(),
+            TabAction::ClearScreen => self.with_active_tab(|t| t.clear()),
+            TabAction::ClearScrollback => self.with_active_tab(|t| t.clear_scrollback()),
+            TabAction::ClearAll => self.with_active_tab(|t| t.clear_all()),
         }
     }
 

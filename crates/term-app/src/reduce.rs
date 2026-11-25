@@ -58,7 +58,7 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         Action::Palette(a) => {
             let confirm = matches!(a, PaletteAction::Confirm);
             let id = if confirm {
-                palette_feature::confirm_id(&state.command_palette).map(str::to_owned)
+                palette_feature::confirm_id(&state.command_palette)
             } else {
                 None
             };
@@ -81,6 +81,9 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
         // 它是一个带自己输入缓冲的浮层——投影层本来就必须持有它的状态，
         // 纯层再放一个位只会多出一份要同步的真相。
         Action::AddressBar => Vec::new(),
+        // 脚本运行与地址栏同形：reducer 不碰状态、不产 Effect，读文件与起线程
+        // 都在投影层。命令 ID 走的是同一条 `Action::parse`，不是字符串旁路。
+        Action::RunScript(_) => Vec::new(),
         Action::Center(a) => {
             // `Default Session Settings…` 与 `Session Settings…` 都不打开中心面板
             // 占位页，而是改开对应的会话弹窗（与 New/Edit 共用），由 Effect 落到

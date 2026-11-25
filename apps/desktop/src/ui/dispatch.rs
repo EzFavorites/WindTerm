@@ -110,6 +110,12 @@ impl TerminalWindow {
             }
             return;
         }
+        // 命令面板里的「已登记脚本」与映射键 / 按钮栏共用这条 Action：
+        // 这里拿到的是解析后的路径，不再做第二次字符串前缀判断。
+        if let Action::RunScript(path) = action {
+            self.open_script_for_path_background(&path);
+            return;
+        }
         // reducer 拿到的输入是「当前事实窗口」，与渲染同源——
         // 菜单里点「查找下一个」和屏幕上看到的那一屏是同一个坐标系。
         let window = self.tabs.get(self.active_slot()).map(|t| &t.view);

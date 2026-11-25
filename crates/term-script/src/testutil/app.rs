@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use term_core::app_state::{AppSnapshot, PanelState, WindowState};
 
-use crate::app_ui::{AppControl, AppDelta, AppError, LayoutOp};
+use crate::app_ui::{AppControl, AppDelta, AppError, CatalogEntry, CommandAck, LayoutOp};
 
 /// 十块面板的 id，与 `PanelId::ALL` 同序同名（`crates/term-app/src/vocab.rs`）。
 ///
@@ -47,6 +47,8 @@ struct Inner {
     sets: Vec<(String, bool)>,
     /// 收到的 `layout` 调用，顺序即到达顺序。
     layouts: Vec<LayoutOp>,
+    /// 收到的 `command` 调用，顺序即到达顺序。
+    commands: Vec<String>,
     rev: u64,
     language: String,
 }
@@ -57,6 +59,7 @@ impl Default for Inner {
             visible: [false; PANEL_COUNT],
             sets: Vec::new(),
             layouts: Vec::new(),
+            commands: Vec::new(),
             rev: 0,
             language: "zh-CN".to_string(),
         }
@@ -114,6 +117,11 @@ impl FakeApp {
     /// 当前界面状态版本（断言「同值不推进」时读它）。
     pub fn rev(&self) -> u64 {
         self.inner.lock().map(|i| i.rev).unwrap_or_default()
+    }
+
+    /// 到目前为止收到的 `command` 调用（顺序即到达顺序）。
+    pub fn commands(&self) -> Vec<String> {
+        self.inner.lock().map(|i| i.commands.clone()).unwrap_or_default()
     }
 }
 
@@ -184,5 +192,24 @@ impl AppControl for FakeApp {
             rev: inner.rev,
             panels: inner.panels(),
         })
+    }
+
+    fn command(&self, id: &str) -> Result<CommandAck, AppError> {
+        let mut inner = self.inner.lock().map_err(|_| AppError::Busy)?;
+        inner.commands.push(id.to_string());
+        // 假端口只认一小组 ID：未知 ID 必须显式报「没派发」，不能一律成功。
+        let known = matches!(
+            id,
+            "Terminal.ClearScreen" | "Terminal.ClearScrollback" | "Terminal.ClearAll"
+        );
+        Ok(CommandAck::dispatched(known))
+    }
+
+    fn catalog(&self) -> Result<Vec<CatalogEntry>, AppError> {
+        Ok(vec![CatalogEntry {
+            id: "Terminal.ClearScreen".to_string(),
+            summary: "清屏".to_string(),
+            source: "app".to_string(),
+        }])
     }
 }

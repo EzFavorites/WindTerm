@@ -99,6 +99,33 @@ impl AppDelta {
     }
 }
 
+/// 一次命令派发的回执。
+///
+/// `dispatched = false` 是**显式**的「命令 ID 没被认出来，什么都没做」：脚本
+/// 不能把未知 ID 当成执行成功（ADR-0019 禁止静默成功）。宿主没有界面时走
+/// `AppError::Unsupported`，与 `AppDelta` 那一族同一纪律。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommandAck {
+    pub dispatched: bool,
+}
+
+impl CommandAck {
+    pub fn dispatched(dispatched: bool) -> Self {
+        Self { dispatched }
+    }
+}
+
+/// 自省清单里的一条。
+///
+/// `source` 取 `app`（应用命令台账）、`script`（会话能力面）、`crt`（兼容门面）
+/// 三者之一，让脚本一眼看出「这个 ID 从哪来、该用哪种写法」。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CatalogEntry {
+    pub id: String,
+    pub summary: String,
+    pub source: String,
+}
+
 /// 一次布局请求。
 ///
 /// `panel` / `zone` 用字符串、校验放在**宿主侧**：`PanelId` / `DockZone` 住在
@@ -144,6 +171,22 @@ pub trait AppControl: Send + Sync {
     /// 「不落盘」，让 Tune 改用户的布局文件就把它自己的定义推翻了。
     fn layout(&self, _op: &LayoutOp) -> Result<AppDelta, AppError> {
         Err(AppError::Unsupported("没有界面可改布局".to_string()))
+    }
+
+    /// 按命令 ID 派发一条应用命令（2026-11-25）。
+    ///
+    /// 宿主负责把 ID 转给 `Action::parse`——`term-script` 不认识 `term-app`，
+    /// 也绝不在本层抄一份命令 ID 表。默认实现显式报不支持，无头宿主不会
+    /// 返回 `dispatched: true` 冒充执行过。
+    fn command(&self, _id: &str) -> Result<CommandAck, AppError> {
+        Err(AppError::Unsupported("没有界面可执行命令".to_string()))
+    }
+
+    /// 合并后的命令 / 动词清单，供脚本自省。
+    ///
+    /// 默认同样是显式降级：无头宿主不该返回空清单冒充「这个应用没有命令」。
+    fn catalog(&self) -> Result<Vec<CatalogEntry>, AppError> {
+        Err(AppError::Unsupported("没有界面可列命令".to_string()))
     }
 }
 

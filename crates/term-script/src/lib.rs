@@ -92,6 +92,7 @@ mod sandbox;
 mod sendkeys;
 mod session;
 mod sessions;
+pub mod surface;
 mod workspace;
 
 #[cfg(test)]
@@ -99,7 +100,7 @@ mod testutil;
 
 pub mod app_ui;
 
-pub use app_ui::{AppControl, AppDelta, AppError, LayoutOp, NoApp};
+pub use app_ui::{AppControl, AppDelta, AppError, CatalogEntry, CommandAck, LayoutOp, NoApp};
 pub use cancel::{CancelToken, Cancelled};
 pub use clip_ui::{ClipError, Clipboard, NoClipboard, NoUi, Ui, UiError};
 pub use editor::{lex, ScriptDoc, Token, TokenKind};

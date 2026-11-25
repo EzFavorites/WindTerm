@@ -901,6 +901,9 @@ impl ScriptEngine {
                     .map_err(primitive_to_rhai)
             });
         }
+        // 应用级动词：命令派发 / 自省 / describe。名字与实现都在 surface.rs，
+        // 这里只接一根线——注册集合与 term_core::surface 的脚本投影同源。
+        crate::surface::register(engine, ws.clone());
     }
 
     /// Rhai 的 `Position` → 我们的 `(行, 列)`，无位置给 `None`。

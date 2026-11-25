@@ -53,8 +53,14 @@ static CLASSES: &[(&str, ApiClass)] = &[
     ("Help.About", ApiClass::Data),
     ("Help.Help", ApiClass::Data),
     ("Terminal.CancelModem", ApiClass::Interactive),
+    // 终端内容右键四条：脚本侧有通用派发动词 `app_command`，可以直接用命令
+    // ID 表达同一意图，不需要为每条再单列一个动词。
+    ("Terminal.ClearAll", ApiClass::Verb("app_command")),
     ("Terminal.ClearRecentUrls", ApiClass::Interactive),
+    ("Terminal.ClearScreen", ApiClass::Verb("app_command")),
+    ("Terminal.ClearScrollback", ApiClass::Verb("app_command")),
     ("Terminal.CompleteHistory", ApiClass::Interactive),
+    ("Terminal.CopyCommand", ApiClass::Verb("app_command")),
     ("Terminal.CopySessionName", ApiClass::Equivalent("clipboard_set")),
     ("Terminal.CopySessionUrl", ApiClass::Equivalent("clipboard_set")),
     ("Terminal.DisconnectSession", ApiClass::Equivalent("session_close")),
@@ -257,6 +263,8 @@ static CLASSES: &[(&str, ApiClass)] = &[
     ("Window.TogglePaneSession", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneShell", ApiClass::Verb("app_panel_set")),
     ("Window.TogglePaneScript", ApiClass::Verb("app_panel_set")),
+    // tmux 浮层已入册（此前只有 parse 臂的孤儿命令）：`app_command` 能派发它。
+    ("Window.TogglePaneTmux", ApiClass::Verb("app_command")),
     ("Window.TogglePaneTransfer", ApiClass::Verb("app_panel_set")),
     ("Window.ToggleQuickBar", ApiClass::Interactive),
     ("Window.ToggleStatusBar", ApiClass::Interactive),
@@ -311,7 +319,7 @@ mod tests {
     ///
     /// 只在本模块内声明：它和 `surface` import 都只服务断言，放顶层会让生产构建
     /// 报 `dead_code`（`-D warnings` 下是硬错误）。
-    const WRITE_VERBS: [&str; 2] = ["app_panel_set", "app_layout"];
+    const WRITE_VERBS: [&str; 3] = ["app_panel_set", "app_layout", "app_command"];
 
     /// 断言 1：`inventory()` 每一条都有分类。
     #[test]

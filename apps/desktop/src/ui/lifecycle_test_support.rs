@@ -284,6 +284,7 @@ pub(in crate::ui) fn window_with(
         lock_password: String::new(),
         shortcuts: term_app::shortcut_map::KeyBindingMap::new(&[], term_app::shortcut_map::Platform::Macos),
         shortcut_capture: None,
+        shortcut_new_id: String::new(),
         keyseq: term_app::shortcuts::KeySeqState::new(),
         seq_table: Vec::new(),
         tab_colors: Vec::new(),

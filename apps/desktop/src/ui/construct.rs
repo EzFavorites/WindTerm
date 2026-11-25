@@ -358,6 +358,7 @@ impl TerminalWindow {
             lock_password: String::new(),
             shortcuts: shortcut_map,
             shortcut_capture: None,
+            shortcut_new_id: String::new(),
             keyseq: term_app::shortcuts::KeySeqState::new(),
             seq_table,
             tab_colors: Vec::new(),

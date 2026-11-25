@@ -63,6 +63,31 @@ pub mod context_ids {
     pub const LINE_ENDINGS: &str = "View.ToggleLineEndings";
     pub const WRAP_SYMBOLS: &str = "View.ToggleWrapSymbols";
     pub const SEARCH_ONLINE: &str = "Text.SearchOnline";
+
+    /// 终端**内容**右键的四条真实命令。它们不在菜单栏里，但和标签右键的
+    /// 影子入口一样是真实可点入口：这里给出唯一的 ID 数据表，UI 只引用名字
+    /// （`scripts/verify.sh` 4e 不允许 `ui/` 出现 ID 字面量）。
+    ///
+    /// 同时被 `capability::inventory` 与 `palette::entries` 消费——两处因此
+    /// 不可能只改一处。文案用于面板分组显示，与右键清单同源。
+    pub const COPY_COMMAND: &str = "Terminal.CopyCommand";
+    pub const CLEAR_SCREEN: &str = "Terminal.ClearScreen";
+    pub const CLEAR_SCROLLBACK: &str = "Terminal.ClearScrollback";
+    pub const CLEAR_ALL: &str = "Terminal.ClearAll";
+    pub const TERMINAL_CONTEXT_COMMANDS: &[(&str, &str)] = &[
+        ("Copy Command", COPY_COMMAND),
+        ("Clear Screen", CLEAR_SCREEN),
+        ("Clear Scrollback", CLEAR_SCROLLBACK),
+        ("Clear All", CLEAR_ALL),
+    ];
+
+    /// tmux 浮层开关。原先只有 `parse` 臂、没有菜单 / 影子入口，是一条孤儿
+    /// 命令（能力台账查不到它）。这里给它一个数据层身份，`comp` 夹具入口与
+    /// 自省清单都引用同一个常量。
+    pub const TOGGLE_PANE_TMUX: &str = "Window.TogglePaneTmux";
+
+    /// 脚本运行命令 ID 的前缀，定义在词表层（`parse` 只许依赖 `vocab`）。
+    pub const RUN_FILE_PREFIX: &str = crate::vocab::RUN_FILE_PREFIX;
 }
 
 /// 一个顶级菜单。

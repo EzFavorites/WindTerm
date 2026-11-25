@@ -440,7 +440,11 @@ impl TerminalWindow {
                 let _ = crate::ui::dialogs::tunnel_settings::draw(self, ctx);
             }
             comp::CompId::Tmux => {
-                self.view.show_tmux = true;
+                // 与真实入口同源：命令 ID → `Action::parse` → reducer 翻 show_tmux。
+                // 夹具每帧都跑，所以只在没开时派发一次，避免逐帧取反把面板关掉。
+                if !self.view.show_tmux {
+                    self.dispatch(term_app::menu::context_ids::TOGGLE_PANE_TMUX);
+                }
                 self.draw_tmux_panel(ctx);
             }
             comp::CompId::QuickCommandBar => {

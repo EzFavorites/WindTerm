@@ -35,11 +35,6 @@ use crate::ui::shell::{
 #[derive(Clone, Copy, Debug)]
 pub(in crate::ui) enum Work {
     Copy,
-    /// 复制 OSC 133 标记的**当前整条命令**（不是选区）到剪贴板。
-    ///
-    /// 与 `Copy` 是两件事：`Copy` 复制用户已经选中的那几个字，这条按
-    /// `blocks::typed_command_rows` 找命令边界、整段取走。2026-11-19 新接。
-    CopyCommand,
     Paste,
     /// 把**当前选区**的文本当成粘贴内容写给 PTY（不是剪贴板）。
     ///
@@ -48,11 +43,6 @@ pub(in crate::ui) enum Work {
     PasteSelection,
     SelectAll,
     Find,
-    ClearScreen,
-    /// 只丢历史，屏幕留着。
-    ClearScrollback,
-    /// 清屏 + 清历史。
-    ClearAll,
     /// 跳到上一条 / 下一条命令边界（OSC 133 块表的 prompt_end）。
     GotoCommand { next: bool },
     /// 打开设置并停在 Triggers 页。
@@ -163,10 +153,10 @@ const fn sep() -> Row {
 /// 19 个文字行 + 1 个七色圆点行 + 8 条分隔线；4 行带子菜单箭头。
 pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
     row("Copy", "Shift+Del", Some(0), Some(Work::Copy)),
-    // 2026-11-19：`Copy Command` 接成真动作——复用 OSC 133 命令边界整段复制
-    // （`effects::copy_command`）。它没有独立命令 ID（不属菜单树），所以走
-    // `Work` 而不是 `Work::Command`，与 `Copy` / `Paste` 同一层级。
-    row("Copy Command", "", Some(6), Some(Work::CopyCommand)),
+    // 2026-11-25：这四条从私有 `Work` 提升为数据层命令 ID，和菜单栏一样走
+    // `Work::Command(id)` → `dispatch(id)` → `Action::parse` → `Effect`。
+    // 判定与派发因此同源，脚本 `app_command` 也能派发同一条命令。
+    command("Copy Command", "", Some(6), term_app::menu::context_ids::COPY_COMMAND),
     sep(),
     row("Paste", "Shift+Ins", Some(0), Some(Work::Paste)),
     // 2026-11-17 用户校正：「粘贴选中」不是「粘贴」的别名——它粘的是**屏幕上
@@ -188,14 +178,19 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
     // 原来用 `sub()` 画成灰箭头，与菜单栏不一致；改用 `sub_live` 读同一棵树。
     sub_live("Search Online", Some(0), "Search Online"),
     sep(),
-    row(
+    command(
         "Clear Scrollback",
         "Cmd+Shift+L",
         Some(6),
-        Some(Work::ClearScrollback),
+        term_app::menu::context_ids::CLEAR_SCROLLBACK,
     ),
-    row("Clear Screen", "Cmd+L", Some(6), Some(Work::ClearScreen)),
-    row("Clear All", "", Some(6), Some(Work::ClearAll)),
+    command(
+        "Clear Screen",
+        "Cmd+L",
+        Some(6),
+        term_app::menu::context_ids::CLEAR_SCREEN,
+    ),
+    command("Clear All", "", Some(6), term_app::menu::context_ids::CLEAR_ALL),
     sep(),
     row("Select All", "Cmd+Shift+A", Some(7), Some(Work::SelectAll)),
     // 2026-11-19：`Text.SelectCommand` 已接线（OSC 133 命令选区），接真。

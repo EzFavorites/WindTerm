@@ -50,7 +50,18 @@ impl TerminalWindow {
             let state = &self.view.command_palette;
             let input = &mut self.palette_input;
             let mut dispatch = |action: Action| actions.push(action);
-            draw_panel(ctx, state, input, self.view.lang, &mut dispatch);
+            // 已登记脚本从 prefs 现取一次：它们是用户数据，纯层不认识。
+            // 读盘失败退回空清单，面板照常可用（只是少一组脚本条目）。
+            let scripts: Vec<(String, String)> = term_profile::prefs::load()
+                .map(|p| {
+                    p.scripts
+                        .into_iter()
+                        .filter(|e| e.enabled)
+                        .map(|e| (e.name, e.path))
+                        .collect()
+                })
+                .unwrap_or_default();
+            draw_panel(ctx, state, input, self.view.lang, &scripts, &mut dispatch);
         }
         // 面板画完再统一 reduce，避免绘制期间持有窗口的只读借用。
         for action in actions {
@@ -59,11 +70,30 @@ impl TerminalWindow {
     }
 }
 
+/// 当前选中的「已登记脚本」路径（`Script.RunFile:` 那条 Action 的载荷）。
+/// 用 `script_run` 的同一个解析器，不在浮层里自己拼命令 ID。
+fn selected_script(state: &PaletteState, scripts: &[(String, String)]) -> Option<String> {
+    let entry = palette::selected_entry_with_scripts(state, scripts)?;
+    crate::script_run::run_file_target(&entry.id).map(str::to_string)
+}
+
+/// 鼠标点中的那一行的脚本路径（下标指**带脚本**的过滤结果）。
+fn script_at(
+    state: &PaletteState,
+    scripts: &[(String, String)],
+    idx: usize,
+) -> Option<String> {
+    let list = palette::filtered_with_scripts(state, scripts);
+    let entry = list.get(idx)?;
+    crate::script_run::run_file_target(&entry.id).map(str::to_string)
+}
+
 fn draw_panel(
     ctx: &egui::Context,
     state: &PaletteState,
     input: &mut String,
     lang: Lang,
+    scripts: &[(String, String)],
     dispatch: &mut dyn FnMut(Action),
 ) {
     let tr = |en: &'static str| t(lang, en);
@@ -81,7 +111,7 @@ fn draw_panel(
     } else {
         None
     };
-    let list = palette::filtered(state);
+    let list = palette::filtered_with_scripts(state, scripts);
     let selected = if list.is_empty() {
         None
     } else {
@@ -110,10 +140,24 @@ fn draw_panel(
     if enter {
         // 计算器模式的 Enter 把结果写进系统剪贴板并关窗——不碰 PTY，
         // 也不假装「自动粘到终端」：是否写入由用户下一次粘贴决定。
-        if let Some(Ok(value)) = &calc {
-            ctx.copy_text(value.clone());
+        if calc.is_some() {
+            if let Some(Ok(value)) = &calc {
+                ctx.copy_text(value.clone());
+            }
+            dispatch(Action::Palette(PaletteAction::Close));
+        } else {
+            // 非计算器：Enter 是「执行选中项」，不是单纯关窗。Confirm 与鼠标
+            // 点击走同一条 Action 通道，由顶层 reduce 把选中命令再派发一次，
+            // 所以「敲回车」和「点那一行」产生的是同一个 Effect。
+            // 已登记脚本的路径是用户数据，reducer 的静态清单不认识它；脚本行
+            // 直接发 `Action::RunScript`，与按钮栏 / 映射键共用同一条 Action
+            // 通道。这样也不会让静态清单里「同下标」的另一条命令被误执行。
+            if let Some(path) = selected_script(state, scripts) {
+                dispatch(Action::RunScript(path));
+            } else {
+                dispatch(Action::Palette(PaletteAction::Confirm));
+            }
         }
-        dispatch(Action::Palette(PaletteAction::Close));
         return;
     }
 
@@ -203,7 +247,13 @@ fn draw_panel(
                 let start = window_start(list.len(), selected, VISIBLE_ROWS);
                 for (offset, entry) in list.iter().enumerate().skip(start).take(VISIBLE_ROWS) {
                     let idx = start + offset;
-                    let text = format!("{} › {}", tr(entry.menu), tr(entry.label));
+                    // 脚本名是用户数据（owned String），不是可翻译的静态文案。
+                    let label = if entry.key.is_empty() {
+                        entry.label.clone()
+                    } else {
+                        tr(entry.key).to_string()
+                    };
+                    let text = format!("{} › {}", tr(entry.menu), label);
                     let row = ui.add_enabled(
                         entry.implemented,
                         egui::SelectableLabel::new(Some(idx) == selected, text),
@@ -215,9 +265,14 @@ fn draw_panel(
                         row.on_disabled_hover_text(tr("Not wired (placeholder)"))
                     };
                     if row.clicked() {
-                        // 两条动作同一帧顺序派发：先由 reducer 写选中项，再确认执行。
-                        dispatch(Action::Palette(PaletteAction::Select(idx)));
-                        dispatch(Action::Palette(PaletteAction::Confirm));
+                        // 脚本行走自己的 Action（见 Enter 分支的理由），其余行
+                        // 两条动作同一帧顺序派发：先写选中项，再确认执行。
+                        if let Some(path) = script_at(state, scripts, idx) {
+                            dispatch(Action::RunScript(path));
+                        } else {
+                            dispatch(Action::Palette(PaletteAction::Select(idx)));
+                            dispatch(Action::Palette(PaletteAction::Confirm));
+                        }
                     }
                 }
                 if list.len() > VISIBLE_ROWS {
@@ -261,5 +316,89 @@ mod tests {
     fn selection_never_pushes_the_window_past_the_end() {
         assert_eq!(window_start(40, Some(39), VISIBLE_ROWS), 30);
         assert_eq!(window_start(40, None, VISIBLE_ROWS), 0);
+    }
+
+    /// Enter 是「执行选中项」而不是「关窗」：它派发 `Confirm`，顶层 reduce 把
+    /// 选中命令再走一次 `Action::parse` → reducer → `Effect`。这条断言从浮层
+    /// 出发，一直钉到有副作用产出，防止有人把 Enter 悄悄改回 Close。
+    #[test]
+    fn enter_dispatches_confirm_and_produces_an_effect() {
+        let ctx = egui::Context::default();
+        let mut state = PaletteState::default();
+        term_app::palette::reduce(&mut state, PaletteAction::Open(PaletteMode::Command));
+        term_app::palette::reduce(&mut state, PaletteAction::SetQuery("Zoom In".into()));
+        let mut input = String::new();
+        let mut actions: Vec<Action> = Vec::new();
+        let press = egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![press],
+                ..Default::default()
+            },
+            |ctx| draw_panel(ctx, &state, &mut input, Lang::En, &[], &mut |a| actions.push(a)),
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::Palette(PaletteAction::Confirm))),
+            "Enter 必须派发 Confirm（不是 Close）：{actions:?}"
+        );
+        let mut view = term_app::state::ViewState::default();
+        view.command_palette = state.clone();
+        let effects: Vec<_> = actions
+            .into_iter()
+            .flat_map(|a| term_app::reduce::reduce(&mut view, a, None))
+            .collect();
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, term_app::effect::Effect::Zoom(1))),
+            "Confirm 必须真的产生 Effect：{effects:?}"
+        );
+    }
+
+    /// 已登记脚本行与菜单项走同一条 Action 通道，但不经过静态下标的 Confirm：
+    /// 否则「同下标的另一条静态命令」会被一起执行。
+    #[test]
+    fn enter_on_a_registered_script_dispatches_run_script() {
+        let ctx = egui::Context::default();
+        let mut state = PaletteState::default();
+        term_app::palette::reduce(&mut state, PaletteAction::Open(PaletteMode::Command));
+        term_app::palette::reduce(&mut state, PaletteAction::SetQuery("备份".into()));
+        let scripts = vec![("备份".to_string(), "/tmp/backup.rhai".to_string())];
+        let mut input = String::new();
+        let mut actions: Vec<Action> = Vec::new();
+        let enter = egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: Some(egui::Key::Enter),
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::default(),
+        };
+        let _ = ctx.run(
+            egui::RawInput {
+                events: vec![enter],
+                ..Default::default()
+            },
+            |ctx| draw_panel(ctx, &state, &mut input, Lang::En, &scripts, &mut |a| actions.push(a)),
+        );
+        assert!(
+            actions
+                .iter()
+                .any(|a| matches!(a, Action::RunScript(p) if p == "/tmp/backup.rhai")),
+            "脚本行必须派发带路径的 Action：{actions:?}"
+        );
+        assert!(
+            !actions
+                .iter()
+                .any(|a| matches!(a, Action::Palette(PaletteAction::Confirm))),
+            "脚本不能走静态下标的 Confirm：{actions:?}"
+        );
     }
 }
