@@ -123,6 +123,10 @@ jobs:
               tar -tzf dist/*.tar.gz > "$RUNNER_TEMP/pkg-list.txt"
               grep -qxF 'WindTerm.app/Contents/MacOS/WindTerm' "$RUNNER_TEMP/pkg-list.txt" \
                 || { echo ".app 里没有 Contents/MacOS/WindTerm" >&2; exit 1; }
+              grep -qxF 'WindTerm.app/Contents/Resources/LICENSE' "$RUNNER_TEMP/pkg-list.txt" \
+                || { echo ".app 里没有 Contents/Resources/LICENSE" >&2; exit 1; }
+              grep -qxF 'WindTerm.app/Contents/Resources/README.md' "$RUNNER_TEMP/pkg-list.txt" \
+                || { echo ".app 里没有 Contents/Resources/README.md" >&2; exit 1; }
               ;;
             *-windows-*)
               ls dist/*.zip >/dev/null || { echo "没有 .zip" >&2; exit 1; }

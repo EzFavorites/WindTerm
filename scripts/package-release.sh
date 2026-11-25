@@ -61,6 +61,12 @@ case "$TARGET" in
     APP="$STAGE/$NAME.app"
     mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
+    # `.app` 是自包含 bundle，下面只 `tar ... "$NAME.app"`，顶层那两份
+    # LICENSE/README 不会进包。把它们同时放进 Resources，用户解压后
+    # 仍能读到授权文本，而 CI 的 bundle 结构断言（MacOS/$NAME）不变。
+    cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
+    cp "$ROOT/README.md" "$APP/Contents/Resources/README.md"
+
     cp "$BIN" "$APP/Contents/MacOS/$NAME"
     chmod +x "$APP/Contents/MacOS/$NAME"
 
