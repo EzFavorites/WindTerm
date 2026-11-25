@@ -251,7 +251,11 @@ pub fn find_matches_regex_multiline_in(
         for li in start_line..=end_line {
             let Some((row, cols)) = lines.get(li) else { continue };
             let from = if li == start_line { start_char.min(cols.len()) } else { 0 };
-            let to = if li == end_line { end_char.min(cols.len()) } else { cols.len() };
+            // `end_char` 来自 `m.end() - 1`，是**含端点**的字形下标；高亮区间是
+            // 半开的，必须 +1。单行版也是这样从 `m.end()-1` 换到 `col_end` 的。
+            // 落在换行字节上时 `end_char == chars.len()`，+1 再 min 到行宽，
+            // 于是整行都高亮、换行本身仍不占任何格。
+            let to = if li == end_line { (end_char + 1).min(cols.len()) } else { cols.len() };
             if to <= from {
                 continue;
             }
@@ -653,3 +657,8 @@ mod tests {
         assert_eq!(prev.map(|(i, m)| (i, m.row)), Some((0, -1)));
     }
 }
+
+// 多行正则的端点单测单独放一个文件：`find.rs` 的代码行已逼近 500 上限。
+#[cfg(test)]
+#[path = "find_multiline_tests.rs"]
+mod multiline_tests;

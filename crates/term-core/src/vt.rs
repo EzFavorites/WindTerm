@@ -187,21 +187,31 @@ impl Terminal {
         self.erase_area(0, 0, last_row, last_col);
         self.cursor_row = 0;
         self.cursor_col = 0;
+        // 末列欠着的换行属于「被清掉的那一行」，不能跟到下一字符上。
+        self.wrap_pending = false;
+    }
+
+    /// 历史一旦丢弃，按**绝对行号**建的三张侧表就一起失效。
+    ///
+    /// 只清 `scrollback` 会留下指向不存在历史的 `cmd_marks` / `row_times` /
+    /// `wrap_rows`：这些表的行号原本是 `scrollback.len() + cursor_row`，历史归零后
+    /// 仍是旧的大数，`grid::is_continued` 的二分查找与 margin 的绝对行换算都会错位。
+    /// 所有清历史入口（菜单、ED 1/2/3）共用这一处，避免再漏掉某一张表。
+    fn drop_history(&mut self) {
+        self.scrollback.clear();
+        self.cmd_marks.clear();
+        self.row_times.clear();
+        self.wrap_rows.clear();
     }
 
     /// `Terminal.ClearScrollback` — drop every line above the current screen.
     pub fn clear_scrollback(&mut self) {
-        self.scrollback.clear();
-        // 行号是绝对的，历史一清就得跟着清；留着只会让 margin 数到已经不存在的行。
-        self.row_times.clear();
-        self.wrap_rows.clear();
+        self.drop_history();
     }
 
     /// `Terminal.ClearScreenAndScrollback` — the two together.
     pub fn clear_screen_and_scrollback(&mut self) {
-        self.scrollback.clear();
-        self.row_times.clear();
-        self.wrap_rows.clear();
+        self.drop_history();
         self.clear();
     }
 
@@ -319,6 +329,32 @@ impl Terminal {
         }
     }
 
+    /// 按绝对行号**有序**插入时间戳；同一行只留第一次到达的时刻。
+    ///
+    /// 只比对 `last()` 的前提是行号单调递增，而光标会回跳（`CSI H` / `DECSET 6`
+    /// 退出等）。一旦回跳后写旧行，表尾就比表头小，`grid::is_continued` 与
+    /// margin 的二分查找立刻失效——这里用 `binary_search` 找插入点，同键不重复。
+    fn insert_time(&mut self, row: i64, epoch_secs: u64) {
+        match self.row_times.binary_search_by_key(&row, |(r, _)| *r) {
+            Ok(_) => {}
+            Err(at) => {
+                self.row_times.insert(at, (row, epoch_secs));
+                Self::cap_marks(&mut self.row_times, 16_384);
+            }
+        }
+    }
+
+    /// 续行表同理：有序插入且同一行不记两次。
+    fn insert_wrap(&mut self, row: i64) {
+        match self.wrap_rows.binary_search(&row) {
+            Ok(_) => {}
+            Err(at) => {
+                self.wrap_rows.insert(at, row);
+                Self::cap_marks(&mut self.wrap_rows, 16_384);
+            }
+        }
+    }
+
     /// 给**当前光标所在行**记一个到达时刻（epoch 秒），宿主在写入前调用。
     ///
     /// 同一行只认第一次：一行是被逐字符写出来的，每次都覆盖会让「行首时间」
@@ -347,13 +383,7 @@ impl Terminal {
             return;
         }
         let row = self.scrollback.len() as i64 + self.cursor_row as i64;
-        if let Some(last) = self.row_times.last() {
-            if last.0 == row {
-                return;
-            }
-        }
-        self.row_times.push((row, epoch_secs));
-        Self::cap_marks(&mut self.row_times, 16_384);
+        self.insert_time(row, epoch_secs);
     }
 
     /// 刚换行，而这一行是**上一条逻辑行的后半截**（自动换行）——记下来。
@@ -366,11 +396,7 @@ impl Terminal {
             return;
         }
         let row = self.scrollback.len() as i64 + self.cursor_row as i64;
-        if self.wrap_rows.last() == Some(&row) {
-            return;
-        }
-        self.wrap_rows.push(row);
-        Self::cap_marks(&mut self.wrap_rows, 16_384);
+        self.insert_wrap(row);
     }
 
     /// Take anything the emulator has to write back to the shell.
@@ -469,8 +495,12 @@ impl Terminal {
             .map(|row| {
                 let source: Option<Vec<Cell>> = if row < 0 {
                     // scrollback 以 oldest-first 存放；-1 取最新一行历史。
-                    let idx = (-row - 1) as usize;
-                    self.scrollback.iter().rev().nth(idx).cloned()
+                    // `i64::MIN` 取负会溢出，先 checked 再换算下标：算不出
+                    // 就是越界历史，按空白行处理，不能把 panic 带进渲染路径。
+                    row.checked_neg()
+                        .and_then(|n| n.checked_sub(1))
+                        .and_then(|n| usize::try_from(n).ok())
+                        .and_then(|idx| self.scrollback.iter().rev().nth(idx).cloned())
                 } else if row < rows {
                     self.grid.get(row as usize).cloned()
                 } else {
@@ -700,6 +730,8 @@ impl Terminal {
         self.reset_region();
         self.cursor_row = 0;
         self.cursor_col = 0;
+        // 主屏末列欠着的换行不能带进备用屏的第一字符。
+        self.wrap_pending = false;
     }
 
     fn leave_alt_screen(&mut self) {
@@ -719,6 +751,8 @@ impl Terminal {
         self.alt_screen = false;
         self.cursor_row = self.cursor_row.min(self.rows - 1);
         self.cursor_col = self.cursor_col.min(self.cols - 1);
+        // 备用屏里同样可能写到末列；回主屏后下一字符不应提前换行。
+        self.wrap_pending = false;
     }
 
     // -------------------------------------------------------------- keyboard
@@ -1011,6 +1045,8 @@ impl vte::ansi::Handler for Terminal {
     fn clear_screen(&mut self, mode: vte::ansi::ClearMode) {
         let last_row = self.rows.saturating_sub(1);
         let last_col = self.cols.saturating_sub(1);
+        // 擦除/清历史都重设了光标语境，末列的欠换行不再成立。
+        self.wrap_pending = false;
         match mode {
             vte::ansi::ClearMode::Below => {
                 self.erase_area(self.cursor_row, self.cursor_col, last_row, last_col)
@@ -1018,14 +1054,14 @@ impl vte::ansi::Handler for Terminal {
             vte::ansi::ClearMode::Above => {
                 self.erase_area(0, 0, self.cursor_row, self.cursor_col);
                 if self.cursor_row == 0 {
-                    self.scrollback.clear();
+                    self.drop_history();
                 }
             }
             vte::ansi::ClearMode::All => {
                 self.erase_area(0, 0, last_row, last_col);
-                self.scrollback.clear();
+                self.drop_history();
             }
-            vte::ansi::ClearMode::Saved => self.scrollback.clear(),
+            vte::ansi::ClearMode::Saved => self.drop_history(),
         }
     }
 
@@ -1158,6 +1194,8 @@ impl vte::ansi::Handler for Terminal {
         }
         self.cursor_row = self.top_margin;
         self.cursor_col = 0;
+        // 滚动区换了，末列欠着的换行不能跨区生效。
+        self.wrap_pending = false;
     }
 
     fn save_cursor_position(&mut self) {
@@ -1198,7 +1236,9 @@ impl vte::ansi::Handler for Terminal {
             5 => self.reply("\x1b[0n"),
             6 => {
                 let row = if self.origin_mode {
-                    self.cursor_row - self.top_margin
+                    // 光标可能落在滚动区上方（resize / 手动挪动）：饱和减，
+                    // 不能让查询 panic，也不能绕回一个巨大行号。
+                    self.cursor_row.saturating_sub(self.top_margin)
                 } else {
                     self.cursor_row
                 };
@@ -1233,6 +1273,8 @@ impl vte::ansi::Handler for Terminal {
         self.cursor_visible = true;
         self.cursor_shape = CursorShape::Block;
         self.saved = None;
+        // ESC c 是全量复位：末列欠着的换行也一并作废。
+        self.wrap_pending = false;
     }
 
     fn decaln(&mut self) {
@@ -1907,6 +1949,119 @@ mod tests {
         t.process(b"just output\r\n");
         assert!(t.command_blocks().is_empty());
     }
+
+    /// 所有清历史入口（菜单两处 + ED 1/2/3）都要把按绝对行号建的三张侧表
+    /// 一起丢掉；只清 `scrollback` 会留下已失效的大行号，二分查找再也对不上。
+    #[test]
+    fn clearing_history_empties_blocks_times_and_wraps() {
+        fn seeded() -> Terminal {
+            let mut t = Terminal::new(20, 6, 100);
+            // 先滚出几行历史，让后续标记的绝对行号都大于屏幕行号。
+            for i in 0..10 {
+                t.process(format!("seed{i}\r\n").as_bytes());
+            }
+            assert!(!t.scrollback.is_empty());
+            t.process(b"\x1b[2;1H"); // row 1
+            t.stamp_row(456);
+            t.process(b"aaaaaaaaaaaaaaaaaaaaaaaaa"); // 20 列写 25 字：续行落在 row 2
+            let mut bytes = crate::osc133::emit('A', None);
+            bytes.extend_from_slice(b"$ ");
+            bytes.extend(crate::osc133::emit('B', None));
+            bytes.extend_from_slice(b"cmd\r\n");
+            bytes.extend_from_slice(b"out\r\n");
+            bytes.extend(crate::osc133::emit('C', None));
+            bytes.extend_from_slice(b"more\r\n");
+            bytes.extend(crate::osc133::emit('D', Some("0")));
+            t.process(&bytes);
+            assert!(!t.command_blocks().is_empty(), "前提：有可清的命令块");
+            assert!(!t.row_times.is_empty(), "前提：有时间戳");
+            assert!(!t.wrap_rows.is_empty(), "前提：有续行标记");
+            t
+        }
+        fn assert_clean(t: &Terminal) {
+            assert!(t.scrollback.is_empty());
+            assert!(t.cmd_marks.is_empty());
+            assert!(t.command_blocks().is_empty(), "清历史后不该留绝对行号块");
+            assert!(t.row_times.is_empty(), "时间戳表必须一起清");
+            assert!(t.wrap_rows.is_empty(), "续行表必须一起清");
+        }
+
+        let mut a = seeded();
+        a.clear_scrollback();
+        assert_clean(&a);
+        let mut b = seeded();
+        b.clear_screen_and_scrollback();
+        assert_clean(&b);
+        let mut c = seeded();
+        c.process(b"\x1b[2J"); // ED 2: All
+        assert_clean(&c);
+        let mut d = seeded();
+        d.process(b"\x1b[3J"); // ED 3: Saved
+        assert_clean(&d);
+        let mut e = seeded();
+        e.process(b"\x1b[1;1H\x1b[1J"); // ED 1: Above, 光标在第 0 行
+        assert_clean(&e);
+    }
+
+    /// 末列写满时欠着的换行不能跨过「语境重置」：复位 / 清屏 / 切屏 / 改滚动区
+    /// 之后，下一字符必须写在当前位置的当前行。
+    #[test]
+    fn pending_wrap_does_not_survive_reset_clear_or_screen_changes() {
+        fn filled_last_column() -> Terminal {
+            let mut t = Terminal::new(10, 4, 20);
+            t.process(b"abcdefghij"); // 正好写满第 0 行末列
+            assert!(t.wrap_pending, "前提：换行欠账已挂起");
+            t
+        }
+
+        let mut a = filled_last_column();
+        a.process(b"\x1bc"); // ESC c / RIS
+        assert!(!a.wrap_pending, "复位时欠账应清零");
+        a.process(b"X"); // 写在原行末列；若欠账没清，这一字会先换行
+        assert_eq!((a.cursor_row, a.cursor_col), (0, 9));
+        assert_eq!(a.cell(0, 9).unwrap().ch, 'X');
+
+        let mut b = filled_last_column();
+        b.clear();
+        b.process(b"X");
+        assert!(!b.wrap_pending);
+        assert_eq!((b.cursor_row, b.cursor_col), (0, 1));
+        assert_eq!(b.cell(0, 0).unwrap().ch, 'X');
+
+        let mut c = filled_last_column();
+        c.process(b"\x1b[?1049hX"); // 进备用屏
+        assert!(!c.wrap_pending);
+        assert_eq!((c.cursor_row, c.cursor_col), (0, 1));
+        assert_eq!(c.cell(0, 0).unwrap().ch, 'X');
+
+        let mut d = filled_last_column();
+        d.process(b"\x1b[?1049h");
+        d.process(b"abcdefghij"); // 备用屏也写到末列
+        assert!(d.wrap_pending);
+        d.leave_alt_screen(); // 回主屏（保存的游标在末列）
+        assert!(!d.wrap_pending, "切屏时欠账清零");
+        d.process(b"X");
+        assert_eq!((d.cursor_row, d.cursor_col), (0, 9));
+        assert_eq!(d.cell(0, 9).unwrap().ch, 'X');
+
+        let mut e = filled_last_column();
+        e.process(b"\x1b[2;4rX"); // 滚动区改为 2..4 行，光标到 row 1
+        assert!(!e.wrap_pending);
+        assert_eq!((e.cursor_row, e.cursor_col), (1, 1));
+    }
+
+    #[test]
+    fn cursor_position_report_saturates_above_the_scrolling_region() {
+        let mut t = Terminal::new(10, 6, 20);
+        t.origin_mode = true;
+        t.top_margin = 3;
+        t.cursor_row = 1; // 光标在滚动区上方：直接减会下溢
+        t.process(b"\x1b[6n");
+        assert_eq!(String::from_utf8(t.take_replies()).unwrap(), "\x1b[1;1R");
+        t.cursor_row = 5;
+        t.process(b"\x1b[6n");
+        assert_eq!(String::from_utf8(t.take_replies()).unwrap(), "\x1b[3;1R");
+    }
 }
 
 
@@ -2029,5 +2184,52 @@ mod margin_data_tests {
             img.cursor.is_some(),
             view.contains(ViewRow::new(t.cursor_row as i64))
         );
+    }
+
+    #[test]
+    fn mark_tables_stay_sorted_after_the_cursor_jumps_back() {
+        let mut t = Terminal::new(10, 6, 100);
+        // 先在高行号留下时间戳和续行标记。
+        t.process(b"\x1b[4;1H"); // row 3
+        t.stamp_row(200);
+        t.process(b"aaaaaaaaaaaaaaa"); // 15 字：只在 row 3→4 折一次
+        // 光标回跳到更前的行，再标记：只比对 last() 会把新行号追加到表尾。
+        t.process(b"\x1b[2;1H"); // row 1
+        t.stamp_row(100);
+        t.process(b"bbbbbbbbbbbbbb"); // 换行到 row 2 → 续行标记 2
+
+        let times: Vec<i64> = t.row_times.iter().map(|(r, _)| *r).collect();
+        assert!(
+            times.windows(2).all(|w| w[0] < w[1]),
+            "时间戳必须严格升序: {times:?}"
+        );
+        assert_eq!(times.iter().filter(|&&r| r == 1).count(), 1, "同行不重复");
+        assert!(
+            t.wrap_rows.windows(2).all(|w| w[0] < w[1]),
+            "续行表必须严格升序: {:?}",
+            t.wrap_rows
+        );
+        assert_eq!(t.wrap_rows, vec![2, 4]);
+        // 下游 grid.rs 的二分查找在回跳之后仍能命中真续行。
+        assert!(crate::grid::is_continued(&t.wrap_rows, 2));
+        assert!(crate::grid::is_continued(&t.wrap_rows, 4));
+        assert!(!crate::grid::is_continued(&t.wrap_rows, 3));
+    }
+
+    #[test]
+    fn slice_range_handles_i64_extreme_rows_without_overflow() {
+        let t = Terminal::new(8, 4, 10);
+        for (start, end) in [
+            (i64::MIN, i64::MIN + 2),
+            (i64::MAX - 2, i64::MAX),
+            (-4i64, 2i64),
+        ] {
+            let img = t.slice_range(1, start..end);
+            assert_eq!(img.lines.len(), (end - start) as usize);
+            assert!(img.lines.iter().all(|l| l.text().is_empty()), "越界补白");
+        }
+        let far = t.slice_range(1, i64::MIN..i64::MIN + 2);
+        assert_eq!(far.lines[0].row, i64::MIN);
+        assert_eq!(far.cursor, None);
     }
 }

@@ -216,10 +216,16 @@ pub struct GridSnapshot {
 impl GridSnapshot {
     /// 连接尚未建立 / 已断开时的空网格，UI 仍能据此绘制。
     pub fn empty(cols: usize, rows: usize) -> Self {
+        // 恶意/算错的尺寸不能让 `cols * rows` 溢出（release 下会静默截断成
+        // 一块小得多的网格，debug 下直接 panic）。与 `Terminal::new` 同口径
+        // 先钳到配置上限，再用 checked_mul 兜底：cells 长度与 cols/rows 自洽。
+        let cols = cols.min(crate::config::MAX_COLS);
+        let rows = rows.min(crate::config::MAX_ROWS);
+        let len = cols.checked_mul(rows).unwrap_or(0);
         Self {
             cols,
             rows,
-            cells: vec![Cell::default(); cols * rows],
+            cells: vec![Cell::default(); len],
             cursor: (0, 0),
             cursor_visible: true,
             title: String::new(),
@@ -498,11 +504,11 @@ impl ScreenImage {
     /// `lines.iter().find(|l| l.row == row)`（例如 `ui/terminal/pane.rs` 的
     /// `screen_index_of`：折叠之后它必须查表，减法一定会错行）。
     pub fn line_at(&self, row: i64) -> Option<&LineSlice> {
-        let offset = row - self.range.start;
-        if offset < 0 {
-            return None;
-        }
-        self.lines.get(offset as usize)
+        // 极端窗口（start=i64::MIN / row=i64::MAX）的减法会溢出：用 checked
+        // 直接判「不在窗口内」，避免 panic 或负偏移绕回成巨大下标。
+        let offset = row.checked_sub(self.range.start)?;
+        let offset = usize::try_from(offset).ok()?;
+        self.lines.get(offset)
     }
 
     /// 本窗口的视口行区间（类型化视图）。
@@ -832,5 +838,37 @@ mod tests {
     fn region_text_is_empty_when_the_rectangle_is_all_spaces() {
         let snap = region_fixture();
         assert_eq!(snap.region_text(3, 1, 3, 4), "", "空行取出来是空串，不是四个空格");
+    }
+
+    #[test]
+    fn empty_snapshot_clamps_oversized_dimensions_without_overflow() {
+        // 任一维是 usize::MAX 时 cols*rows 会溢出；钳到内核上限后
+        // cols/rows 与 cells 长度仍必须自洽。
+        let wide = GridSnapshot::empty(usize::MAX, 4);
+        assert_eq!(wide.cols, crate::config::MAX_COLS);
+        assert_eq!(wide.rows, 4);
+        assert_eq!(wide.cells.len(), crate::config::MAX_COLS * 4);
+        assert!(wide.cell(3, crate::config::MAX_COLS - 1).is_some());
+        let tall = GridSnapshot::empty(2, usize::MAX);
+        assert_eq!(tall.rows, crate::config::MAX_ROWS);
+        assert_eq!(tall.cells.len(), 2 * crate::config::MAX_ROWS);
+        assert!(tall.cell(crate::config::MAX_ROWS - 1, 1).is_some());
+    }
+
+    #[test]
+    fn line_at_handles_extreme_row_numbers_without_overflow() {
+        // row - range.start 在两头都可能溢出；越界一律返回 None。
+        let img = ScreenImage::blank(2, 1, 0..3);
+        assert_eq!(img.line_at(i64::MIN), None);
+        assert_eq!(img.line_at(i64::MAX), None);
+        assert!(img.line_at(2).is_some());
+
+        let near_max = ScreenImage::blank(2, 1, i64::MAX - 1..i64::MAX);
+        assert_eq!(near_max.line_at(i64::MIN), None);
+        assert!(near_max.line_at(i64::MAX - 1).is_some());
+
+        let near_min = ScreenImage::blank(2, 1, i64::MIN..i64::MIN + 2);
+        assert_eq!(near_min.line_at(i64::MAX), None);
+        assert!(near_min.line_at(i64::MIN).is_some());
     }
 }
