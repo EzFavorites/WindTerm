@@ -156,6 +156,18 @@ impl TerminalWindow {
                 Ok(delta) => crate::script_app::AppReply::Delta(delta),
                 Err(err) => crate::script_app::AppReply::Error(err),
             },
+            crate::script_app::AppRequest::Command { id } => {
+                // 唯一解析点仍是 `term_app::action::parse`；这里只负责把解析出的
+                // Action 真的送进 reducer。未知 ID 回 `dispatched: false`，不假装。
+                let action = Action::parse(&id);
+                let dispatched = action.is_some();
+                if let Some(action) = action {
+                    self.dispatch_action(action);
+                }
+                crate::script_app::AppReply::Command(
+                    term_script::CommandAck::dispatched(dispatched),
+                )
+            }
         };
         let _ = pending.reply.send(reply);
         // 回执之后要一帧重绘：面板可见性变了，画面上必须看得见。

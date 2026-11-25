@@ -35,12 +35,17 @@ pub enum AppRequest {
     PanelSet { panel: String, visible: bool },
     /// 改停靠位（reset / dock / redock）。
     Layout(LayoutOp),
+    /// 按命令 ID 派发一条应用命令。必须走界面帧：命令的效果在 reducer 里，
+    /// 脚本线程不能自己执行，否则又是一个「回执说成功、屏幕没动」的假派发。
+    Command { id: String },
 }
 
 /// 界面线程的回答。
 pub enum AppReply {
     Snapshot(AppSnapshot),
     Delta(AppDelta),
+    /// `app_command` 的回执：命令 ID 是否被识别并真的派发。
+    Command(CommandAck),
     /// 界面侧拒绝（目前只有「面板名不认识」）。带完整的 `AppError` 而不是一句
     /// 字符串：端口层要能分清「名字不存在」与「参数形状不对」，压成字符串就只能
     /// 一律报 `BadArgument`，脚本就没法据此换一条路。
@@ -172,9 +177,13 @@ impl AppControl for DeskApp {
     }
 
     fn command(&self, id: &str) -> Result<CommandAck, AppError> {
-        // 命令 ID 的唯一解析点在 `term_app::action::parse`；这里只做宿主委托，
-        // 不在脚本层抄一份 ID 表（4e 门禁）。
-        Ok(crate::script_host::desk_app_command(id))
+        // 真派发：请求进界面帧，由 `drain_app_requests` 经 `Action::parse`
+        // 后调用 `dispatch_action`。脚本层不抄 ID 表（4e 门禁），也不在
+        // 这里自己判「成功」——判据只能是界面真的收到了那条命令。
+        match self.roundtrip(AppRequest::Command { id: id.to_string() })? {
+            AppReply::Command(ack) => Ok(ack),
+            _ => Err(AppError::Busy),
+        }
     }
 
     fn catalog(&self) -> Result<Vec<CatalogEntry>, AppError> {
@@ -212,6 +221,38 @@ mod tests {
             1,
             "被拒的请求不该进队（否则第二条会排在第一条后面，语义又回去了）"
         );
+    }
+
+    /// `app_command` 必须把命令 ID 送进界面帧，不能再只在脚本侧判「能不能 parse」。
+    #[test]
+    fn app_command_goes_through_the_ui_request_queue() {
+        let (app, queue, _cancel) = headless();
+        let drain = queue.clone();
+        let ui = std::thread::spawn(move || {
+            for _ in 0..400 {
+                let pending = {
+                    let mut q = drain.lock().expect("队列锁");
+                    if q.is_empty() { None } else { Some(q.remove(0)) }
+                };
+                if let Some(pending) = pending {
+                    match pending.request {
+                        AppRequest::Command { id } => {
+                            assert_eq!(id, "Terminal.ClearScreen");
+                            let _ = pending.reply.send(AppReply::Command(
+                                CommandAck::dispatched(true),
+                            ));
+                        }
+                        _other => panic!("期望 Command 请求"),
+                    }
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            panic!("界面线程没取到请求");
+        });
+        let ack = app.command("Terminal.ClearScreen").expect("回执");
+        assert!(ack.dispatched, "界面确认已派发");
+        ui.join().expect("界面线程");
     }
 
     #[test]
