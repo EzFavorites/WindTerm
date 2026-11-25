@@ -167,6 +167,8 @@ jobs:
           # draft：给发布者一次「看一遍再发」的机会。
           draft: true
           generate_release_notes: false
+          # 发布说明来自仓库的 CHANGELOG，否则 draft Release 只有文件、没有说明。
+          body_path: CHANGELOG.md
           name: WindTerm ${{ needs.meta.outputs.version }}
           fail_on_unmatched_files: true
           files: |

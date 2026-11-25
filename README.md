@@ -39,12 +39,15 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 | macOS（Apple 芯片） | `WindTerm-<ver>-macos-aarch64.tar.gz` | `.app` bundle |
 | macOS（Intel） | `WindTerm-<ver>-macos-x86_64.tar.gz` | `.app` bundle |
 | Linux（x86_64） | `WindTerm-<ver>-linux-x86_64.tar.gz` | `windterm` + `.desktop` + 图标 |
-| Linux（aarch64） | `WindTerm-<ver>-linux-aarch64.tar.gz` | 同上 |
+| Linux（aarch64） | — | 暂未提供预编译包，可从源码构建 |
 | Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.zip` | `WindTerm.exe` |
 
+`<ver>` 取自 `apps/desktop/Cargo.toml`，按当前版本为 `0.0.1-beta`（连字符）。
+示例中的文件名必须与此逐字一致，否则校验和命令会找不到文件。
+
 ```sh
-shasum -a 256 -c WindTerm-0.0.1.beta-macos-aarch64.tar.gz.sha256
-tar xzf WindTerm-0.0.1.beta-macos-aarch64.tar.gz
+shasum -a 256 -c WindTerm-0.0.1-beta-macos-aarch64.tar.gz.sha256
+tar xzf WindTerm-0.0.1-beta-macos-aarch64.tar.gz
 ```
 
 macOS 构建是 ad-hoc 签名，没有公证，首次启动会被 Gatekeeper 拦下：
@@ -60,9 +63,9 @@ xattr -dr com.apple.quarantine WindTerm.app
 精确钉在 `1.94.0`）：
 
 ```sh
-cargo check --workspace          # 类型检查
-cargo test --workspace           # 全部测试
-cargo build -p term-desk         # 桌面程序
+cargo check --workspace --locked          # 类型检查
+cargo test --workspace --locked           # 全部测试
+cargo build -p term-desk --locked         # 桌面程序（与 CI 同一份依赖锁）
 ```
 
 提交前的项目验收脚本包含分层边界、能力注册、冻结基线、单测、金样本与可选视觉回归：
