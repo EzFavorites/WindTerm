@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 use term_core::app_state::AppSnapshot;
-use term_script::{AppControl, AppDelta, AppError, CancelToken, LayoutOp};
+use term_script::{AppControl, AppDelta, AppError, CancelToken, CatalogEntry, CommandAck, LayoutOp};
 
 /// 一次应用控制面请求，一个变体对应端口上的一个方法。
 pub enum AppRequest {
@@ -169,6 +169,16 @@ impl AppControl for DeskApp {
             AppReply::Error(err) => Err(err),
             _ => Err(AppError::Busy),
         }
+    }
+
+    fn command(&self, id: &str) -> Result<CommandAck, AppError> {
+        // 命令 ID 的唯一解析点在 `term_app::action::parse`；这里只做宿主委托，
+        // 不在脚本层抄一份 ID 表（4e 门禁）。
+        Ok(crate::script_host::desk_app_command(id))
+    }
+
+    fn catalog(&self) -> Result<Vec<CatalogEntry>, AppError> {
+        Ok(crate::script_host::desk_app_catalog())
     }
 }
 
