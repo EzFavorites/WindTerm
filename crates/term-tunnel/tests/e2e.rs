@@ -286,14 +286,14 @@ fn free_port() -> SocketAddr {
 ///
 /// `run_on_address` 在另一个线程里 bind，测试线程可能先跑到 connect 那一步——
 /// 服务端地址已由 start_server 回传，这里只做一次快速探活，给到 15 秒上限，
-/// 起不来就直接失败（而不是让测试随机红）。
+/// 起不来就直接失败（而不是让测试随机红）。全量门禁下用独立 target-dir 重编，放宽到 60 秒。
 fn wait_for_server(addr: SocketAddr) {
-    let deadline = Instant::now() + Duration::from_secs(15);
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         match TcpStream::connect_timeout(&addr, Duration::from_millis(200)) {
             Ok(_) => return,
             Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(20)),
-            Err(e) => panic!("mock 服务端 15 秒内没起来：{e}"),
+            Err(e) => panic!("mock 服务端 60 秒内没起来：{e}"),
         }
     }
 }
