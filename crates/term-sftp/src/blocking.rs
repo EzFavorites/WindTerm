@@ -23,13 +23,71 @@
 //! [`Client`] 持有一条已认证的连接。丢弃时尽力挂断（`Drop` 里 `block_on` 一次
 //! 断开流程）；脚本跑完、`Client` 出作用域，服务端那边不会留一条半死的会话。
 
+use std::future::Future;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
 use russh_sftp::client::SftpSession;
+use term_core::session_runtime::Cancel;
 use term_ssh::{Authenticated, SshOptions};
 
 use crate::cancel::CancelToken;
 use crate::entry::{self, Entry};
 use crate::error::SftpError;
 use crate::transfer::{self, Direction};
+
+/// 单次阻塞传输的默认上限。脚本线程本来就阻塞；没有上限时一次卡死连
+/// 「停止」都等不到响应，超时是取消之外的第二道保险。
+pub const DEFAULT_TRANSFER_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// 桥接轮询间隔，与脚本的 50ms 切片同一量级。
+const CANCEL_POLL: Duration = Duration::from_millis(50);
+
+/// 把只读取消源（脚本的取消令牌经 [`Cancel`] 抽象）桥成传输循环轮询的
+/// [`CancelToken`]。
+///
+/// 为什么是轮询线程而不是回调：脚本侧只有一个原子布尔，没有通知机制；
+/// 传输侧也只读一个原子布尔。两边都不该为了「取消」引入 channel 的所有权约定。
+/// 返回的 guard 析构时停轮询并 join，避免一条传输结束后还留着线程。
+pub fn bridge_cancel(source: Arc<dyn Cancel>) -> (CancelToken, CancelBridge) {
+    let target = CancelToken::new();
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = Arc::clone(&stop);
+    let worker_target = target.clone();
+    let handle = thread::spawn(move || {
+        while !worker_stop.load(Ordering::SeqCst) {
+            if source.is_cancelled() {
+                worker_target.cancel();
+                return;
+            }
+            thread::sleep(CANCEL_POLL);
+        }
+    });
+    (
+        target,
+        CancelBridge {
+            stop,
+            handle: Some(handle),
+        },
+    )
+}
+
+/// [`bridge_cancel`] 的守卫。析构即停轮询。
+pub struct CancelBridge {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+}
+
+impl Drop for CancelBridge {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::SeqCst);
+        if let Some(handle) = self.handle.take() {
+            let _ = handle.join();
+        }
+    }
+}
 
 /// 一条同步 SFTP 连接。
 pub struct Client {
@@ -92,7 +150,7 @@ impl Client {
 
     /// 远端 → 本地。覆盖同名文件，不续传（脚本要续传就自己先看本地大小）。
     pub fn get(&self, remote: &str, local: &str) -> Result<u64, SftpError> {
-        self.transfer(Direction::Download, remote, local)
+        self.get_cancellable(remote, local, &CancelToken::new(), DEFAULT_TRANSFER_TIMEOUT)
     }
 
     /// 本地 → 远端。
@@ -101,7 +159,29 @@ impl Client {
         // 公开方法 `put(local, remote)` 相反。曾因这里照抄 `put` 的顺序把
         // 两端传反：`upload` 拿到的「本地」其实是远端路径，于是报
         // 「读不到本地文件 /root/xxx」。改顺序时先对一遍形参名。
-        self.transfer(Direction::Upload, remote, local)
+        self.put_cancellable(local, remote, &CancelToken::new(), DEFAULT_TRANSFER_TIMEOUT)
+    }
+
+    /// 可取消 + 带上限的下载。脚本侧由 [`bridge_cancel`] 把「停止」接进 `cancel`。
+    pub fn get_cancellable(
+        &self,
+        remote: &str,
+        local: &str,
+        cancel: &CancelToken,
+        timeout: Duration,
+    ) -> Result<u64, SftpError> {
+        self.transfer(Direction::Download, remote, local, cancel, timeout)
+    }
+
+    /// 可取消 + 带上限的上传（公开参数顺序仍是先本地后远端）。
+    pub fn put_cancellable(
+        &self,
+        local: &str,
+        remote: &str,
+        cancel: &CancelToken,
+        timeout: Duration,
+    ) -> Result<u64, SftpError> {
+        self.transfer(Direction::Upload, remote, local, cancel, timeout)
     }
 
     /// 远端 / 本地的顺序**固定**为「先远端后本地」，与 `download` 的签名一致；
@@ -111,29 +191,47 @@ impl Client {
         direction: Direction,
         remote: &str,
         local: &str,
+        cancel: &CancelToken,
+        timeout: Duration,
     ) -> Result<u64, SftpError> {
         let sftp = &self.sftp;
-        // 每次传输一个干净的取消旗子：本结构不对外暴露取消（脚本的取消经
-        // `wait` / `sleep` 生效），但传输实现要求有一个，于是给一个永不置位的。
-        let cancel = CancelToken::new();
         self.rt.block_on(async move {
             let mut no_progress = |_done: u64, _total: u64| {};
-            let result = match direction {
-                Direction::Download => {
-                    transfer::download(sftp, remote, local, false, false, &cancel, &mut no_progress)
+            let action = async {
+                let result = match direction {
+                    Direction::Download => {
+                        transfer::download(
+                            sftp,
+                            remote,
+                            local,
+                            false,
+                            false,
+                            cancel,
+                            &mut no_progress,
+                        )
                         .await
-                }
-                Direction::Upload => {
-                    transfer::upload(sftp, local, remote, false, false, &cancel, &mut no_progress)
+                    }
+                    Direction::Upload => {
+                        transfer::upload(
+                            sftp,
+                            local,
+                            remote,
+                            false,
+                            false,
+                            cancel,
+                            &mut no_progress,
+                        )
                         .await
-                }
+                    }
+                };
+                result.map_err(|e| match e {
+                    transfer::TransferError::Cancelled { .. } => {
+                        SftpError::Session("传输被取消".to_string())
+                    }
+                    transfer::TransferError::Failed(message) => SftpError::Session(message),
+                })
             };
-            result.map_err(|e| match e {
-                transfer::TransferError::Cancelled { .. } => {
-                    SftpError::Session("传输被取消".to_string())
-                }
-                transfer::TransferError::Failed(message) => SftpError::Session(message),
-            })
+            bounded(timeout, action).await
         })
     }
 
@@ -151,9 +249,9 @@ impl Client {
     pub fn rename(&self, from: &str, to: &str) -> Result<(), SftpError> {
         let sftp = &self.sftp;
         self.rt.block_on(async move {
-            sftp.rename(from, to).await.map_err(|e| {
-                SftpError::Session(format!("改不了名 {from} → {to}：{e}"))
-            })
+            sftp.rename(from, to)
+                .await
+                .map_err(|e| SftpError::Session(format!("改不了名 {from} → {to}：{e}")))
         })
     }
 
@@ -238,6 +336,19 @@ impl std::fmt::Debug for Client {
     }
 }
 
+/// 给一次传输套上限。超时与业务失败分开报，免得脚本把「卡住」当成「文件不存在」。
+async fn bounded<T, F>(timeout: Duration, future: F) -> Result<T, SftpError>
+where
+    F: Future<Output = Result<T, SftpError>>,
+{
+    match tokio::time::timeout(timeout, future).await {
+        Ok(result) => result,
+        Err(_) => Err(SftpError::Session(format!(
+            "传输超过 {timeout:?} 仍未完成（已中断，可重试）"
+        ))),
+    }
+}
+
 /// [`Client::stat`] 的结果。字段口径与 `term_script::FileStat` 对齐。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RemoteStat {
@@ -246,4 +357,67 @@ pub struct RemoteStat {
     pub readonly: bool,
     /// 修改时间（Unix 秒）；服务端没报时为 `None`。
     pub mtime: Option<u64>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Instant;
+
+    /// 测试用的只读取消源（脚本侧令牌在本 crate 里只以 [`Cancel`] 形态出现）。
+    #[derive(Clone, Default)]
+    struct Source(Arc<AtomicBool>);
+
+    impl Source {
+        fn cancel(&self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl Cancel for Source {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    #[test]
+    fn a_cancelled_script_token_reaches_the_transfer_flag() {
+        let source = Arc::new(Source::default());
+        let (token, bridge) = bridge_cancel(Arc::clone(&source) as Arc<dyn Cancel>);
+        assert!(!token.is_cancelled());
+        source.cancel();
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !token.is_cancelled() && Instant::now() < deadline {
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(token.is_cancelled(), "脚本按停止后传输循环要看见取消");
+        drop(bridge);
+    }
+
+    #[test]
+    fn dropping_the_bridge_stops_relaying_cancellation() {
+        let source = Arc::new(Source::default());
+        let (token, bridge) = bridge_cancel(Arc::clone(&source) as Arc<dyn Cancel>);
+        drop(bridge);
+        source.cancel();
+        thread::sleep(Duration::from_millis(100));
+        assert!(
+            !token.is_cancelled(),
+            "传输结束后桥必须停：否则下一次传输会一上来就被取消"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_transfer_past_its_deadline_reports_a_timeout() {
+        let err = bounded(Duration::from_millis(20), async {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Ok::<_, SftpError>(())
+        })
+        .await
+        .expect_err("超时应当显式失败");
+        assert!(
+            matches!(&err, SftpError::Session(msg) if msg.contains("未完成")),
+            "{err:?}"
+        );
+    }
 }

@@ -110,7 +110,7 @@ pub use filter::{GrepHandle, LineFilter};
 pub use human::{
     Answer, Ask, AskError, HeadlessHuman, HumanChannel, MessageButton, MessageIcon, PickFile,
 };
-pub use localfs::{DirEntry, FileStat, FsError, LocalFs, NoFiles, RemoteFiles};
+pub use localfs::{normalize_for, DirEntry, FileStat, FsError, LocalFs, NoFiles, RemoteFiles};
 pub use proc::{NoProcess, ProcError, ProcOutput, ProcRun, Process};
 pub use sandbox::{BudgetKind, SandboxConfig, ScriptBudget};
 pub use sendkeys::Stroke;

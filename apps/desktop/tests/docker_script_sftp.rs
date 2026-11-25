@@ -102,16 +102,17 @@ fn a_script_puts_and_gets_a_real_file_over_sftp() {
         remote = remote,
     );
 
+    // 本地端点（上传的来源、下载的目标）现在必须过授权信封：
+    // sftp_put/get 经 workspace → LocalFs，不再绕开白名单。
+    let allow = format!(
+        "fs=read:{},fs=write:{}",
+        local_in.display(),
+        local_out.display()
+    );
+    let mut args = vec!["script", "run", "-", "--session", "sftp-real-roundtrip"];
+    args.extend(["--allow", &allow, "--timeout", "30"]);
     let mut child = Command::new(env!("CARGO_BIN_EXE_term-desk"))
-        .args([
-            "script",
-            "run",
-            "-",
-            "--session",
-            "sftp-real-roundtrip",
-            "--timeout",
-            "30",
-        ])
+        .args(args)
         .env("WINDTERM_PROFILE_DIR", &dir)
         .env("HOME", &home)
         .stdin(Stdio::piped())

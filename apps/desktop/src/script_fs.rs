@@ -17,9 +17,9 @@
 //! 脚本会把内容当文本用（`text(data)`），但把二进制文件读成 `String` 再写回
 //! 去会损坏字节。端口上保持字节，转不转文本由脚本决定。
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use term_script::{DirEntry, FileStat, FsError, LocalFs};
+use term_script::{normalize_for, DirEntry, FileStat, FsError, LocalFs};
 
 /// 授权来源。工作区每次调用都传一份**当前**信封进来（见模块文档）。
 ///
@@ -56,6 +56,15 @@ where
             .check_write(&resolved)
             .map_err(|denied| FsError::Denied(denied.to_string()))?;
         Ok(resolved)
+    }
+
+    /// 远端传输的本地端点：只判定与规范化，不碰文件（契约见 `term_script::localfs`）。
+    fn authorize(&self, path: &str, write: bool) -> Result<PathBuf, FsError> {
+        if write {
+            self.allow_write(path)
+        } else {
+            self.allow_read(path)
+        }
     }
 }
 
@@ -96,8 +105,9 @@ where
             .map_err(|e| FsError::Io(format!("列不出 {}：{e}", resolved.display())))?;
         let mut rows = Vec::new();
         for entry in reader {
-            let entry = entry
-                .map_err(|e| FsError::Io(format!("读 {} 的目录项时失败：{e}", resolved.display())))?;
+            let entry = entry.map_err(|e| {
+                FsError::Io(format!("读 {} 的目录项时失败：{e}", resolved.display()))
+            })?;
             // `metadata` 跟着软链走：列表里显示的大小/类型以目标为准，
             // 与文件管理器一致。
             let meta = std::fs::metadata(entry.path()).ok();
@@ -150,66 +160,20 @@ where
         };
         result.map_err(|e| FsError::Io(format!("删不掉 {}：{e}", resolved.display())))
     }
-}
 
-/// 把一个脚本写的路径变成**绝对、无 `..`** 的形态。
-///
-/// - 已存在的路径：`canonicalize`（软链一并解开）。
-/// - 写新文件：规范父目录再拼文件名——`canonicalize` 对不存在的路径会失败。
-/// - 相对路径、含 `..` 的路径：直接拒（判定要在比较**之前**，见
-///   `term_core::script_caps` 的模块文档）。
-fn normalize_for(path: &str, write: bool) -> Result<PathBuf, FsError> {
-    let raw = Path::new(path);
-    if path.trim().is_empty() {
-        return Err(FsError::BadArgument("路径不能为空".to_string()));
+    fn authorize_read(&self, path: &str) -> Result<PathBuf, FsError> {
+        self.authorize(path, false)
     }
-    if raw.is_relative() {
-        return Err(FsError::BadArgument(format!(
-            "{path:?} 是相对路径；脚本里的文件路径必须写绝对路径（不知道「当前目录」是哪）"
-        )));
-    }
-    if raw
-        .components()
-        .any(|c| matches!(c, std::path::Component::ParentDir))
-    {
-        return Err(FsError::BadArgument(format!(
-            "{path:?} 含 ..；规范之前就拒（否则 logs/../../etc 会在 logs 根下通过）"
-        )));
-    }
-    match std::fs::canonicalize(raw) {
-        Ok(resolved) => Ok(resolved),
-        // 写新文件：目标不存在是正常情形，退一步规范父目录再拼名字。
-        Err(_) if write => {
-            // 父目录存在、目标不存在：这是「新建文件」的正常情形。
-            let parent = raw.parent().ok_or_else(|| {
-                FsError::BadArgument(format!("{path:?} 没有父目录，无从确定写到哪里"))
-            })?;
-            let parent = std::fs::canonicalize(parent).map_err(|e| {
-                FsError::Io(format!("{} 的父目录 {} 不可用：{e}", path, parent.display()))
-            })?;
-            let name = raw
-                .file_name()
-                .ok_or_else(|| FsError::BadArgument(format!("{path:?} 没有文件名")))?;
-            // 悬空软链：`canonicalize(raw)` 正是因为「目标不存在」才失败的。
-            // 若直接拼 parent.join(name)，check_write 看的是白名单内的软链
-            // 本身，而 open() 会跟着它写到白名单外——这是逃逸。跟随软链拿到
-            // 真实目标（由 allow_write 重新 check_write），目标不存在则拒绝。
-            if std::fs::symlink_metadata(raw)
-                .is_ok_and(|meta| meta.file_type().is_symlink())
-            {
-                return std::fs::canonicalize(raw).map_err(|_| {
-                    FsError::Denied(format!("{path:?} 是指向不存在目标的软链，拒绝写入"))
-                });
-            }
-            Ok(parent.join(name))
-        }
-        Err(e) => Err(FsError::Io(format!("{path:?} 不可用：{e}"))),
+
+    fn authorize_write(&self, path: &str) -> Result<PathBuf, FsError> {
+        self.authorize(path, true)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
     use term_core::script_caps::{CapRequest, Capabilities};
 
@@ -293,10 +257,7 @@ mod tests {
             other => panic!("根外必须拒，实得 {other:?}"),
         }
         // 相对路径也拒：脚本没有「当前目录」这个概念。
-        assert!(matches!(
-            files.read("a.txt"),
-            Err(FsError::BadArgument(_))
-        ));
+        assert!(matches!(files.read("a.txt"), Err(FsError::BadArgument(_))));
         let _ = std::fs::remove_dir_all(root);
     }
 
@@ -336,7 +297,9 @@ mod tests {
         let outside_target = outside.join("created-by-escape.txt");
         std::os::unix::fs::symlink(&outside_target, &dangling).unwrap();
         assert!(
-            files.write(&dangling.to_string_lossy(), b"X", false).is_err(),
+            files
+                .write(&dangling.to_string_lossy(), b"X", false)
+                .is_err(),
             "悬空软链必须拒绝写入"
         );
         assert!(!outside_target.exists(), "白名单外不能被创建出文件");
@@ -362,9 +325,62 @@ mod tests {
             }
         });
         let target = root.join("c.txt").display().to_string();
-        assert!(matches!(files.write(&target, b"x", false), Err(FsError::Denied(_))));
+        assert!(matches!(
+            files.write(&target, b"x", false),
+            Err(FsError::Denied(_))
+        ));
         granted.store(true, Ordering::SeqCst);
         assert_eq!(files.write(&target, b"x", false).expect("放行"), 1);
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// `fs_mkdir("out/a/b")` 的中间层都不存在：规范化要从最长存在的祖先
+    /// （沙箱根）拼起，再交给 `create_dir_all`，不能因为在 `out/a` 上
+    /// `canonicalize` 失败就报 Io。
+    #[test]
+    fn mkdir_creates_the_whole_missing_chain_inside_the_granted_root() {
+        let root = sandbox("mkdir-chain");
+        let files = LocalFiles::new(|| caps_for(&root, true));
+        let target = root.join("out/a/b");
+        files.mkdir(&target.to_string_lossy()).expect("递归建成");
+        assert!(target.is_dir());
+        assert!(root.join("out/a").is_dir());
+
+        let read_only = LocalFiles::new(|| caps_for(&root, false));
+        match read_only.mkdir(&root.join("out/c").to_string_lossy()) {
+            Err(FsError::Denied(why)) => assert!(why.contains("只授了读"), "{why}"),
+            other => panic!("只读根不该能建目录，实得 {other:?}"),
+        }
+        assert!(!root.join("out/c").exists());
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn mkdir_cannot_follow_a_symlink_to_outside_the_granted_root() {
+        let root = sandbox("mkdir-symlink");
+        let outside = std::env::temp_dir().join(format!(
+            "zterm-fs-mkdir-outside-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&outside).expect("外部目录");
+        let outside = std::fs::canonicalize(&outside).expect("规范外部目录");
+        let files = LocalFiles::new(|| caps_for(&root, true));
+
+        // 中间层是软链：规范到白名单外，check_write 必须拒。
+        let link = root.join("escape");
+        std::os::unix::fs::symlink(&outside, &link).expect("软链");
+        let target = link.join("made-by-script");
+        match files.mkdir(&target.to_string_lossy()) {
+            Err(FsError::Denied(_)) => {}
+            other => panic!("软链逃逸必须拒，实得 {other:?}"),
+        }
+        assert!(!outside.join("made-by-script").exists(), "外部不能被建目录");
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 }

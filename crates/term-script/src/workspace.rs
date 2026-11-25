@@ -38,9 +38,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use term_core::log_opts::LogOptions;
-use term_core::session_runtime::LogStatus;
 use term_core::script_caps::Denied;
 use term_core::session::{OpenRequest, ProfileCatalog};
+use term_core::session_runtime::LogStatus;
 use term_core::session_runtime::{Session, SessionId, SessionState};
 
 use crate::clip_ui::{ClipError, UiError};
@@ -51,8 +51,8 @@ use crate::human::{Answer, Ask, AskError, PickFile};
 use crate::localfs::{DirEntry, FileStat, FsError};
 use crate::proc::{ProcError, ProcOutput, ProcRun};
 use crate::sendkeys;
-use crate::sessions::{FixedSessions, SessionInfo, SessionsError};
 use crate::session::{ScriptSession, WaitAnyHit};
+use crate::sessions::{FixedSessions, SessionInfo, SessionsError};
 
 /// 全局层动词的失败方式：要么是「原语层面的失败」（没有当前绑定、点了不存在
 /// 的名字），要么是「集合层面的失败」（会话起不来、集合不支持）。
@@ -162,11 +162,7 @@ impl ScriptWorkspace {
     /// 池级工作区：调用方给一整套宿主接缝（[`HostEnv`]），`current` 是脚本
     /// 一开始就在用的那条会话。
     pub fn new(env: HostEnv, current: Arc<Mutex<dyn Session>>, max_wait: Duration) -> Self {
-        let session = ScriptSession::with_cancel(
-            current,
-            max_wait,
-            Some(env.cancel.clone()),
-        );
+        let session = ScriptSession::with_cancel(current, max_wait, Some(env.cancel.clone()));
         let id = session.id();
         let mut map = HashMap::new();
         map.insert(id, session);
@@ -309,10 +305,7 @@ impl ScriptWorkspace {
     /// 为什么要顺手改绑：脚本写 `session_open("cat")` 之后下一句几乎总是往这条新
     /// 会话发命令。不改绑的话那条命令会发给**原来**的会话——错误命令已经发
     /// 出去了才可能被发现。
-    pub fn session_open_request(
-        &self,
-        request: OpenRequest,
-    ) -> Result<SessionInfo, SessionError> {
+    pub fn session_open_request(&self, request: OpenRequest) -> Result<SessionInfo, SessionError> {
         let info = self.inner.env.sessions.open(&request)?;
         let Some(session) = self.inner.env.sessions.attach(info.id) else {
             // 集合刚说开成功、转头又不认识它：这是实现自相矛盾。不能把 info
@@ -429,11 +422,8 @@ impl ScriptWorkspace {
         }
         let rows = self.inner.env.sessions.list();
         rows.get(index - 1).cloned().ok_or_else(|| {
-            SessionsError::NotFound(format!(
-                "第 {index} 条会话（当前只有 {} 条）",
-                rows.len()
-            ))
-            .into()
+            SessionsError::NotFound(format!("第 {index} 条会话（当前只有 {} 条）", rows.len()))
+                .into()
         })
     }
 
@@ -553,11 +543,7 @@ impl ScriptWorkspace {
         }
     }
 
-    pub fn wait_idle(
-        &self,
-        quiet_secs: f64,
-        timeout_secs: f64,
-    ) -> Result<String, PrimitiveError> {
+    pub fn wait_idle(&self, quiet_secs: f64, timeout_secs: f64) -> Result<String, PrimitiveError> {
         self.current()?.wait_idle(quiet_secs, timeout_secs)
     }
 
@@ -632,8 +618,7 @@ impl ScriptWorkspace {
         timeout_secs: f64,
         filter: Option<&LineFilter>,
     ) -> Result<String, PrimitiveError> {
-        self.current()?
-            .read_until(delimiter, timeout_secs, filter)
+        self.current()?.read_until(delimiter, timeout_secs, filter)
     }
 
     pub fn read(
@@ -902,7 +887,11 @@ impl ScriptWorkspace {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
-        let output = self.inner.env.process.run_cancellable(request, self.cancel())?;
+        let output = self
+            .inner
+            .env
+            .process
+            .run_cancellable(request, self.cancel())?;
         self.check_cancel()?;
         Ok(output)
     }
@@ -920,27 +909,60 @@ impl ScriptWorkspace {
         Ok(self.inner.env.sessions.remote_files(id)?)
     }
 
-    pub fn sftp_list(
-        &self,
-        name: Option<&str>,
-        path: &str,
-    ) -> Result<Vec<DirEntry>, SessionError> {
+    pub fn sftp_list(&self, name: Option<&str>, path: &str) -> Result<Vec<DirEntry>, SessionError> {
         Ok(self.remote(name)?.list(path)?)
     }
 
-    pub fn sftp_get(&self, name: Option<&str>, remote: &str, local: &str) -> Result<u64, SessionError> {
-        Ok(self.remote(name)?.get(remote, local)?)
+    /// `sftp_get(remote, local)`：远端路径属于另一个信任域，但**本地落点**
+    /// 仍要过 `LocalFs`（`localfs.rs` 的契约）——否则脚本可以借下载往白名单外
+    /// 写任意文件。授权与规范化都由文件端口做，这里只把结果交给远端端口。
+    pub fn sftp_get(
+        &self,
+        name: Option<&str>,
+        remote: &str,
+        local: &str,
+    ) -> Result<u64, SessionError> {
+        self.check_cancel()?;
+        let local = self.inner.env.files.authorize_write(local)?;
+        let files = self.remote(name)?;
+        let written = files.get_cancellable(
+            remote,
+            &local.to_string_lossy(),
+            Arc::new(self.inner.env.cancel.clone()),
+        )?;
+        self.check_cancel()?;
+        Ok(written)
     }
 
-    pub fn sftp_put(&self, name: Option<&str>, local: &str, remote: &str) -> Result<u64, SessionError> {
-        Ok(self.remote(name)?.put(local, remote)?)
+    /// `sftp_put(local, remote)`：上传的**本地来源**同样过读授权。
+    pub fn sftp_put(
+        &self,
+        name: Option<&str>,
+        local: &str,
+        remote: &str,
+    ) -> Result<u64, SessionError> {
+        self.check_cancel()?;
+        let local = self.inner.env.files.authorize_read(local)?;
+        let files = self.remote(name)?;
+        let written = files.put_cancellable(
+            &local.to_string_lossy(),
+            remote,
+            Arc::new(self.inner.env.cancel.clone()),
+        )?;
+        self.check_cancel()?;
+        Ok(written)
     }
 
     pub fn sftp_mkdir(&self, name: Option<&str>, path: &str) -> Result<(), SessionError> {
         Ok(self.remote(name)?.mkdir(path)?)
     }
 
-    pub fn sftp_rename(&self, name: Option<&str>, from: &str, to: &str) -> Result<(), SessionError> {
+    pub fn sftp_rename(
+        &self,
+        name: Option<&str>,
+        from: &str,
+        to: &str,
+    ) -> Result<(), SessionError> {
         Ok(self.remote(name)?.rename(from, to)?)
     }
 
@@ -1008,9 +1030,11 @@ fn inner_or(value: usize, fallback: usize) -> usize {
 mod tests {
     use super::*;
     use crate::app_ui::LayoutOp;
+    use crate::localfs::{normalize_for, LocalFs, RemoteFiles};
     use crate::sessions::Sessions;
-    use crate::testutil::{FakeApp, FakeSessions};
-    use term_core::script_caps::{AppScope, Capabilities};
+    use crate::testutil::{fake_session, FakeApp, FakeSessions};
+    use std::path::Path;
+    use term_core::script_caps::{AppScope, CapRequest, Capabilities};
 
     /// 造一个挂着两条会话（id 1 "one" / id 2 "two"）的工作区，当前绑定是 1。
     fn two_tabs() -> (ScriptWorkspace, Arc<FakeSessions>) {
@@ -1071,10 +1095,7 @@ mod tests {
         // 假端口把两次调用都记下来了（含空操作），到达顺序可查。
         assert_eq!(
             app.sets(),
-            vec![
-                ("filer".to_string(), true),
-                ("filer".to_string(), true)
-            ]
+            vec![("filer".to_string(), true), ("filer".to_string(), true)]
         );
     }
 
@@ -1218,14 +1239,15 @@ mod tests {
             }),
             Err(SessionsError::Refused(_))
         ));
-        assert!(matches!(sessions.close("session-7"), Err(SessionsError::Refused(_))));
+        assert!(matches!(
+            sessions.close("session-7"),
+            Err(SessionsError::Refused(_))
+        ));
 
         let ws = ScriptWorkspace::single(session, Duration::from_secs(1));
         assert_eq!(
             ws.session_close("session-7").unwrap_err(),
-            SessionError::Primitive(PrimitiveError::CloseCurrentSession(
-                "session-7".to_string()
-            ))
+            SessionError::Primitive(PrimitiveError::CloseCurrentSession("session-7".to_string()))
         );
         assert_eq!(ws.session_list().len(), 1, "被拒之后清单不能少一条");
     }
@@ -1321,7 +1343,10 @@ mod tests {
         // `Tune` 的定义是「不落盘」，而布局动作末尾必然 `save_layout()`。
         let (tune, _app) = app_workspace(AppScope::Tune);
         assert!(
-            matches!(tune.app_layout(&LayoutOp::Reset), Err(PrimitiveError::Denied(_))),
+            matches!(
+                tune.app_layout(&LayoutOp::Reset),
+                Err(PrimitiveError::Denied(_))
+            ),
             "Tune 不该能改布局文件"
         );
 
@@ -1348,5 +1373,290 @@ mod tests {
             Err(PrimitiveError::UnknownName { .. })
         ));
         assert_eq!(app.layouts().len(), 1, "只有过了名字校验的那次到达端口");
+    }
+
+    // ── SFTP 的本地端点授权与取消 ──────────────────────────────────
+
+    /// 只实现「判定」的文件端口：真实现（desk 的 `LocalFiles`）也是这两步。
+    struct TestFiles {
+        caps: Capabilities,
+    }
+
+    impl LocalFs for TestFiles {
+        fn read(&self, _: &str) -> Result<Vec<u8>, FsError> {
+            Err(FsError::Unsupported("测试里不读文件".to_string()))
+        }
+        fn write(&self, _: &str, _: &[u8], _: bool) -> Result<u64, FsError> {
+            Err(FsError::Unsupported("测试里不写文件".to_string()))
+        }
+        fn list(&self, _: &str) -> Result<Vec<crate::localfs::DirEntry>, FsError> {
+            Err(FsError::Unsupported("测试里不列目录".to_string()))
+        }
+        fn stat(&self, _: &str) -> Result<crate::localfs::FileStat, FsError> {
+            Err(FsError::Unsupported("测试里不查属性".to_string()))
+        }
+        fn mkdir(&self, _: &str) -> Result<(), FsError> {
+            Err(FsError::Unsupported("测试里不建目录".to_string()))
+        }
+        fn remove(&self, _: &str) -> Result<(), FsError> {
+            Err(FsError::Unsupported("测试里不删文件".to_string()))
+        }
+        fn authorize_read(&self, path: &str) -> Result<PathBuf, FsError> {
+            let resolved = normalize_for(path, false)?;
+            self.caps
+                .check_read(&resolved)
+                .map_err(|e| FsError::Denied(e.to_string()))?;
+            Ok(resolved)
+        }
+        fn authorize_write(&self, path: &str) -> Result<PathBuf, FsError> {
+            let resolved = normalize_for(path, true)?;
+            self.caps
+                .check_write(&resolved)
+                .map_err(|e| FsError::Denied(e.to_string()))?;
+            Ok(resolved)
+        }
+    }
+
+    /// 远端端口记下收到的本地路径；`wait_for_cancel` 时一直轮询到停止。
+    struct TestRemote {
+        calls: Mutex<Vec<String>>,
+        wait_for_cancel: bool,
+    }
+
+    impl RemoteFiles for TestRemote {
+        fn list(&self, _: &str) -> Result<Vec<crate::localfs::DirEntry>, FsError> {
+            Ok(Vec::new())
+        }
+        fn get(&self, _: &str, local: &str) -> Result<u64, FsError> {
+            self.calls.lock().expect("calls 锁").push(local.to_string());
+            Ok(1)
+        }
+        fn put(&self, local: &str, _: &str) -> Result<u64, FsError> {
+            self.calls.lock().expect("calls 锁").push(local.to_string());
+            Ok(1)
+        }
+        fn get_cancellable(
+            &self,
+            remote: &str,
+            local: &str,
+            cancel: Arc<dyn term_core::session_runtime::Cancel>,
+        ) -> Result<u64, FsError> {
+            if self.wait_for_cancel {
+                loop {
+                    if cancel.is_cancelled() {
+                        return Err(FsError::Cancelled);
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+            self.get(remote, local)
+        }
+        fn put_cancellable(
+            &self,
+            local: &str,
+            remote: &str,
+            cancel: Arc<dyn term_core::session_runtime::Cancel>,
+        ) -> Result<u64, FsError> {
+            if self.wait_for_cancel {
+                loop {
+                    if cancel.is_cancelled() {
+                        return Err(FsError::Cancelled);
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+            self.put(local, remote)
+        }
+        fn mkdir(&self, _: &str) -> Result<(), FsError> {
+            Ok(())
+        }
+        fn rename(&self, _: &str, _: &str) -> Result<(), FsError> {
+            Ok(())
+        }
+        fn remove(&self, _: &str) -> Result<(), FsError> {
+            Ok(())
+        }
+        fn stat(&self, _: &str) -> Result<crate::localfs::FileStat, FsError> {
+            Err(FsError::Unsupported("测试里不查远端属性".to_string()))
+        }
+    }
+
+    struct SftpSessions {
+        remote: Arc<dyn RemoteFiles>,
+    }
+
+    impl Sessions for SftpSessions {
+        fn list(&self) -> Vec<SessionInfo> {
+            vec![SessionInfo::from_state(
+                1,
+                "one".to_string(),
+                SessionState::Alive,
+            )]
+        }
+        fn resolve(&self, name: &str) -> Option<SessionId> {
+            (name == "one").then_some(1)
+        }
+        fn name(&self, id: SessionId) -> Option<String> {
+            (id == 1).then(|| "one".to_string())
+        }
+        fn open(&self, _: &OpenRequest) -> Result<SessionInfo, SessionsError> {
+            Err(SessionsError::Unsupported("测试集合不能开会话".to_string()))
+        }
+        fn close(&self, _: &str) -> Result<(), SessionsError> {
+            Err(SessionsError::Unsupported("测试集合不能关会话".to_string()))
+        }
+        fn attach(&self, _: SessionId) -> Option<Arc<Mutex<dyn Session>>> {
+            None
+        }
+        fn remote_files(&self, _: SessionId) -> Result<Arc<dyn RemoteFiles>, SessionsError> {
+            Ok(Arc::clone(&self.remote))
+        }
+    }
+
+    fn sftp_sandbox(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "zterm-sftp-ws-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录");
+        std::fs::canonicalize(&dir).expect("规范临时目录")
+    }
+
+    fn sftp_workspace(
+        root: &Path,
+        write: bool,
+        wait_for_cancel: bool,
+    ) -> (ScriptWorkspace, Arc<TestRemote>) {
+        let remote = Arc::new(TestRemote {
+            calls: Mutex::new(Vec::new()),
+            wait_for_cancel,
+        });
+        let sessions = Arc::new(SftpSessions {
+            remote: Arc::clone(&remote) as Arc<dyn RemoteFiles>,
+        });
+        let (session, _manip) = fake_session(1);
+        let mut caps = Capabilities::NONE;
+        caps.grant(&CapRequest::FsRead(root.to_path_buf()));
+        if write {
+            caps.grant(&CapRequest::FsWrite(root.to_path_buf()));
+        }
+        let env = HostEnv::new(sessions)
+            .with_files(Arc::new(TestFiles { caps }))
+            .with_cancel(crate::cancel::CancelToken::new());
+        (
+            ScriptWorkspace::new(env, session, Duration::from_secs(2)),
+            remote,
+        )
+    }
+
+    #[test]
+    fn sftp_put_refuses_a_local_source_outside_the_read_root() {
+        let root = sftp_sandbox("outside");
+        let (ws, remote) = sftp_workspace(&root, true, false);
+        match ws.sftp_put(Some("one"), "/etc/passwd", "remote.txt") {
+            Err(SessionError::Primitive(PrimitiveError::Denied(_))) => {}
+            other => panic!("根外的本地来源必须拒，实得 {other:?}"),
+        }
+        assert!(
+            remote.calls.lock().expect("calls").is_empty(),
+            "远端不该收到请求"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sftp_get_refuses_a_local_target_under_a_read_only_root() {
+        let root = sftp_sandbox("readonly");
+        let (ws, remote) = sftp_workspace(&root, false, false);
+        match ws.sftp_get(
+            Some("one"),
+            "remote.txt",
+            &root.join("out.txt").to_string_lossy(),
+        ) {
+            Err(SessionError::Primitive(PrimitiveError::Denied(why))) => {
+                assert!(why.contains("只授了读"), "{why}")
+            }
+            other => panic!("只读根不该能当下载落点，实得 {other:?}"),
+        }
+        assert!(
+            remote.calls.lock().expect("calls").is_empty(),
+            "远端不该收到请求"
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sftp_get_put_hand_the_normalized_local_path_to_the_remote() {
+        let root = sftp_sandbox("normalized");
+        let (ws, remote) = sftp_workspace(&root, true, false);
+        let source = root.join("in.txt");
+        std::fs::write(&source, b"payload").expect("源文件");
+        ws.sftp_put(Some("one"), &source.to_string_lossy(), "remote.txt")
+            .expect("上传");
+
+        // 尚不存在的下载落点：规范化从最长存在的祖先（沙箱根）拼起。
+        let target = root.join("nested/out.txt");
+        ws.sftp_get(Some("one"), "remote.txt", &target.to_string_lossy())
+            .expect("下载");
+        assert_eq!(
+            remote.calls.lock().expect("calls").as_slice(),
+            &[
+                source.to_string_lossy().into_owned(),
+                target.to_string_lossy().into_owned()
+            ]
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sftp_put_refuses_a_symlink_that_escapes_the_read_root() {
+        let root = sftp_sandbox("symlink");
+        let outside = sftp_sandbox("symlink-outside");
+        let secret = outside.join("secret.txt");
+        std::fs::write(&secret, b"secret").expect("外部文件");
+        let link = root.join("link.txt");
+        std::os::unix::fs::symlink(&secret, &link).expect("软链");
+        let (ws, remote) = sftp_workspace(&root, true, false);
+        match ws.sftp_put(Some("one"), &link.to_string_lossy(), "remote.txt") {
+            Err(SessionError::Primitive(PrimitiveError::Denied(_))) => {}
+            other => panic!("指向根外的软链必须拒，实得 {other:?}"),
+        }
+        assert!(
+            remote.calls.lock().expect("calls").is_empty(),
+            "远端不该收到请求"
+        );
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    /// 传输卡住时按「停止」：取消令牌经由 `RemoteFiles` 传到传输循环，
+    /// 工作区立刻返回 `Cancelled`，不等默认超时。
+    #[test]
+    fn sftp_get_responds_to_stop_while_the_transfer_is_running() {
+        let root = sftp_sandbox("cancel");
+        let (ws, _remote) = sftp_workspace(&root, true, true);
+        let cancel = ws.cancel().clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(60));
+            cancel.cancel();
+        });
+        let started = Instant::now();
+        let err = ws
+            .sftp_get(
+                Some("one"),
+                "remote.txt",
+                &root.join("out.txt").to_string_lossy(),
+            )
+            .unwrap_err();
+        assert_eq!(err, SessionError::Primitive(PrimitiveError::Cancelled));
+        assert!(
+            started.elapsed() < Duration::from_millis(600),
+            "取消要立刻生效，实际 {:?}",
+            started.elapsed()
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 }

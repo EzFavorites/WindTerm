@@ -19,12 +19,14 @@
 //! 原因，而不是悄悄改用另一套连接参数——「同一个会话名，两条不同的连接路径」
 //! 正是 ADR-0018 修掉的那类分叉。
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use term_core::session::SessionConfig;
-use term_session::SessionPool;
+use term_core::session_runtime::Cancel;
 use term_script::{DirEntry, FileStat, FsError, RemoteFiles, SessionsError};
-use term_sftp::BlockingClient;
+use term_session::SessionPool;
+use term_sftp::blocking::{bridge_cancel, DEFAULT_TRANSFER_TIMEOUT};
+use term_sftp::{BlockingClient, Direction};
 
 use crate::session_open::ssh_options_for;
 
@@ -79,8 +81,9 @@ impl SftpRemote {
             Err(poisoned) => poisoned.into_inner(),
         };
         if slot.is_none() {
-            let opts = ssh_options_for(&self.config, 80, 24)
-                .map_err(|failure| FsError::Unsupported(format!("{:?} 连不上：{failure}", self.name)))?;
+            let opts = ssh_options_for(&self.config, 80, 24).map_err(|failure| {
+                FsError::Unsupported(format!("{:?} 连不上：{failure}", self.name))
+            })?;
             let client = BlockingClient::connect(opts).map_err(|e| {
                 FsError::Io(format!("会话 {:?} 的 SFTP 连接失败：{e:?}", self.name))
             })?;
@@ -101,6 +104,39 @@ impl SftpRemote {
             .as_ref()
             .ok_or_else(|| FsError::Unsupported("远端连接没有建立起来".to_string()))?;
         action(client).map_err(|e| FsError::Io(format!("{what}：{e:?}")))
+    }
+
+    /// 一次可取消的传输：把脚本的「停止」桥到传输循环，并套上默认超时。
+    ///
+    /// `bridge` 必须在 `with` 之后才析构：`Drop` 会 join 轮询线程，放在锁内
+    /// 意义不大，但放在动作之前会让取消在传输期间失去中继。
+    fn transfer_cancellable(
+        &self,
+        what: &str,
+        direction: Direction,
+        remote: &str,
+        local: &str,
+        cancel: Arc<dyn Cancel>,
+    ) -> Result<u64, FsError> {
+        // 人已经按了停止：连连接都不建，也不碰目标文件。
+        if cancel.is_cancelled() {
+            return Err(FsError::Cancelled);
+        }
+        let (token, bridge) = bridge_cancel(cancel.clone());
+        let outcome = self.with(what, |client| match direction {
+            Direction::Download => {
+                client.get_cancellable(remote, local, &token, DEFAULT_TRANSFER_TIMEOUT)
+            }
+            Direction::Upload => {
+                client.put_cancellable(local, remote, &token, DEFAULT_TRANSFER_TIMEOUT)
+            }
+        });
+        drop(bridge);
+        match outcome {
+            // 传输侧看见旗子后报的是 Session("传输被取消")；源令牌才是判据。
+            Err(_) if cancel.is_cancelled() => Err(FsError::Cancelled),
+            other => other,
+        }
     }
 }
 
@@ -130,9 +166,31 @@ impl RemoteFiles for SftpRemote {
         self.with("上传", |client| client.put(local, remote))
     }
 
+    fn get_cancellable(
+        &self,
+        remote: &str,
+        local: &str,
+        cancel: Arc<dyn Cancel>,
+    ) -> Result<u64, FsError> {
+        check_paths("sftp_get", remote, local)?;
+        self.transfer_cancellable("下载", Direction::Download, remote, local, cancel)
+    }
+
+    fn put_cancellable(
+        &self,
+        local: &str,
+        remote: &str,
+        cancel: Arc<dyn Cancel>,
+    ) -> Result<u64, FsError> {
+        check_paths("sftp_put", local, remote)?;
+        self.transfer_cancellable("上传", Direction::Upload, remote, local, cancel)
+    }
+
     fn mkdir(&self, path: &str) -> Result<(), FsError> {
         if path.is_empty() {
-            return Err(FsError::BadArgument("sftp_mkdir 的路径不能为空".to_string()));
+            return Err(FsError::BadArgument(
+                "sftp_mkdir 的路径不能为空".to_string(),
+            ));
         }
         self.with("建目录", |client| client.mkdir(path))
     }
@@ -148,7 +206,9 @@ impl RemoteFiles for SftpRemote {
     /// `list` + `remove`。目录非空时服务端会拒绝，错误原样带回来。
     fn remove(&self, path: &str) -> Result<(), FsError> {
         if path.is_empty() {
-            return Err(FsError::BadArgument("sftp_remove 的路径不能为空".to_string()));
+            return Err(FsError::BadArgument(
+                "sftp_remove 的路径不能为空".to_string(),
+            ));
         }
         let stat = self.with("查属性", |client| client.stat(path))?;
         if stat.is_dir {
@@ -180,4 +240,36 @@ fn check_paths(what: &str, first: &str, second: &str) -> Result<(), FsError> {
         return Err(FsError::BadArgument(format!("{what} 的两个路径都不能为空")));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use term_core::session::Protocol;
+
+    #[derive(Default)]
+    struct Flag(Arc<AtomicBool>);
+
+    impl Cancel for Flag {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    /// 已经按了停止就不建连接：否则取消测试会卡在认证上，看不到真正的判据。
+    #[test]
+    fn a_pre_cancelled_script_transfer_is_rejected_before_connecting() {
+        let remote = SftpRemote {
+            name: "test".to_string(),
+            config: SessionConfig::new(Protocol::Ssh),
+            client: Mutex::new(None),
+        };
+        let flag = Arc::new(Flag::default());
+        flag.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        match remote.get_cancellable("remote.txt", "local.txt", flag) {
+            Err(FsError::Cancelled) => {}
+            other => panic!("已取消的传输必须返回 Cancelled，实得 {other:?}"),
+        }
+    }
 }
