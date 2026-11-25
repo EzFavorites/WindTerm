@@ -147,7 +147,10 @@ jobs:
               [ -n "$ZIP" ] || { echo "没有 .zip" >&2; exit 1; }
               [ "$(dpkg-deb -f "$DEB" Package)" = "windterm" ] \
                 || { echo ".deb 的 control 不对" >&2; exit 1; }
-              dpkg-deb -c "$DEB" | grep -qE '[[:space:]]\./usr/bin/windterm$' \
+              # 先落文件再 grep：grep -q 提前退出会让 dpkg-deb 吃 SIGPIPE，
+              # 在 pipefail 下把一条正常的包误判成失败。
+              dpkg-deb -c "$DEB" > "$RUNNER_TEMP/deb-list.txt"
+              grep -qE '[[:space:]]\./usr/bin/windterm$' "$RUNNER_TEMP/deb-list.txt" \
                 || { echo ".deb 里没有 /usr/bin/windterm" >&2; exit 1; }
               ;;
             *-windows-*)
