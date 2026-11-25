@@ -103,7 +103,11 @@ impl TerminalWindow {
         // 里就已经落成强类型变体，投影层不该再有第二条字符串分支（也查这条
         // ——命令 ID 字面量出现在 ui/ 里会被 verify.sh 判红）。
         if matches!(action, Action::AddressBar) {
-            self.open_address_bar("", None);
+            // 专注模式只留菜单栏：Alt+D 等地址栏入口在这里就被拦下，
+            // `AddressState` 不会被置开，自然也没有浮层要画。
+            if !self.view.focus_mode {
+                self.open_address_bar("", None);
+            }
             return;
         }
         // reducer 拿到的输入是「当前事实窗口」，与渲染同源——

@@ -1205,7 +1205,9 @@ impl TerminalWindow {
         // 与其余浮层之上。危险操作的模态（关闭确认 / 粘贴确认）虽在这之前
         // 声明，但 `draw_address_bar` 自己会在它们挂着时整段不画：那样才同时
         // 成立「输得进去」与「不盖住模态」，而不是靠这一个调用点的位置去赌。
-        self.draw_address_bar(ctx);
+        // 专注模式只留菜单栏（上面各行都是 `if !focus`），地址栏是工具栏那一
+        // 族的浮层，也必须一并压掉——否则「专注」里还能弹出一个输入框。
+        if !focus { self.draw_address_bar(ctx); }
 
         // 结构变化即时落盘——复活 `Action::SaveLayout` 死路径。各结构变更处
         // （分屏 / 关窗格 / 合并 / 内置 SSH 分屏落地 / sash 拖动）只置

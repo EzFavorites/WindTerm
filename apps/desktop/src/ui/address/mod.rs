@@ -35,6 +35,9 @@ mod rows;
 #[cfg(test)]
 #[path = "address_tests.rs"]
 mod address_tests;
+#[cfg(test)]
+#[path = "focus_gate_tests.rs"]
+mod focus_gate_tests;
 
 use crate::ui::shell::{apply_popup_style, draw_menu_row, CheckCell, MenuRowState, RowLook};
 use crate::ui::*;
@@ -125,6 +128,11 @@ struct Outcome {
 impl TerminalWindow {
     /// 打开地址栏。`prefill` 为空 = 打开即览全部候选（点工具栏那一下就该这样）。
     pub(in crate::ui) fn open_address_bar(&mut self, prefill: &str, anchor: Option<egui::Rect>) {
+        // 所有入口的统一门：dispatch 的 Alt+D 与工具栏那一下都走这里，
+        // 专注模式下 AddressState 连 open 位都不置（不只是「不画」）。
+        if self.view.focus_mode {
+            return;
+        }
         self.address.state.open_with(prefill);
         self.address.anchor = anchor;
         self.address.problem = None;
@@ -147,7 +155,9 @@ impl TerminalWindow {
     ///
     /// 默认关闭时一行都不画——五张整窗视觉基线因此完全不受影响。
     pub(in crate::ui) fn draw_address_bar(&mut self, ctx: &egui::Context) {
-        if !self.address.state.open {
+        // 调用点已有 `!focus` 门控；这里再兜一层，避免将来新调用点漏掉时
+        // 专注模式里凭空冒出输入框。
+        if self.view.focus_mode || !self.address.state.open {
             return;
         }
         // 危险操作的模态优先（见模块文档末段）：它挂着的时候地址栏整段不画，
