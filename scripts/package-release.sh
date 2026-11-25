@@ -8,7 +8,7 @@
 # 用法：
 #   scripts/package-release.sh <target-triple> <version> <binary> [outdir]
 # 例：
-#   scripts/package-release.sh aarch64-apple-darwin 1.0.0 \
+#   scripts/package-release.sh aarch64-apple-darwin 0.0.1.beta \
 #       target/aarch64-apple-darwin/release/term-desk dist
 #
 # 产物（按平台分支）：
@@ -34,7 +34,7 @@ mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
 # 平台标签：给用户看的，不是 triple。用 triple 会得到
-# `WindTerm-1.0.0-x86_64-unknown-linux-gnu.tar.gz` 这种没人想读的文件名。
+# `WindTerm-0.0.1.beta-x86_64-unknown-linux-gnu.tar.gz` 这种没人想读的文件名。
 case "$TARGET" in
   aarch64-apple-darwin)     PLATFORM="macos-aarch64" ;;
   x86_64-apple-darwin)      PLATFORM="macos-x86_64" ;;

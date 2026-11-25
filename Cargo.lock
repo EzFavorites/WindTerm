@@ -4726,14 +4726,14 @@ dependencies = [
 
 [[package]]
 name = "term-app"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "term-core",
 ]
 
 [[package]]
 name = "term-bridge"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "serde",
  "serde_json",
@@ -4743,7 +4743,7 @@ dependencies = [
 
 [[package]]
 name = "term-core"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "regex",
  "regex-syntax",
@@ -4754,7 +4754,7 @@ dependencies = [
 
 [[package]]
 name = "term-desk"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "dirs",
  "eframe",
@@ -4785,7 +4785,7 @@ dependencies = [
 
 [[package]]
 name = "term-import"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "dirs",
  "serde_json",
@@ -4794,7 +4794,7 @@ dependencies = [
 
 [[package]]
 name = "term-io"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "nix 0.25.1",
  "portable-pty",
@@ -4806,14 +4806,14 @@ dependencies = [
 
 [[package]]
 name = "term-paths"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "dirs",
 ]
 
 [[package]]
 name = "term-profile"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "serde",
  "serde_json",
@@ -4825,7 +4825,7 @@ dependencies = [
 
 [[package]]
 name = "term-runtime"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "term-import",
  "term-io",
@@ -4835,7 +4835,7 @@ dependencies = [
 
 [[package]]
 name = "term-script"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "regex",
  "rhai",
@@ -4845,7 +4845,7 @@ dependencies = [
 
 [[package]]
 name = "term-session"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "term-core",
  "term-io",
@@ -4853,7 +4853,7 @@ dependencies = [
 
 [[package]]
 name = "term-sftp"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "russh",
  "russh-sftp",
@@ -4866,7 +4866,7 @@ dependencies = [
 
 [[package]]
 name = "term-ssh"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "log",
  "russh",
@@ -4877,7 +4877,7 @@ dependencies = [
 
 [[package]]
 name = "term-store"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "rusqlite",
  "serde",
@@ -4888,7 +4888,7 @@ dependencies = [
 
 [[package]]
 name = "term-tunnel"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "russh",
  "ssh-key",
@@ -4898,7 +4898,7 @@ dependencies = [
 
 [[package]]
 name = "term-vault"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "argon2 0.5.3",
  "base64",
@@ -4911,11 +4911,11 @@ dependencies = [
 
 [[package]]
 name = "term-xfer"
-version = "1.0.0"
+version = "0.0.1-beta"
 
 [[package]]
 name = "term-zmodem"
-version = "1.0.0"
+version = "0.0.1-beta"
 dependencies = [
  "term-xfer",
 ]

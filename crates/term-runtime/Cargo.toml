@@ -1,6 +1,6 @@
 [package]
 name = "term-runtime"
-version = "1.0.0"
+version = "0.0.1-beta"
 rust-version = "1.94"
 edition = "2021"
 

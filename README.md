@@ -8,10 +8,10 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 
 支持本地 Shell、SSH、Telnet、TCP、串口和独立 SFTP 会话。SSH 会话上可以直接开
 文件面板传文件，不必再连一次；SSH / Telnet / TCP 可以走 HTTP 或 SOCKS5 代理，
-也可以配跳板链和三类端口转发。当前版本 **1.0.0**。
+也可以配跳板链和三类端口转发。当前版本 **v0.0.1.beta**。
 
 > 本文只写已经实现的行为。命令面规模请用 `term-desk capability` 现算
-> （写作时实测 222 条命令 / 217 已接线 / 5 置灰）；测试数量以 `cargo test`
+> （写作时实测 216 条命令 / 214 已接线 / 2 置灰）；测试数量以 `cargo test`
 > 的实际输出为准。架构、构建和实现细节见 [`docs/`](docs/README.md)。
 
 ## 界面一览
@@ -43,8 +43,8 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 | Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.zip` | `WindTerm.exe` |
 
 ```sh
-shasum -a 256 -c WindTerm-1.0.0-macos-aarch64.tar.gz.sha256
-tar xzf WindTerm-1.0.0-macos-aarch64.tar.gz
+shasum -a 256 -c WindTerm-0.0.1.beta-macos-aarch64.tar.gz.sha256
+tar xzf WindTerm-0.0.1.beta-macos-aarch64.tar.gz
 ```
 
 macOS 构建是 ad-hoc 签名，没有公证，首次启动会被 Gatekeeper 拦下：
