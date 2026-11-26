@@ -4,29 +4,18 @@
 //! 搬到 `ui/terminal_setup.rs`（单文件 ≤ 450 行）。**只搬代码，不改行为**——
 //! 五张视觉基线逐字节一致是这次拆分唯一的判据。
 
-use super::completion_popup;
-use super::pane_click_gate;
-use super::tab_slot::{line_cache, selection_text_mut, selection_text_ref, tab_of, TabSlot};
-use super::{bin, ensure_view, margin, select};
 use crate::ui::*;
+use super::tab_slot::{line_cache, selection_text_mut, selection_text_ref, tab_of, TabSlot};
+use super::completion_popup;
+use super::{bin, ensure_view, margin, select};
+use super::pane_click_gate;
 // 正文二选一与正文之后的叠层各自成文件（单文件 500 行上限）。
 // 两个都是**自由函数**——`draw_tab` 手上握着借自 `self.tabs` 的 `&mut Tab`，
 // 方法调用会同时要 `&mut self`（E0499），所以那边只收拆分好的借用。
-use super::history_scope::system_of;
-use super::pane_body::paint_body;
-use super::pane_overlays::{paint_overlays, OverlayToggles};
-use super::pane_pointer::{pointer_selection, visible_separators, GridGeom};
-use super::pane_preview::{
-    box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn,
-};
-use super::pane_scrollbar::{
-    interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect,
-    ScrollbarView,
-};
-use term_app::scrollbar::preview_range;
-use term_app::selection;
-use term_core::keys;
-use term_core::session_runtime::SessionId;
+use super::history_scope::system_of; use super::pane_body::paint_body;
+use super::pane_overlays::{paint_overlays, OverlayToggles}; use super::pane_preview::{box_rect as preview_box_rect, paint as preview_paint, preview_rows as preview_rows_fn};
+use super::pane_pointer::{pointer_selection, visible_separators, GridGeom}; use super::pane_scrollbar::{interact as scrollbar_interact, paint as scrollbar_paint, track_rect as scrollbar_track_rect, ScrollbarView};
+use term_app::scrollbar::preview_range; use term_app::selection; use term_core::keys; use term_core::session_runtime::SessionId;
 
 /// 内容绝对行 → 屏内下标；窗口外的行返回 `None`（那一行根本画不出来）。
 ///
@@ -54,12 +43,7 @@ pub(super) fn screen_index_of(image: &term_core::grid::ScreenImage, row: i64) ->
 /// 查表而不是减法，是因为折叠后窗口内的行号不连续（`lines[i].row != start + i`）：
 /// 命中就是那一行，落空就是「这一行现在看不见」。调用方据此**不画**：光标行底色
 /// 与光标都落在这个下标上，硬画只会把它浮在相邻行上，等于指着另一行说「光标在这」。
-pub(super) fn screen_index_of_grid_row(
-    image: &term_core::grid::ScreenImage,
-    grid_row: usize,
-) -> Option<usize> {
-    screen_index_of(image, grid_row as i64)
-}
+pub(super) fn screen_index_of_grid_row(image: &term_core::grid::ScreenImage, grid_row: usize) -> Option<usize> { screen_index_of(image, grid_row as i64) }
 
 impl TerminalWindow {
     /// 单窗格路径：与分屏之前完全同一份绘制逻辑（五张视觉基线靠它守住）。
@@ -102,11 +86,9 @@ impl TerminalWindow {
         // 时 `window_bg_color()` 原样返回 `to_color32(default_bg)`，与旧代码
         // 逐字节相同（十一张视觉基线不受影响）。
         // 预览底色先算：`tab` 借走 self 后再调 window_bg_color() 会撞 E0502。
-        let window_bg = self.window_bg_color();
-        ui.painter().rect_filled(rect, 0.0, window_bg);
+        let window_bg = self.window_bg_color(); ui.painter().rect_filled(rect, 0.0, window_bg);
         // `tab` 马上从 `self` 借走；鼠标事件掩码是 Copy 值，先拷出来再用。
-        let mouse_events = self.mouse_events;
-        let mut sync_bytes: Option<Vec<u8>> = None;
+        let mouse_events = self.mouse_events; let mut sync_bytes: Option<Vec<u8>> = None;
 
         // 同步输入要写「其它」标签，而那一刻 `tab` 还借在手上，
         // 所以先把这批按键攒下来，等借用结束后再扇出去。
@@ -117,16 +99,13 @@ impl TerminalWindow {
         // 「此刻在哪一屏」一起攒着：门控要读 `snapshot.alt`，而落地要等 `tab`
         // 的借用结束（`commit_paste` / `pending_paste` 都要借整个窗口）。
         // Vim p/P 与折叠列点击也各攒一个意图：前者复用 Cmd+V 漏斗，后者要借整个窗口。
-        let mut paste: Option<(String, bool)> = None;
-        let mut completed_lines: Vec<String> = Vec::new();
-        let mut vim_paste: Option<super::vim_apply::VimPaste> = None;
-        let mut pending_fold: Option<term_app::vocab::FoldCmd> = None;
+        let mut paste: Option<(String, bool)> = None; let mut completed_lines: Vec<String> = Vec::new();
+        let mut vim_paste: Option<super::vim_apply::VimPaste> = None; let mut pending_fold: Option<term_app::vocab::FoldCmd> = None;
         // 录制器那一格先克隆出来：下面 `tab` 会把 `self` 整块借走。
         // 补全的候选源在借用标签之前取好——历史 / QuickBar 都挂在窗口上，
         // 与 `tab` 借的 `self.tabs` 是不同字段，先克隆出来后面就不必再碰窗口。
         // 总开关关着时这两张表保持空，一帧只多两次 Vec::new()。
-        let completion_enabled = self.completion.enabled;
-        let completion_scope = system_of(self);
+        let completion_enabled = self.completion.enabled; let completion_scope = system_of(self);
         let (completion_history, completion_quick) = completion_popup::prepare_sources(
             completion_enabled,
             &self.command_history,
@@ -239,30 +218,23 @@ impl TerminalWindow {
                         reduce(&mut self.view, action, Some(&fixture.screen));
                     }
                     // 默认布局铺满后夹具不再改外壳状态；通道留着给将来的外壳夹具。
-                    // 行过滤是**每条会话**状态（`Tab.filter`），不写 `ViewState`；
-                    // 夹具只派发 `Action::Filter`，走同一条 `filter::reduce`，
-                    // 返回的 `Effect::Filter` 在这里对活动 tab 落地（不另写状态）。
-                    let mut filter_effects = Vec::new();
+                    // 行过滤是每条会话状态：夹具派发的 Action::Filter 经 reduce
+                    // 变成 Effect::Filter，在这里落到活动 tab，不写 ViewState。
+                    let mut filter_actions: Vec<term_app::vocab::FilterAction> = Vec::new();
                     for action in fixture.shell_actions() {
-                        let effects = reduce(&mut self.view, action, Some(&fixture.screen));
-                        filter_effects.extend(effects);
+                        for effect in reduce(&mut self.view, action, Some(&fixture.screen)) {
+                            if let term_app::action::Effect::Filter(a) = effect {
+                                filter_actions.push(a);
+                            }
+                        }
                     }
-                    let shell_actions_filter: Vec<term_app::vocab::FilterAction> = filter_effects
-                        .into_iter()
-                        .filter_map(|e| match e {
-                            term_app::action::Effect::Filter(a) => Some(a),
-                            _ => None,
-                        })
-                        .collect();
-                    tab.snapshot = fixture.snapshot;
-                    tab.screen = Some(fixture.screen);
-                    tab.viewport = fixture.viewport;
-                    // `--demo filter`：活动 tab 的过滤状态同样走 `filter::reduce`，
-                    // 不直接写状态、不绕过动作路径。
-                    for a in shell_actions_filter {
+                    for a in filter_actions {
                         term_app::filter::reduce(&mut tab.filter, a);
                     }
                     tab.filter_input = tab.filter.query.clone();
+                    tab.snapshot = fixture.snapshot;
+                    tab.screen = Some(fixture.screen);
+                    tab.viewport = fixture.viewport;
                     // 夹具注进来的是一份**全新**集合：整份状态刚被替换掉，
                     // 旧选区与锁位都不该留（`set_active` 会认锁，这里要用构造）。
                     tab.selections = Selections::from_active(fixture.selection);
@@ -392,12 +364,7 @@ impl TerminalWindow {
         let cell = Vec2::new(cell_w, cell_h);
         // 本帧的窗格几何算一次、三处共用（手势 / 正文 / 叠层）。三份各写一遍
         // 字面量时，改一处漏两处就是「标记与字形错开半格」那一类像素回归。
-        let geom = GridGeom {
-            start: egui::pos2(start_x, start_y),
-            cell,
-            rows,
-            cols,
-        };
+        let geom = GridGeom { start: egui::pos2(start_x, start_y), cell, rows, cols };
 
         // 鼠标手势 → 选区。整套手势（按下 / 拖动 / 双击 / 三击 /
         // shift 扩选 / 拖出边缘自动滚动）只在 Text 下成立：hex 视图没有字符坐标，
@@ -423,42 +390,16 @@ impl TerminalWindow {
         if !bin && !tab.local_mode {
             // 浮层 Id 取自标签身份 + 槽位，跨帧恒等；`ui.unique_id()` 随帧内控件数漂移。
             let pane_id = super::hover_anchor::stable_pane_id(slot.index());
-            if let Some(hit) =
-                super::ip_hover::paint(ui, pane_id, image, geom, tab.word_wrap, &self.triggers)
-            {
-                self.pending_ip_hit = Some(hit);
-            }
+            if let Some(hit) = super::ip_hover::paint(ui, pane_id, image, geom, tab.word_wrap, &self.triggers) { self.pending_ip_hit = Some(hit); }
             super::builtin_hover::paint(ui, pane_id, image, geom, tab.word_wrap);
         }
         // 折叠列的鼠标点击：无修饰切本块 / Ctrl 全部开关（命中判据在 margin.rs）。
         // 2026-11-25：`clicked()` 边沿在帧首就算好了，点外收起只删 release 挡不住它，
         // 所以原始边沿还要过 `pane_click_gate`——收起弹层那一击不许顺手翻折叠。
         if !bin && !tab.local_mode {
-            let (click, mods) = ui.input(|i| {
-                (
-                    i.pointer
-                        .button_clicked(egui::PointerButton::Primary)
-                        .then(|| i.pointer.press_origin())
-                        .flatten(),
-                    i.modifiers,
-                )
-            });
+            let (click, mods) = ui.input(|i| (i.pointer.button_clicked(egui::PointerButton::Primary).then(|| i.pointer.press_origin()).flatten(), i.modifiers));
             let allowed = pane_click_gate::fold_click_allowed(ui, click.is_some());
-            pending_fold = allowed
-                .then(|| {
-                    margin_met.fold_click_cmd(
-                        cell_w,
-                        rect.min,
-                        geom.start,
-                        geom.cell,
-                        image,
-                        &tab.folds,
-                        &tab.fold_inputs(),
-                        click,
-                        mods,
-                    )
-                })
-                .flatten();
+            pending_fold = allowed.then(|| margin_met.fold_click_cmd(cell_w, rect.min, geom.start, geom.cell, image, &tab.folds, &tab.fold_inputs(), click, mods)).flatten();
         }
 
         // xterm 鼠标报告：档位/编码读快照，字节由 term-core 纯函数产出后写回会话。
@@ -466,82 +407,32 @@ impl TerminalWindow {
         // 不改 Tab / mod.rs 的结构；Bin 没有字符坐标，整段不发。
         // 同折叠列：点外收起那一击的 Primary release 边沿仍在帧首快照里，
         // 不挡住就会往会话编码一个本不该有的 click（`pane_click_gate`）。
-        if !bin
-            && tab.snapshot.mouse_reporting
-            && !shift
-            && !tab.local_mode
+        if !bin && tab.snapshot.mouse_reporting && !shift && !tab.local_mode
             && pane_click_gate::mouse_encoding_allowed(ui)
         {
-            let pos = resp
-                .interact_pointer_pos()
-                .or_else(|| resp.hover_pos())
-                .map(|p| (p.x, p.y));
+            let pos = resp.interact_pointer_pos().or_else(|| resp.hover_pos()).map(|p| (p.x, p.y));
             let mut frame = ui.input(|i| {
                 use egui::PointerButton as B;
                 term_core::mouse_report::PointerFrame {
-                    x: pos.map_or(0.0, |q| q.0),
-                    y: pos.map_or(0.0, |q| q.1),
-                    has_pos: pos.is_some(),
-                    pressed: [
-                        i.pointer.button_pressed(B::Primary),
-                        i.pointer.button_pressed(B::Middle),
-                        i.pointer.button_pressed(B::Secondary),
-                    ],
-                    released: [
-                        i.pointer.button_released(B::Primary),
-                        i.pointer.button_released(B::Middle),
-                        i.pointer.button_released(B::Secondary),
-                    ],
-                    down: [
-                        i.pointer.button_down(B::Primary),
-                        i.pointer.button_down(B::Middle),
-                        i.pointer.button_down(B::Secondary),
-                    ],
-                    dragged: resp.dragged(),
-                    hovered: resp.hovered(),
-                    scroll: i.raw_scroll_delta.y,
-                    modifiers: term_core::mouse_report::Modifiers {
-                        shift: i.modifiers.shift,
-                        alt: i.modifiers.alt,
-                        ctrl: i.modifiers.ctrl,
-                    },
+                    x: pos.map_or(0.0, |q| q.0), y: pos.map_or(0.0, |q| q.1), has_pos: pos.is_some(),
+                    pressed: [i.pointer.button_pressed(B::Primary), i.pointer.button_pressed(B::Middle), i.pointer.button_pressed(B::Secondary)],
+                    released: [i.pointer.button_released(B::Primary), i.pointer.button_released(B::Middle), i.pointer.button_released(B::Secondary)],
+                    down: [i.pointer.button_down(B::Primary), i.pointer.button_down(B::Middle), i.pointer.button_down(B::Secondary)],
+                    dragged: resp.dragged(), hovered: resp.hovered(), scroll: i.raw_scroll_delta.y,
+                    modifiers: term_core::mouse_report::Modifiers { shift: i.modifiers.shift, alt: i.modifiers.alt, ctrl: i.modifiers.ctrl },
                 }
             });
             // 设置页的四档掩码只清被关掉的事件；远端 DECSET 仍决定编码档位。
-            mouse_events.apply(&mut frame);
-            let cfg = term_core::mouse_report::MouseConfig {
-                mode: tab.snapshot.mouse_mode,
-                encoding: tab.snapshot.mouse_encoding,
-            };
+            mouse_events.apply(&mut frame); let cfg = term_core::mouse_report::MouseConfig { mode: tab.snapshot.mouse_mode, encoding: tab.snapshot.mouse_encoding };
             // 这个绑定本来也叫 `geom`，与上面那个 `GridGeom` 撞名——块内
             // 遮蔽是对的（两套几何的单位不同，混用就是「鼠标报告错一格」），但读
             // 起来像同一个东西。改名只是去歧义，一个字的行为都没动。
-            let metrics = term_core::mouse_report::GridMetrics {
-                start_x,
-                start_y,
-                cell_w,
-                cell_h,
-                cols,
-                rows,
-            };
+            let metrics = term_core::mouse_report::GridMetrics { start_x, start_y, cell_w, cell_h, cols, rows };
             let drag_id = ui.id().with(("mouse_drag_cell", slot.index()));
             // 状态只在帧间存活；释放时清空，下一次按下重新记起点。
-            let (report_bytes, next) = term_core::mouse_report::encode_frame(
-                &cfg,
-                &frame,
-                &metrics,
-                ui.data_mut(|d| d.get_temp::<(u16, u16)>(drag_id)),
-            );
-            ui.data_mut(|d| {
-                if let Some(cell) = next {
-                    d.insert_temp(drag_id, cell);
-                } else {
-                    let _ = d.remove_temp::<(u16, u16)>(drag_id);
-                }
-            });
-            if !report_bytes.is_empty() {
-                tab.write(&report_bytes);
-            }
+            let (report_bytes, next) = term_core::mouse_report::encode_frame(&cfg, &frame, &metrics, ui.data_mut(|d| d.get_temp::<(u16, u16)>(drag_id)));
+            ui.data_mut(|d| if let Some(cell) = next { d.insert_temp(drag_id, cell); } else { let _ = d.remove_temp::<(u16, u16)>(drag_id); });
+            if !report_bytes.is_empty() { tab.write(&report_bytes); }
         }
 
         // 复制取「看得见的部分」：事实窗口之外的行不参与（见 selection::text）。
@@ -601,11 +492,8 @@ impl TerminalWindow {
                     TabSlot::Shell(_) => self.copied_on_select_shell = None,
                 }
             }
-            *selection_text_mut(
-                &mut self.selection_text,
-                &mut self.selection_text_shell,
-                slot,
-            ) = text;
+            *selection_text_mut(&mut self.selection_text, &mut self.selection_text_shell, slot) =
+                text;
         }
 
         // Handle keyboard input when focused.
@@ -615,19 +503,15 @@ impl TerminalWindow {
             && !self.view.goto.visible
             && !self.view.center.visible
             && !self.view.show_shortcuts
-            && !self.view.show_tmux
-            && !self.view.lock.locked
+            && !self.view.show_tmux && !self.view.lock.locked
             && self.pending_paste.is_none()
         {
             // 本地模式的 Vim 导航键：先攒字符，循环结束后喂给纯解析层。
-            let mut key_bytes = Vec::new();
-            let mut vim_keys: Vec<char> = Vec::new();
-            let mut want_copy = false;
+            let mut key_bytes = Vec::new(); let mut vim_keys: Vec<char> = Vec::new(); let mut want_copy = false;
             // Shift+方向键是外壳的选择手势，不转发给程序（见 `ui::select`）。
             let mut want_select: Option<Op> = None;
             // 弹层可见时 ↑↓/Tab/Esc 归补全，不再写进 PTY。
-            let mut completion_action: Option<completion_popup::Action> = None;
-            let mut completion_blocked = false;
+            let mut completion_action: Option<completion_popup::Action> = None; let mut completion_blocked = false;
             ui.input(|i| {
                 for event in &i.events {
                     match event {
@@ -635,18 +519,8 @@ impl TerminalWindow {
                         // Option+字母只在 Text 里给出最终字符。编码口径在纯层。
                         egui::Event::Text(text) => {
                             // 只读查看态：键盘不写 PTY，交给 Vim 导航解析层。
-                            if tab.local_mode {
-                                vim_keys.extend(text.chars());
-                                continue;
-                            }
-                            let b = keys::text_bytes_for_modifiers(
-                                text,
-                                i.modifiers.alt,
-                                i.modifiers.command,
-                                tab.config.alt_modifier_sends,
-                                tab.config.meta_modifier_sends,
-                            )
-                            .unwrap_or_else(|| text.as_bytes().to_vec());
+                            if tab.local_mode { vim_keys.extend(text.chars()); continue; }
+                            let b = keys::text_bytes_for_modifiers(text, i.modifiers.alt, i.modifiers.command, tab.config.alt_modifier_sends, tab.config.meta_modifier_sends).unwrap_or_else(|| text.as_bytes().to_vec());
                             key_bytes.extend_from_slice(&b);
                         }
                         egui::Event::Copy => want_copy = true,
@@ -657,24 +531,15 @@ impl TerminalWindow {
                                 paste = Some((text.clone(), tab.snapshot.alt));
                             }
                         }
-                        egui::Event::Key {
-                            key,
-                            pressed: true,
-                            modifiers,
-                            ..
-                        } => {
-                            if let Some((action, blocked, consume)) =
-                                completion_popup::action_for_key(
-                                    key,
-                                    self.completion_state.is_visible(completion_owner),
-                                    completion_on,
-                                )
-                            {
+                        egui::Event::Key { key, pressed: true, modifiers, .. } => {
+                            if let Some((action, blocked, consume)) = completion_popup::action_for_key(
+                                key,
+                                self.completion_state.is_visible(completion_owner),
+                                completion_on,
+                            ) {
                                 completion_action = Some(action);
                                 completion_blocked |= blocked;
-                                if consume {
-                                    continue;
-                                }
+                                if consume { continue; }
                             }
                             if let Some(op) = select::key_to_op(*key, *modifiers) {
                                 want_select = Some(op);
@@ -682,33 +547,14 @@ impl TerminalWindow {
                             }
                             let bytes = match key {
                                 egui::Key::Enter => b"\r"[..].into(),
-                                egui::Key::Backspace => {
-                                    keys::backspace_bytes(tab.config.backspace_sends).as_bytes()
-                                }
-                                egui::Key::Delete => {
-                                    keys::delete_bytes(tab.config.delete_sends).as_bytes()
-                                }
+                                egui::Key::Backspace => keys::backspace_bytes(tab.config.backspace_sends).as_bytes(),
+                                egui::Key::Delete => keys::delete_bytes(tab.config.delete_sends).as_bytes(),
                                 egui::Key::Tab => b"\t"[..].into(),
                                 egui::Key::Escape => b"\x1b"[..].into(),
-                                egui::Key::ArrowUp => {
-                                    arrow_bytes_for(Arrow::Up, tab.snapshot.application_cursor_keys)
-                                        .as_bytes()
-                                }
-                                egui::Key::ArrowDown => arrow_bytes_for(
-                                    Arrow::Down,
-                                    tab.snapshot.application_cursor_keys,
-                                )
-                                .as_bytes(),
-                                egui::Key::ArrowRight => arrow_bytes_for(
-                                    Arrow::Right,
-                                    tab.snapshot.application_cursor_keys,
-                                )
-                                .as_bytes(),
-                                egui::Key::ArrowLeft => arrow_bytes_for(
-                                    Arrow::Left,
-                                    tab.snapshot.application_cursor_keys,
-                                )
-                                .as_bytes(),
+                                egui::Key::ArrowUp => arrow_bytes_for(Arrow::Up, tab.snapshot.application_cursor_keys).as_bytes(),
+                                egui::Key::ArrowDown => arrow_bytes_for(Arrow::Down, tab.snapshot.application_cursor_keys).as_bytes(),
+                                egui::Key::ArrowRight => arrow_bytes_for(Arrow::Right, tab.snapshot.application_cursor_keys).as_bytes(),
+                                egui::Key::ArrowLeft => arrow_bytes_for(Arrow::Left, tab.snapshot.application_cursor_keys).as_bytes(),
                                 _ => &[],
                             };
                             if !bytes.is_empty() {
@@ -721,16 +567,7 @@ impl TerminalWindow {
             });
 
             // Vim 本地模式：纯解析 → 已有视口 / 选区 API，不产生任何 PTY 字节。
-            vim_paste = super::vim_apply::drain(
-                &mut tab.viewport,
-                &tab.view,
-                &tab.snapshot,
-                &mut tab.selections,
-                &tab.config,
-                &mut tab.vim,
-                vim_keys,
-                ui.ctx(),
-            );
+            vim_paste = super::vim_apply::drain(&mut tab.viewport, &tab.view, &tab.snapshot, &mut tab.selections, &tab.config, &mut tab.vim, vim_keys, ui.ctx());
 
             // Cmd+C：写剪贴板。egui 不提供读接口，粘贴走 Event::Paste（Cmd+V）。
             // 读哪一份取决于**这块区域**：面板里复制的就是面板里选中的那段。
@@ -777,14 +614,7 @@ impl TerminalWindow {
                 completed_lines.extend(tab.input_line.feed(&key_bytes));
                 // 折叠的输入行表：回车那一行就是刚敲完的命令行（见
                 // `Tab::note_input_line`）。只在真的完成了一行时才记。
-                if completed_lines.len() > before {
-                    tab.note_input_line();
-                    if let Some(r) = tab.cursor_abs_row() {
-                        for line in &completed_lines[before..] {
-                            tab.note_command_text(r.get(), line.clone());
-                        }
-                    }
-                }
+                if completed_lines.len() > before { tab.note_input_line(); if let Some(r) = tab.cursor_abs_row() { for line in &completed_lines[before..] { tab.note_command_text(r.get(), line.clone()); } } }
                 if self.view.sync_input {
                     sync_bytes = Some(key_bytes.clone());
                 }
@@ -853,8 +683,7 @@ impl TerminalWindow {
             geom,
             hex,
             self.alt_row_bg,
-            self.wrap_settings.with(tab.word_wrap),
-            bin,
+            self.wrap_settings.with(tab.word_wrap), bin,
         );
 
         // 正文之后的全部叠层，五段一条都不许换序（顺序决定像素）：
@@ -874,28 +703,14 @@ impl TerminalWindow {
             &self.palette,
             geom,
             bin,
-            if matches!(slot, TabSlot::Main(_)) && self.active == Some(tab.identity) {
-                Some(tab.identity)
-            } else {
-                None
-            },
-            OverlayToggles {
-                cursor_typing: self.hide_cursor_typing,
-                search: self.highlight_search,
-            },
-            self.wrap_settings.with(tab.word_wrap),
+            if matches!(slot, TabSlot::Main(_)) && self.active == Some(tab.identity) { Some(tab.identity) } else { None },
+            OverlayToggles { cursor_typing: self.hide_cursor_typing, search: self.highlight_search }, self.wrap_settings.with(tab.word_wrap),
         );
 
         // 第 7 段 chrome——滚动条滑块（只读 `tab.viewport`，不改任何状态）。
         // bin 模式无滚动条（见 interact 同一处注释）。
         if !bin {
-            scrollbar_paint(
-                painter,
-                rect,
-                rows,
-                tab.snapshot.history as i64,
-                &tab.viewport,
-            );
+            scrollbar_paint(painter, rect, rows, tab.snapshot.history as i64, &tab.viewport);
         }
 
         // 第 8 段 chrome——悬停预览窗（在滚动条之后）。只读 `tab.preview_screen`，
@@ -903,25 +718,13 @@ impl TerminalWindow {
         // 拿到帧时才画；`preview_hover_y` 一旦为 `None`（移开 / 拖拽 / 滚动条不可见）
         // 整块不画，框随之消失（设计稿 事实 5）。bin 模式无事实窗口，跳过。
         if !bin {
-            if let (Some(hover_y), Some(image)) = (preview_hover_y, tab.preview_screen.as_ref()) {
+            if let (Some(hover_y), Some(image)) =
+                (preview_hover_y, tab.preview_screen.as_ref())
+            {
                 let br = preview_box_rect(rect, cell_h, hover_y);
                 // 预览复用真实终端的 margin / 快照 / 折叠集合，数字逐列同源；
                 // 底色与隔行底色跟随配置（2026-11-19 用户比对修正）。
-                preview_paint(
-                    painter,
-                    br,
-                    image,
-                    cell,
-                    &self.palette,
-                    &font_id,
-                    &margin_state,
-                    &margin_met,
-                    &tab.snapshot,
-                    &tab.folds,
-                    window_bg,
-                    self.alt_row_bg,
-                    self.wrap_settings.with(tab.word_wrap),
-                );
+                preview_paint(painter, br, image, cell, &self.palette, &font_id, &margin_state, &margin_met, &tab.snapshot, &tab.folds, window_bg, self.alt_row_bg, self.wrap_settings.with(tab.word_wrap));
             }
         }
 
@@ -935,18 +738,13 @@ impl TerminalWindow {
         // 把本帧回车完成的命令行写入窗口级历史（`tab` 借用已结束）。
         let history_scope = system_of(self);
         for line in completed_lines {
-            self.command_history
-                .push_for(&line, &history_scope, now_secs());
+            self.command_history.push_for(&line, &history_scope, now_secs());
         }
         // 左边缘（margin 栏）是**另一份**右键菜单：只在 margin 可见时挂，注册在
         // 内容 resp 之后（重叠区压在上面 → 右键命中它弹 margin 菜单）。
         // 2026-11-15：两块区域的菜单各挂各的，`Id` 按槽位取（壳面板用哨兵下标）。
         if let Some(mresp) = super::pane_pointer::margin_context_resp(
-            ui,
-            rect,
-            start_x,
-            slot.index(),
-            margin_met.width,
+            ui, rect, start_x, slot.index(), margin_met.width,
         ) {
             self.draw_margin_context(ui, &mresp, slot);
         }
@@ -957,14 +755,7 @@ impl TerminalWindow {
 
         // 候选弹层画在最后一层，压在正文与光标之上。状态记录 owner，
         // 切到别的标签后这里直接是 false，不会把上一行的建议画到新会话里。
-        completion_popup::paint_if_visible(
-            ui,
-            rect,
-            &self.completion_state,
-            completion_on,
-            completion_owner,
-            self.completion.list_height,
-        );
+        completion_popup::paint_if_visible(ui, rect, &self.completion_state, completion_on, completion_owner, self.completion.list_height);
     }
 }
 

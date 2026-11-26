@@ -16,32 +16,24 @@
 //! **划分原则**：固定框架 / 可停靠 / 临时覆盖 / 模态，四类生命周期不同，
 //! 混在一起就是 此前那个 1,586 行的 `mod.rs`。
 
-mod clipboard_policy;
-mod comp;
+mod clipboard_policy; mod comp; mod ip_probe;
 mod construct;
-mod dialogs;
-mod dispatch;
-mod effects;
-mod harness;
-mod ip_probe;
+mod dialogs; mod dispatch; mod lifecycle_events;
+mod effects; mod harness;
 pub(crate) mod kit;
-mod lifecycle_events;
 pub(crate) use kit::type_scale;
 mod layout;
 mod lock_timeout;
-mod modem_auto;
-mod modem_drop;
+mod modem_auto; mod modem_drop;
+mod reconnect;
 mod overlays;
 mod panels;
-mod path_picker;
-mod reconnect;
+mod path_picker; mod upload_picker;
 mod shell;
 mod tab;
-mod tab_hover;
-mod tab_thumbnail;
+mod tab_hover; mod tab_thumbnail;
 mod terminal;
 mod tr;
-mod upload_picker;
 // ADR-0021 R2：纯计算 / 几何规格层（零 egui）。Trigger 对话框是第一个真实迁入的面板。
 mod view;
 // 窗口透明度的运行期副本与渲染落地（egui 0.29 没有数值 opacity 命令，
@@ -89,19 +81,15 @@ mod window_opacity_tests;
 #[path = "app_state_tests.rs"]
 mod app_state_tests;
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::HashMap; use std::sync::Arc;
 
-use dialogs::SettingsData;
-use dialogs::{unique_name, Connector, NewSessionData, SessionDialogKind};
-use layout::{DockLayout, Layout, PaneGroup, PaneId};
-use shell::{ToolAction, ToolButton};
+use dialogs::SettingsData; use dialogs::{unique_name, Connector, NewSessionData, SessionDialogKind};
+use layout::{DockLayout, Layout, PaneGroup, PaneId}; use shell::{ToolAction, ToolButton};
 
 use terminal::make_tab;
 
-pub(crate) use comp::comp_list;
 /// `--demo comp:<name>` 的合法取值，供命令行报错用（名单只有 `comp` 一份）。
-pub(crate) use comp::comp_names;
+pub(crate) use comp::comp_names; pub(crate) use comp::comp_list;
 
 use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
 pub(in crate::ui) use tr::t; use crate::ui::shell::draw_find_bar; use eframe::egui; use term_app::state::ViewState; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
@@ -136,8 +124,7 @@ pub struct TerminalWindow {
     fonts: TerminalFonts,
     /// B3：所有视图开关集中在这里，只能经 `reduce ` 修改。
     /// 状态栏 SYNC 徽标点开的通道分配面板。投影态，不进 ViewState。
-    view: ViewState,
-    show_sync_channels: bool,
+    view: ViewState, show_sync_channels: bool,
     /// Session groups (folders) in the tree, in creation order.
     groups: Vec<String>,
     /// List of session profiles (the tree's entries).
@@ -234,8 +221,7 @@ pub struct TerminalWindow {
     /// （`prefs.view_wrap_symbols` / `view_column_marker`）。构造时读一次，
     /// Wrap 页改完写回 prefs 并同步这份副本；读者是 `Tab.marks` 的两段绘制。
     /// 与 `caret_style` 同一写法：不每帧读盘，否则拖动列号时会跳。
-    wrap_symbols: bool,
-    column_marker_col: usize,
+    wrap_symbols: bool, column_marker_col: usize,
     /// `Wrap ▸ Wrap mode / Wrap column` 的运行期副本（构造时读一次，六个消费者共用）。
     wrap_settings: term_app::wrap::WrapSettings,
     /// I-AC：补全偏好的运行期副本。设置页改完立刻写回这里供键盘漏斗每帧
@@ -278,39 +264,26 @@ pub struct TerminalWindow {
     /// `Right click:`（0 = 标签菜单 / 1 = 关闭标签 / 2 = 没有动作）。
     /// prefs.show_address_bar（`prefs.show_address_bar`，出厂 `true`）：
     /// 读者是 `shell/tool_bar.rs`；构造时读一次，设置页负责同步。
-    tab_numbers: usize,
-    tab_middle_click: usize,
-    tab_right_click: usize,
-    show_address_bar: bool,
+    tab_numbers: usize, tab_middle_click: usize, tab_right_click: usize, show_address_bar: bool,
     /// prefs.auto_hide_menu_bar（`prefs.auto_hide_menu_bar`）。
     /// 展开状态是投影态：指针靠近顶端 / 按住 Alt / 有菜单弹层时展开，
     /// 否则收成细带。不落盘。
     /// `ui.input.time` 口径的「保持展开到」时刻，避免指针在细带附近抖动。
-    auto_hide_menu_bar: bool,
-    menu_bar_peek_until: f64,
+    auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
-    lock_timeout_secs: u32,
-    last_lock_activity: f64,
+    lock_timeout_secs: u32, last_lock_activity: f64,
     /// 自动重连的窗口运行时（全局策略 + 每条断开链的窗口 / 代数）。出厂关。
-    reconnect: reconnect::ReconnectRuntime,
-    prefer_theme_fonts: bool,
+    reconnect: reconnect::ReconnectRuntime, prefer_theme_fonts: bool,
     /// 悬停激活：当前悬停的会话与起算时刻。
-    tab_hover_activate: bool,
-    tab_hover_delay_ms: u32,
-    tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
+    tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
     /// Preferences ▸ Proxy：全局默认代理的运行期副本。
-    global_proxy_type: usize,
-    global_proxy_host: String,
-    global_proxy_port: u16,
+    global_proxy_type: usize, global_proxy_host: String, global_proxy_port: u16,
     tab_thumbnail_pct: usize,
     /// 上一帧文件面板的矩形：拖放时判断落在 Modem 还是 SFTP 上传。单选路径弹层
     /// 与 page/21 多选上传弹层（`None` = 没开）共用一行，别为它们加代码行。
-    filer_rect: Option<egui::Rect>,
-    path_picker: Option<path_picker::PathPicker>,
-    upload_picker: Option<upload_picker::UploadPicker>,
+    filer_rect: Option<egui::Rect>, path_picker: Option<path_picker::PathPicker>, upload_picker: Option<upload_picker::UploadPicker>,
     /// `OSC 52` 请求队列与正在等用户确认的那一条。
-    clipboard_requests: clipboard_policy::ClipboardInbox,
-    clipboard_ask: clipboard_policy::ClipboardAsk,
+    clipboard_requests: clipboard_policy::ClipboardInbox, clipboard_ask: clipboard_policy::ClipboardAsk,
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
@@ -353,9 +326,7 @@ pub struct TerminalWindow {
     onekeys_password_draft: Option<(String, String)>,
     /// OneKey 键盘交互应答草稿（方案名 → 按提示顺序的答案）。
     /// Account 页 Password 组的应答草稿（方案名 → 密码），保存时写 vault。
-    onekeys_ki_draft: Option<(String, Vec<String>)>,
-    onekeys_autofill_draft: Option<(String, String)>,
-    tab_list_filter: String,
+    onekeys_ki_draft: Option<(String, Vec<String>)>, onekeys_autofill_draft: Option<(String, String)>, tab_list_filter: String,
     /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,
@@ -455,10 +426,7 @@ pub struct TerminalWindow {
     /// 窗口级单例会让「A 标签在跑 tmux，B 标签却判定 active」串线。
     /// 这里只留面板自己的日志 / 输入 / 命令块索引。
     tmux_log: Vec<String>,
-    tmux_input: String,
-    tmux_send: String,
-    tmux_pane_name: String,
-    tmux_session_name: String,
+    tmux_input: String, tmux_send: String, tmux_pane_name: String, tmux_session_name: String,
     tmux_blocks: Vec<term_app::blocks::Block>,
     /// R11：菜单触发的选区操作，等本帧算出事实窗口后再落地。
     ///
@@ -468,8 +436,7 @@ pub struct TerminalWindow {
     /// 槽位里放的是 `Cmd`——位移（`Move`）与集合命令（`Set`）共用它，
     /// 所以「锁 / 拆分 / 反选」与「选到下一行」走的是同一条落地路径，
     /// 不会因为多开一个字段而出现两条先后顺序不明的待办。
-    pending_select: Option<Cmd>,
-    pending_ip_hit: Option<term_app::trigger::Hit>,
+    pending_select: Option<Cmd>, pending_ip_hit: Option<term_app::trigger::Hit>,
     /// 进行中的原生 SSH 连接（`None` = 没有）。
     /// 它不在 `ViewState` 里：`ViewState` 是**领域状态**（只能由 `reduce` 写），
     /// 而这个东西是「一次副作用正在发生」，带有 `Receiver`、线程与凭据——
@@ -548,9 +515,7 @@ pub struct TerminalWindow {
     /// 是 `sudo` 或改配置，跑两遍比不跑更糟）。
     /// 同两组登记簿：`logon_fired` 是登录脚本；`auth_exec_*` 是 Authentication
     /// 页的认证后命令（待发时刻 + 一次性标记）。都按 `SessionId` 而非标签下标。
-    logon_fired: std::collections::HashSet<SessionId>,
-    auth_exec_pending: std::collections::HashMap<SessionId, std::time::Instant>,
-    auth_exec_fired: std::collections::HashSet<SessionId>,
+    logon_fired: std::collections::HashSet<SessionId>, auth_exec_pending: std::collections::HashMap<SessionId, std::time::Instant>, auth_exec_fired: std::collections::HashSet<SessionId>,
     /// 正在跑的登录脚本。**句柄要留着**：丢了就等于让它在后台对着 PTY 继续
     /// 说话，而界面上没有任何「它还在跑」的痕迹，同会话互斥也会提前放行。
     logon_runs: Vec<crate::script_run::ScriptRun>,
@@ -592,15 +557,13 @@ pub struct TerminalWindow {
     /// `Preferences ▸ Mouse Tracking` 的四类事件掩码（出厂全开）：
     /// 读者只有 `pane.rs` 的指针报告那一段，它不给事件编码，只决定某类事件
     /// 要不要交给 `term_core::mouse_report::encode_frame`。
-    copy_on_select: bool,
-    mouse_events: term_app::mouse::EventMask,
+    copy_on_select: bool, mouse_events: term_app::mouse::EventMask,
     /// 上一次由「选中即复制」写出去的文本，按槽位两份。
     ///
     /// 为什么要记：同一段选区每一帧都满足「非空、指针没按着」，
     /// 不记上一份就会每帧写一次剪贴板（并持续惊动系统剪贴板监听）。
     /// 清空时机只有一个：选区变空——那时下一段选区必须重新写。
-    copied_on_select: Option<String>,
-    copied_on_select_shell: Option<String>,
+    copied_on_select: Option<String>, copied_on_select_shell: Option<String>,
     /// 待确认的一次粘贴（`None` = 没有弹窗）。
     ///
     /// 与 `confirm` 同类：**一次待执行的副作用**，不进 `ViewState`——那里装的是
@@ -663,10 +626,7 @@ pub struct TerminalWindow {
     /// 左右带在自己的闭包里就地落地（画完这条带之后），但 Sidebar 走的是
     /// `draw_panel_body` 这条不认带的自绘通道，拿不到那条带的缓冲，只好挂到
     /// 这里，由 `flush_pending_dock_cmds ` 在三条带都画完之后统一落地。
-    pending_dock_cmds: Vec<(
-        crate::ui::layout::dock_bottom::Cmd,
-        term_app::dock::DockZone,
-    )>,
+    pending_dock_cmds: Vec<(crate::ui::layout::dock_bottom::Cmd, term_app::dock::DockZone)>,
     /// 底带高度。`egui` 的 `TopBottomPanel` 也记一份，这里是折起再展开时的回位值。
     bottom_height: f32,
     /// Sender 面板的控件状态（文本缓冲 / 编码 / 次数 / 间隔 / 目标 / 定时器）。
@@ -817,13 +777,8 @@ impl TerminalWindow {
             return;
         };
         let Some(sess) = self.active else { return };
-        self.pane_groups.insert(
-            pane,
-            PaneGroup {
-                order: vec![sess],
-                active: sess,
-            },
-        );
+        self.pane_groups
+            .insert(pane, PaneGroup { order: vec![sess], active: sess });
     }
 
     /// 此刻有没有**模态对话框**立着。灰罩与弹窗必须同一口径：
@@ -890,9 +845,7 @@ impl TerminalWindow {
         // 帧首前置阶段：锁屏边界 / 模态键盘 / 全局快捷键门控 / prefs 版本号，
         // 全部收在 shell/pre_update_gate.rs（本文件守 500 代码行上限，不再加行）。
         // 返回 true = 锁屏已画出，本帧到此为止。
-        if self.pre_update_gate(ctx) {
-            return;
-        }
+        if self.pre_update_gate(ctx) { return; }
         apply_ui_style(ctx, &self.palette);
         // `install` 返回 `true` = 这一帧才把新字形定义交给 egui，它下一帧才
         // 生效（`Context::set_fonts` 只挂 `new_font_definitions`）。此时量 cell
@@ -933,8 +886,7 @@ impl TerminalWindow {
         let rules = &self.triggers;
         // Account OneKey 的密码应答在保险库里，Tab 不认识保险库；这里派生一份
         // 「方案名 → 密码」表给本帧所有标签共用（锁着时是空表，静默跳过）。
-        let n = self.tabs.len();
-        let autofill = self.onekey_autofill_map();
+        let n = self.tabs.len(); let autofill = self.onekey_autofill_map();
         let mut run_commands: Vec<String> = Vec::new();
         // 每帧新建局部缓冲：`log_note` 长期非空，直接拿它当 &mut 传进去会让
         // note.is_none() 恒 false，转义错误就永远丢失（见 notice.rs 判据）。
@@ -942,14 +894,7 @@ impl TerminalWindow {
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll_with_policy(
-                rules,
-                &mut run_commands,
-                &self.reconnect.global,
-                &self.onekeys,
-                &autofill,
-                &mut note,
-            ) {
+            if self.tabs[i].poll_with_policy(rules, &mut run_commands, &self.reconnect.global, &self.onekeys, &autofill, &mut note) {
                 changed = true;
             }
         }
@@ -964,11 +909,7 @@ impl TerminalWindow {
         lifecycle_events::poll(self, crate::now_secs(), &mut run_commands, &mut note);
         // 帧末交回窗口：错误提示同时抬到前景 Notice，不被普通提示覆盖。
         self.commit_note(note.take());
-        self.poll_auto_reconnect();
-        clipboard_policy::poll(ctx, self);
-        modem_drop::poll(ctx, self);
-        path_picker::draw(ctx, self);
-        upload_picker::draw(ctx, self);
+        self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self); upload_picker::draw(ctx, self);
         // `Log types` 的触发面：会话刚连上时按设置自动开一份日志。
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。
@@ -1015,21 +956,21 @@ impl TerminalWindow {
         }
         if self.view.show_quick_bar && !focus {
             let mut actions = Vec::new();
-            egui::TopBottomPanel::bottom("quick_command_bar")
-                .exact_height(shell::QUICK_BAR_H)
-                .show(ctx, |ui| {
-                    shell::draw_quick_command_bar(
-                        ui,
-                        &self.view.quick_groups_visible,
-                        &self.quick_bar,
-                        &self.quick_bar_display,
-                        &mut actions,
-                        self.lang(),
-                        // 快捷栏是整窗宽的 `TopBottomPanel`：栏右沿 = 窗口右沿。
-                        // 右端 `⚙ ×` 靠这个数往回退 7.5（视觉基线实测）。
-                        ui.ctx().screen_rect().right(),
-                    );
-                });
+                egui::TopBottomPanel::bottom("quick_command_bar")
+                    .exact_height(shell::QUICK_BAR_H)
+                    .show(ctx, |ui| {
+                        shell::draw_quick_command_bar(
+                            ui,
+                            &self.view.quick_groups_visible,
+                            &self.quick_bar,
+                            &self.quick_bar_display,
+                            &mut actions,
+                            self.lang(),
+                            // 快捷栏是整窗宽的 `TopBottomPanel`：栏右沿 = 窗口右沿。
+                            // 右端 `⚙ ×` 靠这个数往回退 7.5（视觉基线实测）。
+                            ui.ctx().screen_rect().right(),
+                        );
+                    });
             for action in actions {
                 self.dispatch_action(action);
             }
@@ -1194,12 +1135,8 @@ impl TerminalWindow {
         }
         // ：`Terminal.ManageTriggers` / `ManageOneKeys` 的落点是
         // **独立对话框**（兼容终端形态），不再借 Preferences 翻页。
-        if self.view.show_triggers {
-            self.draw_triggers_dialog(ctx);
-        }
-        if self.view.show_onekeys {
-            self.draw_onekeys_dialog(ctx);
-        }
+        if self.view.show_triggers { self.draw_triggers_dialog(ctx); }
+        if self.view.show_onekeys { self.draw_onekeys_dialog(ctx); }
         self.draw_script_manager(ctx);
         if self.view.show_about {
             self.draw_about_dialog(ctx);
@@ -1212,14 +1149,10 @@ impl TerminalWindow {
         }
         // 首次启动的 profile 目录选择：先定存储位置，再走引导。
         // 夹具模式两处都不开，视觉基线不受影响。
-        if self.view.show_profile_choice {
-            overlays::draw_profile_choice(ctx, self);
-        }
+        if self.view.show_profile_choice { overlays::draw_profile_choice(ctx, self); }
         // D6：首次启动引导（Welcome → 探测到的 SSH 主机）。默认关闭时一行都不画，
         // 所以五张视觉基线不受影响；打开与否的判定在 `construct.rs::init`。
-        if self.view.show_onboarding {
-            self.draw_onboarding(ctx);
-        }
+        if self.view.show_onboarding { self.draw_onboarding(ctx); }
         // D6：预览窗（Filer 双击 / 右键「预览」）。默认关闭时一行都不画，
         // 所以七张视觉基线与组件图不受影响。放在对话框这一段，是因为它与
         // 其余窗口同级：浮在终端之上，但被模态（关闭确认 / 粘贴确认）压住。
@@ -1249,8 +1182,7 @@ impl TerminalWindow {
         // 登录脚本：标签带着活会话出现之后跑一次（§S6）。放在 `poll_script` 之前，
         // 这样登录脚本的第一条提示能在同一帧进状态栏。
         // 认证后命令与登录脚本同一帧调度：前者写进会话，后者起脚本线程。
-        self.fire_logon_scripts();
-        self.fire_auth_commands();
+        self.fire_logon_scripts(); self.fire_auth_commands();
         // 录制器：每帧看一眼屏幕是否安静（录制中才做事）。
         self.tick_recorder();
         self.poll_script();
@@ -1285,9 +1217,7 @@ impl TerminalWindow {
         // 成立「输得进去」与「不盖住模态」，而不是靠这一个调用点的位置去赌。
         // 专注模式只留菜单栏（上面各行都是 `if !focus`），地址栏是工具栏那一
         // 族的浮层，也必须一并压掉——否则「专注」里还能弹出一个输入框。
-        if !focus {
-            self.draw_address_bar(ctx);
-        }
+        if !focus { self.draw_address_bar(ctx); }
 
         // 结构变化即时落盘——复活 `Action::SaveLayout` 死路径。各结构变更处
         // （分屏 / 关窗格 / 合并 / 内置 SSH 分屏落地 / sash 拖动）只置
@@ -1306,4 +1236,5 @@ impl TerminalWindow {
             self.drag_session = None;
         }
     }
+
 }

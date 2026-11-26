@@ -1184,6 +1184,8 @@ pub enum Cmd {
 pub enum Action {
     Shell(ShellAction),
     Find(FindAction),
+    /// 行过滤器意图；状态在每条会话的 `Tab.filter`，reducer 只产 `Effect::Filter`。
+    Filter(FilterAction),
     Clipboard(ClipboardAction),
     /// 选区移动。真正的位移在投影层拿到事实窗口后由 `selection::apply` 算，
     /// 本层只把命令翻译成意图——因为它拿不到「现在画在屏上的那一屏」。

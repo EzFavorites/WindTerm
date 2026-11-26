@@ -11,8 +11,7 @@ use super::{TerminalWindow, WindowOpacity};
 use crate::ui::dialogs::SessionDialogKind;
 use eframe::egui;
 use term_app::action::{Action, Effect, XferCmd};
-use term_app::blocks;
-use term_app::find::FindAction;
+use term_app::blocks; use term_app::find::FindAction;
 use term_app::selection::{Pos, Selection};
 use term_app::shell::ShellAction;
 use term_app::tab::TabAction;
@@ -54,12 +53,7 @@ impl TerminalWindow {
     /// 不走它：它同时把布局树换成 `Layout::single(new_tab)`，不切过去就会出现
     /// 「活动标签在树上没有叶子」，那是结构不一致，不是焦点偏好。
     pub(in crate::ui) fn activate_new_tab(&mut self, new_tab: usize) {
-        self.set_active_slot(next_active_tab(
-            self.active_slot(),
-            new_tab,
-            self.tabs.len(),
-            self.focus_new_tab,
-        ));
+        self.set_active_slot(next_active_tab(self.active_slot(), new_tab, self.tabs.len(), self.focus_new_tab));
     }
 
     /// 循环切到相对位置的标签（+1 / -1，到头回绕）。
@@ -173,10 +167,8 @@ impl TerminalWindow {
             .map(|line| line.cells.len())
             .unwrap_or(0);
         // 这是一次「新选一段」——集合换成这一份，旧的几份让位。
-        tab.selections.set_active(Some(Selection::span(
-            Pos::new(start, 0),
-            Pos::new(end, last_col),
-        )));
+        tab.selections
+            .set_active(Some(Selection::span(Pos::new(start, 0), Pos::new(end, last_col))));
     }
 
     /// 「复制当前命令」：把 OSC 133 标记的那条命令整段拷进剪贴板。
@@ -193,7 +185,8 @@ impl TerminalWindow {
             let Some(tab) = self.tabs.get_mut(active) else {
                 return;
             };
-            let Some(rows) = blocks::typed_command_rows(&tab.snapshot.blocks, tab.snapshot.history)
+            let Some(rows) =
+                blocks::typed_command_rows(&tab.snapshot.blocks, tab.snapshot.history)
             else {
                 self.log_note = Some("Copy Command 需要 shell 的 OSC 133 集成".to_string());
                 return;
@@ -497,46 +490,8 @@ impl TerminalWindow {
                 self.ctx.request_repaint();
             }
             // 2026-11-14：折叠族九条的唯一落地点。
-            Effect::Fold(cmd) => self.apply_fold(cmd),
-            // 行过滤器：不写 `ViewState`，对活动 tab（分屏每个 pane 自己那条会话）
-            // 落地。命中每帧现算，不缓存进任何状态。
-            Effect::Filter(a) => self.apply_filter(a),
+            Effect::Fold(cmd) => self.apply_fold(cmd), Effect::Filter(a) => self.apply_filter(a),
         }
-    }
-
-    /// `Action::Filter` 的唯一落地点：对**活动 tab** 调 `filter::reduce`。
-    ///
-    /// 选 `Effect::Filter` 而非「投影层对 active tab 直接落地」的理由与折叠同款：
-    /// reduce 保持纯函数、只发 `Effect`，「要怎么变」与「怎么落地」分两层；本 effect
-    /// 不携带命中结果。过滤状态是每条会话一份（`Tab.filter`），**不碰 `ViewState`**。
-    /// 没有活动标签时静默（与 `apply_fold` 同一条约定）。
-    pub(in crate::ui) fn apply_filter(&mut self, action: term_app::vocab::FilterAction) {
-        // 活动会话的身份；没有标签就什么也不做。
-        let Some(session) = self.tabs.get(self.active_slot()).map(|t| t.identity) else {
-            return;
-        };
-        self.apply_filter_on(session, action);
-    }
-
-    /// 对**指定会话**落地一次过滤动作（分屏时每个 pane 只操作自己那条会话）。
-    ///
-    /// `session` 是 `Tab.identity`；找不到该标签静默。`filter_input`（输入缓冲）
-    /// 与 `filter.query` 保持同步：`Open` / `Close` 清空查询时连缓冲一起清，
-    /// `SetQuery` 后两者一致，避免「框里有字、过滤却按旧查询」。
-    pub(in crate::ui) fn apply_filter_on(
-        &mut self,
-        session: term_core::session_runtime::SessionId,
-        action: term_app::vocab::FilterAction,
-    ) {
-        let Some(slot) = self.tabs.iter().position(|t| t.identity == session) else {
-            return;
-        };
-        let tab = &mut self.tabs[slot];
-        term_app::filter::reduce(&mut tab.filter, action);
-        // 受控输入缓冲与已提交查询同源，一次同步，不留两份真相。
-        tab.filter_input = tab.filter.query.clone();
-        // 过滤改变「这一屏要丢哪些行」，请求重绘；命中每帧现算，无需清 `last_request`。
-        self.ctx.request_repaint();
     }
 
     /// `Mode ▸ Hex Edit` 的落点：翻**当前标签**的显示模式，**不落盘**。
@@ -731,6 +686,7 @@ impl TerminalWindow {
             TabAction::ClearAll => self.with_active_tab(|t| t.clear_all()),
         }
     }
+
 }
 
 /// Help 的落点：本项目自己的仓库（About 与状态栏的链接都走这里）。
@@ -787,6 +743,7 @@ fn session_url(cfg: &SessionConfig) -> String {
     }
     s
 }
+
 
 #[cfg(test)]
 mod tests {
