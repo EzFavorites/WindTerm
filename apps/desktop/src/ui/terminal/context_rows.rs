@@ -27,8 +27,9 @@ use term_app::margin::MarginPart;
 use term_app::shortcut_map::{display_chord, KeyBindingMap};
 
 use crate::ui::shell::{
-    apply_popup_style, draw_menu_row, menu_separator, rows_width, CheckCell, MenuRowState, RowLook,
-    CHECK_GUTTER, MENU_ROW_PAD_X, MENU_ROW_PAD_Y, POPUP_INNER_X, SHORTCUT_COL,
+    apply_popup_style, draw_menu_row, live_check, menu_separator, rows_width, CheckCell,
+    MenuRowState, RowLook, CHECK_GUTTER, MENU_ROW_PAD_X, MENU_ROW_PAD_Y, POPUP_INNER_X,
+    SHORTCUT_COL,
 };
 
 /// 一条菜单行能落地的动作。没有真动作的行 `work: None` → 灰显。
@@ -77,13 +78,17 @@ pub(in crate::ui) struct Row {
     /// 判态用的命令 ID：有它就问 `capability::is_implemented` × 写入端状态
     /// （菜单树里的行），没有就按「有没有 `Work` / 子菜单」判。
     pub gate: Option<&'static str>,
+    /// 夹具里的勾选字面量（`check` 的 `on`）。**只在没有 `check_id` 时**用它。
     pub check: Option<bool>,
+    /// 已接线的勾选行要走 `shell::live_check` 现读运行态，不能把出厂常量当真值。
+    /// 与 `gate` 是同一条命令 ID：判态、派发、勾选三处同源。
+    pub check_id: Option<&'static str>,
     pub swatches: bool,
     pub separator: bool,
 }
 
 const fn row(label: &'static str, shortcut: &'static str, acc: Option<usize>, work: Option<Work>) -> Row {
-    Row { label, shortcut, acc, work, submenu: false, children: None, gate: None, check: None, swatches: false, separator: false }
+    Row { label, shortcut, acc, work, submenu: false, children: None, gate: None, check: None, check_id: None, swatches: false, separator: false }
 }
 
 const fn disabled(label: &'static str, shortcut: &'static str, acc: Option<usize>) -> Row {
@@ -110,8 +115,9 @@ const fn check(label: &'static str, shortcut: &'static str, acc: Option<usize>, 
     Row { check: Some(on), ..disabled(label, shortcut, acc) }
 }
 
-/// 已接线的勾选项：在 [`check`] 上补 `work` + `gate`，判态走台账、点击派发命令。
-/// `on` 是夹具出厂态（生产里勾选框的 live 态由菜单树的 `CheckState::Live` 提供）。
+/// 已接线的勾选项：在 [`check`] 上补 `work` + `gate` + `check_id`，
+/// 判态走台账、点击派发命令、勾选框现读运行态（`shell::live_check`）。
+/// `on` 只留作夹具出厂字面量：视觉基线里那一次截图的状态，不当真值使用。
 const fn command_check(
     label: &'static str,
     shortcut: &'static str,
@@ -119,7 +125,12 @@ const fn command_check(
     id: &'static str,
     on: bool,
 ) -> Row {
-    Row { work: Some(Work::Command(id)), gate: Some(id), ..check(label, shortcut, acc, on) }
+    Row {
+        work: Some(Work::Command(id)),
+        gate: Some(id),
+        check_id: Some(id),
+        ..check(label, shortcut, acc, on)
+    }
 }
 
 const fn swatches() -> Row {
@@ -237,10 +248,16 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
 /// 2026-11-19 校正：原先这段按「只有 Copy/Paste/Zoom 有真 Work」把 Save Session
 /// 与 Line Endings / Wrap Symbols 一并灰掉，但那三条命令（`Terminal.Save` /
 /// `View.ToggleLineEndings` / `View.ToggleWrapSymbols`）早已接线并有读者（见
-/// `capability.rs`），是「假灰」。现在按台账接真。`Word Wrap` 也已于 2026-11-24
-/// 接线（`Text.ToggleWordWrap`，Mode ▸ Word Wrap 走 `CheckState::Live`，段表按位
-/// 软折），不再是 `Planned`。本行仍是手绘的 `check(...)`（没有 `Work` / `gate`），
-/// 所以在这个 ⋮ 弹层里保持灰勾选——灰的是这一行没挂派发，不是命令没实现。
+/// `capability.rs`），是「假灰」。现在按台账接真。
+///
+/// 2026-11-26 再校正三处「夹具画、生产不画」的假状态：
+/// - `Word Wrap` 2026-11-24 已接线（`Text.ToggleWordWrap`，Mode ▸ Word Wrap 走
+///   `CheckState::Live`），这里从裸 `check(...)` 改 `command_check(...)`：有
+///   `work` / `gate` 后按台账启用，悬停理由不再是 `Not wired`。
+/// - 三行勾选框的 `on` 只是视觉基线那一次截图的字面量，实际勾走
+///   `shell::live_check`，与菜单栏 `CheckState::Live` 读同一个字段。
+/// - `Line Endings` / `Wrap Symbols` 的两段键是**夹具字面量偏差**（见各行注释），
+///   绑定表里没有这两条命令，故 `shortcut_on_platform` 只能照基线原样显示。
 pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     row("Copy", "Shift+Del", Some(0), Some(Work::Copy)),
     row("Paste", "Shift+Ins", Some(0), Some(Work::Paste)),
@@ -255,12 +272,19 @@ pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     // 2026-11-19：`Terminal.Save` 已接线（CenterPage::Save → 保存到会话库），接真。
     command("Save Session", "Cmd+S", Some(0), term_app::menu::context_ids::SAVE_SESSION),
     sep(),
-    // Word Wrap 命令已接线（Mode ▸ Word Wrap / `Text.ToggleWordWrap`）；这里仍按
-    // 视觉基线画灰勾选，因为这份 ⋮ 弹层的手绘行没有接 Work/gate，不是命令未接线。
-    check("Word Wrap", "Alt+M, Alt+W", Some(0), true),
-    // 这两条命令已接线（`parse.rs:106/109` → MarksKnob → Tab.marks），接真。
-    // 勾选态走 gate 判态时不读常量 on；这里把 work + gate 补上，勾选框的
-    // 常量 false 只是夹具出厂态（真实 live 态由菜单树的 CheckState::Live 提供）。
+    // Word Wrap 已接线（Mode ▸ Word Wrap / `Text.ToggleWordWrap`）：补上
+    // work + gate 后按台账启用，悬停理由不再说 `Not wired`；勾读活动标签的
+    // `Tab.word_wrap`（夹具字面量 true 只标基线当时那一格）。快捷键「Alt+M,
+    // Alt+W」**与绑定表同源**（`Text.ToggleWordWrap` 有条目），不是字面量偏差。
+    command_check("Word Wrap", "Alt+M, Alt+W", Some(0), term_app::menu::context_ids::TEXT_TOGGLE_WORD_WRAP, true),
+    // 这两条命令已接线（`parse.rs:106/109` → MarksKnob → Tab.marks），接真；
+    // 勾走 `live_check` 现读活动标签，不读尾部的夹具字面量 false。
+    //
+    // ⚠ 夹具字面量偏差：两段键 Alt+T, Alt+E / Alt+T, Alt+W 照 `06-button-popups`
+    // 局部清晰图逐字抄，但全局绑定表**没有**这两条命令的条目（只有 Alt+T 段的
+    // Margin 系列）。本行有 gate，`shortcut_on_platform` 因 `display(id)` 为空
+    // 才退回字面量；全局绑定表不许为对齐夹具而改。锁定见 `context_rows_tests` 的
+    // `the_two_two_stroke_view_shortcuts_are_fixture_literals`。
     command_check("Line Endings", "Alt+T, Alt+E", Some(0), term_app::menu::context_ids::LINE_ENDINGS, false),
     command_check("Wrap Symbols", "Alt+T, Alt+W", Some(0), term_app::menu::context_ids::WRAP_SYMBOLS, false),
     sep(),
@@ -416,8 +440,10 @@ pub(in crate::ui) fn draw_context_rows(
             Some(id) => crate::ui::shell::action_state(win, id),
             None => (row_state(r, pointed), "Not wired (placeholder)"),
         };
+        // 勾选框与菜单栏同一份 live 判据：已接线的三行现读活动标签，
+        // 未接线的行才退回夹具出厂字面量（margin 菜单每帧重建，本来就是真值）。
         let check = match r.check {
-            Some(on) => CheckCell::Box(on),
+            Some(on) => CheckCell::Box(r.check_id.map_or(on, |id| live_check(win, id))),
             None => CheckCell::None,
         };
         let shortcut = shortcut_on_platform(r, &win.shortcuts);
@@ -536,6 +562,7 @@ fn tree_rows(items: &[term_app::menu::Item]) -> Vec<Row> {
                 shortcut: term_app::menu::shortcut_text(id),
                 work: Some(Work::Command(id)),
                 gate: Some(id),
+                check_id: None,
                 ..row(label, "", None, None)
             },
             // 勾选型命令（Log 子树里目前没有，留着以免将来加了就变成一条死行）：
@@ -545,6 +572,8 @@ fn tree_rows(items: &[term_app::menu::Item]) -> Vec<Row> {
                 shortcut: term_app::menu::shortcut_text(id),
                 work: Some(Work::Command(id)),
                 gate: Some(id),
+                // 子树展开的勾由菜单栏那一份 `live_check` 画，这里不重复持有。
+                check_id: None,
                 ..row(label, "", None, None)
             },
             Item::Separator => sep(),
@@ -640,6 +669,7 @@ pub(in crate::ui) fn margin_rows(
         children: None,
         gate: None,
         check: Some(on),
+        check_id: None,
         swatches: false,
         separator: false,
     };

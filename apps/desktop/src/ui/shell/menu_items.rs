@@ -63,7 +63,7 @@ fn row_positions(win: &TerminalWindow, items: &[Item]) -> Vec<Option<usize>> {
 /// （`menu_check_tests.rs::a_wired_command_must_read_live_state` 双向守着），
 /// 万一将来有人插了一条没接线的 `Live` 行，屏幕上会是一个可点的空框，
 /// 而不是整窗崩掉。
-fn live_check(win: &TerminalWindow, id: &str) -> bool {
+pub(in crate::ui) fn live_check(win: &TerminalWindow, id: &str) -> bool {
     use term_app::action::Action;
     use term_app::shell::ShellAction;
     match Action::parse(id) {
@@ -204,10 +204,19 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
                 .on_disabled_hover_text(win.tr("Not wired (placeholder)"));
             }
             Item::Submenu { label, items } => {
-                // 真子菜单走 `ui.menu_button`：它的标题是 WidgetText，不带下划线。
-                // 这里仍消费一个位置，下一行拿到的才是「同级没被它占走」的字母。
-                let _underline = positions.next().flatten();
+                // 真子菜单的标题也要有访问字母下划线。夹具一侧早在
+                // `draw_menu_items_static` 里经 `draw_menu_row` 画了，生产此前把
+                // `_underline` 丢掉，正是「夹具画、生产不画」的分叉。这里把同一份
+                // 位置烤进 LayoutJob 的 section format，再交给 `ui.menu_button`；
+                // 夹具分支一个字节没动，组件基线因此不受影响。
+                let underline = positions.next().flatten();
                 let title = win.tr(label);
+                let font = egui::TextStyle::Button.resolve(ui.style());
+                // 颜色留 PLACEHOLDER：egui 0.29.1 `menu.rs::SubMenuButton::show`
+                // 用 `painter.galley(pos, galley, visuals.text_color())` 画标题，
+                // PLACEHOLDER 的 glyph 与下划线都由 tessellator 填成同一个当前色，
+                // hover / open 三态才不会一条亮一条灰。
+                let title_job = text_job(&title, underline, egui::Color32::PLACEHOLDER, &font);
                 // 2026-11-15 用户反馈「二级菜单要停一下还得点、展开位置也不在
                 // 右侧」的根因：上一版用 `egui::menu::menu_custom_button`。那是
                 // **顶级菜单** API（源码注释写着 "Responds to primary clicks"），
@@ -225,9 +234,18 @@ pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui
                 // `menu_popup` 用 `top_down_justified`，`SubMenuButton` 的矩形
                 // 会被拉到整行宽，它自己画的展开箭头自然落在右缘——不再需要
                 // 我们按标题宽度补一个 `▸`（那正是上一版箭头压住文字的由来）。
+                // egui 0.29.1 源码核对（换成 LayoutJob 不会动交互与几何）：
+                // · `Ui::menu_button` 在菜单上下文里转 `menu::submenu_button`
+                //   → `SubMenu::show` → `SubMenuButton::show`，sense 固定 `click()`；
+                // · `MenuState::submenu_button_interaction` 只看 `button.hovered()` /
+                //   `button.rect`，决定 hover 展开与父菜单右缘定位，不读 galley；
+                // · 展开箭头是另一枚独立 icon galley（`"⏵"`），仍贴按钮右缘；
+                // · `WidgetText::into_galley` 对 `LayoutJob` 只改写 `job.wrap`，
+                //   而弹层已 `ui.set_width(menu_rows_width(..))`，标题宽度必然小于
+                //   `text_available_width`，不换行、`Galley::size()` 不变。
                 let saved = ui.spacing().button_padding;
                 ui.spacing_mut().button_padding = egui::vec2(MENU_ROW_PAD_X, MENU_ROW_PAD_Y);
-                let _ = ui.menu_button(title, |ui| {
+                let _ = ui.menu_button(egui::WidgetText::from(title_job), |ui| {
                     draw_menu_items(win, ui, items);
                 });
                 ui.spacing_mut().button_padding = saved;
@@ -371,9 +389,18 @@ mod tests {
 
     /// 把一帧里所有文字连同位置取出来（弹层的文字是手绘 `Shape::Text`）。
     fn texts(out: &egui::FullOutput) -> Vec<(String, Pos2)> {
-        fn walk(shape: &Shape, out: &mut Vec<(String, Pos2)>) {
+        texts_with_galleys(out)
+            .into_iter()
+            .map(|(text, pos, _)| (text, pos))
+            .collect()
+    }
+
+    /// 同上，但保留 galley：形状级测试要看的是**实际画出来的** section
+    /// format，不是源码里有没有写 `underline` 这个词。
+    fn texts_with_galleys(out: &egui::FullOutput) -> Vec<(String, Pos2, std::sync::Arc<egui::text::Galley>)> {
+        fn walk(shape: &Shape, out: &mut Vec<(String, Pos2, std::sync::Arc<egui::text::Galley>)>) {
             match shape {
-                Shape::Text(t) => out.push((t.galley.text().to_string(), t.pos)),
+                Shape::Text(t) => out.push((t.galley.text().to_string(), t.pos, t.galley.clone())),
                 Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
                 _ => {}
             }
@@ -419,6 +446,31 @@ mod tests {
         )
     }
 
+    /// 两条形状测试共用的铺垫：造窗口、点开顶级菜单、稳定两帧。
+    /// 每帧都要先 `PointerMoved` 让按钮 hovered，按下与松开要分两帧才 `clicked()`；
+    /// 弹层首帧是 sizing pass（形状 Noop），所以要再跑两帧才拿到能看的形状。
+    fn opened_menu(ctx: &egui::Context) -> (TerminalWindow, Vec<term_app::menu::Item>, Rect, egui::FullOutput) {
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, ctx, Vec::new());
+        let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 800.0));
+        let items = term_app::menu::menus().remove(0).items; // Session：含 `Log` 子菜单
+        frame(ctx, &mut win, &items, screen, vec![Event::PointerMoved(Pos2::new(400.0, 400.0))]);
+        for pressed in [true, false] {
+            frame(ctx, &mut win, &items, screen, vec![
+                Event::PointerMoved(Pos2::new(15.0, 9.0)),
+                Event::PointerButton {
+                    pos: Pos2::new(15.0, 9.0), button: PointerButton::Primary,
+                    pressed, modifiers: Default::default(),
+                },
+            ]);
+        }
+        let mut out = egui::FullOutput::default();
+        for _ in 0..2 {
+            out = frame(ctx, &mut win, &items, screen, vec![Event::PointerMoved(Pos2::new(400.0, 400.0))]);
+        }
+        (win, items, screen, out)
+    }
+
     /// 2026-11-15 用户反馈「鼠标停留不自动展开、还需要点一下，展开位置也不在
     /// 右侧」。这条不点第二下，只把指针移到 `Log` 行上，然后要求子菜单里的
     /// `Start` 出现在**父菜单右边、与 Log 行同高**。旧实现用顶级菜单 API，
@@ -426,44 +478,7 @@ mod tests {
     #[test]
     fn hovering_a_nested_menu_opens_it_to_the_right_without_a_click() {
         let ctx = egui::Context::default();
-        let pool = std::sync::Arc::new(term_session::SessionPool::new());
-        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
-        let screen = Rect::from_min_size(Pos2::ZERO, egui::vec2(1280.0, 800.0));
-        let menu = term_app::menu::menus().remove(0); // Session：含 `Log` 子菜单
-
-        // 热身：Area / 弹层的首帧是 sizing pass，形状是 Noop。
-        frame(&ctx, &mut win, &menu.items, screen, vec![Event::PointerMoved(Pos2::new(400.0, 400.0))]);
-        // 打开顶级菜单：每帧都要先把指针放到按钮上（egui 的 hover 由
-        // `PointerMoved` 维护，只有 `PointerButton` 不会让按钮 hovered），
-        // 按下 + 松开落在两帧里 `clicked()` 才成立。
-        for pressed in [true, false] {
-            frame(
-                &ctx,
-                &mut win,
-                &menu.items,
-                screen,
-                vec![
-                    Event::PointerMoved(Pos2::new(15.0, 9.0)),
-                    Event::PointerButton {
-                        pos: Pos2::new(15.0, 9.0),
-                        button: PointerButton::Primary,
-                        pressed,
-                        modifiers: Default::default(),
-                    },
-                ],
-            );
-        }
-        // 菜单稳定两帧（第一行弹层也是 sizing pass），指针先待在空白处。
-        let mut before = egui::FullOutput::default();
-        for _ in 0..2 {
-            before = frame(
-                &ctx,
-                &mut win,
-                &menu.items,
-                screen,
-                vec![Event::PointerMoved(Pos2::new(400.0, 400.0))],
-            );
-        }
+        let (mut win, items, screen, before) = opened_menu(&ctx);
         let log = texts(&before)
             .into_iter()
             .find(|(s, _)| s == "Log")
@@ -478,12 +493,12 @@ mod tests {
         let hovered = frame(
             &ctx,
             &mut win,
-            &menu.items,
+            &items,
             screen,
             vec![Event::PointerMoved(Pos2::new(log.x + 4.0, log.y + 6.0))],
         );
         // 子菜单自己的 popup 首帧也可能还是 sizing pass，再跑一帧稳定。
-        let settled = frame(&ctx, &mut win, &menu.items, screen, Vec::new());
+        let settled = frame(&ctx, &mut win, &items, screen, Vec::new());
         let start = texts(&hovered)
             .into_iter()
             .chain(texts(&settled))
@@ -506,14 +521,39 @@ mod tests {
         );
     }
 
+    /// 2026-11-26「夹具画、生产不画」的防回归。夹具一侧走 `draw_menu_row`，
+    /// 早就有下划线；这里从**生产路径实际画出的形状**里捞出标题 galley，
+    /// 逐节断言 `format.underline`，而不是只在源码里搜关键词。
+    /// 同一条还钉住 egui 0.29.1 的两条几何事实：箭头仍是独立的第二枚 galley，
+    /// 下划线的加入不改变 `Galley::size()`（不再包一层、不换行）。
+    #[test]
+    fn a_real_submenu_title_galley_underlines_its_access_letter() {
+        let ctx = egui::Context::default();
+        let (_, _, _, out) = opened_menu(&ctx);
+        let painted = texts_with_galleys(&out);
+        let title = painted.iter().find(|(text, _, _)| text == "Log")
+            .map(|(_, _, galley)| galley.clone()).expect("生产菜单里应画出 Log 标题");
+        let underlined: Vec<&str> = title.job.sections.iter()
+            .filter(|s| s.format.underline != egui::Stroke::NONE)
+            .map(|s| &title.text()[s.byte_range.clone()]).collect();
+        assert_eq!(underlined, vec!["L"], "只有访问字母那节该带下划线");
+        // 箭头是独立的 icon galley；换标题载体不该把它吃掉。
+        assert!(painted.iter().any(|(text, _, _)| text == "⏵"), "箭头仍贴按钮右缘");
+        // galley 尺寸与原版纯文本一模一样：下划线只加 mesh，不改排版。
+        let font = egui::TextStyle::Button.resolve(&ctx.style());
+        let plain = ctx.fonts(|f| f.layout_job(egui::text::LayoutJob::simple(
+            "Log".into(), font, egui::Color32::PLACEHOLDER, f32::INFINITY)).size());
+        assert_eq!(title.size(), plain, "下划线不许改变标题 galley 尺寸");
+    }
+
     #[test]
     fn nested_menus_use_the_hover_aware_ui_api() {
         let src = include_str!("menu_items.rs");
         // 只看生产段：本文件下方的测试说明里也会提到那个 API 的名字。
         let production = src.split("#[cfg(test)]").next().unwrap_or(src);
         assert!(
-            production.contains("ui.menu_button(title, |ui| {"),
-            "二级菜单必须走 Ui::menu_button（hover 展开 + 右侧定位）"
+            production.contains("ui.menu_button(egui::WidgetText::from(title_job), |ui| {"),
+            "二级菜单必须走 Ui::menu_button（hover 展开 + 右侧定位），标题带下划线"
         );
         // 注释里会提到这个 API 的名字，所以只钉「真的调用了它」。
         assert!(
