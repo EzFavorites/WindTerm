@@ -352,7 +352,6 @@ impl TerminalWindow {
             restore_focus_shell: false,
             pending_select: None,
             find_input: String::new(),
-            filter_input: String::new(),
             palette_input: String::new(),
             goto_input: String::new(),
             center_input: String::new(),

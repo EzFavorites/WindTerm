@@ -14,7 +14,6 @@ use crate::clipboard::{self as clipboard_feature};
 use crate::dock::{self};
 use crate::effect::Effect;
 use crate::find::{self as find_feature};
-use crate::filter::{self as filter_feature};
 use crate::goto::{self as goto_feature};
 use crate::log::{self as log_feature};
 use crate::lock::{self as lock_feature};
@@ -49,12 +48,6 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
                 Vec::new()
             }
         },
-        // 行过滤器：纯状态动作，没有命令 ID 也没有 Effect。命中集合每帧现算，
-        // 不缓存进 ViewState（理由同 Find）。
-        Action::Filter(a) => {
-            filter_feature::reduce(&mut state.filter, a);
-            Vec::new()
-        }
         Action::Clipboard(a) => clipboard_feature::reduce(state, a),
         Action::Select(op) => vec![Effect::Select(Cmd::Move(op))],
         Action::SelectSet(op) => vec![Effect::Select(Cmd::Set(op))],

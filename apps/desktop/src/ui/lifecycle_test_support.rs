@@ -280,7 +280,6 @@ pub(in crate::ui) fn window_with(
         restore_focus: false,
         restore_focus_shell: false,
         find_input: String::new(),
-        filter_input: String::new(),
         palette_input: String::new(),
         goto_input: String::new(),
         center_input: String::new(),

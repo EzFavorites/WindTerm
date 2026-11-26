@@ -82,9 +82,6 @@ pub mod clipboard;
 pub mod dock;
 pub mod effect;
 pub mod find;
-// 终端行过滤器：复用 term-core 的 Pattern/LinePolicy 做行判定，
-// 命中集合不进状态；渲染侧只在最后一步 drop_rows。零 UI、零 IO。
-pub mod filter;
 // 折叠功能的唯一领域模型，因此**必须在默认编译面**上：`apps/desktop` 的 `Tab` 要
 // 真正读取它（`Folds` + `blocks_from_inputs`），有生产读者就不属于 `planned`。
 // 与之配对的 `FoldRegion` / `StructureError` 原本在 `structure` 里，2026-11-14

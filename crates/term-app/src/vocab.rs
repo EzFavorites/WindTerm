@@ -515,22 +515,6 @@ pub enum FindAction {
     Close,
 }
 
-/// 终端行过滤器的动作。没有命令 ID——入口是底部细带上的 `Filter` 按钮，
-/// 与 `ToggleSysmonRemote` 同样是投影层的强类型意图，不进菜单树。
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum FilterAction {
-    /// 打开过滤栏并复位。
-    Open,
-    /// 细带上的按钮：开 / 关翻转。
-    Toggle,
-    SetQuery(String),
-    /// `grep` / `grep -v` 两档。
-    SetMode(crate::state::FilterMode),
-    ToggleCase,
-    ToggleRegex,
-    Close,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipboardAction {
     Copy,
@@ -1140,9 +1124,6 @@ pub enum Cmd {
 pub enum Action {
     Shell(ShellAction),
     Find(FindAction),
-    /// 终端行过滤器（`grep` / `grep -v`）。归属 `FeatureId::Find`：
-    /// 它是查找一族的行级视图，不单列能力面。
-    Filter(FilterAction),
     Clipboard(ClipboardAction),
     /// 选区移动。真正的位移在投影层拿到事实窗口后由 `selection::apply` 算，
     /// 本层只把命令翻译成意图——因为它拿不到「现在画在屏上的那一屏」。

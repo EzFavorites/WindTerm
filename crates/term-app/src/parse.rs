@@ -548,8 +548,6 @@ impl Action {
             Action::Shell(ShellAction::Marks(_)) => FeatureId::Marks,
             Action::Shell(_) => FeatureId::Shell,
             Action::Find(_) => FeatureId::Find,
-            // 行过滤是查找一族的行级视图，不单列能力面。
-            Action::Filter(_) => FeatureId::Find,
             Action::Clipboard(_) => FeatureId::Clipboard,
             Action::Select(_) => FeatureId::Selection,
             Action::SelectSet(_) => FeatureId::Selection,

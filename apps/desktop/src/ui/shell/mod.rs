@@ -9,8 +9,6 @@
 //! `docs/design/13-ui-shell.md`；声明顺序决定谁贴最底边（状态栏先声明）。
 
 mod find_bar;
-// 终端行过滤栏：与 find_bar 同款受控组件，声明在 sysmon 细带上方。
-mod filter_bar;
 // UI 外壳审查批次：帧首统一前置阶段（锁屏 / 模态键盘 / 快捷键门控 / prefs 版本号）
 // 与全局快捷键的事件门控。放新文件是为了守住 ui/mod.rs 的 500 代码行上限。
 mod pre_update_gate;
@@ -41,7 +39,6 @@ mod tool_bar_icons;
 mod tool_bar_tail;
 
 pub(in crate::ui) use find_bar::{draw_find_bar, FIND_BAR_H};
-pub(in crate::ui) use filter_bar::{draw_filter_bar, filter_bar_frame, FILTER_BAR_H};
 // 2026-11-15：`draw_menu_items` 只在 `menu_bar` 里由 `super::menu_items::` 直接
 // 引用（生产二级菜单需要真实 MenuState）；组件夹具改走静态树，这个再导出
 // 已无人使用，去掉以免 `clippy -D warnings` 红。
