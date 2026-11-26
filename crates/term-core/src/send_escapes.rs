@@ -1,6 +1,6 @@
 //! Sender 面板与 Trigger ▸ Send text 共用的转义解码。
 //!
-//! 原版功能文档（`kingtoolbox-docs/Sender-Pane/Send-Chars.md` 与
+//! 上游 WindTerm 的功能文档（`kingtoolbox-docs/Sender-Pane/Send-Chars.md` 与
 //! `Trigger/Send-Text.md`）列的是同一张表：`\0 \a \b \t \n \v \f \r \\`、
 //! `\nnn`（八进制）、`\xHH`、`\uHHHH`、`\cX` / `\c-X`（控制字符）、
 //! `\mX` / `\m-X`（高位字符）。两条路径共用这一份，避免「Sender 认 `\x03`，
@@ -114,7 +114,7 @@ pub fn decode(text: &str) -> Result<Vec<u8>, EscapeError> {
                 }
                 out.push(x as u8 | 0x80);
             }
-            // 未列出的转义按原版口径保留字面字符（`\q` → `q`），不静默吞掉反斜杠。
+            // 未列出的转义按本仓约定保留字面字符（`\q` → `q`），不静默吞掉反斜杠。
             other => {
                 let mut buf = [0u8; 4];
                 out.extend_from_slice(other.encode_utf8(&mut buf).as_bytes());

@@ -71,7 +71,7 @@ pub(in crate::ui) struct Row {
     pub submenu: bool,
     /// 子菜单内容取自菜单树里**同名**子菜单（目前的唯一值是 `"Log"`）。
     ///
-    /// `None` = 视觉基线有箭头但原程序也没展开过子项（`Search Online` /
+    /// `None` = 参考图有箭头但上游也没展开过子项（`Search Online` /
     /// `Transfer Binary` / `Reset`），保持灰箭头；`Some(label)` = 展开后画的
     /// 就是菜单栏那一份树（`draw_menu_items`），两处因此不可能对不上。
     pub children: Option<&'static str>,

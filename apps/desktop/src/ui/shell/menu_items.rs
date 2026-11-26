@@ -26,7 +26,7 @@ pub(in crate::ui) fn action_state(win: &TerminalWindow, id: &str) -> (MenuRowSta
     (state, why)
 }
 
-/// 这一级菜单每一行的下划线位置：英文取原版词位，中文取显示文字里的等效位置，
+/// 这一级菜单每一行的下划线位置：英文取参考图词位，中文取显示文字里的等效位置，
 /// 同级撞字符时由纯层往后挪。一次算一整级，逐行拿——不能单行算，否则看到的
 /// 只是「这一行本来该划哪」，并不知道同级已经占走了哪些字母。
 fn row_positions(win: &TerminalWindow, items: &[Item]) -> Vec<Option<usize>> {
@@ -153,7 +153,7 @@ fn has_command(items: &[Item]) -> bool {
     })
 }
 
-/// 绘制菜单项列表。子菜单递归展开，行为与原程序的 `Menu::popup` 一致。
+/// 绘制菜单项列表。子菜单递归展开，行为与上游 WindTerm 的 `Menu::popup` 一致。
 /// 点击先入队再关闭菜单，避免在弹出层里改状态。
 pub(in crate::ui) fn draw_menu_items(win: &mut TerminalWindow, ui: &mut egui::Ui, items: &[Item]) {
     apply_popup_style(ui);
@@ -539,7 +539,7 @@ mod tests {
         assert_eq!(underlined, vec!["L"], "只有访问字母那节该带下划线");
         // 箭头是独立的 icon galley；换标题载体不该把它吃掉。
         assert!(painted.iter().any(|(text, _, _)| text == "⏵"), "箭头仍贴按钮右缘");
-        // galley 尺寸与原版纯文本一模一样：下划线只加 mesh，不改排版。
+        // galley 尺寸与参考图纯文本一模一样：下划线只加 mesh，不改排版。
         let font = egui::TextStyle::Button.resolve(&ctx.style());
         let plain = ctx.fonts(|f| f.layout_job(egui::text::LayoutJob::simple(
             "Log".into(), font, egui::Color32::PLACEHOLDER, f32::INFINITY)).size());

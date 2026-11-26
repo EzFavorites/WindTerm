@@ -69,7 +69,7 @@ pub(in crate::ui) fn security(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     draw_user_config_import(ui);
 }
 
-/// 偏好导入的差异预览。`from/to` 是我们 `Prefs` 的字段名（不是原版键名），
+/// 偏好导入的差异预览。`from/to` 是我们 `Prefs` 的字段名（不是上游键名），
 /// 用户看到的就是将落盘的落点。抽成纯函数便于单测钉住「不改主题」。
 fn preview_user_config(
     text: &str,

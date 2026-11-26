@@ -184,7 +184,7 @@ fn main() {
     // 默认窗口的逻辑尺寸对齐 WindTerm 视觉基线主窗口（1280×760 @2×
     // 之前用框架默认的 800×600：底部快捷命令栏 4 组 15 项有一半被裁在
     // 窗口之外——不是画错了，是画布根本不够宽。改尺寸之后整窗与视觉基线同尺，
-    // scripts/compare-golden.py 也不再需要为了对齐而缩放。
+    // 基线整窗与本窗口同尺，无需再为对齐做任何缩放。
     let mut options = eframe::NativeOptions::default();
     // 窗口透明度（默认关，现状不变）。透明开关为真时让 OS 窗口背景透明——
     // eframe 0.29 经 `NativeOptions.viewport.transparent` 转 winit `with_transparency`

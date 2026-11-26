@@ -1,6 +1,6 @@
 //! 锁屏遮罩（E-LOCK）。
 //!
-//! 视觉对齐原版：整窗暗底，只有一行蓝色 `Screen Locked` 和一个带小眼睛的密码
+//! 视觉对齐参考图：整窗暗底，只有一行蓝色 `Screen Locked` 和一个带小眼睛的密码
 //! 输入框；Enter 提交，输错才在框下出一行红字。没有 emoji、说明段和按钮组——
 //! 那些东西把「屏已锁」这件事淹没了。
 //!
@@ -14,7 +14,7 @@ use term_app::lock::LockAction;
 use term_runtime::persist;
 use term_vault::Vault;
 
-/// 原版锁屏标题的蓝，取自金图而非主题色——这是暗底上唯一的强调色。
+/// 参考图锁屏标题的蓝，取自金图而非主题色——这是暗底上唯一的强调色。
 const TITLE_BLUE: egui::Color32 = egui::Color32::from_rgb(0x4C, 0xA6, 0xFF);
 
 impl TerminalWindow {

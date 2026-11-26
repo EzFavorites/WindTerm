@@ -1,10 +1,10 @@
 //! `Preferences` 的 `Text` 页：四个真开关 + 两行灰显。
 //!
-//! 原版 Preferences 只有 19 页，其中 `Text` 页的 `Features` 三行与 `Zoom level`
+//! 上游 WindTerm 的 Preferences 只有 19 页，其中 `Text` 页的 `Features` 三行与 `Zoom level`
 //! 在这版里有真实读者，接成真控件；`Spacing` 两行没有存储字段，仍画成空框 +
 //! 灰字 + 悬停理由。同一页里「能点的勾」与「空框」并存是故意的。
 //!
-//! `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` 原版没有，是重制版一度新增
+//! `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` 上游没有，是重制版一度新增
 //! 的三页，现已移除；它们背后的 prefs 字段保留给原有读者，但设置页不再暴露。
 //!
 use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};

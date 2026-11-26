@@ -63,7 +63,7 @@ fn send_text_round_trips_windows_paths_and_explicit_escapes() {
     );
     // 末尾孤立反斜杠也要发出去，不能让整条消息静默消失。
     assert_eq!(super::session::decode_send_text("tail\\").expect("字面反斜杠"), br"tail\");
-    // 明确写了表内转义时仍按原版口径解码（Send text 的关键用途）。
+    // 明确写了表内转义时仍按本仓约定解码（Send text 的关键用途）。
     assert_eq!(super::session::decode_send_text(r"\x03").expect("\\x03"), b"\x03");
     assert_eq!(super::session::decode_send_text(r"\003").expect("\\003"), b"\x03");
     assert_eq!(super::session::decode_send_text(r"\q").expect("未知转义按字面"), br"\q");

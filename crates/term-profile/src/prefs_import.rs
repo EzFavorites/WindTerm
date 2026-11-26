@@ -1,4 +1,4 @@
-//! 把原版 `user.config` 的偏好增量并进我们的 `Prefs`（B1 的落库纯函数）。
+//! 把上游 WindTerm 的 `user.config` 偏好增量并进我们的 `Prefs`（落库纯函数）。
 //!
 //! 边界：这个函数**不读文件、不写文件**。它只回答「给定一份增量和一份当前偏好，
 //! 新的偏好是什么、改了哪几项」。写盘仍走 [`crate::prefs::save`]——坏文件另存、
@@ -14,8 +14,8 @@
 use crate::prefs::Prefs;
 use term_import::user_config::UserConfigDelta;
 
-/// 一项实际发生的改动。`key` 用我们 `Prefs` 的字段名（不是原版键名），
-/// 这样差异展示 / 单测都只看得见落点，不会被原版的键名口径带偏。
+/// 一项实际发生的改动。`key` 用我们 `Prefs` 的字段名（不是上游键名），
+/// 这样差异展示 / 单测都只看得见落点，不会被上游的键名口径带偏。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Change {
     pub key: &'static str,

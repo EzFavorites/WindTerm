@@ -44,7 +44,7 @@ const MAX_NUMBER_COLS: usize = 6;
 /// 折叠列鼠标修饰键 → 折叠命令（纯函数，可单测）。
 ///
 /// - Ctrl/Cmd：全部块的开关（无折 → FoldAll，已有折 → UnfoldAll）。
-/// - Alt（递归）/ Shift（同类型）：本仓块平坦无嵌套、无类型概念，原版语义没有
+/// - Alt（递归）/ Shift（同类型）：本仓块平坦无嵌套、无类型概念，上游语义没有
 ///   对应物——不假装支持，退回单块 ToggleAt。
 pub(super) fn fold_cmd_for_modifiers(
     mods: egui::Modifiers,
@@ -124,7 +124,7 @@ impl MarginMetrics {
     /// 折叠列上的鼠标点击产出哪条折叠命令。空白 / 列没开 / 不在本列 → `None`。
     /// 命中判据与 [`paint`] 画 `▸` 的那一格同源，只认真正的折叠头。
     ///
-    /// 修饰键（原版 WindTerm 语义）：
+    /// 修饰键（上游 WindTerm 语义）：
     /// - 无修饰 → `ToggleAt`：切换这一块。
     /// - Ctrl → 全部块的 Fold/Unfold 开关：当前无折则 `FoldAll`，否则 `UnfoldAll`。
     /// - Alt（递归）/ Shift（同类型）→ 本仓块平坦不嵌套、无类型概念，语义未定义，

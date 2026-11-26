@@ -1,6 +1,6 @@
-//! 原版 WindTerm `user.config` 的**偏好增量解析**（B1）。
+//! 上游 WindTerm `user.config` 的**偏好增量解析**。
 //!
-//! 原版是「出厂值在 `wind.config`，用户差异在 `user.config`」的双层模型；本机那份
+//! 上游 WindTerm 是「出厂值在 `wind.config`，用户差异在 `user.config`」的双层模型；本机那份
 //! `user.config` 实测 **13 个键**（资料库报告写成 10 个是漏数了 `fingerprint` /
 //! `masterPassword` / `wrapMode`）。本文件把那 13 个键划成三类：
 //!
@@ -8,7 +8,7 @@
 //! |---|---|---|
 //! | 可迁移（9） | `application.language`、`application.lockScreenTimeout`、`quickbar.showCommandsInOrder`、`terminal.askBeforeCloseWindow`、`terminal.text.{columnMarkerVisible,eolVisible,indentGuideVisible,wrapMode,wrapSymbolVisible}` | 进 [`UserConfigDelta`] 的 `Some` 字段 |
 //! | 哨兵（2） | `application.fingerprint`、`application.masterPassword` | **连读都不读**；类型里没有这两个字段 |
-//! | 粒度不符 / 无落点（2） | `terminal.askBeforeCloseTab`、`terminal.text.hiddenMargins` | 忽略；不为凑数接空转开关（R5） |
+//! | 粒度不符 / 无落点（2） | `terminal.askBeforeCloseTab`、`terminal.text.hiddenMargins` | 忽略；不为凑数接空转开关 |
 //!
 //! 密码/设备指纹是产品底线：不迁移、不解密、不落进任何结构体字段。这也是
 //! `UserConfigDelta` **没有** `fingerprint` / `masterPassword` 字段的原因——不是
@@ -20,7 +20,7 @@
 
 use serde_json::Value;
 
-/// 原版 `user.config` 的全部 13 个键，按词表顺序。
+/// 上游 `user.config` 的全部 13 个键，按词表顺序。
 ///
 /// 这是**白名单**（文档 + 单测口径）：只在解析时按这里列出的键取值；表外的键
 /// 一个都不认。哨兵两键列在里面只表示「这份格式确实有这个键」，解析器**不会**
@@ -41,12 +41,12 @@ pub const USER_CONFIG_KEYS: [&str; 13] = [
     "terminal.text.wrapSymbolVisible",
 ];
 
-/// 列标记打开时要画哪一列。原版用户层只存 `columnMarkerVisible`，列号表在
+/// 列标记打开时要画哪一列。上游用户层只存 `columnMarkerVisible`，列号表在
 /// `wind.config`（不导入），这里用终端惯例第 80 列，落进 `Prefs.view_column_marker`
 /// 时仍会被消费侧夹进 `8..=512`。
 pub const COLUMN_MARKER_ON: usize = 80;
 
-/// `application.lockScreenTimeout` 的单位换算：原版全局默认 30（分钟），本项目
+/// `application.lockScreenTimeout` 的单位换算：上游全局默认 30（分钟），本项目
 /// `Prefs.lock_timeout_secs` 默认 1800（= 30 分钟），两者按 60 对齐。0 仍是 0
 /// （不自动锁）。
 const LOCK_TIMEOUT_SCALE: u64 = 60;
@@ -86,11 +86,11 @@ pub fn parse_user_config(text: &str) -> UserConfigDelta {
                     u32::try_from(n.saturating_mul(LOCK_TIMEOUT_SCALE)).unwrap_or(u32::MAX)
                 });
             }
-            // 原版 showCommandsInOrder=true ⟺ 按配置顺序 ⟺ 不按字母序。
+            // 上游 showCommandsInOrder=true ⟺ 按配置顺序 ⟺ 不按字母序。
             "quickbar.showCommandsInOrder" => {
                 delta.quickbar_alphabetical = bool_of(value).map(|b| !b);
             }
-            // 原版「关窗口前先问」取反才是我们的「关窗口不再问」。
+            // 上游「关窗口前先问」取反才是我们的「关窗口不再问」。
             "terminal.askBeforeCloseWindow" => {
                 delta.suppress_close_window = bool_of(value).map(|b| !b);
             }
@@ -199,7 +199,7 @@ mod tests {
 
     #[test]
     fn strict_json_and_wrong_types_yield_no_change() {
-        // 原版 wind.* 那种带 `//` 注释的宽松格式在这里不认。
+        // 上游 wind.* 那种带 `//` 注释的宽松格式在这里不认。
         assert_eq!(parse_user_config("{ // comment\n \"application.language\":\"en\" }"), UserConfigDelta::default());
         assert_eq!(parse_user_config("[1,2,3]"), UserConfigDelta::default());
         assert_eq!(parse_user_config("{ broken"), UserConfigDelta::default());

@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn command_palette_shortcut_matches_the_menu_column() {
-        // 原版菜单列的是 Alt+;（见 shortcut_map 的单一绑定表），不是旧的 Cmd+Shift+P。
+        // 参考图菜单列的是 Alt+;（见 shortcut_map 的单一绑定表），不是旧的 Cmd+Shift+P。
         // ui/ 不得出现命令 ID 字面量，连测试里也不行，所以用数据层反查。
         let id = term_app::menu::shortcut_for("Alt+;").unwrap();
         assert_eq!(term_app::capability::describe(id).feature, Some(term_app::action::FeatureId::Palette));

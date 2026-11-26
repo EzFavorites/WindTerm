@@ -113,7 +113,7 @@ fn the_view_menu_has_exactly_one_check_row() {
         matches!(before, Item::Submenu { label, .. } if *label == "Syntax Schemes"),
         "勾选行前面应是 Syntax Schemes 子菜单 + 一条分隔线"
     );
-    // 2026-11-23 原版 `01-view-menu.png`：勾选行与 Margins 之间也有一条分隔线。
+    // 2026-11-23 参考图 `01-view-menu.png`：勾选行与 Margins 之间也有一条分隔线。
     assert!(matches!(view[at + 1], Item::Separator));
     let after = &view[at + 2];
     assert!(
@@ -199,7 +199,7 @@ fn a_wired_command_must_read_live_state() {
             "2 Chars",
             "4 Chars",
             "8 Chars",
-            // View › Bars / Panes：原版是短名字 + 真勾选框，不再是 Toggle 字样
+            // View › Bars / Panes：参考图是短名字 + 真勾选框，不再是 Toggle 字样
             "Menu Bar",
             "Status Bar",
             "Quick Bar",

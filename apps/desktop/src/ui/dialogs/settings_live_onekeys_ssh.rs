@@ -15,14 +15,14 @@ const Y_PASS_LABEL: f32 = 54.0;
 const Y_PASS_FIELD: f32 = 73.0;
 const Y_KEY_LABEL: f32 = 105.0;
 const Y_KEY_TABLE: f32 = 125.0;
-// 原版 `07-dialogs/onekeys-*.png` 实测（相对主体顶）：两表各高 203，
+// 参考图 `07-dialogs/onekeys-*.png` 实测（相对主体顶）：两表各高 203，
 // 表2 顶 357、底 560——与右栏总高 560 对齐。
 const Y_KEY_TABLE_H: f32 = 203.0;
 const Y_KI_LABEL: f32 = 337.0;
 const Y_KI_TABLE: f32 = 357.0;
 const Y_KI_TABLE_H: f32 = 203.0;
 
-/// OneKeys 的密码显示开关。原版 `07-dialogs/onekeys-*.png` 关态是实心
+/// OneKeys 的密码显示开关。参考图 `07-dialogs/onekeys-*.png` 关态是实心
 /// #444444 胶囊 + 白滑块、**没有**亮描边；共享 `dialog_chrome::toggle` 给
 /// Triggers 用的 #3A3A3A + #4A4A4A 描边版本在这里会显得厚一圈，故本地化。
 fn onekeys_toggle(ui: &mut egui::Ui, size: egui::Vec2, on: &mut bool) -> egui::Response {
@@ -47,7 +47,7 @@ fn onekeys_toggle(ui: &mut egui::Ui, size: egui::Vec2, on: &mut bool) -> egui::R
 /// 表格右下角那枚 `Modify`：纯文字 + 下划线，点击切到编辑态。
 fn modify_link(ui: &mut egui::Ui, rect: egui::Rect, label: &str, enabled: bool) -> bool {
     let resp = ui.allocate_rect(rect, egui::Sense::click());
-    // 原版：无选中/无条目时 Modify 是禁用灰 #555555，有选中才是 #BBBBBB。
+    // 参考图：无选中/无条目时 Modify 是禁用灰 #555555，有选中才是 #BBBBBB。
     let c = rgb(if enabled { 0xBBBBBB } else { 0x555555 });
     let mut job = egui::text::LayoutJob::default();
     job.append(
@@ -132,7 +132,7 @@ pub(in crate::ui) fn ssh_editor(
     // 输入框下方。以前在这里重取 `ui.cursor().min`，后面所有表格都下移
     // 45pt（实测视觉基线表格顶 y=318，实现 y=413）。
     let o = ui.cursor().min;
-    // 原版 `onekeys-account-selected-111.png`：选中方案时 Username 框是
+    // 参考图 `onekeys-account-selected-111.png`：选中方案时 Username 框是
     // #444444 1pt 描边 + #1C1C1C 内部；空列表时是 #333333 实心无边框。
     if edit.selected.is_some() {
         place(

@@ -32,7 +32,7 @@ fn attempt_label(m: AuthMethod) -> &'static str {
 }
 
 /// 金标准里这些勾选的助记词不是句首字母，而是方法名（下划线在 `ssh` / `file`
-/// 这些词上）。`underlined_job` 按「这个词的首字母」划，正合原版。
+/// 这些词上）。`underlined_job` 按「这个词的首字母」划，正合参考图。
 fn attempt_acc(m: AuthMethod) -> &'static str {
     match m {
         AuthMethod::Agent => "ssh-agent",

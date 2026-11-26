@@ -20,7 +20,7 @@ fn origin(o: egui::Pos2) -> egui::Pos2 {
 /// 之前的可用高度」铺开，与事件页的分支共用同一套绘制（`page_action::fields`）。
 pub(super) fn custom(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut term_app::trigger::Rule) {
     let base = origin(o);
-    // 夹具专用：原版 `10` / `23` 的 Match 框是聚焦蓝边，Action 下拉则是普通态。
+    // 夹具专用：参考图 `10` / `23` 的 Match 框是聚焦蓝边，Action 下拉则是普通态。
     let match_focus = std::env::var_os("WINDTERM_TRIG_FOCUS_MATCH").is_some();
     match_box(ui, base, rule, spec::custom::MATCH_H, match_focus);
     let combo_top = spec::custom::MATCH_H + spec::custom::FLAG_H + 8.5;

@@ -25,12 +25,12 @@ pub struct ImportedSession {
     pub proxy_jump: Option<String>,
     /// `IdentityFile` / `PublicKeyFile`，只记路径不记内容。
     pub identity_file: Option<String>,
-    /// 本地 Shell 会话要启动的程序（原版 `session.target`）。
+    /// 本地 Shell 会话要启动的程序（上游 `session.target`）。
     /// 只有 Shell 协议会填它；**绝不**顺手塞进 `host`。
     pub shell_command: Option<String>,
-    /// 原版 `process.arguments`，Shell / Serial 都可能带。
+    /// 上游 `process.arguments`，Shell / Serial 都可能带。
     pub shell_arguments: Option<String>,
-    /// 原版 `process.workingDirectory`。
+    /// 上游 `process.workingDirectory`。
     pub working_dir: Option<String>,
 }
 
@@ -243,7 +243,7 @@ fn flush_owned(out: &mut Vec<ImportedSession>, f: Option<Fields>, defaults: &Fie
 
 /// 把 `session.target` 拆成 `(host, port, username)`。
 ///
-/// 原版把三件事挤在一个串里：`user@host:port`，IPv6 则是
+/// 上游 WindTerm 把三件事挤在一个串里：`user@host:port`，IPv6 则是
 /// `user@[2001:db8::1]:2222`。旧实现把整串塞进 `host`，于是导入出来的会话
 /// 「主机名」是 `deploy@10.0.0.11:2222`、端口还是出厂 22——连上去的是另一台
 /// 机器。这里只做词法拆分，不解析 DNS、不猜协议；端口缺省按协议给
@@ -305,9 +305,9 @@ pub fn parse_windterm(text: &str) -> Vec<ImportedSession> {
     Vec::new()
 }
 
-/// 原版 WindTerm `terminal/user.sessions` 的解析（严格 JSON，一条数组记录一条会话）。
+/// 上游 WindTerm `terminal/user.sessions` 的解析（严格 JSON，一条数组记录一条会话）。
 ///
-/// 与上面的宽松 [`parse_windterm`] 不是同一个格式：原版文件是**扁平键**的 JSON 数组
+/// 与上面的宽松 [`parse_windterm`] 不是同一个格式：上游文件是**扁平键**的 JSON 数组
 /// （`session.protocol` / `session.target` / `process.arguments` …），真实记录**没有**
 /// `host` 键，所以旧解析器会把 9 条全读成 0 条。这里按 `session.protocol` 分流：
 ///

@@ -608,7 +608,7 @@ mod tests {
         );
     }
 
-    /// 原版转义表在文本模式下生效：`\x03` / `\003` / `\cc` 都是 Ctrl+C。
+    /// 上游转义表在文本模式下生效：`\x03` / `\003` / `\cc` 都是 Ctrl+C。
     #[test]
     fn text_mode_decodes_the_documented_escape_table() {
         assert_eq!(

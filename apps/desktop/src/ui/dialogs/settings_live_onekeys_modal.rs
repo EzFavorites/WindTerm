@@ -1,4 +1,4 @@
-//! 新建方案模态框（原版图 `07-dialogs/onekeys-new-dialog.png`）。
+//! 新建方案模态框（参考图 `07-dialogs/onekeys-new-dialog.png`）。
 //! 独立成文件只为保住 `settings_live_onekeys.rs` 的代码行上限。
 
 use super::dialog_chrome::{framed_button, place, rgb};
@@ -6,7 +6,7 @@ use super::settings_live_onekeys::{OneKeysEdit, DIALOG_H, DIALOG_W};
 use crate::ui::*;
 use term_core::onekey::OneKey;
 
-/// 新建方案模态框（原版 `07-dialogs/onekeys-new-dialog.png`）：遮罩 + 居中
+/// 新建方案模态框（参考图 `07-dialogs/onekeys-new-dialog.png`）：遮罩 + 居中
 /// 小窗 + 「Enter a name for the new OneKey.」+ Name 输入框（蓝色聚焦框）+
 /// Cancel / Create。几何是原图物理像素 ÷2。
 pub(in crate::ui) fn new_scheme_dialog(ui: &mut egui::Ui, origin: egui::Pos2, edit: &mut OneKeysEdit) {

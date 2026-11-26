@@ -499,7 +499,7 @@ impl TerminalWindow {
             // D6：预览窗出厂「关着、没有内容」。不在构造时读任何文件——真读文件
             // 是 `open_preview_local` 的事，而那是用户点了才发生的。
             preview: crate::ui::overlays::PreviewState::default(),
-            // D8-3：脚本编辑器出厂「没开过」。不开窗口不读任何文件。
+            // 脚本编辑器出厂「没开过」。不开窗口不读任何文件。
             script_editor: None,
         }
     }

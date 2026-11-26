@@ -87,7 +87,7 @@ impl TerminalWindow {
         let mut down = false;
         let mut duplicate = false;
 
-        // 原版 `07-dialogs/quick_commands.png` 是一块无标题条的圆角浮层：
+        // 参考图 `07-dialogs/quick_commands.png` 是一块无标题条的圆角浮层：
         // 顶行直接是 Group 管理，没有标题文字/红绿灯/×。关闭走 Esc 与
         // 底部 Cancel / Ok（与 `DialogId::QuickCommands.keys()` 一致）。
         let open = DialogWindow::new(DialogId::QuickCommands, "")

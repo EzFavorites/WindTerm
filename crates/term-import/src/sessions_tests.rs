@@ -1,4 +1,4 @@
-//! 会话导入解析器的单测：四种旧来源金样本 + 原版 `user.sessions` 九条协议分流。
+//! 会话导入解析器的单测：四种旧来源金样本 + 上游 `user.sessions` 九条协议分流。
 //!
 //! 输入全部是固定文本、合成值；真实用户的会话值一条都不进仓库。挂成子模块的方式
 //! 见 `sessions.rs` 末尾的 `#[cfg(test)]` + `#[path = …]` 两行声明。
@@ -131,9 +131,9 @@ fn into_config_carries_jump_and_identity_but_no_password() {
     assert_eq!(cfg.protocol, Protocol::Ssh);
 }
 
-// ---- 原版 user.sessions：9 条协议分流（全部合成数据，不含真实会话值） ----
+// ---- 上游 user.sessions：9 条协议分流（全部合成数据，不含真实会话值） ----
 
-/// 8 条 Shell + 1 条 Serial 的合成样本。字段形状照原版（扁平键、无 host），
+/// 8 条 Shell + 1 条 Serial 的合成样本。字段形状照上游（扁平键、无 host），
 /// 值一律用 `unit-test-*` / `/dev/ttyFAKE` 这类绝不会是真实用户的串。
 const ORIGINAL_USER_SESSIONS: &str = r#"[
   {"session.uuid":"u0","session.protocol":"Serial","session.target":"/dev/ttyFAKE0",
@@ -160,7 +160,7 @@ const ORIGINAL_USER_SESSIONS: &str = r#"[
 #[test]
 fn original_user_sessions_split_into_eight_shell_and_one_serial() {
     let got = parse_windterm_sessions(ORIGINAL_USER_SESSIONS);
-    assert_eq!(got.len(), 9, "原版 9 条一条都不许丢：{got:?}");
+    assert_eq!(got.len(), 9, "9 条一条都不许丢：{got:?}");
     assert_eq!(got.iter().filter(|s| s.protocol == Protocol::Shell).count(), 8);
     assert_eq!(got.iter().filter(|s| s.protocol == Protocol::Serial).count(), 1);
     // Serial 那条没有 label，名字回落到 target。
@@ -207,7 +207,7 @@ fn original_sessions_never_read_password_like_keys() {
     assert!(!format!("{:?}", got[0].clone().into_config()).contains("SENTINEL-PW"));
 }
 
-/// 原版 `user.sessions` 的 SSH/Telnet/Tcp 把用户、主机、端口挤在 `session.target`
+/// 上游 `user.sessions` 的 SSH/Telnet/Tcp 把用户、主机、端口挤在 `session.target`
 /// 一个串里；导入后三件事必须各自落位，而不是把整串当主机名、端口留成出厂 22。
 const SPLIT_TARGETS: &str = r#"[
  {"session.protocol":"SSH","session.label":"prod","session.target":"deploy@10.0.0.11:2222","session.group":"Servers"},

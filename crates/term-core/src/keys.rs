@@ -310,13 +310,13 @@ mod tests {
         assert_eq!(decode_send_text("\\c["), vec![0x1b]);
         assert_eq!(decode_send_text("a\\\\b"), b"a\\b");
         // 未识别的转义原样保留，不能把配置字符吃掉。
-        // 完整表按原版口径把未知转义的字母原样发出（`\q` → `q`），与 Sender 一致。
+        // 完整表按本仓约定把未知转义的字母原样发出（`\q` → `q`），与 Sender 一致。
         assert_eq!(decode_send_text("a\\qb"), b"aqb");
         // 官网 QuickBar 完整转义表：这几条旧子集解码器都不认识。
         assert_eq!(decode_send_text("\\u0003"), vec![0x03]);
         assert_eq!(decode_send_text("\\c-c"), vec![0x03]);
         assert_eq!(decode_send_text("\\003"), vec![0x03]);
-        assert_eq!(decode_send_text("\\ma"), vec![b'a' | 0x80], "原版 \\mX 是高位字符");
+        assert_eq!(decode_send_text("\\ma"), vec![b'a' | 0x80], "\\mX 是高位字符（转义表约定）");
         assert_eq!(decode_send_text("\\a\\b\\v\\f"), vec![0x07, 0x08, 0x0b, 0x0c]);
     }
 

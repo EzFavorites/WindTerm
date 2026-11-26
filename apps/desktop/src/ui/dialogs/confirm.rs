@@ -1,6 +1,6 @@
 //! 关闭确认弹窗（关闭软件 / 关闭会话）。
 //!
-//! 视觉基线（2026-11-23 原版图 `07-dialogs/confirm-*.png`）：macOS 风格小窗——
+//! 视觉基线（2026-11-23 参考图 `07-dialogs/confirm-*.png`）：macOS 风格小窗——
 //! 深灰标题条 #3A3B3D + 红绿灯（#EC6A5E + 两颗 #5E5F61）、深色正文 #1C1C1C、
 //! 黄色警告三角 #FBE03E、正文 #BBBBBB（旧版浅色条/亮字来自早期截图，已校正）。
 //! 等宽文案、`Don't show this message again` 复选框、右下 `No`（蓝描边
@@ -161,7 +161,7 @@ const TEXT_SIZE: f32 = crate::ui::type_scale::SIZE_BODY;
 
 // 金标准 `07-dialogs/confirm-session.png` / `confirm-window.png` 实测：
 // 深灰标题条 #3A3B3D、红绿灯 #EC6A5E/#5E5F61、正文 #BBBBBB、警告黄 #FBE03E。
-// （旧值 #ECECEC 浅色条来自早期截图，与新收集的原版图不符，2026-11-23 校正。）
+// （旧值 #ECECEC 浅色条来自早期截图，与新收集的参考图不符，2026-11-23 校正。）
 const TITLE_BAR: u32 = 0x3A3B3D;
 const TRAFFIC_RED: u32 = 0xEC6A5E;
 const TRAFFIC_GRAY: u32 = 0x5E5F61;
@@ -293,7 +293,7 @@ impl TerminalWindow {
         let mut no = false;
 
         // 与其余弹窗共用 `DialogWindow` 的 Area/锚定/Frame/裁剪：
-        // `DARK_BARE` 给出与原版图逐值相同的深灰条和暗红/暗灰三点（无标题文字、无 ×），
+        // `DARK_BARE` 给出与参考图逐值相同的深灰条和暗红/暗灰三点（无标题文字、无 ×），
         // `tight + without_border + raw_controls` 保住原有绝对坐标与像素。
         use crate::ui::kit::window::{Chrome, DialogWindow};
         let _ = DialogWindow::new_sized("confirm_close", "", egui::vec2(WIN_W, h))

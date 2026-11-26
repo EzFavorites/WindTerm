@@ -75,7 +75,7 @@ const GUTTER_W: f32 = 32.0;
 const GUTTER: u32 = 0xFF0095;
 /// Interval 的步进（秒）。
 const INTERVAL_STEP: f32 = 0.25;
-/// Interval 的上下限：原版最小 20ms（见 kingtoolbox-docs/Sender-Pane/Send-Chars），
+/// Interval 的上下限：上游最小 20ms（见 kingtoolbox-docs/Sender-Pane/Send-Chars），
 /// 不是 0——「一次写完」由 Hex/连续模式自己表达，低于 20ms 只是忙等。
 const INTERVAL_MIN: f32 = 0.02;
 const INTERVAL_MAX: f32 = 60.0;

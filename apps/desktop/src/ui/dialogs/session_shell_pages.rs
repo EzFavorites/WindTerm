@@ -9,7 +9,7 @@ use crate::ui::*;
 
 /// 13/14 `Shell ▾ Process / Environment`：金标准 `04-new-session/shell/02..03`。
 ///
-/// 两页共用同一组字段（原版两张图逐字一致），分别是启动参数 / 工作目录 /
+/// 两页共用同一组字段（参考图两张图逐字一致），分别是启动参数 / 工作目录 /
 /// 启动后命令与延迟 / locale / 环境变量表。字段都落在 `SessionConfig` 上，
 /// 保存后可在会话库里往返。
 pub(in crate::ui) fn shell_process_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {

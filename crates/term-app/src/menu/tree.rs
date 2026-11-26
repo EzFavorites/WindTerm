@@ -311,7 +311,7 @@ pub fn menus() -> Vec<Menu> {
                 // 分四组（激活 / 锁·丢·取消 / 拆分·反转 / 流与列互换·交换）。
                 // W2 起这九条**已接线**（不再是灰显占位）：集合模型在
                 // `selection.rs` 的 `Selections`，落地在 `apply_cmd`。
-                // 语义按终端侧定，不照抄原程序的文本编辑器模型——见
+                // 语义按终端侧定，不照抄上游 WindTerm 的文本编辑器模型——见
                 // `docs/design/03-selection-find-scrollback.md` 的选区语义定义。
                 Item::Separator,
                 Item::Action {
@@ -515,7 +515,7 @@ pub fn menus() -> Vec<Menu> {
                     items: vec![
                         // 官网 `01-view-menu.png` 的 Panes 子菜单只有七行：各面板的
                         // 真勾选框 + 快捷键。整带 / 隧道开关在布局按钮下拉里，
-                        // 不在这里重复，免得菜单比原版多出一串 Toggle 字样。
+                        // 不在这里重复，免得菜单比参考图多出一串 Toggle 字样。
                         Item::Check {
                             label: "Explorer",
                             id: "Window.TogglePaneExplorer",
@@ -559,7 +559,7 @@ pub fn menus() -> Vec<Menu> {
                     ],
                 },
                 Item::Separator,
-                // 2026-11-23 原版 `01-view-menu.png`：Panes 与 Syntax Schemes
+                // 2026-11-23 参考图 `01-view-menu.png`：Panes 与 Syntax Schemes
                 // 之间有一条分隔线（旧图判成连排，已纠正）。
                 Item::Submenu {
                     label: "Syntax Schemes",

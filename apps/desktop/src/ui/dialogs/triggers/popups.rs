@@ -270,7 +270,7 @@ fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui, o: egui::Pos2, view: &
         'P',
     );
     p.rect_filled(pat, egui::Rounding::ZERO, rgb(c::BG));
-    // 原版 `11` 的 Pattern 框是聚焦蓝边；夹具用环境变量钉住这一态。
+    // 参考图 `11` 的 Pattern 框是聚焦蓝边；夹具用环境变量钉住这一态。
     let pat_focus = std::env::var_os("WINDTERM_TRIG_FOCUS_MATCH").is_some();
     p.rect_stroke(
         pat,

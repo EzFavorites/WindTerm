@@ -1,4 +1,4 @@
-//! W6-C3 真握手用例：进程内起一个真 russh 服务端，把 `ChannelOpener::exec` →
+//! 真握手用例：进程内起一个真 russh 服务端，把 `ChannelOpener::exec` →
 //! `exec_capture` 这条链整个跑一遍。
 //!
 //! 不 mock 掉 russh，是因为这一刀最值钱的恰恰是「库到底把 exec 请求翻译成什么」：

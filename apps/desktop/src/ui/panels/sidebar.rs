@@ -19,7 +19,7 @@ pub(in crate::ui) fn uses_builtin_ssh(config: &SessionConfig) -> bool {
 }
 
 /// 导入的**文本来源**由投影层决定（读哪个文件是 IO），解析全在导入层的纯函数里
-/// （旧四种来源经 `term_runtime::import_sessions` 再导出，原版 `user.sessions`
+/// （旧四种来源经 `term_runtime::import_sessions` 再导出，上游 `user.sessions`
 /// 直连 `term_import::sessions`）。这里只负责「找到文件」：
 /// 候选根目录统一来自 `term_import::discovery`，与首次引导共用一份口径
 /// （此前两处各写三行候选路径，改一处漏一处）。
@@ -37,7 +37,7 @@ fn import_text(source: &str) -> Vec<String> {
             // 于是「引导探不到、侧栏能导入」。
             let roots = term_import::discovery::candidate_windterm_roots();
             let exports = term_import::discovery::find_profile_exports_in(&roots);
-            // 原版 `terminal/user.sessions`（扁平 JSON）+ 旧格式的 `.wind` / `.json`
+            // 上游 `terminal/user.sessions`（扁平 JSON）+ 旧格式的 `.wind` / `.json`
             // 会话导出。发现层已经按路径排序去重，候选根重叠不会读两遍。
             let mut paths = exports.profiles;
             if let Some(sessions) = exports.user_sessions {
@@ -106,7 +106,7 @@ impl TerminalWindow {
             let mut batch = match source {
                 "OpenSSH" => term_runtime::import_sessions::parse_ssh_config(text),
                 "WindTerm" => {
-                    // 先认原版 `user.sessions`（按 session.protocol 分流）；认不出
+                    // 先认上游 `user.sessions`（按 session.protocol 分流）；认不出
                     // 再退回旧的宽松 `.wind`/`.json` 解析。导入仍是一次显式动作，
                     // 不建连接、不碰主题。
                     let parsed = term_import::sessions::parse_windterm_sessions(text);

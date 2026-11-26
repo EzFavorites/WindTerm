@@ -670,7 +670,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Downloading to a temporary file" => "正在下载到临时文件",
         "Could not download the file" => "无法下载这个文件",
         "Not connected to SFTP" => "未连接 SFTP",
-        // ── D8-3：脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
+        // ── 脚本编辑器（`apps/desktop/src/ui/overlays/script_editor.rs`）──
         // 语法高亮的颜色与 token 名是数据，不进词表；这里是窗口 chrome 与按钮。
         "Script Editor" => "脚本编辑器",
         "Run" => "运行",
@@ -682,7 +682,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Done" => "完成",
         "Failed" => "失败",
         "Go to line {n}" => "跳到第 {n} 行",
-        // ── D8-4：「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
+        // ── 「运行脚本」窗口的两份清单（`ui/terminal/script_library.rs`）──
         // 列头 + 两种空态。文件名是**数据**，不进词表。
         "Library" => "脚本库",
         "Recent" => "最近",

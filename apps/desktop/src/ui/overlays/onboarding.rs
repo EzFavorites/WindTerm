@@ -39,7 +39,7 @@ use term_app::onboarding::{DetectedHost, OnboardingState, Step};
 use term_runtime::import_sessions::{
     parse_ssh_config as parse_ssh, parse_windterm, ImportedSession,
 };
-// 原版 `user.sessions` 的扁平 JSON 走 term-import 的新解析器：它按协议拆 target，
+// 上游 `user.sessions` 的扁平 JSON 走 term-import 的新解析器：它按协议拆 target，
 // 不会像旧的宽松解析器那样把 9 条都读成 0 条。
 use term_import::sessions::parse_windterm_sessions;
 
@@ -158,7 +158,7 @@ impl TerminalWindow {
             .cloned()
             .collect();
         let mut added = merge_detected(&mut self.sessions, &mut self.groups, picked);
-        // 原版 `user.sessions` 不摊成 DetectedHost：那个结构把协议硬编码成 Ssh，
+        // 上游 `user.sessions` 不摊成 DetectedHost：那个结构把协议硬编码成 Ssh，
         // Telnet / Tcp / Shell 会被改错。这里直接走侧栏落库用的 ImportedSession，
         // 由解析器保留协议、用户名与端口（「走侧栏落库」这一支）。
         added += merge_imported(
@@ -206,7 +206,7 @@ fn merge_detected(
     added
 }
 
-/// 把原版 `user.sessions` 的解析结果并进会话树，保留每条自己的协议 / 端口 / 用户。
+/// 把上游 `user.sessions` 的解析结果并进会话树，保留每条自己的协议 / 端口 / 用户。
 /// 与 [`merge_detected`] 同一套撞名策略（改名不覆盖），但不去改协议。
 fn merge_imported(
     sessions: &mut Vec<SessionConfig>,
@@ -232,7 +232,7 @@ fn merge_imported(
     added
 }
 
-/// 原版 `user.sessions`：发现层给出的路径只查一次，解析走 `parse_windterm_sessions`。
+/// 上游 `user.sessions`：发现层给出的路径只查一次，解析走 `parse_windterm_sessions`。
 /// 读不到 / 一条都没有就是「这台机器上没有」，不伪造。
 fn detect_windterm_sessions() -> Vec<ImportedSession> {
     let roots = term_import::discovery::candidate_windterm_roots();

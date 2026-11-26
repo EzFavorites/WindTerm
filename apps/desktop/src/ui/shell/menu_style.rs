@@ -405,8 +405,8 @@ pub(in crate::ui) fn apply_popup_style(ui: &mut egui::Ui) {
     w.inactive.bg_stroke = egui::Stroke::NONE;
     w.active.bg_stroke = egui::Stroke::NONE;
     // 行与行之间不留 egui 的默认 3pt 间距：菜单行自己带上下留白
-    // （[`MENU_ROW_PAD_Y`]），再加一行间距会让节距变成 31，整张菜单比原版
-    // `01-*-menu.png` 的 28 松一档。原版行是紧挨着排的（高亮块 27、分隔线 1），
+    // （[`MENU_ROW_PAD_Y`]），再加一行间距会让节距变成 31，整张菜单比参考图
+    // `01-*-menu.png` 的 28 松一档。参考图里的行是紧挨着排的（高亮块 27、分隔线 1），
     // `allocate_exact_size` 每行紧接下一行才是正解。
     ui.spacing_mut().item_spacing.y = 0.0;
 }
@@ -458,7 +458,7 @@ pub(in crate::ui) const POPUP_INNER_X: f32 = 4.0;
 pub(in crate::ui) const MENU_ROW_PAD_X: f32 = 8.0;
 /// 行内文字上下留白（行高 = 字高 + 2×这个值）。
 ///
-/// 2026-11-23：原版 `01-menu-bar/*/01-*-menu.png` 的行节距是 **28px**
+/// 2026-11-23：参考图 `01-menu-bar/*/01-*-menu.png` 的行节距是 **28px**
 /// （`search` 的高亮行 27 + 1 分隔线 = 28，`mode` / `view` / `window` 三张图
 /// 的分隔线间距也全是 28 的整数倍）。本程序字高 14，留白 7 → 行高 28；
 /// 之前看起来「间距偏大」不是这个值，而是 egui 默认的 3pt 行间距把节距

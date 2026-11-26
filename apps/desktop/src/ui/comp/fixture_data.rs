@@ -2,7 +2,7 @@
 
 use crate::ui::TerminalWindow;
 
-/// 原版 `09-panels/session-tree.png`：Shell sessions 分组 + 8 行会话。
+/// 参考图 `09-panels/session-tree.png`：Shell sessions 分组 + 8 行会话。
 pub(in crate::ui) fn seed_session_tree(win: &mut TerminalWindow) {
     win.groups = vec!["Shell sessions".to_string()];
     let rows: [(&str, Option<u32>); 10] = [
@@ -30,7 +30,7 @@ pub(in crate::ui) fn seed_session_tree(win: &mut TerminalWindow) {
     win.selected_session = 0;
 }
 
-/// 原版会话树面板的标题带：蓝方块 + Session + 齿轮 + ×。
+/// 参考图会话树面板的标题带：蓝方块 + Session + 齿轮 + ×。
 pub(in crate::ui) fn draw_session_tree_title(ui: &mut egui::Ui) {
     let top = ui.max_rect().min;
     let bar = egui::Rect::from_min_size(top, egui::vec2(268.0, 21.0));

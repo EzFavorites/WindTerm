@@ -137,7 +137,7 @@ pub(in crate::ui) enum CompId {
     MenuView,
     MenuWindow,
     MenuHelp,
-    /// 原版子菜单展开态（`menu_submenu_*`），路径表在 `submenu_fixtures`。
+    /// 参考图的子菜单展开态（`menu_submenu_*`），路径表在 `submenu_fixtures`。
     MenuSubmenu(u8),
 }
 
@@ -271,7 +271,7 @@ impl TerminalWindow {
                 self.draw_shortcuts(ctx);
             }
             comp::CompId::SessionLog => {
-                // 原版没有独立 Log 面板：它就是 New Session ▸ SSH ▸ Terminal ▸
+                // 上游没有独立 Log 面板：它就是 New Session ▸ SSH ▸ Terminal ▸
                 // Logging 子页（`02-session-dialog/ssh/12-ssh-logging.png`）。
                 // 这里定格 Shell 协议 + Logging 页 + 出厂日志配置。
                 self.log_settings = dialogs::LogSettingsData::default(); self.view.show_log_settings = false;
@@ -477,7 +477,7 @@ impl TerminalWindow {
                 });
             }
             comp::CompId::ConfirmCloseWindow | comp::CompId::ConfirmCloseSession => {
-                // 复选框按原版图 `07-dialogs/confirm-*.png` 画成未勾选（默认态）；
+                // 复选框按参考图 `07-dialogs/confirm-*.png` 画成未勾选（默认态）；
                 // pending 直接摆好，弹窗绘制与交互路径同一份代码。
                 self.confirm.pending = Some(match comp {
                     comp::CompId::ConfirmCloseSession => {
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn every_settings_page_has_exactly_one_registered_component() {
         // 与 New Session 同一条契约：一页一张图。Preferences 21 页
-        // （原版 19 + Triggers / OneKeys），漏一页就没人发现内容改了。
+        // （上游 19 + Triggers / OneKeys），漏一页就没人发现内容改了。
         let pages: Vec<u8> = CompId::ALL
             .iter()
             .filter_map(|c| match c {
@@ -672,7 +672,7 @@ mod tests {
         assert!(CompId::ALL.iter().any(|c| c.has_baseline()));
         assert!(CompId::About.has_baseline());
         assert!(CompId::NewSessionPage(0).has_baseline());
-        // Preferences 的每一页都出图并参与逐字节比对（OneKeys 已按原版
+        // Preferences 的每一页都出图并参与逐字节比对（OneKeys 已按参考图
         // Sessions 图重冻，`dialog_settings_onekeys.png` 进了 git）。
         assert!(CompId::SettingsPage(0).has_baseline());
         assert!(CompId::SettingsPage(21).has_baseline());

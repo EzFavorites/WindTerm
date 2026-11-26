@@ -69,7 +69,7 @@ impl TerminalWindow {
     /// （顶部对齐），菜单文字因此在 21px 的条里整体偏上 2.75px。改成由调用点
     /// 用 `horizontal_centered` 提供居中的布局，这里只按顺序摆菜单按钮。
     pub(in crate::ui) fn draw_menu(&mut self, ui: &mut egui::Ui) {
-        // 只在本条菜单的绘制窗口里改全局 widget 样式：原版顶级按钮 hover 是
+        // 只在本条菜单的绘制窗口里改全局 widget 样式：参考图顶级按钮 hover 是
         // 与展开态同一块蓝（不是主题灰），画完必须还原，免得整窗其它按钮跟着变蓝。
         let prev_hover = ui.style().visuals.widgets.hovered.weak_bg_fill;
         flat_menu_style(ui.style_mut());
@@ -117,7 +117,7 @@ fn flat_menu_style(style: &mut egui::Style) {
     // 悬停仍保持 #2A2A2A（新截图没拍到悬停态，维持旧观察）。
     w.open.weak_bg_fill = col(MENU_HIGHLIGHT);
     w.open.bg_stroke = Stroke::NONE;
-    // 原版顶级按钮 hover 与展开同色（0x007CD2），不是主题灰 #2A2A2A。
+    // 参考图顶级按钮 hover 与展开同色（0x007CD2），不是主题灰 #2A2A2A。
     w.hovered.weak_bg_fill = col(MENU_HIGHLIGHT);
     w.hovered.bg_stroke = Stroke::NONE;
     w.active.bg_stroke = Stroke::NONE;

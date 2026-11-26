@@ -31,7 +31,7 @@ pub(super) fn action_combo(
 ) -> egui::Rect {
     let (_, top, h) = spec::action::COMBO;
     let r = egui::Rect::from_min_size(base + egui::vec2(0.0, top), egui::vec2(spec::BODY.2, h));
-    // 原版 `02-trigger/04`（After connection）里 Action 下拉未展开时也是蓝色
+    // 参考图 `02-trigger/04`（After connection）里 Action 下拉未展开时也是蓝色
     // 聚焦框——它是进入页面后的默认焦点控件，不是只有菜单展开才亮。
     if combo(ui, r, kind.label(), true).clicked() {
         view.toggle_at(Open::Action, r);
@@ -129,7 +129,7 @@ pub(super) fn os_rows(
     os_tabs(ui, base, layout.tabs_top, layout.tabs_h, view);
     let os = view.os.min(2);
     for (k, top) in layout.rows.iter().enumerate() {
-        // 原版 `04` / `10` 的 Command / Arguments / Working Directory 三行
+        // 参考图 `04` / `10` 的 Command / Arguments / Working Directory 三行
         // 标签首字母都带助记符下划线，不是裸文字。
         label_ul(
             ui,

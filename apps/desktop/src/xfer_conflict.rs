@@ -1,6 +1,6 @@
 //! X/Y/ZMODEM 接收侧的同名冲突策略（纯函数）。
 //!
-//! 原版（官网 page/14）列了七档：overwrite / newer / newer and longer /
+//! 上游 WindTerm（官网 page/14）列了七档：overwrite / newer / newer and longer /
 //! append / resume / rename / skip。这里只做判据：给一个目标路径与「对端声明的
 //! 元信息」，返回该写哪个文件、以什么方式写，或跳过。
 //! 不碰 IO、不碰时间：调用方负责 stat 并把结果传进来。

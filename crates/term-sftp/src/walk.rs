@@ -191,7 +191,7 @@ impl std::fmt::Display for ScanError {
             ScanError::Entry { path, source } => {
                 write!(f, "读不到 {} 的类型：{source}", path.display())
             }
-            // 文案与 B1a 之前 `plan_remote` 里那句逐字一致：它是对外可见的
+            // 文案与早期 `plan_remote` 里那句逐字一致：它是对外可见的
             // （`Event::Failed { message }` 会原样显示），换个说法就是换行为。
             ScanError::RemoteNotADirectory { root } => {
                 write!(f, "远端路径不是目录：{root}（-r 只传目录，单文件请去掉 -r）")

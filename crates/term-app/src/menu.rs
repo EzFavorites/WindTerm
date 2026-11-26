@@ -178,9 +178,9 @@ pub enum Item {
 pub fn access_char_pos(label_en: &str) -> Option<usize> {
     const EXCEPTIONS: &[(&str, &str)] = &[
         ("New Window", "Window"),
-        // 原版 `menu.config` 写的是 `Open Rece&nt`——划的是 n，不是 Recent 的 R。
+        // 上游 `menu.config` 写的是 `Open Rece&nt`——划的是 n，不是 Recent 的 R。
         ("Open Recent", "nt"),
-        // 以下五条同样按原版 `menu.config` 的 `&` 位置取词，避免同级的
+        // 以下五条同样按上游 `menu.config` 的 `&` 位置取词，避免同级的
         // Select / Syntax / Window 重复占首字母。
         ("Select To", "To"),
         ("Select Column To", "Column"),
@@ -197,7 +197,7 @@ pub fn access_char_pos(label_en: &str) -> Option<usize> {
         // Mode 菜单（视觉基线）：同一菜单里 `F̲ocus Mode` 先占了 F，
         // 紧跟的 `Focus Mode S̲ettings...` 于是划 Settings 的 S——视觉基线就是这样。
         ("Focus Mode Settings", "Settings"),
-        // View ▸ Hex（原版 `01-view-menu.png`）：三行都以 `Hex ` 开头，
+        // View ▸ Hex（参考图 `01-view-menu.png`）：三行都以 `Hex ` 开头，
         // 下划线钉在第二个词的首字母上（`Hex B̲ase` / `Hex C̲olumns` /
         // `Hex G̲roup Chars`），不是每行都重复的 `H`。
         ("Hex Base", "Base"),
@@ -246,7 +246,7 @@ fn usable_access_char(c: char) -> bool {
 ///
 /// `access_char_pos` 只认单条英文标签，不知道旁边那行占了哪个字母，于是
 /// `Select*` / `Margin*` / `Show*` 这些同族行全划首字，按 Alt+S 根本分不清。
-/// 这里在原版优先位置（`keys`）之上加一道同级去重：先用原版的词位，撞了就在
+/// 这里在上游优先位置（`keys`）之上加一道同级去重：先用上游的词位，撞了就在
 /// 本行**实际显示的文字**（`shown`，中文时与英文不同）里往后找没被占的字符，
 /// 再从头兜一圈；整行都撞才留空。返回顺序与 `shown` 一一对应。
 pub fn access_positions_unique(shown: &[&str], keys: &[&str]) -> Vec<Option<usize>> {
@@ -411,7 +411,7 @@ mod tests {
         // 下划线：默认首字母，例外词取词首。
         assert_eq!(access_char_pos("Save Session"), Some(0));
         assert_eq!(access_char_pos("New Window"), Some(4));
-        assert_eq!(access_char_pos("Open Recent"), Some(9)); // 原版 Open Rece&nt
+        assert_eq!(access_char_pos("Open Recent"), Some(9)); // 上游写法 Open Rece&nt
         assert_eq!(access_char_pos("Save Selection As"), Some(5));
         assert_eq!(access_char_pos("Close All Views"), Some(6));
         assert_eq!(access_char_pos("Close Window"), Some(6));
@@ -481,7 +481,7 @@ mod tests {
         );
     }
 
-    /// 原版 `menu.config` 里显式写 `&` 的几处：下划线位置必须与它一致。
+    /// 上游 `menu.config` 里显式写 `&` 的几处：下划线位置必须与它一致。
     #[test]
     fn original_ampersand_positions_are_preserved() {
         assert_eq!(access_char_pos("Open Recent"), Some(9));

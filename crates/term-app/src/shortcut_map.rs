@@ -7,7 +7,7 @@
 //! 这里收成一份：
 //!
 //! - [`BindingRow`] 是语义事实：`命令 ID → 按键序列文本`，`Cmd` 表示「平台主修饰键」
-//!   （macOS = Command / 原版写作 `Meta`，Win/Linux = Ctrl），`Ctrl` 表示字面 Ctrl；
+//!   （macOS = Command / 上游写作 `Meta`，Win/Linux = Ctrl），`Ctrl` 表示字面 Ctrl；
 //! - [`KeyBindingMap`] 把出厂表与用户覆盖合成一张表，提供正向（命令 → 展示）、
 //!   反向（按键 → 命令）与冲突检测；
 //! - [`Platform`] 只负责**展示**：同一份绑定在 macOS 显示 `Meta+F`，在 Windows 显示
@@ -64,7 +64,7 @@ impl Platform {
         }
     }
 
-    /// 平台主修饰键在菜单里的写法。原版 macOS 截图用 `Meta`，不是 `⌘`。
+    /// 平台主修饰键在菜单里的写法。参考图里 macOS 用 `Meta`，不是 `⌘`。
     pub fn primary_label(self) -> &'static str {
         match self {
             Platform::Macos => "Meta",
@@ -112,7 +112,7 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     // （OSC 133 命令块）；Local Mode 对应 zk/zj，在 vim.rs 里解析。
     BindingRow { id: "Text.GotoPreviousCommand", chord: "Cmd+Shift+Left" },
     BindingRow { id: "Text.GotoNextCommand", chord: "Cmd+Shift+Right" },
-    // View ▸ Bars / Panes 的短标签 + 两段式快捷键（原版截图逐项抄）。
+    // View ▸ Bars / Panes 的短标签 + 两段式快捷键（参考图逐项抄）。
     BindingRow { id: "Window.ToggleMenuBar", chord: "Alt+W, Alt+M" },
     BindingRow { id: "Window.ToggleStatusBar", chord: "Alt+W, Alt+U" },
     BindingRow { id: "Window.ToggleQuickBar", chord: "Alt+W, Alt+Q" },
@@ -181,7 +181,7 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
 /// 把绑定文本里的 `Cmd+` 换成平台主修饰键写法，其余 token 原样保留。
 ///
 /// 两段式键按 `, ` 分段分别格式化；字面 `Ctrl+` 在任何平台都显示 `Ctrl+`，
-/// 这正是原版 macOS 截图里 `Ctrl+Return` 与 `Meta+Alt+L` 并存的原因。
+/// 这正是参考图里 `Ctrl+Return` 与 `Meta+Alt+L` 并存的原因。
 pub fn display_chord(chord: &str, platform: Platform) -> String {
     chord
         .split(',')
@@ -192,8 +192,8 @@ pub fn display_chord(chord: &str, platform: Platform) -> String {
                     if token.eq_ignore_ascii_case("Cmd") {
                         return platform.primary_label();
                     }
-                    // 解析层的键名（shortcuts.rs 的 KEY_NAMES）与菜单列的原版
-                    // 写法不同：前者写 Minus/OpenBracket，原图写 -/[。
+                    // 解析层的键名（shortcuts.rs 的 KEY_NAMES）与参考图里的菜单
+                    // 写法不同：前者写 Minus/OpenBracket，参考图写 -/[。
                     match token {
                         "Minus" => "-",
                         "Equal" => "=",

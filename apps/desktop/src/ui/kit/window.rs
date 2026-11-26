@@ -74,7 +74,7 @@ impl Chrome {
         close: None,
     };
 
-    /// 关闭确认弹窗（原版图 `07-dialogs/confirm-*.png`）：深灰标题条 #3A3B3D +
+    /// 关闭确认弹窗（参考图 `07-dialogs/confirm-*.png`）：深灰标题条 #3A3B3D +
     /// 暗红/暗灰三点 + 无标题文字与 ×。与 `LIGHT_BARE` 唯一的区别是配色。
     pub(in crate::ui) const DARK_BARE: Self = Self {
         title_bar: 0x3A3B3D,
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn dark_bare_chrome_matches_the_measured_golden() {
-        // 原版 `07-dialogs/confirm-*.png` 实测色值。
+        // 参考图 `07-dialogs/confirm-*.png` 实测色值。
         assert_eq!(Chrome::DARK_BARE.title_bar, 0x3A3B3D);
         assert_eq!(Chrome::DARK_BARE.traffic, [0xEC6A5E, 0x5E5F61, 0x5E5F61]);
         assert!(Chrome::DARK_BARE.title_text.is_none());

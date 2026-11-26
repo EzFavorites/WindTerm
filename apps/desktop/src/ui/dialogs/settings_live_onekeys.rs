@@ -57,14 +57,14 @@ use term_core::onekey::OneKey;
 
 // ── 实测几何（逻辑点） ──
 pub(in crate::ui) const DIALOG_W: f32 = 702.0;
-// 原版 `07-dialogs/onekeys-*.png` 实测：对话框 1408×1274 物理 ÷ 2 = 704×637。
+// 参考图 `07-dialogs/onekeys-*.png` 实测：对话框 1408×1274 物理 ÷ 2 = 704×637。
 pub(in crate::ui) const DIALOG_H: f32 = 637.0;
 const PAD: f32 = 9.0;
 const TAB_H: f32 = 23.0;
 const TAB_GAP: f32 = 11.0;
 /// 右栏字段区高度（SSH 表2 底相对主体顶 = 560）。
 const BODY_H: f32 = 560.0;
-/// 左列表框高度（原版列表底 y=1148 物理，相对主体顶 68 = 540）；
+/// 左列表框高度（参考图列表底 y=1148 物理，相对主体顶 68 = 540）；
 /// 比右栏矮 20，下面那 20 正是工具行。
 const LIST_H: f32 = 540.0;
 const LIST_W: f32 = 257.0;
@@ -108,7 +108,7 @@ pub(in crate::ui) struct OneKeysEdit {
     /// SSH 页两张表是否处于 `Modify` 编辑态（视觉基线默认是只读，只有链接）。
     pub(in crate::ui) key_editing: bool,
     pub(in crate::ui) ki_editing: bool,
-    /// 新建方案模态框（原版 `07-dialogs/onekeys-new-dialog.png`）：点 `+` 后
+    /// 新建方案模态框（参考图 `07-dialogs/onekeys-new-dialog.png`）：点 `+` 后
     /// 弹出「Enter a name for the new OneKey.」+ Name 输入框 + Cancel/Create。
     pub(in crate::ui) new_scheme_modal: bool,
     pub(in crate::ui) new_scheme_buf: String,
@@ -139,7 +139,7 @@ fn name_ok(draft: &[OneKey], at: usize, name: &str) -> bool {
             .any(|(i, k)| i != at && k.name == name)
 }
 
-/// OneKeys 的三标签复用共享页签原语，但原版 `07-dialogs/onekeys-*.png` 在
+/// OneKeys 的三标签复用共享页签原语，但参考图 `07-dialogs/onekeys-*.png` 在
 /// SSH / Account 两块各自左上角有一枚状态点（SSH 粉 #FF008E、Account 绿
 /// #00B66A，5×5 逻辑点）。共享 `kit::tabs` 被 Triggers / Modem 复用，不能
 /// 就地改，所以在这里叠加绘制——Sessions 无点。
@@ -152,7 +152,7 @@ fn onekeys_tab(
     active: bool,
     dot: Option<u32>,
 ) -> egui::Response {
-    // 不直接改共享 `kit::tabs`——Triggers / Modem 也用它。这里按原版色值
+    // 不直接改共享 `kit::tabs`——Triggers / Modem 也用它。这里按参考图色值
     // （选中字 #FFFFFF / 未选 #BBBBBB）就地画一份，并叠加状态点。
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(width, height), egui::Sense::click());
     let p = ui.painter_at(rect);
@@ -266,7 +266,7 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             ui.horizontal_centered(|ui| {
                 ui.spacing_mut().item_spacing.x = 3.0;
                 if tiny_button(ui, "+").clicked() {
-                    // 原版点 `+` 会先弹「Enter a name for the new OneKey.」模态框，
+                    // 参考图里点 `+` 会先弹「Enter a name for the new OneKey.」模态框，
                     // 由用户输入名字再 Create，不是直接塞一个 onekey_N。
                     edit.new_scheme_buf = edit
                         .draft
@@ -328,7 +328,7 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         |ui| write_footer(ui, win, &mut save, &mut close, &mut toggle_lock),
     );
 
-    // 新建方案模态框盖在最上层（原版点 `+` 后的形态）。
+    // 新建方案模态框盖在最上层（参考图点 `+` 后的形态）。
     if edit.new_scheme_modal {
         new_scheme_dialog(ui, origin, &mut edit);
     }
@@ -436,7 +436,7 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
                         continue;
                     }
                     let selected = edit.selected == Some(i);
-                    // 原版 `onekeys-account-selected-111.png`：选中行首有一枚粉色
+                    // 参考图 `onekeys-account-selected-111.png`：选中行首有一枚粉色
                     // 状态点 #FC3DB8（与 SSH 标签的粉点同色系），空态行没有。
                     let dot = ui.allocate_exact_size(
                         egui::vec2(12.0, 16.0),
@@ -490,10 +490,10 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
     });
 }
 
-/// 页脚的锁/钥匙：几何画出（原版图 `07-dialogs/onekeys-*.png` 是单色 `#FF8400`，
-/// 不是彩色 emoji），整行可点。下划线落在关键词上，和原版的加速器写法一致。
+/// 页脚的锁/钥匙：几何画出（参考图 `07-dialogs/onekeys-*.png` 是单色 `#FF8400`，
+/// 不是彩色 emoji），整行可点。下划线落在关键词上，和参考图的加速器写法一致。
 ///
-/// 原版两态文案不同：锁着 `Click the lock to make changes.`；
+/// 参考图两态文案不同：锁着 `Click the lock to make changes.`；
 /// 解锁 `Click the key to prevent further changes.`——关键词从 lock 变 key，
 /// 图标也从锁头变钥匙，颜色两态都是铜橙 #FF8400（不是绿色）。
 fn lock_hint(ui: &mut egui::Ui, unlocked: bool) -> bool {
@@ -564,7 +564,7 @@ fn write_footer(
             *toggle_lock = true;
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            // 原版：锁着时 Ok 一律禁用（图 1/图 7 空列表锁着也是灰的）；
+            // 参考图：锁着时 Ok 一律禁用（图 1/图 7 空列表锁着也是灰的）；
             // 要先点铜锁解锁，才能保存。
             let can_save = unlocked;
             if framed_button(ui, "Ok", can_save, true).clicked() {

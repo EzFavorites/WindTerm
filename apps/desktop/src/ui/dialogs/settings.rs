@@ -18,8 +18,8 @@
 //! # 后的三条硬约束
 //!
 //! 1. **默认页是 `Application`**（兼容终端打开就停在这一页），不是 `Appearance`。
-//! 2. **左栏只画 [`SettingsPage::NAV_TOP`] 那 6 项 + 三个组头**，与原版 19 页一致。
-//!    `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` 原版不存在，是 Rust 重制版
+//! 2. **左栏只画 [`SettingsPage::NAV_TOP`] 那 6 项 + 三个组头**，与上游 19 页一致。
+//!    `Shortcut Keys` / `Behaviour` / `Toolbar / Menu` 上游不存在，是 Rust 重制版
 //!    一度新增的三页，现已从设置页移除（对应 prefs 字段保留给原读者）。
 //!    `Triggers` / `OneKeys` 是重制版新增的管理页，仍由 `Terminal.ManageTriggers`
 //!    / `ManageOneKeys` 直接翻到（见 `effects.rs`）。
@@ -728,7 +728,7 @@ mod tests {
         }
     }
 
-    /// 组件基线按 `ALL` 的下标登记（21 张 PNG，与原版 19 页 + 2 个新增管理页一致）。
+    /// 组件基线按 `ALL` 的下标登记（21 张 PNG，与上游 19 页 + 2 个新增管理页一致）。
     #[test]
     fn hidden_pages_keep_their_component_baseline_slots() {
         assert_eq!(SettingsPage::ALL.len(), 21);

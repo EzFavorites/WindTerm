@@ -72,7 +72,7 @@ impl CompId {
         CompId::NewSessionPage(23),
         // Preferences 同理按**页**登记：整张弹窗那张 `dialog_settings` 只守住
         // 默认页（是 Application）的位置与外观。
-        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 21 页（原版 19 页 +
+        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 21 页（上游 19 页 +
         // Triggers / OneKeys 两个新增管理页）；其中 2 页不在左栏显示。
         CompId::SettingsPage(0),
         CompId::SettingsPage(1),
@@ -179,7 +179,7 @@ impl CompId {
             CompId::SshReplaceKey => "dialog_ssh_replace_key",
             CompId::FilerPrompt => "dialog_filer_prompt",
             CompId::ScriptRun => "dialog_script_run",
-            // D8-3 的窗口 首次冻结：编辑器只能从运行窗口的 `Edit`
+            // 窗口首次冻结：编辑器只能从运行窗口的 `Edit`
             // 进（两级入口），不单独出图就永远没人看过它的像素。
             CompId::ScriptEditor => "dialog_script_editor",
             CompId::Palette => "overlay_palette",

@@ -45,10 +45,10 @@
 //! # 模块
 //!
 //! - `sessions`：四种来源的会话导入纯解析（OpenSSH `config` / WindTerm /
-//!   PuTTY / shell 历史），外加原版 `user.sessions` 的 `parse_windterm_sessions`。
+//!   PuTTY / shell 历史），外加上游 WindTerm 的 `user.sessions` 解析 `parse_windterm_sessions`。
 //!   **有真实调用方**：`apps/desktop/src/ui/panels/sidebar.rs` 的导入按钮经
 //!   `Effect::ImportSessions` 调它。
-//! - `user_config`：原版 `user.config` 的 13 键白名单解析（哨兵两键不定义）。
+//! - `user_config`：上游 WindTerm `user.config` 的 13 键白名单解析（哨兵两键不定义）。
 //! - `discovery`：候选配置目录枚举 + `user.config` 定位，UI 两处候选路径的
 //!   唯一来源（消除侧栏 / 引导的双写）。
 //! - `theme`：主题文件的定位与读取（解析在 `term_core::theme` 的纯函数）。

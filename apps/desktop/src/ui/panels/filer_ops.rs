@@ -96,7 +96,7 @@ pub(in crate::ui) fn path_to_terminal_blocker(
 
 /// 真正送到 PTY 的文本：整条路径、**不回车**。
 ///
-/// 原版 F7 只是把路径摆到命令行上让用户接着敲命令；替他按 Enter 会把
+/// 上游 WindTerm 的 F7 只是把路径摆到命令行上让用户接着敲命令；替他按 Enter 会把
 /// 路径当成命令执行。编码仍走 `paste_bytes_for`（括号粘贴 / 控制字符过滤
 /// 与粘贴、Sender 同一份），不另造一条写 PTY 的漏斗。
 pub(in crate::ui) fn path_to_terminal_text(path: &str) -> String {

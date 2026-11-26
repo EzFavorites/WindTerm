@@ -394,7 +394,7 @@ pub struct TerminalWindow {
     center_input: String,
     /// V1-3：锁屏主密码的跨帧缓冲（受控输入，不进 ViewState）。
     lock_password: String,
-    /// 锁屏密码框的「显示明文」开关（原版密码框右侧的小眼睛）。
+    /// 锁屏密码框的「显示明文」开关（参考图密码框右侧的小眼睛）。
     show_lock_password: bool,
     /// V1-2：快捷键映射层（出厂表 + 用户覆盖 + 平台展示）与重绑捕获态。
     /// 捕获态记的是**命令 ID**，不是表下标——表增删项不会把用户绑定挪到别的命令。
@@ -698,7 +698,7 @@ pub struct TerminalWindow {
     /// 在 `ViewState::show_preview`，两边只在 `open_preview_*` / `close_preview`
     /// 三处一起改（与 `onboarding` 同一条边界）。
     preview: overlays::PreviewState,
-    /// D8-3：脚本编辑器。`None` = 没开过；`Some` 里带着可编辑缓冲与运行句柄。
+    /// 脚本编辑器。`None` = 没开过；`Some` 里带着可编辑缓冲与运行句柄。
     /// 与 `script`（只读路径的运行窗口）分开：那个按路径跑一次，这个能改能存。
     script_editor: Option<overlays::ScriptEditorState>,
 }
@@ -1192,7 +1192,7 @@ impl TerminalWindow {
         self.draw_script_dialog(ctx);
         // 「脚本」停靠面板：每帧收一次运行结果（无论面板可见与否）。
         self.poll_script_panel();
-        // D8-3：脚本编辑器（从「运行脚本」窗口的 Edit 进入）。默认没有状态，
+        // 脚本编辑器（从「运行脚本」窗口的 Edit 进入）。默认没有状态，
         // 一行都不画。
         self.draw_script_editor(ctx);
         // ：传输的路径输入弹层（发要文件、收要目录）。默认关闭。
