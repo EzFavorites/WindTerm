@@ -507,6 +507,12 @@ pub struct Prefs {
     /// 出厂 false：断线重连会往远端重新发包，不能替用户默认打开。
     #[serde(default)]
     pub auto_reconnect: bool,
+    /// 自动重连的**全局参数**。与上面的老布尔开关并存：老文件缺这一项时
+    /// 回落到出厂策略（关闭 + 1/2/30/180/12），且老 `auto_reconnect=true`
+    /// 仍由 [`Prefs::effective_reconnect`] 接住，不会因为新字段缺省而失效。
+    /// 有意**没有**全局设置页 UI：这是一份可手改的高级参数，不是常用开关。
+    #[serde(default)]
+    pub reconnect_policy: term_core::session::ReconnectPolicy,
     /// 整窗主题名，取值来自 `term_core::theme::BUILTIN_THEME_NAMES`。
     ///
     /// 这里必须写 `#[serde(default = "default_theme_name")]` 而不是裸
@@ -812,6 +818,7 @@ impl Default for Prefs {
             auto_hide_menu_bar: false,
             lock_timeout_secs: 1800,
             auto_reconnect: false,
+            reconnect_policy: term_core::session::ReconnectPolicy::default(),
             theme_name: default_theme_name(),
             prefer_theme_fonts: false,
             tab_hover_activate: false,
@@ -866,6 +873,15 @@ where
 }
 
 impl Prefs {
+    /// 全局重连策略的生效值：老布尔开关 `auto_reconnect` 与新的参数策略
+    /// 合并。两处出厂都关，所以默认值仍是关闭；老文件只有布尔时也能照旧工作。
+    ///
+    /// 这是构造窗口时**唯一**的读取口（`ui/construct.rs`），别在别处再
+    /// `prefs.auto_reconnect || prefs.reconnect_policy.enabled` 写第二份。
+    pub fn effective_reconnect(&self) -> term_core::session::ReconnectPolicy {
+        self.reconnect_policy.with_legacy(self.auto_reconnect)
+    }
+
     /// 日志配置 → 领域选项。**这是 `prefs.json` 那五个字段的唯一下游**：
     /// 配置界面、无头桥接、写入端都从这里取，别各自再解释一遍
     /// `1 = 覆盖 / 2 = 追加` 之类的序号。
@@ -2010,7 +2026,24 @@ mod tests {
         assert_eq!(back.lock_timeout_secs, 1800, "老文件缺键 = 文档默认 30 分钟");
         assert!(!Prefs::default().auto_reconnect, "出厂不自动重连");
         assert!(!back.auto_reconnect, "老文件缺键 = 仍不自动重连");
+        assert_eq!(
+            back.reconnect_policy,
+            term_core::session::ReconnectPolicy::default(),
+            "老文件缺重连策略键 = 出厂参数（关闭 + 1/2/30/180/12）"
+        );
+        assert!(!back.effective_reconnect().enabled);
         assert_eq!(back.language, "en", "其余字段不许被连坐");
+    }
+
+    #[test]
+    fn a_legacy_auto_reconnect_true_survives_the_new_policy_field() {
+        let path = tmp();
+        std::fs::write(&path, r#"{"language":"en","auto_reconnect":true}"#).unwrap();
+        let back = load_from(&path).expect("老文件仍能读");
+        // 新策略字段缺省关闭，但老开关要接住，不能让升级静默关掉用户的选择。
+        assert!(back.effective_reconnect().enabled);
+        assert_eq!(back.effective_reconnect().initial_secs, 1);
+        assert_eq!(back.effective_reconnect().retry_window_secs, 180);
     }
 
     #[test]

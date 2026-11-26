@@ -443,3 +443,77 @@ fn a_send_later_survives_a_one_second_auto_reconnect_and_fires() {
     assert_eq!(tab.triggers.pending_count(), 0, "到期项必须被取走，不能重复发");
     super::session::set_test_now(None);
 }
+
+/// 一条会报 `serial disconnected` 的假串口通道：`poll()` 一直有事实，
+/// `finished()` 却是 false（设备仍在册）——这正是「串口无边沿」的成因。
+struct HangingUpSerialChannel;
+
+impl term_core::channel::TermChannel for HangingUpSerialChannel {
+    fn drain(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
+    fn write(&mut self, _bytes: &[u8]) {}
+    fn resize(&mut self, _cols: usize, _rows: usize) {}
+    fn poll(&mut self) -> Option<String> {
+        Some("serial disconnected".to_string())
+    }
+    fn finished(&self) -> bool {
+        false
+    }
+    fn close(&mut self) {}
+    fn description(&self) -> &str {
+        "serial hangup"
+    }
+}
+
+#[test]
+fn a_serial_channel_that_is_not_alive_produces_a_disconnect_edge() {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        SessionConfig::new(term_core::session::Protocol::Serial),
+        Box::new(HangingUpSerialChannel),
+        egui::Id::new("serial-hangup-edge"),
+        &ctx,
+    );
+    assert!(tab.session.is_some(), "夹具先带一条活会话");
+
+    crate::ui::lifecycle_test_support::eventually("串口 !alive 产生断开边沿", || {
+        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+        tab.session.is_none()
+    });
+    // 边沿来自 `status().alive == false`，不是显式 Disconnect：blocked 不能置，
+    // 否则设备插回来后自动重连会被永久挡住。
+    assert!(!tab.auto_reconnect_blocked, "设备暂缺是可重试失败");
+}
+
+#[test]
+fn a_first_failed_reconnect_still_schedules_the_next_attempt() {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let mut cfg = SessionConfig::new(term_core::session::Protocol::Serial);
+    cfg.reconnect.enabled = Some(true);
+    let tab = crate::ui::terminal::make_tab_with_channel(
+        &pool,
+        cfg,
+        Box::new(WriteChannel {
+            writes: Writes::default(),
+            finished: false,
+        }),
+        egui::Id::new("first-failed-reconnect"),
+        &ctx,
+    );
+    let name = tab.config.name.clone();
+    let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, vec![tab]);
+    win.reconnect.global = term_core::session::ReconnectPolicy::from_enabled(true);
+
+    // 同步建连失败的新 tab 不会产生断开边沿；必须在这里显式排下一次，
+    // 否则 180s 窗口第一次尝试就断了。这里走的是墙钟 `crate::now_secs()`，
+    // 不用可注入的测试时钟，所以只断言「排上了 + 延迟约 1s」。
+    let before = crate::now_secs();
+    win.schedule_failed_attempt(0, &name);
+    let at = win.tabs[0].auto_reconnect_at.expect("首次失败仍要排下一次");
+    assert!(at >= before + 1 && at <= crate::now_secs() + 2, "下一次约 1s 退避：{at}");
+    assert_eq!(win.tabs[0].auto_reconnect_attempts, 1);
+}

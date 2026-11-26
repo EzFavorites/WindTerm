@@ -11,6 +11,7 @@ use crate::ui::dialogs::ssh_connect::{
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use term_core::onekey::OneKey;
+use term_core::session::Protocol;
 // ④-0：落位时要按「窗格身份」建 group。
 use crate::ui::layout::PaneGroup;
 use crate::ui::layout::mint_pane_identity;
@@ -35,6 +36,23 @@ impl TerminalWindow {
     pub(in crate::ui) fn begin_builtin_ssh(&mut self, config: SessionConfig, password: Option<String>) {
         // 默认落在标签栏末尾——侧栏「连接」与表单「Create & Connect」都是这个落点。
         self.begin_builtin_ssh_with(config, password, PendingOpen::Append);
+    }
+
+    /// 自动重连专用的内置 SSH 发起口：除了落位，还把这次尝试标记为「自动」，
+    /// 于是失败时才能按退出原因决定是否显式排下一次（手动重连失败不排）。
+    pub(in crate::ui) fn begin_auto_reconnect_ssh(
+        &mut self,
+        config: SessionConfig,
+        pending: PendingOpen,
+        gen: u64,
+    ) {
+        self.begin_builtin_ssh_with(config, None, pending);
+        if let Some(c) = self.connector.as_mut() {
+            c.mark_auto(gen);
+        }
+        // `begin_builtin_ssh_with` 会自己再领一个号；把它退回本次尝试的代数，
+        // 否则刚发起的连接立刻被 `poll_connector` 的过期检查丢掉。
+        self.reconnect.set_gen(gen);
     }
 
     /// 同 [`begin_builtin_ssh`](Self::begin_builtin_ssh)，但指定**连上之后落在哪儿**。
@@ -81,7 +99,7 @@ impl TerminalWindow {
                     .filter(|p| !p.is_empty())
             });
         let home = dirs::home_dir();
-        let connector = match ask(&config, password.as_deref(), &answers, home.as_deref()) {
+        let mut connector = match ask(&config, password.as_deref(), &answers, home.as_deref()) {
             Ask::Connect(auth) => {
                 let mut c = Connector::new(config, Step::Connecting).with_pending(pending);
                 c.launch(auth, &self.ctx);
@@ -94,6 +112,9 @@ impl TerminalWindow {
             // 连不上就没有「落在哪儿」这回事，但 pending 还是记着——用户可能重试。
             Ask::Unsupported(message) => Connector::failed(config, message).with_pending(pending),
         };
+        // 每次发起都领一个新的 epoch。异步回调落地前会核对它，避免
+        // `PendingOpen::Replace` 与「到期重连」竞态时旧回调顶掉新会话。
+        connector.gen = self.reconnect.next_gen();
         // 换了目标就把旧的丢掉：同时只做一件事，避免两个对话框叠着问。
         self.connector = Some(connector);
         self.ssh_password.clear();
@@ -130,6 +151,23 @@ impl TerminalWindow {
 
     /// 每帧收一次后台结果。
     pub(in crate::ui) fn poll_connector(&mut self) {
+        // 过期回调：`PendingOpen::Replace` 与「到期重连」可能同时指向同一槽位。
+        // 落地前必须核对 epoch（是不是最新一次尝试）+ 槽位上还是不是同一条
+        // 会话名（用户可能已经把它关掉 / 换成别的机器），否则旧回调会把
+        // 新会话顶掉，或者把结果贴到一条不相干的标签上。
+        if let Some(c) = self.connector.as_ref() {
+            let slot_matches = match c.pending {
+                PendingOpen::Replace { slot } => self
+                    .tabs
+                    .get(slot)
+                    .is_some_and(|t| t.config.name == c.config.name),
+                _ => true,
+            };
+            if self.reconnect.stale(c.gen) || !slot_matches {
+                self.connector = None;
+                return;
+            }
+        }
         let Some(connector) = self.connector.as_mut() else {
             return;
         };
@@ -145,6 +183,10 @@ impl TerminalWindow {
                 self.adopt_channel(connector.config, channel, auth, connector.pending);
             }
             Some(Err(e)) => {
+                let kind = super::super::reconnect::exit_kind_for_ssh(&e);
+                let pending = connector.pending;
+                let auto = connector.auto;
+                let name = connector.config.name.clone();
                 let password_auth = connector
                     .auth
                     .as_ref()
@@ -167,6 +209,21 @@ impl TerminalWindow {
                     Next::ShowError { message } => {
                         connector.rx = None;
                         connector.step = Step::Failed { message };
+                    }
+                }
+                // 内置 SSH 是默认路径，只处理 `make_tab` 的同步失败会把这一整类
+                // 断线漏掉。这里按同一个退出分类收口：终止性立即停（并把这条
+                // 标签标成 blocked，避免别的边沿又把它排上），可重试显式排下一次。
+                if auto {
+                    if let PendingOpen::Replace { slot } = pending {
+                        if kind.allows_reconnect() {
+                            self.schedule_failed_attempt(slot, &name);
+                        } else if let Some(tab) = self.tabs.get_mut(slot) {
+                            if tab.config.name == name {
+                                tab.auto_reconnect_blocked = true;
+                                tab.auto_reconnect_at = None;
+                            }
+                        }
                     }
                 }
             }
@@ -284,15 +341,31 @@ impl TerminalWindow {
     /// 激活旧标签）。菜单项写的是 "Reconnect Session"，指的就是眼前这条。
     pub(in crate::ui) fn reconnect_active_tab(&mut self) {
         let slot = self.active_slot();
-        self.reconnect_tab_at(slot, true);
+        let gen = self.reconnect.next_gen();
+        self.reconnect_tab_at(slot, true, gen);
     }
 
     /// 按**槽位**重连。`activate=false` 给自动重连用：后台那条断开的标签
-    /// 在原位复活，不抢用户当前正在看的另一条。
-    pub(in crate::ui) fn reconnect_tab_at(&mut self, slot: usize, activate: bool) {
-        let Some(cfg) = self.tabs.get(slot).map(|t| t.config.clone()) else {
+    /// 在原位复活，不抢用户当前正在看的另一条。`gen` 是这次尝试的代数，
+    /// 异步 SSH 回调落地前会核对它，挡住 Replace 与到期重连的竞态。
+    pub(in crate::ui) fn reconnect_tab_at(&mut self, slot: usize, activate: bool, gen: u64) {
+        let Some(mut cfg) = self.tabs.get(slot).map(|t| t.config.clone()) else {
             return;
         };
+        // 串口设备可能在两次尝试之间被拔掉又插回（Linux 的 by-id 路径稳定，
+        // `list_devices()` 已把它排在内核名前面）。旧路径还在就继续用，不在
+        // 才换到当前枚举到的第一台——绝不让重连对着一个不存在的路径空转。
+        if cfg.protocol == Protocol::Serial {
+            let devices = term_io::serial::list_devices();
+            if !devices.is_empty() && !devices.contains(&cfg.host) {
+                cfg.host = devices[0].clone();
+            }
+        }
+        // 退避次数跨 `Replace` 传递：新建的 tab 出厂 attempts=0，不接过来就
+        // 会永远从第 1 秒重来，180s 窗口内的延迟序列断掉。
+        let old_attempts = self.tabs[slot].auto_reconnect_attempts;
+        let old_blocked = self.tabs[slot].auto_reconnect_blocked;
+        let old_identity = self.tabs[slot].identity;
         // 活着的先按「断开」处理：Reconnect 的语义是重来一次，不是再开一条。
         // 这一步同时收掉隧道与文件面板——它们不该比会话活得久。
         if self.tabs[slot].session.is_some() && activate {
@@ -303,21 +376,31 @@ impl TerminalWindow {
         let restore_scroll_top = self.tabs[slot].restore_scroll_top.take();
         let restore_history_len = self.tabs[slot].restore_history_len.take();
         if panels::sidebar::uses_builtin_ssh(&cfg) {
-            // TODO(N): 内置 SSH 走异步连接，新 tab 在连接完成后才创建。
-            // 当前的 restore 字段无法跨异步边界传递（需要 PendingOpen 扩展）。
-            // 对内置 SSH 标签，滚动位置恢复暂不可用，cwd 恢复仍生效。
-            self.begin_builtin_ssh_with(cfg, None, PendingOpen::Replace { slot });
+            // 内置 SSH 走异步连接：旧 tab 留在原位，失败回调在新 tab 建起来之前
+            // 就能按同一个 slot / 会话名 / epoch 把下一次尝试排上去。
+            self.begin_auto_reconnect_ssh(cfg, PendingOpen::Replace { slot }, gen);
             return;
         }
-        // 系统 ssh：同步起，不需要异步流程，但同样**原地替换**（位置与 id 都不变）。
+        // 系统 ssh / 串口：同步起，不需要异步流程，但同样**原地替换**。
         let mut tab = terminal::make_tab(&self.pool, cfg, self.tabs[slot].id, &self.ctx);
+        tab.identity = old_identity;
+        tab.auto_reconnect_attempts = old_attempts;
+        tab.auto_reconnect_blocked = old_blocked;
         // N：应用恢复态（make_tab 里对存活会话已自动应用，这里是为了手动 Reconnect 场景）
         tab.restore_scroll_top = restore_scroll_top;
         tab.restore_history_len = restore_history_len;
         tab.maybe_apply_restore();
-        let slot_idx = self.place_tab(tab, PendingOpen::Replace { slot });
-        if activate {
-            self.set_active_slot(slot_idx);
+        // 同步建连失败也必须有下一次：新 tab 的 was_live=false 永远不会产生
+        // 「断开边沿」，不显式排的话 180s 窗口第一次就断了。
+        if !activate && !old_blocked && tab.session.is_none() {
+            let name = tab.config.name.clone();
+            self.place_tab(tab, PendingOpen::Replace { slot });
+            self.schedule_failed_attempt(slot, &name);
+        } else {
+            let slot_idx = self.place_tab(tab, PendingOpen::Replace { slot });
+            if activate {
+                self.set_active_slot(slot_idx);
+            }
         }
         self.ctx.request_repaint();
     }

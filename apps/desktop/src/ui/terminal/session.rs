@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
+use term_core::session::{backoff, effective, ReconnectPolicy};
 use term_core::session_runtime::{LogStatus, SessionId, SessionStatus};
 
 use crate::ui::*;
@@ -109,11 +110,30 @@ impl Tab {
 
     /// 与 [`poll`](Self::poll) 同一份泵，额外把触发器副作用错误交给窗口的
     /// 提示槽（状态行）。窗口每帧把 `&mut self.log_note` 传进来。
+    ///
+    /// 旧签名（布尔开关）保留给夹具与底带 Shell 面板：它等价于「全局策略的
+    /// 出厂参数 + 这个开关」，会话自己的覆盖字段仍然生效。
     pub(in crate::ui) fn poll_with_note(
         &mut self,
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         auto_reconnect: bool,
+        onekeys: &[term_core::onekey::OneKey],
+        autofill: &std::collections::HashMap<String, String>,
+        note: &mut Option<String>,
+    ) -> bool {
+        let policy = ReconnectPolicy::from_enabled(auto_reconnect);
+        self.poll_with_policy(rules, run_commands, &policy, onekeys, autofill, note)
+    }
+
+    /// 真正的事件泵。与 [`poll_with_note`](Self::poll_with_note) 同一份实现，
+    /// 但由窗口把**有效全局策略**传进来——参数（初始延迟 / 倍率 / 窗口 /
+    /// 上限）就在这一处消费，会话级覆盖在读退避时再叠上去。
+    pub(in crate::ui) fn poll_with_policy(
+        &mut self,
+        rules: &[Rule],
+        run_commands: &mut Vec<String>,
+        global_policy: &ReconnectPolicy,
         onekeys: &[term_core::onekey::OneKey],
         autofill: &std::collections::HashMap<String, String>,
         note: &mut Option<String>,
@@ -263,16 +283,16 @@ impl Tab {
             // 断连边沿：只有「发不出去的已到期项」才丢。自动重连的非 shell
             // 会话会马上回来，未到期的 Send Later 必须留着，否则重连后那条
             // 发送就永远不会落地（见 `discard_pending_sends`）。
-            self.discard_pending_sends(now, note, auto_reconnect);
-            // 掉线边沿：显式 Disconnect / 本地 shell / 已达上限都不排；
-            // 其余按 1/2/4/8 秒退避，尝试次数在连上时清零。
-            if auto_reconnect
-                && !self.auto_reconnect_blocked
-                && self.config.protocol != term_core::session::Protocol::Shell
-            {
-                if let Some(delay) = super::super::reconnect::backoff(self.auto_reconnect_attempts) {
+            self.discard_pending_sends(now, note, global_policy.enabled);
+            // 掉线边沿排**下一次**尝试：唯一判据是 `allows_reconnect()`
+            // （非 Shell + 有效策略 enabled）。显式 Disconnect 的 blocked 位、
+            // 终止性失败（由调用方置 blocked）、溢出保护都在各自那一层拦住；
+            // 180s 窗口由窗口侧的运行时判，这里只回答「这次等多久」。
+            if self.config.allows_reconnect(global_policy) && !self.auto_reconnect_blocked {
+                let policy = effective(global_policy, &self.config.reconnect);
+                if let Some(delay) = backoff(&policy, u32::from(self.auto_reconnect_attempts)) {
                     self.auto_reconnect_at = Some(now + delay);
-                    self.auto_reconnect_attempts += 1;
+                    self.auto_reconnect_attempts = self.auto_reconnect_attempts.saturating_add(1);
                 }
             }
         }
@@ -330,7 +350,13 @@ impl Tab {
                 return true;
             }
             Some(false) => return moved,
-            Some(true) => {}
+            Some(true) => {
+                // 串口通道在册但 `status().alive=false` 时没有天然边沿，
+                // 这里主动造一个（实现与理由见 `ui/reconnect.rs`）。
+                if self.note_serial_hangup(id) {
+                    return true;
+                }
+            }
         }
         if let Some(snapshot) = self.pool.snapshot(id) {
             self.snapshot = snapshot;
@@ -469,7 +495,7 @@ impl Tab {
         note: &mut Option<String>,
         auto_reconnect: bool,
     ) {
-        if auto_reconnect && self.config.protocol != term_core::session::Protocol::Shell {
+        if self.config.allows_reconnect(&ReconnectPolicy::from_enabled(auto_reconnect)) {
             return;
         }
         let mut dropped = self.triggers.on_prompt(now).len();

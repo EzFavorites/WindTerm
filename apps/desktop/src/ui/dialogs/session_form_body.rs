@@ -288,6 +288,40 @@ fn combo_term(ui: &mut egui::Ui, current: &mut usize) {
         });
 }
 
+/// Session 页「自动重连」的可选数值行。`None` 显示出厂值、写回时才变成
+/// `Some`——于是「没动过」与「手填了出厂值」在落盘上仍然可区分。
+fn reconnect_u64(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Option<u64>,
+    default: u64,
+    range: std::ops::RangeInclusive<u64>,
+) {
+    form_row(ui, label);
+    let mut n = value.unwrap_or(default);
+    let resp = ui.add_sized(egui::vec2(FIELD_W, ROW_H), DragValue::new(&mut n).range(range));
+    if resp.changed() {
+        *value = Some(n);
+    }
+    ui.end_row();
+}
+
+fn reconnect_u32(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut Option<u32>,
+    default: u32,
+    range: std::ops::RangeInclusive<u32>,
+) {
+    form_row(ui, label);
+    let mut n = value.unwrap_or(default);
+    let resp = ui.add_sized(egui::vec2(FIELD_W, ROW_H), DragValue::new(&mut n).range(range));
+    if resp.changed() {
+        *value = Some(n);
+    }
+    ui.end_row();
+}
+
 impl TerminalWindow {
     /// 内容页分派入口。下标与显示名的唯一来源是 `session_nav::PAGES`。
     pub(in crate::ui) fn draw_session_form(&mut self, ui: &mut egui::Ui) {
@@ -427,6 +461,37 @@ impl TerminalWindow {
                             .hint_text("[nesting groups] a>b>c"),
                     );
                     ui.end_row();
+                    // 自动重连：page 0 按协议条件显示，本地 Shell 不画（它不是
+                    // 链路断开，退出是用户主动结束）。不新增导航叶子。
+                    // 总开关单独一行，五个参数只在打开后展开，默认基线只多一行。
+                    if !matches!(self.new_session.protocol, Protocol::Shell) {
+                        let over = &mut self.new_session.reconnect;
+                        // 与同页「Auto login next time」完全同一套手绘控件
+                        // （12×12 方框 + 勾），不用 egui 裸 checkbox——那个
+                        // 的外观和对话框其余勾选格不是一族。
+                        form_row(ui, "");
+                        let mut on = over.enabled.unwrap_or(false);
+                        let clicked = choice_row_styled(
+                            ui,
+                            ChoiceKind::Checkbox,
+                            "Auto reconnect",
+                            "",
+                            &mut on,
+                            true,
+                            UnderlineStyle::None,
+                        );
+                        if clicked {
+                            over.enabled = Some(on);
+                        }
+                        ui.end_row();
+                        if on {
+                            reconnect_u64(ui, "Delay:", &mut over.initial_secs, 1, 1..=3600);
+                            reconnect_u32(ui, "Factor:", &mut over.backoff, 2, 1..=16);
+                            reconnect_u64(ui, "Max Delay:", &mut over.max_delay_secs, 30, 1..=3600);
+                            reconnect_u64(ui, "Window:", &mut over.retry_window_secs, 180, 1..=86400);
+                            reconnect_u32(ui, "Tries:", &mut over.max_attempts, 12, 1..=255);
+                        }
+                    }
                     // 金标准 `tcp/00-session.png` 与 `serial/00-session.png` 在
                     // Group 与 Term 之间多一行 `Data: binary`。这一版通道只传输
                     // 原始字节，没有文本转码后端，所以按规矩灰显并说明原因，

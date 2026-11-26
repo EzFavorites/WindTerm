@@ -167,6 +167,9 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) parity: String,
     /// 串口 `Flow Control`（`None` / `XON/XOFF` / `RTS/CTS`）。
     pub(in crate::ui) flow_control: String,
+    /// 自动重连的逐会话覆盖（六个 Option，全 None = 沿用全局策略）。
+    /// 只有 Session 页（page 0）的非 Shell 协议画这组控件。
+    pub(in crate::ui) reconnect: term_core::session::ReconnectOverride,
 }
 
 impl NewSessionData {
@@ -293,6 +296,7 @@ impl NewSessionData {
             stop_bits: config.stop_bits,
             parity: config.parity.clone(),
             flow_control: config.flow_control.clone(),
+            reconnect: config.reconnect,
         }
     }
 
@@ -422,6 +426,9 @@ impl NewSessionData {
         c.word_separators_alt = self.word_separators_alt.clone();
         c.bracket_pairs = self.bracket_pairs.clone();
         c.logon_script = self.logon_script.clone();
+        // 自动重连覆盖原样带回：Shell 表单不画这些控件，所以 `from_config`
+        // 读到的 `enabled=Some(false)` 会原样写回，不会被清成 None。
+        c.reconnect = self.reconnect;
         c
     }
 }

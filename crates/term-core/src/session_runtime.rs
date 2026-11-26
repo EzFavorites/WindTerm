@@ -28,6 +28,36 @@ use crate::log_opts::LogOptions;
 /// 与 `term_runtime::supervisor::SessionId` 同为 `u64` 别名，互通。
 pub type SessionId = u64;
 
+/// 会话**退出原因**的协议无关分类。
+///
+/// 这是 `term-core` 自有的纯类型：控制面不知道 SSH / 串口 / PTY 的错误枚举，
+/// 所以这里只留四个分类，具体错误到分类的映射由能看见错误类型的那一层做
+/// （SSH 在 apps/desktop，串口/PTY 在 `term-io`）。**不得**在这里依赖
+/// `term-ssh`——那会让核心反向依赖协议实现。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExitKind {
+    /// 还没有退出原因（运行中 / 测试替身 / 从别处关掉而拿不到原因）。
+    #[default]
+    Unknown,
+    /// 正常结束：本地 shell 敲了 `exit`、子进程返回 0。不重连。
+    Normal,
+    /// 终止性失败：认证 / 主机密钥 / 私钥读取 / 配置 / 解析 / 本机环境 /
+    /// 用户显式断开。立即停，不重连。
+    Terminal,
+    /// 可重试的链路问题：网络 Connect / Channel / 对端断开 / 链路重置。
+    Retryable,
+    /// 串口 hangup / `serial disconnected` / 设备暂缺。可重试，但重连前要
+    /// 重新枚举设备路径。
+    SerialLost,
+}
+
+impl ExitKind {
+    /// 这个原因是否值得自动重连（与策略总开关无关）。
+    pub fn allows_reconnect(self) -> bool {
+        !matches!(self, Self::Normal | Self::Terminal)
+    }
+}
+
 /// 会话生命周期状态。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionState {
@@ -162,6 +192,9 @@ pub struct SessionStatus {
     pub alive: bool,
     /// 子进程退出后的状态文本（状态栏那行 "Connected ( exited)" 用的就是它）。
     pub exit_status: Option<String>,
+    /// 退出原因的分类。`Event::Finished` 与句柄构造时各写一次；UI 用
+    /// [`ExitKind::allows_reconnect`] 决定断线边沿要不要排下一次尝试。
+    pub exit_kind: ExitKind,
 }
 
 /// 会话日志的阶段。
@@ -299,6 +332,8 @@ pub trait Session: Send {
                 SessionState::Finished(text) => text,
                 SessionState::Alive => None,
             },
+            // 默认实现没有协议上下文（`SupervisorHandle` 才有），不猜分类。
+            exit_kind: ExitKind::Unknown,
         }
     }
 
