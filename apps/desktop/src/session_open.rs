@@ -486,8 +486,8 @@ mod tests {
 
     #[test]
     fn the_auto_login_bit_selects_whether_onekeys_reach_the_connection() {
-        // 连接行为的选择分支：没勾 → 空表（控制面的 resolve_onekey 变成空操作）；
-        // 勾了且真选了方案 → 原样交出方案表；勾了但没选 → 仍不交。
+        // 连接行为的选择分支：没选方案 → 空表（控制面的 resolve_onekey 变成空操作）；
+        // 真选了方案 → 原样交出方案表。自动登录已内置到方案，无独立开关。
         let schemes = vec![term_core::onekey::OneKey {
             name: "prod".to_string(),
             username: "ops".to_string(),
@@ -497,7 +497,6 @@ mod tests {
         let mut config = ssh_config(AuthMethod::Agent, closed_port());
         assert!(onekeys_for_open(&config, schemes.clone()).is_empty());
 
-        config.auto_login = true;
         config.onekey = "prod".to_string();
         assert_eq!(onekeys_for_open(&config, schemes.clone()), schemes);
 
