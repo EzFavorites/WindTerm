@@ -306,6 +306,15 @@ pub struct SessionConfig {
     pub modem_upload_dir: String,
     #[serde(default)]
     pub modem_download_dir: String,
+    /// X/Y/ZMODEM 接收侧同名冲突策略的下标（0..6，清单见
+    /// `apps/desktop/src/xfer_conflict.rs::POLICIES`，0 = Overwrite）。
+    /// `#[serde(default)]`：老会话库缺键时保持升级前的唯一行为——覆盖。
+    #[serde(default)]
+    pub modem_conflict_policy: usize,
+    /// X/Y/ZMODEM 接收完成后是否用系统默认程序打开下载目录。出厂 false；
+    /// `#[serde(default)]` 让老会话库缺键时也不突然弹文件夹窗口。
+    #[serde(default)]
+    pub modem_open_after: bool,
     /// 拖放时不再询问（当前仍会弹确认框以选择具体文件，目录取这里的值）。
     #[serde(default)]
     pub modem_use_default: bool,
@@ -602,6 +611,8 @@ impl SessionConfig {
             modem_protocol: 2,
             modem_upload_dir: String::new(),
             modem_download_dir: String::new(),
+            modem_conflict_policy: 0,
+            modem_open_after: false,
             modem_use_default: false,
             modem_commands: default_modem_commands(),
             modem_large_packets: default_modem_large_packets(),
@@ -1198,6 +1209,29 @@ mod tests {
         let parsed: SessionConfig = serde_json::from_str(old).expect("旧会话应能读出来");
         assert_eq!(parsed.host, "example.com");
         assert!(!parsed.builtin_ssh, "旧会话必须继续用系统 ssh");
+        // 同一份老 JSON 也没有 modem 的两项：必须保持 Overwrite / 不打开目录。
+        assert_eq!(parsed.modem_conflict_policy, 0);
+        assert!(!parsed.modem_open_after);
+    }
+
+    #[test]
+    fn new_sessions_default_to_overwrite_without_opening_the_folder() {
+        for p in Protocol::ALL {
+            let cfg = SessionConfig::new(p);
+            assert_eq!(cfg.modem_conflict_policy, 0, "{p:?} 出厂是 Overwrite");
+            assert!(!cfg.modem_open_after, "{p:?} 出厂不自动打开下载目录");
+        }
+    }
+
+    #[test]
+    fn the_modem_receive_options_survive_a_round_trip() {
+        let mut cfg = SessionConfig::new(Protocol::Ssh);
+        cfg.modem_conflict_policy = 5;
+        cfg.modem_open_after = true;
+        let text = serde_json::to_string(&cfg).expect("序列化");
+        let back: SessionConfig = serde_json::from_str(&text).expect("反序列化");
+        assert_eq!(back.modem_conflict_policy, 5);
+        assert!(back.modem_open_after);
     }
 
     #[test]
