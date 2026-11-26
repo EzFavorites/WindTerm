@@ -23,6 +23,7 @@
 //! UI 不再持有 `MasterPty` / `Child` / `mpsc::Receiver`，也不再在 `draw()` 里
 //! 做字节摄入与 VT 解析。保持 `std::mpsc` + 每会话线程，不上异步运行时。
 
+use crate::charset::CharsetDecoder;
 use crate::channel::{open_channel, open_exec_channel, TermChannel};
 use crate::error::SpawnError;
 use crate::log::{LogStatus, SessionLog};
@@ -884,6 +885,9 @@ fn start(
     // 退出原因的最后落点：线程退出时写一次，句柄随时可读。
     let exit_note = Arc::new(Mutex::new(None));
     let worker_exit_note = Arc::clone(&exit_note);
+    // charset 的唯一来源是这条会话的 `SessionConfig.charset`；解码器状态
+    // （跨 chunk 的半个多字节）跟着监管线程走，不引入第二套配置。
+    let decoder = CharsetDecoder::new(&config.charset);
 
     if let Err(e) = std::thread::Builder::new()
         .name(format!("zterm-supervisor-{id}"))
@@ -917,6 +921,7 @@ fn start(
                     vt,
                     bell,
                     exit_kind,
+                    decoder,
                 )
             }));
             if let Err(payload) = outcome {
@@ -971,6 +976,7 @@ fn run(
     mut vt: Terminal,
     mut bell: crate::bell::BellGate,
     exit_kind: ExitKind,
+    mut decoder: CharsetDecoder,
 ) {
     let mut version = 0u64;
     // 有变化但还没能放进邮箱（上一份还没被取走）。下一轮槽空了就补上。
@@ -1242,12 +1248,17 @@ fn run(
                         Err(_) => { /* 有意丢弃：UI 不再看，槽位已空 */ }
                     }
                 }
+                // charset 只改**送进 VT 的这一份副本**：上面的日志、raw 旁路
+                // 和 hex tap 拿到的始终是原始字节，排障能看见未转码的流。
+                // 增量 decoder 跨 chunk 持有未完结的多字节状态，UTF-8 / 未知
+                // 标签则零拷贝直传（默认路径逐字节不变）。
+                let decoded = decoder.feed(&bytes);
                 // margin 时间戳列的时刻在这里落地：宿主读钟，内核只收下。
                 // 打在 `process` 之前，因为「第几行」只有在喂字节之前才是确定的——
                 // 一批字节可能写穿好几行，事后再问光标在哪，问到的已经是最后一行。
                 vt.stamp_row(now_secs());
                 let bells_before = vt.bell_seq;
-                vt.process(&bytes);
+                vt.process(&decoded);
                 // 一个 chunk 里多个 BEL 只算一次：去重门按「这批里有没有 BEL」
                 // 触发，而不是逐字节问——终端一次提示常常连发两三声。
                 if vt.bell_seq != bells_before {
@@ -1270,7 +1281,8 @@ fn run(
                 // wait 的流上匹配（ADR-0019）：登记命令在本轮**取输出之前**
                 // 被 ack，所以这里见到的字节保证包含登记点之后到达的全部输出。
                 // 匹配的是清洗后的纯文本——`ESC[31m` 不该挡住 `Password:`。
-                let text = cleaner.feed(&bytes);
+                // 喂转码后的副本：中文提示（如 GBK 的 `密码:`）也要能命中。
+                let text = cleaner.feed(&decoded);
                 if !text.is_empty() && !waiters.is_empty() {
                     waiters.retain_mut(|w| {
                         w.acc.push_str(&text);
@@ -1790,11 +1802,83 @@ mod tests {
         }
     }
 
-    fn start_scripted() -> (SupervisorHandle, ScriptedProbe) {
+    fn start_scripted_with(config: SessionConfig) -> (SupervisorHandle, ScriptedProbe) {
         let (ch, probe) = ScriptedChannel::new();
-        let h = start(SessionConfig::new(Protocol::Shell), 20, 3, Box::new(ch));
+        let h = start(config, 20, 3, Box::new(ch));
         h.set_wakeup(Arc::new(|| {}));
         (h, probe)
+    }
+
+    fn start_scripted() -> (SupervisorHandle, ScriptedProbe) {
+        start_scripted_with(SessionConfig::new(Protocol::Shell))
+    }
+
+    fn gbk(text: &str) -> Vec<u8> {
+        encoding_rs::GBK.encode(text).0.into_owned()
+    }
+
+    #[test]
+    fn session_charset_really_reaches_the_vt_screen() {
+        // 表单里选了 GBK 却没有接线时，这就是「点了没效果」的假控件。
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.charset = "GBK".to_string();
+        let (mut h, probe) = start_scripted_with(cfg);
+        probe.feed(&gbk("中文"));
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
+        println!("GBK session screen text: {:?}", h.snapshot.screen_text());
+    }
+
+    #[test]
+    fn a_gbk_hanzi_split_across_two_drains_is_restored_on_screen() {
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.charset = "GBK".to_string();
+        let (mut h, probe) = start_scripted_with(cfg);
+        let raw = gbk("中文");
+        // 间隔大于 IDLE_WAIT(20ms)，确保监管者分两次 drain 到这类字节。
+        probe.feed(&raw[..2]);
+        std::thread::sleep(Duration::from_millis(40));
+        probe.feed(&raw[2..]);
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
+    }
+
+    #[test]
+    fn a_chinese_wait_prompt_is_matched_after_gbk_transcoding() {
+        // wait 走 `cleaner.feed`，必须吃转码后的副本，否则中文提示永远等不到。
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.charset = "GBK".to_string();
+        let (h, probe) = start_scripted_with(cfg);
+        let w = h.register_waiter("密码:").expect("登记");
+        let mut bytes = b"\x1b[31m".to_vec();
+        bytes.extend_from_slice(&gbk("密码:"));
+        bytes.extend_from_slice(b"\x1b[0m ");
+        probe.feed(&bytes);
+        let m = Box::new(w).wait(Duration::from_secs(2)).expect("中文提示命中");
+        assert!(m.text_upto.ends_with("密码:"), "{:?}", m.text_upto);
+    }
+
+    #[test]
+    fn utf8_default_session_does_not_transcode_foreign_bytes() {
+        // 默认路径逐字节不变：GBK 字节在默认会话里不会被猜成中文。
+        let (mut h, probe) = start_scripted();
+        probe.feed(&gbk("中文"));
+        let deadline = Instant::now() + Duration::from_millis(200);
+        while Instant::now() < deadline {
+            h.poll();
+            assert!(
+                !h.snapshot.screen_text().contains("中文"),
+                "默认 UTF-8 会话意外做了转码"
+            );
+            std::thread::sleep(Duration::from_millis(4));
+        }
+    }
+
+    #[test]
+    fn an_unknown_charset_session_falls_back_without_panic() {
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.charset = "no-such-charset".to_string();
+        let (mut h, probe) = start_scripted_with(cfg);
+        probe.feed(b"ascii still works\r\n");
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains("ascii still works"));
     }
 
     fn start_mock(bytes: &[u8]) -> SupervisorHandle {

@@ -31,6 +31,11 @@ serialport = { version = "4", default-features = false }
 # socket2 提供跨平台稳定封装（unix setsockopt / windows WSASetSocketOption），
 # 已在依赖树中（tokio 间接引入），这里直接声明。
 socket2 = "0.6"
+# 会话 charset 的真正落地：流式 Decoder 把 GBK / Big5 / Shift_JIS 等输出
+# 转成 UTF-8 再喂 VT。纯 Rust，无系统库；许可证 (Apache-2.0 OR MIT) AND
+# BSD-3-Clause（编码表来自 WHATWG，BSD-3-Clause）。只在 IO 层解码，term-core
+# 仍只吃 UTF-8 字节。UTF-8 / 未知标签走零拷贝直传。
+encoding_rs = "0.8"
 
 [dev-dependencies]
 # `nix` 现在**只**被 `serial_channel` 的测试用到：造一对 pty 当假串口

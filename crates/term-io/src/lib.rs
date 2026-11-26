@@ -10,7 +10,7 @@
 //!
 //! | 有 | 没有 |
 //! |---|---|
-//! | `term-core`（纯语义）、`term-paths`（路径）、`portable-pty`、`nix` | SQLite、serde、tokio、russh、任何 UI 框架 |
+//! | `term-core`（纯语义）、`term-paths`（路径）、`portable-pty`、`nix`、`encoding_rs`（会话 charset 解码） | SQLite、serde、tokio、russh、任何 UI 框架 |
 //!
 //! **同步**。异步只活在 `term-ssh` / `term-tunnel` / `term-sftp` 的笼子里
 //! （ADR-0017 §决策 2）；这一层是「对外同步」那句话的服务端——Supervisor
@@ -18,6 +18,8 @@
 //!
 //! # 模块
 //!
+//! - `charset`：每会话一个流式解码器，把非 UTF-8 输出转成 UTF-8 再进 VT；
+//!   UTF-8 / 未知标签零拷贝直传，ASCII 控制字节原样穿过
 //! - `channel`：`TermChannel` 的本地实现（本地 shell / 外部进程）。trait 本体在
 //!   `term_core::channel`——传输层不该为了它依赖本 crate
 //! - `error`：`SpawnError` 的再导出（类型本体同样在 `term_core::channel`）
@@ -39,6 +41,7 @@
 //! IO 与字节判定，投影层只该拿到一段已经变成 `String` 的文本和一个截断标记。
 
 pub mod bell;
+pub mod charset;
 pub mod channel;
 pub mod error;
 pub mod host;
