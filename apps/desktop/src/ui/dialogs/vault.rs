@@ -34,11 +34,11 @@ impl Drop for RuntimeSecret {
     }
 }
 
-/// 同一个引用要供几个消费者使用：隧道、Filer/SFTP、终端连接都从 `Tab.auth`
-/// 里那份引用取凭据。`take_secret` 仍是一次性消耗（保持「取走即清」的语义），
-/// 但另存一份**按「用途 + 会话」的 id 可重建**的副本（等价于从**已解锁**的
-/// 保险库按会话名再读一次）：隧道先取走之后，Filer 再取能通过这条重建路拿到
-/// 自己的凭据，而不是报「凭据已清理」。锁屏 / 断线把两份一起清掉。
+// 同一个引用要供几个消费者使用：隧道、Filer/SFTP、终端连接都从 `Tab.auth`
+// 里那份引用取凭据。`take_secret` 仍是一次性消耗（保持「取走即清」的语义），
+// 但另存一份**按「用途 + 会话」的 id 可重建**的副本（等价于从**已解锁**的
+// 保险库按会话名再读一次）：隧道先取走之后，Filer 再取能通过这条重建路拿到
+// 自己的凭据，而不是报「凭据已清理」。锁屏 / 断线把两份一起清掉。
 thread_local! {
     static RUNTIME_SECRETS: RefCell<HashMap<String, RuntimeSecret>> =
         RefCell::new(HashMap::new());

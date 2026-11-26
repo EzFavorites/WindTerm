@@ -171,8 +171,8 @@ impl TerminalWindow {
                 description: String::new(),
                 charset: term_core::config::CHARSET.to_string(),
                 system: "linux".to_string(),
-                // 自动登录默认关：用户要在 OneKey 行下方亲手勾上才会生效。
-                onekey: "None".to_string(), auto_login: false,
+                // 自动登录是 OneKey 的内置语义，选中方案即生效（默认 None）。
+                onekey: "None".to_string(),
                 sftp: true,
                 sysmon: false,
                 shell_command: String::new(),
