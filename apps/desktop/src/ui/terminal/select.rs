@@ -31,16 +31,21 @@ pub(in crate::ui) fn dispatch_pending_select(pending: &mut Option<Cmd>, tab: &mu
         return;
     }
     // `GotoPreviousCommand` / `GotoNextCommand` / `GotoPreviousScope` /
-    // `GotoNextScope` 四条要 OSC 133 块表（绝对行号）。块表在 `GridSnapshot`
-    // 上、不在事实窗口里，而这里正好两个都在手上——所以走带块表的入口。
-    // 其余命令不看块表，多传一个参数没有代价。
-    term_app::selection::apply_cmd_with_pairs(
+    // `GotoNextScope` 四条要 OSC 133 块表（绝对行号）；M1 的 Fold 三条要
+    // 折叠输入行表。两者都在 `Tab` 上、不在事实窗口里，而这里正好三个都在
+    // 手上——所以走带上下文的入口，决策仍全部在纯函数里。其余命令不看这两张
+    // 表，多传两个参数没有代价。
+    // 先算出输入行表再借 `tab.selections`：直接把 `&tab.fold_inputs()` 写在参数里
+    // 会和可变借用撞上（编译期 E0502），而这块表本来就是每帧的一份只读快照。
+    let inputs = tab.fold_inputs();
+    term_app::selection::apply_cmd_with_context(
         cmd,
         &tab.view,
         &tab.snapshot.blocks,
         &mut tab.selections,
         visible_separators(&tab.config, tab.snapshot.alt),
         &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
+        &inputs,
     );
 }
 

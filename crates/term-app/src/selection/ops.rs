@@ -237,11 +237,22 @@ pub fn apply_with_pairs(
             Some(to) => extend(current, head, to),
             None => current,
         },
+
+        // ── M1：按语义单位整段选中（`Select` 五条）──
+        //
+        // 边界判定全在 `units.rs`；这里只把已有的 head / 块表 / 分隔符 / 括号表
+        // 递过去。没有带折叠输入行的上下文时，Fold 那条按「无块则不动」退化，
+        // 真正的落点是 `apply_with_context`（菜单路径）。
+        Op::Paragraph | Op::Pair | Op::Scope | Op::Indentation => super::units::select_unit(
+            op, image, head, current, blocks, separators, pairs,
+        ),
+        Op::Fold => super::units::fold_unit(op, image, head, current, &[]),
+        Op::FoldPrev | Op::FoldNext => current,
     }
 }
 
 /// 锚点取自 `current`，头部挪到 `to`；没有现成选区就从 `base` 起一个。
-fn extend(current: Option<Selection>, base: Pos, to: Pos) -> Option<Selection> {
+pub(super) fn extend(current: Option<Selection>, base: Pos, to: Pos) -> Option<Selection> {
     let mut sel = current.unwrap_or_else(|| Selection::new(base));
     sel.drag_to(to);
     Some(sel)
@@ -580,7 +591,7 @@ impl Selections {
 
     /// 写回活动位置（`Cmd::Move` 的落点）：不动集合的其余成员，也不再过锁——
     /// 调用方 `apply_cmd` 已经判过锁了，这里再判一次会让扩选悄悄失效。
-    fn assign_active(&mut self, sel: Option<Selection>) {
+    pub(super) fn assign_active(&mut self, sel: Option<Selection>) {
         if self.items.is_empty() {
             if let Some(sel) = sel {
                 self.items.push(sel);

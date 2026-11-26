@@ -23,7 +23,8 @@ use term_core::vt::paste_bytes_for;
 mod debug_log;
 mod fold;
 mod mode;
-mod theme;
+mod search;
+pub(in crate::ui) mod theme;
 
 impl TerminalWindow {
     /// 帧末批量落地：同步输入广播 + 折叠列点击。两项都要借整个窗口，
@@ -94,12 +95,12 @@ impl TerminalWindow {
         if self.selection_text.trim().is_empty() {
             return;
         }
-        // prefs 只在这一个表达式里借着：拼完 URL 就让位给 `sysopen`。
+        // prefs 只在这一个表达式里借着：拼完 URL 就让位给唯一的 opener。
         let url = {
             let prefs = term_runtime::prefs::load().unwrap_or_default();
-            term_runtime::search::build_url(prefs.search_url_template(), &self.selection_text)
+            term_profile::search::build_url(prefs.search_url_template(), &self.selection_text)
         };
-        let _ = crate::sysopen::open(std::path::Path::new(&url));
+        let _ = crate::open_with::open_path(std::path::Path::new(&url));
     }
 
     /// 缩放是视觉调整，不进 ViewState；下一帧 install 会因尺寸变化重装字形。
@@ -402,6 +403,8 @@ impl TerminalWindow {
             Effect::CopySessionUrl => self.copy_session_url(),
             Effect::OpenHelp => self.open_help(),
             Effect::SearchOnline => self.search_online(),
+            Effect::SearchOnlineWith(name) => self.search_online_with(name),
+            Effect::SetScheme(name) => self.apply_scheme(name),
             Effect::Zoom(dir) => self.zoom_font(dir),
             // FindState 只由 reducer 写；查询词是每帧推导的派生值，
             // 因此把「填词 + 跳一步」派发回 dispatch_action 落状态。

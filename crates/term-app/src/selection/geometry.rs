@@ -598,6 +598,23 @@ pub(super) fn scope_rows(image: &ScreenImage, blocks: &[CommandBlock<i64>]) -> V
     rows
 }
 
+/// 折叠块的视口行闭区间 `[首行, 尾行]`，升序。
+///
+/// 边界只由折叠引擎从**输入行表**算（`folds::blocks_from_inputs`）：
+/// 相邻两条输入之间的输出是一个块，最后一条输入之后不折。这里只做一件
+/// 事——把历史绝对行换算成视口行并丢掉落在当前窗口之外的块；不重新定义
+/// 「什么是折叠块」，避免出现第二套折叠口径。
+pub(super) fn fold_rows(image: &ScreenImage, inputs: &[HistoryRow]) -> Vec<(i64, i64)> {
+    crate::folds::blocks_from_inputs(inputs)
+        .iter()
+        .filter_map(|region| {
+            let start = block_view_row(image, region.start().get())?;
+            let end = block_view_row(image, region.end().get())?;
+            Some((start, end))
+        })
+        .collect()
+}
+
 /// 严格小于 `at` 的最近一行；没有则 `None`。
 pub(super) fn nearest_above(rows: &[i64], at: i64) -> Option<i64> {
     rows.iter().copied().filter(|r| *r < at).max()

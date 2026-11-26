@@ -55,8 +55,13 @@ pub enum Effect {
     CopySessionUrl,
     /// 打开帮助（静态 URL，由投影层用系统默认程序拉起）。
     OpenHelp,
+    /// 切换终端 16 色方案：名字交给投影层查 `builtin_scheme`，落盘 `scheme_name`。
+    SetScheme(&'static str),
     /// 用当前选区文本发起一次网络搜索。查询词由投影层取并 URL 编码。
     SearchOnline,
+    /// 六个引擎各自的在线搜索：名字取自引擎表，URL 与编码在投影层拼，
+    /// 共用 `open_with::open_path` 那一个 opener。
+    SearchOnlineWith(&'static str),
     /// 终端字号缩放。+1 放大 / −1 缩小 / 0 复位；目标字号由投影层算。
     Zoom(i8),
     /// 以当前选区文本为查询词，跳到下一个（+1）/ 上一个（−1）匹配。

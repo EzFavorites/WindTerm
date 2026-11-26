@@ -11,7 +11,7 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 也可以配跳板链和三类端口转发。当前版本 **v0.0.1-beta3**。
 
 > 本文只写已经实现的行为。命令面规模请用 `term-desk capability` 现算
-> （写作时实测 256 条命令 / 218 已接线 / 38 置灰）；测试数量以 `cargo test`
+> （写作时实测 256 条命令 / 252 已接线 / 4 置灰）；测试数量以 `cargo test`
 > 的实际输出为准。架构、构建和实现细节见 [`docs/`](docs/README.md)。
 
 ## 界面一览
@@ -229,10 +229,14 @@ macOS 上是 Command，Windows / Linux 上归一为 Ctrl；设置里可以改绑
 
 ## 已知限制
 
-- 2 条命令仍然置灰：`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`，
-  属于内置编辑器生态，不在本项目范围内。以下已接线：`Window.GotoSymbol`
-  （符号表 = OSC 133 命令块）、`Window.SetRemoteMode`（退出只读）、
-  `Text.ToggleWordWrap`（Mode ▸ Word Wrap，按 wrap column 软折，2026-11-24）。
+- 4 条命令仍然置灰：`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`
+  属于内置编辑器生态，不在本项目范围内；`Window.ToolbarListEmpty`、
+  `Window.ToolbarCustomizePlaceholder` 是原图里 Toolbar 子菜单的两行空态灰字，
+  本版没有自定义工具栏条目模型，不摆点了没反应的假控件。以下已接线：
+  `Window.GotoSymbol`（符号表 = OSC 133 命令块）、`Window.SetRemoteMode`
+  （退出只读）、`Text.ToggleWordWrap`（Mode ▸ Word Wrap，按 wrap column 软折）。
+  `Search Online` 六条、`Syntax Schemes` 七条与 `Select` / `Select To` 二十一条
+  已于 2026-11-27 全部接通（详见能力面台账）。
 - 菜单里个别项的快捷键文案与出厂绑定不同（为保真视觉基线保留），按上表按键。
 - 窗口透明目前是纯 alpha；macOS vibrancy / Windows acrylic 的平台模糊还没做。
 - 不做云同步、账号体系、团队协作、远程桌面与通用文本编辑器，范围见

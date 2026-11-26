@@ -244,11 +244,25 @@ pub enum ShellAction {
     CopySessionUrl,
     /// 打开帮助（项目文档 / 上游仓库）。URL 是静态常量，reduce 直接带出去。
     Help,
+    /// `View ▸ Syntax Schemes ▸ {cmd,…}`：切换终端的 16 色 ANSI 方案。
+    ///
+    /// **名字**是权威值，映射表只有 `term_core::theme::builtin_scheme` 一处。
+    /// 与整窗主题（`theme_name`）不是同一件事：前者是终端格子的 16 色，后者
+    /// 是窗口 chrome，两份真相不能互相顶替。reducer 只带名字，落地与写回
+    /// 偏好都在投影层。
+    SetScheme(&'static str),
     /// 用当前选区文本发起一次网络搜索。
     ///
     /// 查询词在投影层取（`selection_text`）——reducer 没有选区，选区是每帧从事实窗口
     /// 推导的派生值。动作本身只声明意图，应用层负责 URL 编码与拉起系统浏览器。
     SearchOnline,
+    /// `Search ▸ Search Online ▸ {Google,…}`：六个引擎各一条命令，按**引擎名**
+    /// 分派（名字来自 `term_profile::search::SEARCH_ENGINES`，这一层不认识 URL）。
+    ///
+    /// 与不带参数的 [`ShellAction::SearchOnline`] 同形：查询词仍是投影层的
+    /// 选区（无选区退回输入缓冲），reducer 只吐一个带名字的意图。引擎名做成
+    /// `&'static str` 而不是复制第六张 URL 表——设置页与菜单必须读同一份模板。
+    SearchOnlineWith(&'static str),
     /// 终端字号缩放。+1 放大 / −1 缩小 / 0 复位。
     ///
     /// 目标字号在投影层算（当前字号 ±1，带上下限），因为它活在 `apps/desktop` 的字体
@@ -1012,7 +1026,7 @@ pub enum LayoutAction {
     Reset,
 }
 
-/// 选区操作：43 条菜单命令与 Shift+方向键共用的**同一组意图**。
+/// 选区操作：50 条菜单命令与 Shift+方向键共用的**同一组意图**。
 ///
 /// 为什么是枚举而不是「一条命令一个函数」：17 条里 6 组是同一种移动的不同方向，
 /// 键盘还要复用其中一部分。枚举是唯一的词汇表，`parse` 只做 ID → 意图的映射，
@@ -1089,6 +1103,22 @@ pub enum Op {
     PairEnd,
     PairPrev,
     PairNext,
+    // ── M1（2026-11-27）：按语义单位整段选中（Select 5）──
+    //
+    // 上面那 43 条都是「挪 head 到某个边界」，这五条是「选中 head 所在的
+    // 整个语义单位」——与 `Word` / `Line` 同款：锚点取单位首、头部取单位尾。
+    // 它们的边界判定同样落在纯层（`selection/units.rs`），不带方向。
+    Paragraph,
+    Pair,
+    Scope,
+    Indentation,
+    Fold,
+    // ── M1：Select To 的 Fold 两条（其余单位复用上面已有的边界 Op）──
+    //
+    // 折叠块不是网格字形，而是「两次用户输入之间」的区间，边界要折叠引擎
+    // 的输入行表才算得出来；所以另立两个变体，经带上下文的入口落到纯函数。
+    FoldPrev,
+    FoldNext,
 }
 
 /// 9 条集合命令（菜单 Selection / Goto 里那批「多选区」项）。
