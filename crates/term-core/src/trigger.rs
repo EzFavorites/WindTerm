@@ -318,8 +318,10 @@ pub struct SendConfig {
     #[serde(default = "default_send_later")]
     pub later_secs: String,
 }
+/// 默认不延迟：让 Send Condition（匹配 / 下一个提示符 / 下一个换行）真正生效。
+/// 只有用户显式在 Send Later 里填了正数才覆盖条件。
 fn default_send_later() -> String {
-    "1.0".to_owned()
+    "0".to_owned()
 }
 impl Default for SendConfig {
     fn default() -> Self {
@@ -540,7 +542,7 @@ mod tests {
         let r: Rule = serde_json::from_str(minimal_rule_json()).unwrap();
         assert_eq!(r.kind, TriggerKind::HighlightText);
         assert_eq!(r.on, TriggerOn::Output);
-        assert_eq!(r.config.send.later_secs, "1.0");
+        assert_eq!(r.config.send.later_secs, "0");
         assert_eq!(r.config.send.capture, "${match}");
         assert_eq!(r.config.mark.mark_color, ColorChoice::Empty);
         assert_eq!(r.config.action.kind, ActionKind::RunCommand);

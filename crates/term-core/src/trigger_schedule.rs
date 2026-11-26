@@ -86,6 +86,19 @@ mod tests {
     }
 
     #[test]
+    fn the_default_rule_lets_the_send_condition_decide() {
+        // 默认 Send Later = 0（不延迟），三种条件出厂即生效；
+        // 只有显式填正数才覆盖条件。
+        let mut rule = Rule::default();
+        rule.config.send.condition = SendCondition::AfterMatchAndPrompt;
+        assert_eq!(wait_for(&rule), Wait::Ready(Gate::Prompt));
+        rule.config.send.condition = SendCondition::AfterMatchAndLineBreak;
+        assert_eq!(wait_for(&rule), Wait::Ready(Gate::LineBreak));
+        rule.config.send.condition = SendCondition::AfterMatch;
+        assert_eq!(wait_for(&rule), Wait::Ready(Gate::Match));
+    }
+
+    #[test]
     fn a_gate_is_released_by_its_own_event_and_match_is_never_blocked() {
         assert!(ready(&Wait::Ready(Gate::Prompt), Gate::Prompt));
         assert!(!ready(&Wait::Ready(Gate::Prompt), Gate::LineBreak));

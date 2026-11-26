@@ -280,8 +280,9 @@ pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut
         egui::vec2(spec::send::FIELD_W, spec::send::ROW_H),
     );
     let mut text = format!("{}s", rule.config.send.later_secs);
-    if field(ui, later_f, &mut text, "1.0s", false) {
+    if field(ui, later_f, &mut text, "0s", false) {
         rule.config.send.later_secs = text.trim_end_matches('s').to_owned();
+        // 0 / 空 = 不延迟，Send Condition 生效；正数则覆盖条件。
     }
     // 右侧上下小箭头。
     let ax = later_f.right() - 8.0;
