@@ -606,12 +606,12 @@ pub(super) fn scope_rows(image: &ScreenImage, blocks: &[CommandBlock<i64>]) -> V
 /// 「什么是折叠块」，避免出现第二套折叠口径。
 /// `blocks` 由调用方从折叠引擎算出后传入：几何层不依赖 `folds`（分层门禁），
 /// 也不重新定义"什么是折叠块"。
-pub(super) fn fold_rows(image: &ScreenImage, blocks: &[CommandBlock<i64>]) -> Vec<(i64, i64)> {
-    blocks
+pub(super) fn fold_rows(image: &ScreenImage, ranges: &[(i64, i64)]) -> Vec<(i64, i64)> {
+    ranges
         .iter()
-        .filter_map(|region| {
-            let start = block_view_row(image, region.start().get())?;
-            let end = block_view_row(image, region.end().get())?;
+        .filter_map(|(absolute_start, absolute_end)| {
+            let start = block_view_row(image, *absolute_start)?;
+            let end = block_view_row(image, *absolute_end)?;
             Some((start, end))
         })
         .collect()

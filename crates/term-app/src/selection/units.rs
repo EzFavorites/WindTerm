@@ -74,7 +74,12 @@ pub(super) fn fold_unit(
     current: Option<Selection>,
     inputs: &[HistoryRow],
 ) -> Option<Selection> {
-    let rows = fold_rows(image, &crate::folds::blocks_from_inputs(inputs));
+    // 折叠引擎给出绝对行区间；几何层只做绝对→视口换算，不反向依赖 `folds`。
+    let ranges: Vec<(i64, i64)> = crate::folds::blocks_from_inputs(inputs)
+        .iter()
+        .map(|region| (region.start().get(), region.end().get()))
+        .collect();
+    let rows = fold_rows(image, &ranges);
     match op {
         Op::Fold => {
             let (from, to) = rows
