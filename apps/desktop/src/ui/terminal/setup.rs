@@ -689,14 +689,14 @@ mod tests {
         assert_eq!(marks.whitespace, WhitespaceMode::InSelection);
         assert_eq!(window.tabs[1].marks, untouched, "另一个标签的六项一个字都不许动");
 
-        // 再点一次全部回到关：勾掉与勾上是同一句话的反面。
+        // 再点一次全部翻回出厂态：勾掉与勾上是同一句话的反面。
         window.toggle_line_endings();
         window.toggle_indent_guides();
         window.toggle_wrap_symbols();
         window.toggle_caret_line();
         window.toggle_column_marker();
         window.set_whitespace_mode(WhitespaceMode::HideAll);
-        assert_eq!(window.active_marks(), MarksParams::default());
+        assert_eq!(window.active_marks(), factory, "翻两次回到出厂态（高亮四项默认勾选）");
     }
 
     // ── 折叠渲染：补行算法（`extra_rows_needed`）──────────────────────────
