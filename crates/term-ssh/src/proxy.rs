@@ -250,7 +250,7 @@ async fn dial(
     let timeout = stage_timeout(opts.connect_timeout);
     let Some(proxy) = opts.outbound_proxy.as_ref() else {
         let addr = resolve_host(&target.host, target.port)?;
-        let tcp = connect_tcp(addr, timeout, &target.label()).await?;
+        let tcp = connect_tcp(addr, timeout, &target.label(), opts).await?;
         let local = tcp.local_addr().ok();
         return Ok((Box::new(tcp), local));
     };
@@ -258,7 +258,7 @@ async fn dial(
     let addr = resolve_host(&proxy.host, proxy.port).map_err(|e| {
         SshError::Resolve(format!("{} 出网代理 {} —— {e}", proxy.kind.label(), proxy.label()))
     })?;
-    let tcp = connect_tcp(addr, timeout, &proxy.label()).await?;
+    let tcp = connect_tcp(addr, timeout, &proxy.label(), opts).await?;
     let local = tcp.local_addr().ok();
     // 默认把目标主机名交给代理解析（远程 DNS，内网名字才能通）；关掉开关
     // 时在本地解析好，再把 IP 交给代理。
@@ -275,9 +275,13 @@ async fn connect_tcp(
     addr: SocketAddr,
     timeout: Duration,
     label: &str,
+    opts: &SshOptions,
 ) -> Result<TcpStream, SshError> {
     match tokio::time::timeout(timeout, TcpStream::connect(addr)).await {
-        Ok(Ok(socket)) => Ok(socket),
+        // 会话表单这两项过去只写不读：现在真的落到第一段 TCP 上。
+        Ok(Ok(socket)) => crate::tcp_tune::tune(&socket, opts.tcp_low_delay, opts.tcp_keep_alive)
+            .map_err(|e| SshError::Connect(format!("{label} —— {e}")))
+            .map(|()| socket),
         Ok(Err(e)) => Err(SshError::Connect(format!("{label} —— {e}"))),
         Err(_) => Err(SshError::Connect(format!(
             "{} 秒内没有连上 {label}",
@@ -316,7 +320,7 @@ async fn handshake(
         inactivity_timeout: None,
         keepalive_interval: opts.keepalive,
         keepalive_max: 3,
-        nodelay: true,
+        nodelay: opts.tcp_low_delay,
         preferred,
         limits: russh::Limits::new(byte_limit, byte_limit, time_limit),
         ..Default::default()

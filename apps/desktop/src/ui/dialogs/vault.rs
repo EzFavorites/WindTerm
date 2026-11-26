@@ -34,8 +34,16 @@ impl Drop for RuntimeSecret {
     }
 }
 
+/// 同一个引用要供几个消费者使用：隧道、Filer/SFTP、终端连接都从 `Tab.auth`
+/// 里那份引用取凭据。`take_secret` 仍是一次性消耗（保持「取走即清」的语义），
+/// 但另存一份**按「用途 + 会话」的 id 可重建**的副本（等价于从**已解锁**的
+/// 保险库按会话名再读一次）：隧道先取走之后，Filer 再取能通过这条重建路拿到
+/// 自己的凭据，而不是报「凭据已清理」。锁屏 / 断线把两份一起清掉。
 thread_local! {
-    static RUNTIME_SECRETS: RefCell<HashMap<String, RuntimeSecret>> = RefCell::new(HashMap::new());
+    static RUNTIME_SECRETS: RefCell<HashMap<String, RuntimeSecret>> =
+        RefCell::new(HashMap::new());
+    /// 只活到锁屏 / 断线的重建副本；不落盘、不进 `Tab.auth`。
+    static SESSION_REBUILD: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
 /// 把一个凭据存进运行时寄存器，返回只含 id 的引用串。
@@ -45,6 +53,12 @@ pub(in crate::ui) fn stash_secret(id: &str, value: &str) -> String {
             .borrow_mut()
             .insert(id.to_string(), RuntimeSecret(value.as_bytes().to_vec()));
     });
+    // 重建副本按 id 键控：`:ki` / `:pk` 变体也各存一份，resolve 时原样拿回。
+    SESSION_REBUILD.with(|rebuild| {
+        rebuild
+            .borrow_mut()
+            .insert(id.to_string(), value.to_string());
+    });
     format!("{SECRET_REF_PREFIX}{id}")
 }
 
@@ -53,7 +67,8 @@ pub(in crate::ui) fn is_secret_ref(value: &str) -> bool {
     value.starts_with(SECRET_REF_PREFIX)
 }
 
-/// 取出并**消耗**一份凭据：连接只拿一次，之后寄存器里不再留明文。
+/// 取出并**消耗**一份凭据：首个消费者取走后寄存器里不再留明文。
+/// 同一会话的后续消费者走 [`rebuild_secret`]，不会因此报「凭据已清理」。
 pub(in crate::ui) fn take_secret(reference: &str) -> Option<String> {
     let id = reference.strip_prefix(SECRET_REF_PREFIX)?;
     RUNTIME_SECRETS.with(|secrets| {
@@ -62,6 +77,15 @@ pub(in crate::ui) fn take_secret(reference: &str) -> Option<String> {
             .remove(id)
             .map(|secret| String::from_utf8_lossy(&secret.0).into_owned())
     })
+}
+
+/// 句柄取空之后按会话（引用里的 id）重建一份明文。
+///
+/// 等价于「保险库还解锁着，就按这条会话再读一次密码」：它只在内存里活到
+/// 锁屏 / 断线，绝不写回 `Tab.auth`，也绝不落盘。
+pub(in crate::ui) fn rebuild_secret(reference: &str) -> Option<String> {
+    let id = reference.strip_prefix(SECRET_REF_PREFIX)?;
+    SESSION_REBUILD.with(|rebuild| rebuild.borrow().get(id).cloned())
 }
 
 /// 把一次认证里的密码类字段换成引用；私钥路径等非秘密原样留着。
@@ -94,16 +118,19 @@ pub(in crate::ui) fn stash_auth(auth: &term_ssh::AuthMethod, id: &str) -> term_s
 /// 明确报「凭据已清理」，而不是偷偷拿一份活了整会话的明文去连。
 pub(in crate::ui) fn clear_runtime_secrets() {
     RUNTIME_SECRETS.with(|secrets| secrets.borrow_mut().clear());
+    SESSION_REBUILD.with(|rebuild| rebuild.borrow_mut().clear());
 }
 
 /// 只清一条会话的（断线重连时其它会话仍可复用自己的凭据）。
 pub(in crate::ui) fn clear_session_secrets(session: &str) {
-    RUNTIME_SECRETS.with(|secrets| {
-        let mut map = secrets.borrow_mut();
-        map.remove(session);
-        map.remove(&format!("{session}:ki"));
-        map.remove(&format!("{session}:pk"));
-    });
+    for id in [session, &format!("{session}:ki"), &format!("{session}:pk")] {
+        RUNTIME_SECRETS.with(|secrets| {
+            secrets.borrow_mut().remove(id);
+        });
+        SESSION_REBUILD.with(|rebuild| {
+            rebuild.borrow_mut().remove(id);
+        });
+    }
 }
 
 /// Authentication 页里那块解锁区。

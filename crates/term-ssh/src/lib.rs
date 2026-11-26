@@ -46,6 +46,7 @@ pub mod known_hosts_admin;
 mod options;
 mod outbound;
 mod proxy;
+mod tcp_tune;
 
 pub use authenticated::{Authenticated, ChannelOpener, Forwarded};
 pub use background::{connect_in_background, ConnectHandle};

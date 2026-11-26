@@ -138,6 +138,14 @@ pub(in crate::ui) fn save_enabled(on: bool) {
     super::settings_live::save_prefs(|p| p.tunnels_enabled = on);
 }
 
+/// 启动期该起哪些命名隧道：判据是 `auto_open && status`，不是只看 `status`。
+///
+/// `should_run()` 只看 `Status`，那是「手点开关时这条规则有没有效」；
+/// 「开机自动起」必须两个勾选都为真，否则用户没勾 Auto open 也会被起。
+pub(in crate::ui) fn startup_profiles(profiles: &[TunnelProfile]) -> Vec<&TunnelProfile> {
+    term_core::tunnel::auto_start(profiles)
+}
+
 /// 画对话框。返回 `Some(Ok)` = 用户按了 `Ok`（草稿已写回 `prefs`），
 /// `Some(Err)` = 校验失败停在原地，`None` = 还开着。
 pub(in crate::ui) fn draw(

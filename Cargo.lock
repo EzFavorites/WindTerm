@@ -4976,6 +4976,7 @@ version = "0.0.1-beta2"
 dependencies = [
  "log",
  "russh",
+ "socket2",
  "ssh-key",
  "term-core",
  "tokio",

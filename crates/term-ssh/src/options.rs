@@ -30,6 +30,11 @@ pub const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 /// 不负责制造断开。
 pub const DEFAULT_KEEPALIVE: Duration = Duration::from_secs(30);
 
+/// `SessionConfig::tcp_low_delay` / `tcp_keep_alive` 的出厂值。
+/// 与 `term_core::config` 的同名常量一致（这里不反向依赖 term-core）。
+pub const DEFAULT_TCP_LOW_DELAY: bool = true;
+pub const DEFAULT_TCP_KEEP_ALIVE: bool = false;
+
 /// 敏感字段在 `Debug` 里的统一占位符。
 ///
 /// 抽成常量而不是在三个 `impl` 里各写一遍字面量：字面量写三遍，改了一处就会
@@ -411,6 +416,11 @@ pub struct SshOptions {
     pub rows: u32,
     pub connect_timeout: Duration,
     pub keepalive: Option<Duration>,
+    /// 会话表单 `Disable Nagle's algorithm`：内建 SSH 真正把它落到第一段 TCP
+    /// 与 russh 的 `nodelay` 上（过去这个字段只写不读）。
+    pub tcp_low_delay: bool,
+    /// 会话表单 `Enable TCP keepalives`：只作用于第一段 TCP socket。
+    pub tcp_keep_alive: bool,
     /// Batch 2 契约：ProxyJump 链（已解析）。空 = 直连。
     ///
     /// 只放**结构**不放原始字符串：语法错误在构造时（`parse_proxy_jump`）
@@ -460,6 +470,8 @@ impl fmt::Debug for SshOptions {
             .field("rows", &self.rows)
             .field("connect_timeout", &self.connect_timeout)
             .field("keepalive", &self.keepalive)
+            .field("tcp_low_delay", &self.tcp_low_delay)
+            .field("tcp_keep_alive", &self.tcp_keep_alive)
             .field("proxy_jump", &self.proxy_jump)
             .field("agent_forward", &self.agent_forward)
             .field("x11_forward", &self.x11_forward)
@@ -489,6 +501,8 @@ impl SshOptions {
             rows: 24,
             connect_timeout: DEFAULT_CONNECT_TIMEOUT,
             keepalive: Some(DEFAULT_KEEPALIVE),
+            tcp_low_delay: DEFAULT_TCP_LOW_DELAY,
+            tcp_keep_alive: DEFAULT_TCP_KEEP_ALIVE,
             proxy_jump: Vec::new(),
             agent_forward: false,
             x11_forward: false,

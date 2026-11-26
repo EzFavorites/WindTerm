@@ -43,3 +43,46 @@ impl From<term_ssh::SshError> for SftpError {
         SftpError::Ssh(e)
     }
 }
+
+/// 这一条错误信息是不是「会话已经没了」，而不是「这一次请求失败」。
+///
+/// `russh-sftp` 把 socket 错误原样塞进 `IO(String)`（`Broken pipe` /
+/// `Connection reset by peer` / `Unexpected EOF`），把队列断开塞进
+/// `UnexpectedBehavior("SendError…" / "RecvError…")`。这些再发一条
+/// `Event::Failed` 只会让 UI 停在「同步中 / 预览等待中」——必须是 `Closed`。
+/// 服务端明确的业务错误（`Permission denied`、`No such file`）不包含这些
+/// 字样，仍走 `Failed`，两边不能串味。
+pub(crate) fn is_disconnect(message: &str) -> bool {
+    let lowered = message.to_ascii_lowercase();
+    ["broken pipe", "connection reset", "connection closed", "eof", "not connected"]
+        .iter()
+        .any(|needle| lowered.contains(needle))
+        || message.contains("SendError")
+        || message.contains("RecvError")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 断连类与业务错误必须分开：前者让 UI 清预览/同步态，后者只报一条红字。
+    #[test]
+    fn connection_loss_is_distinguished_from_a_business_error() {
+        for message in [
+            "I/O: Broken pipe (os error 32)",
+            "I/O: Connection reset by peer (os error 54)",
+            "UnexpectedBehavior(SendError(...))",
+            "UnexpectedBehavior(RecvError(...))",
+        ] {
+            assert!(is_disconnect(message), "{message} 应判为断连");
+        }
+        for message in [
+            "Status(No such file)",
+            "Permission denied",
+            "Timeout",
+            "Limit exceeded: 42",
+        ] {
+            assert!(!is_disconnect(message), "{message} 不该判为断连");
+        }
+    }
+}

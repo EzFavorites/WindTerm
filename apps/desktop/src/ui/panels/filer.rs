@@ -463,6 +463,9 @@ impl TerminalWindow {
                     // 会话没了，等着的预览 / 整棵树清单也等不到了。
                     self.filer.pending_preview = None;
                     self.filer.tree_delete = None;
+                    // 那一行「某文件 1/2 MB」也属于已经没了的会话，不清会
+                    // 在断线后留一条永远不会前进的残影。
+                    self.filer.progress = None;
                     // 不再放回句柄：会话已经没了，留着它只会让人以为还能刷新。
                     // 队列里还在排队的项由 `pump_transfer` 按「没有句柄」逐条判掉。
                     self.pump_transfer(now);

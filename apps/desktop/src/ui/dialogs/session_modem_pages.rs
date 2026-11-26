@@ -1,7 +1,9 @@
 //! X/Y/Z Modem 页（金标准 `02-session-dialog/serial/02..05`）。
 //! 独立成文件只为保住 `session_pages.rs` 的 500 行上限。
 
-use crate::ui::kit::field::{browse_field, choice_row, underlined_job, ChoiceKind, UnderlineStyle};
+use crate::ui::kit::field::{
+    browse_field, choice_row, choice_row_resp, underlined_job, ChoiceKind, UnderlineStyle,
+};
 use crate::ui::kit::form::field_box;
 use crate::ui::kit::spec::{FIELD_TO_ROW, LABEL_TO_FIELD};
 use crate::ui::kit::tabs::{panel, strip};
@@ -35,7 +37,7 @@ pub(in crate::ui) fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut up_dir = win.new_session.modem_upload_dir.clone();
     let mut down_dir = win.new_session.modem_download_dir.clone();
     let mut commands = win.new_session.modem_commands.clone();
-    let mut large = win.new_session.modem_large_packets;
+    let large = win.new_session.modem_large_packets;
 
     // 本页是「标签在上、框在下」的堆叠布局（与同文件其它页的两列网格不同），
     // 节奏必须按金标准逐段给：标签→框 7pt、框→下一标签 9pt。用 scope 把
@@ -121,32 +123,38 @@ pub(in crate::ui) fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             });
 
             // 视觉基线 Z 页签没有 Packet size 行，不臆造。
+            //
+            // X/Y 的包长虽然存进了 `SessionConfig::modem_large_packets`，但
+            // 传输层（`term-xfer` 的 X/Y/Z Modem）从来不读它——勾了也没有
+            // 任何效果。按 ADR-0015「未接线命令显式置灰」：保留金标准的两
+            // 个选项与选中态，但不可点，悬停给出理由，不假装它已经生效。
             if i < 2 {
                 ui.horizontal(|ui| {
                     ui.label("Packet size:");
                     let proto = if i == 0 { "XModem" } else { "YModem" };
                     let mut small = !large[i];
                     let mut big = large[i];
-                    if choice_row(
+                    let hint = "包长尚未接线到 X/Y Modem 传输（ADR-0015：未接线项显式置灰）";
+                    choice_row_resp(
                         ui,
                         ChoiceKind::Radio,
                         &format!("128 ({proto})"),
                         proto,
                         &mut small,
-                        true,
-                    ) {
-                        large[i] = false;
-                    }
-                    if choice_row(
+                        false,
+                        UnderlineStyle::Dialog,
+                    )
+                    .on_hover_text(hint);
+                    choice_row_resp(
                         ui,
                         ChoiceKind::Radio,
                         &format!("1024 ({proto}-1K)"),
                         proto,
                         &mut big,
-                        true,
-                    ) {
-                        large[i] = true;
-                    }
+                        false,
+                        UnderlineStyle::Dialog,
+                    )
+                    .on_hover_text(hint);
                 });
             }
         });

@@ -90,6 +90,15 @@ impl Authenticated {
 }
 
 impl ChannelOpener {
+    /// 从开通道手柄这一侧看连接是否还活着。
+    ///
+    /// `Authenticated::into_forwarded()` 会把原对象拆开，隧道只留手柄；
+    /// 没有这一口子，它就只能在「某条规则 accept 失败」时才发现断了——而
+    /// 事实上 SSH 已经关了、监听却还挂着。
+    pub fn is_closed(&self) -> bool {
+        self.handle.is_closed()
+    }
+
     /// 让服务器连到 `host:port`，把通道开回来（`-L` 与 SOCKS5 共用）。
     pub async fn direct_tcpip(
         &self,
