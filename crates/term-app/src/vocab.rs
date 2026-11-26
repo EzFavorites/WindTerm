@@ -529,6 +529,36 @@ pub enum FindAction {
     Close,
 }
 
+/// 终端行过滤器的两档语义，对齐 `grep` / `grep -v`。
+///
+/// 住在 `vocab` 而不是 `state`：`FilterAction::SetMode` 直接携带它，而 `vocab`
+/// 是分层最底层（词汇 → 副作用 → 状态 → …），`vocab` 不许反向依赖 `state`。
+/// `state.rs` 用 `pub use crate::vocab::FilterMode` 原样再导出，既有引用点不改名。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    /// 只保留命中行（`grep`）。
+    #[default]
+    KeepMatching,
+    /// 丢掉命中行（`grep -v`）。
+    DropMatching,
+}
+
+/// 终端行过滤器的动作。没有命令 ID——入口是底部细带上的 `Filter` 按钮，
+/// 与 `ToggleSysmonRemote` 同样是投影层的强类型意图，不进菜单树。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilterAction {
+    /// 打开过滤栏并复位。
+    Open,
+    /// 细带上的按钮：开 / 关翻转。
+    Toggle,
+    SetQuery(String),
+    /// `grep` / `grep -v` 两档。
+    SetMode(FilterMode),
+    ToggleCase,
+    ToggleRegex,
+    Close,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipboardAction {
     Copy,

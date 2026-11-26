@@ -1,23 +1,34 @@
-//! 终端区下沿的 `Sysmon` 细带。
+//! 每条标签自己的底部工具条（**tab toolbar**）：`Sysmon` 读数与**行过滤器**都在
+//! 这同一条上。
 //!
-//! # 它不是侧边面板
+//! # 它不是侧边面板，也不是第二条栏
 //!
-//! 兼容终端里 `Sysmon` 就在终端区底部这条细带上：收起时右端只有一枚**无边框**
-//! 的文字按钮 `Sysmon`；点它**原地**展开成一条 T/C/M 读数
-//! `[T] HH:MM  [C] NN.N%  [M] X.XX/Y.YY GiB`，再点读数条收回按钮。
-//! 没有齿轮 / `×` 的面板标题，也没有停靠带里的那块内容——从按钮到读数
-//! 都是同一条带上的两种形态，切换只翻一个状态位。
+//! `Sysmon`：收起时右端只有一枚**无边框**的文字按钮 `Sysmon`；点它**原地**展开成
+//! 一条 T/C/M 读数 `[T] HH:MM [C] NN.N% [M] X.XX/Y.YY GiB`，再点读数条收回按钮。
+//! 没有齿轮 / `×` 的面板标题，也没有停靠带里的那块内容——从按钮到读数都是同一条
+//! 带上的两种形态，切换只翻一个状态位（`show_pane_sysmon`），所以夹具 `--demo sysmon`
+//! 派发一次 `TogglePanel` 就正好定格在展开读数。
 //!
-//! 之前的实现把按钮做成了带边框的折叠标签、点击去翻 `TogglePanel(PanelId::Sysmon)`
-//! 打开右带面板（见旧版注释），与视觉基线不符，改成本文件这套。
-//! 状态位仍复用 `show_pane_sysmon`（`ViewState` 里已有的那一位），这样夹具
-//! `--demo sysmon` 派发一次 `TogglePanel` 就正好定格在展开读数，无需新动作。
+//! 行过滤器：左端 `Filter` 按钮把同一条工具条在「T/C/M 读数」与「紧凑过滤行」之间
+//! 切换。过滤状态**按会话持有**（`Tab.filter`），不是全局、不在面板里、也不在
+//! `ViewState`；`Filter` 按钮与过滤行都只操作本工具条归属的那一条 tab。
+//!
+//! # 高度按状态取
+//!
+//! 收起态用 [`TAB_TOOLBAR_H`]（视觉基线 25pt，一个像素都不许动：12 张整窗基线画的
+//! 就是这个高度）；过滤激活时抬到 [`TAB_TOOLBAR_FILTER_H`]（42pt），因为过滤行里
+//! 最占位的是 `TextEdit`——它 23.5pt 高，上下各留 9.25pt，25pt 装不下。
+//! **仍然是同一条工具条、同一行**：不是新增面板，也不是把过滤行挤到第二行。
+//!
+//! 抬高的代价是终端少几行：`layout/pane_chrome.rs` 与 `ui/mod.rs` 都按这个高度切段，
+//! `Tab::resize` 因此真的收到更矮的终端（有意为之）。行号不重排仍然成立——那是
+//! `LineSlice.row` 原样保留的事，与高度无关。
 //!
 //! # 位置
 //!
-//! 这条细带只占中央终端区的宽度，声明在左右竖带之后、中央区之前（见
-//! `ui/mod.rs`）。分屏时每片 pane 自己画一条（`layout/pane_chrome.rs`），
-//! `ui.interact` 的 id 带 pane 身份，避免多格同名撞 ID。
+//! 只占中央终端区的宽度，声明在左右竖带之后、中央区之前（见 `ui/mod.rs`）。分屏时
+//! 每片 pane 自己画一条（`layout/pane_chrome.rs`），并按**自己那条 tab** 的过滤开关
+//! 取高度；`ui.interact` 的 id 带 pane 身份，避免多格同名撞 ID。
 
 use crate::ui::*;
 use eframe::egui;
@@ -30,23 +41,32 @@ use term_core::theme::CHROME_SCALE;
 use term_session::sysmon::{fmt_bytes, fmt_uptime};
 
 /// 细带高度（视觉基线 2× 图约 50px → 25pt）。
-pub(in crate::ui) const SYSMON_BAR_H: f32 = 25.0;
+pub(in crate::ui) const TAB_TOOLBAR_H: f32 = 25.0;
+
+/// 过滤激活态高度：42pt。
+///
+/// 取值逐条落在几何上——过滤行里最占位的是 `TextEdit`，Find 栏把它定在 23.5pt
+/// 高、上下各留 10pt（`FIND_BAR_H = 43`）；这里同款留白，少 1pt 是因为这条工具条
+/// 还要同时放左端的 `Filter` 按钮。25pt 装不下：输入框上下各被吃掉 0.75pt，
+/// 光标就贴着边框了。
+pub(in crate::ui) const TAB_TOOLBAR_FILTER_H: f32 = 42.0;
+
 
 /// 读数条设计宽度（视觉基线逐像素：条带 531px @2x ≈ 265pt）。
 const READOUT_W: f32 = 265.0;
 /// 读数条与右窗沿的距离。
-const EDGE_PAD: f32 = 4.0;
+pub(in crate::ui) const EDGE_PAD: f32 = 4.0;
 /// 字母方块边长。
 const CHIP: f32 = 16.0;
 /// 条内左内边距。
-const PAD_L: f32 = 9.0;
+pub(in crate::ui) const PAD_L: f32 = 9.0;
 /// chip → 文字 与 段 → 段 的间隙。
-const GAP: f32 = 8.0;
+pub(in crate::ui) const GAP: f32 = 8.0;
 /// 文字 / chip 用的等宽字号。
 const FONT_PT: f32 = 12.0;
 
 /// 零内边距：细带的背景要贴住窗沿，不能被 `Frame` 的全局 margin 推走。
-pub(in crate::ui) fn sysmon_bar_frame() -> egui::Frame {
+pub(in crate::ui) fn tab_toolbar_frame() -> egui::Frame {
     egui::Frame::none().fill(crate::theme::chrome(CHROME_SCALE.dialog))
 }
 
@@ -259,13 +279,46 @@ impl TerminalWindow {
         );
     }
 
-    /// 画这条细带。`pane_salt`：分屏时每片 pane 一份 `egui::Id`，全窗传 `None`
-    /// 保持原来的 `"sysmon_bar"` 一字不变。
+    /// 本条工具条的高度：过滤激活抬到 [`TAB_TOOLBAR_FILTER_H`]，否则
+    /// [`TAB_TOOLBAR_H`]。高度只跟**这一条会话**的过滤状态走——分屏时每片 pane 各取
+    /// 各的，互不牵连。
+    pub(in crate::ui) fn tab_toolbar_height(
+        &self,
+        target_session: Option<term_core::session_runtime::SessionId>,
+    ) -> f32 {
+        let session = target_session.or(self.active);
+        let visible = session.is_some_and(|sid| {
+            self.tabs
+                .iter()
+                .any(|t| t.identity == sid && t.filter.visible)
+        });
+        if visible {
+            TAB_TOOLBAR_FILTER_H
+        } else {
+            TAB_TOOLBAR_H
+        }
+    }
+
+    /// 左端 `Filter` 按钮的自然宽（文字 + 左右留白），供过滤行布局共用。
+    pub(in crate::ui) fn filter_button_w(&self, ui: &egui::Ui) -> f32 {
+        let font = crate::ui::type_scale::body();
+        label_width(ui, &self.tr("Filter"), &font) + PAD_L * 2.0
+    }
+
+    /// 画这条工具条。`pane_salt`：分屏时每片 pane 一份 `egui::Id`，全窗传 `None`。
+    ///
+    /// `target_session`：本条工具条归属的会话。**行过滤按会话生效**——分屏时每个
+    /// pane 传自己那条会话，左端 `Filter` 按钮与过滤行只操作它；单窗格传当前活动
+    /// 会话。
+    ///
+    /// 过滤行与 Sysmon 读数**共用同一条** `TopBottomPanel`（不新增第二条）；高度按
+    /// 归属会话的过滤状态取（[`tab_toolbar_height`]），`ui.max_rect()` 就是本帧真实
+    /// 高度，所以这里不另传高度参数。
     ///
     /// `target_session`：本细带归属的会话。**行过滤按会话生效**——分屏时每个 pane
     /// 传自己那条会话，左端 `Filter` 按钮与过滤行只操作它；单窗格传当前活动会话。
     /// 这条细带不另起 `TopBottomPanel`，过滤行与 Sysmon 读数共用同一条 25pt 细带。
-    pub(in crate::ui) fn draw_sysmon_bar(
+    pub(in crate::ui) fn draw_tab_toolbar(
         &mut self,
         ui: &mut egui::Ui,
         pane_salt: Option<u64>,
@@ -274,8 +327,8 @@ impl TerminalWindow {
         let rect = ui.max_rect();
         let expanded = self.panel_visible(PanelId::Sysmon);
         let id = match pane_salt {
-            Some(p) => egui::Id::new(("sysmon_bar", p)),
-            None => egui::Id::new("sysmon_bar"),
+            Some(p) => egui::Id::new(("tab_toolbar", p)),
+            None => egui::Id::new("tab_toolbar"),
         };
 
         // 本细带归属的会话：分屏每个 pane 自己那条；单窗格取活动会话。
@@ -288,21 +341,12 @@ impl TerminalWindow {
         // id 带 pane_salt：分屏时每个 pane 只翻自己那条会话的过滤位，不撞 ID。
         let filter_label = self.tr("Filter");
         let filter_font = crate::ui::type_scale::body();
-        let filter_w = (ui
-            .painter()
-            .layout_no_wrap(
-                filter_label.to_string(),
-                filter_font.clone(),
-                egui::Color32::WHITE,
-            )
-            .size()
-            .x
-            + PAD_L * 2.0)
-            .min(rect.width() * 0.5);
-        let filter_rect = egui::Rect::from_min_max(
-            egui::pos2(rect.left() + EDGE_PAD, rect.top() + 1.0),
-            egui::pos2(rect.left() + EDGE_PAD + filter_w, rect.bottom() - 1.0),
-        );
+        let filter_w = label_width(ui, &filter_label, &filter_font) + PAD_L * 2.0;
+        // 左端 `Filter` 与右端 Sysmon 读数**共用同一条**，谁也不能越到对方身上：
+        // 读数条右对齐后往左撑开，在窄条里会一路撑到条左沿、正好压住 `Filter`。
+        let filter_rect = filter_button_rect(rect, filter_w);
+        // Sysmon 那一侧的左边界：永远从 `Filter` 按钮右边起步。
+        let sysmon_left = filter_rect.right() + GAP;
         let filter_id = match pane_salt {
             Some(p) => egui::Id::new(("sysmon_filter", p)),
             None => egui::Id::new("sysmon_filter"),
@@ -312,22 +356,16 @@ impl TerminalWindow {
         // Sysmon 读数仍要能切回去：过滤态下藏起 T/C/M，但 `Filter` 按钮一直在，
         // 点它回到 Sysmon 读数；Sysmon 那个命中区在过滤态下不登记。
         if filter_visible {
-            // ── 紧凑过滤行：占用细带剩余宽度，不新增任何面板/底栏 ──
-            let row_left = filter_rect.right() + GAP;
-            let row_rect = egui::Rect::from_min_max(
-                egui::pos2(row_left, rect.top() + 1.0),
-                egui::pos2(rect.right() - EDGE_PAD, rect.bottom() - 1.0),
-            );
-            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(row_rect));
-            self.draw_filter_row(&mut child, filter_session, filter_slot, pane_salt);
+            // ── 紧凑过滤行：占用同一条工具条的剩余宽度，不新增任何面板/底栏 ──
+            self.draw_filter_row(ui, rect, filter_session, filter_slot, pane_salt);
         } else {
             // 一次采样、一次文本测量：命中区与绘制共用同一份读数与同一条宽。
             // 同 id 一帧只能登记一次 ui.interact（第二次 egui 报 ID 撞车）。
             let reading = current_reading();
             let segs = expanded.then(|| readout_segments(&reading));
             let hit = match &segs {
-                Some(segs) => readout_rect_for(ui, rect, segs),
-                None => button_rect(ui, rect, self.tr("Sysmon")),
+                Some(segs) => readout_rect_for(ui, rect, sysmon_left, segs),
+                None => button_rect(ui, rect, sysmon_left, self.tr("Sysmon")),
             };
             let resp = ui.interact(hit, id, egui::Sense::click());
             // 官网 page/11 的 uptime / network 不挤占视觉基线的三段读数，放悬停详情。
@@ -347,7 +385,7 @@ impl TerminalWindow {
             let remote = expanded.then(remote_reading).flatten();
             let r_text = remote_text(self.view.sysmon_remote, remote.as_ref());
             let r_rect = if expanded {
-                Some(remote_chip_rect(ui, rect, hit, &r_text))
+                Some(remote_chip_rect(ui, sysmon_left, hit, &r_text))
             } else {
                 None
             };
@@ -421,126 +459,6 @@ impl TerminalWindow {
         }
     }
 
-    /// 紧凑过滤行：`TextEdit` + grep / grep -v + 大小写 + 正则 + 关闭。
-    ///
-    /// 全部 egui 控件 id 带 `pane_salt`（`ui.push_id` + 显式 id）：分屏时每个 pane
-    /// 只读写自己那条会话的 `Tab.filter` / `Tab.filter_input`。受控输入——本函数
-    /// 只收集 `FilterAction`，先收集完再统一落地，避免绘制期借用冲突。
-    fn draw_filter_row(
-        &mut self,
-        ui: &mut egui::Ui,
-        session: Option<term_core::session_runtime::SessionId>,
-        slot: Option<usize>,
-        pane_salt: Option<u64>,
-    ) {
-        let Some(session) = session else { return };
-        let Some(slot) = slot else { return };
-        let lang = self.view.lang;
-
-        // 过滤状态快照 + 每帧现算的 kept/hidden（不缓存进状态）。
-        let (mode, case_sensitive, regex, regex_error) = {
-            let tab = &self.tabs[slot];
-            let err = if tab.filter.regex && !tab.filter.query.is_empty() {
-                term_app::filter::compile(&tab.filter).err()
-            } else {
-                None
-            };
-            (
-                tab.filter.mode,
-                tab.filter.case_sensitive,
-                tab.filter.regex,
-                err,
-            )
-        };
-        let (kept, hidden) = {
-            let tab = &self.tabs[slot];
-            term_app::filter::counts(&tab.filter, &tab.view)
-        };
-
-        let mut pending: Vec<term_app::vocab::FilterAction> = Vec::new();
-        let salt = pane_salt;
-
-        ui.push_id(("sysmon_filter_row", salt), |ui| {
-            ui.horizontal_centered(|ui| {
-                ui.spacing_mut().item_spacing.x = 4.0;
-
-                // `TextEdit` 受控输入，缓冲归本会话（`Tab.filter_input`）。
-                let response = {
-                    let tab = &mut self.tabs[slot];
-                    let border = if regex_error.is_some() {
-                        egui::Color32::from_rgb(0xE0, 0x6C, 0x6C)
-                    } else {
-                        crate::theme::chrome(CHROME_SCALE.border)
-                    };
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut tab.filter_input)
-                            .id_source(("sysmon_filter_query", salt))
-                            .desired_width(160.0)
-                            .hint_text(t(lang, "Filter hint")),
-                    );
-                    ui.painter().rect_stroke(
-                        resp.rect.expand(1.0),
-                        0.0,
-                        egui::Stroke::new(1.0, border),
-                    );
-                    resp
-                };
-                if response.changed() {
-                    let q = self.tabs[slot].filter_input.clone();
-                    pending.push(term_app::vocab::FilterAction::SetQuery(q));
-                }
-                if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-                    pending.push(term_app::vocab::FilterAction::Close);
-                }
-
-                // grep / grep -v 切换。
-                let mode_label = match mode {
-                    term_app::state::FilterMode::KeepMatching => t(lang, "grep"),
-                    term_app::state::FilterMode::DropMatching => t(lang, "grep -v"),
-                };
-                if ui
-                    .selectable_label(
-                        matches!(mode, term_app::state::FilterMode::DropMatching),
-                        mode_label,
-                    )
-                    .on_hover_text(t(lang, "grep -v"))
-                    .clicked()
-                {
-                    pending.push(term_app::filter::ui_command(
-                        term_app::filter::FilterUiCommand::ToggleMode,
-                    ));
-                }
-                // 大小写。
-                if ui.selectable_label(case_sensitive, t(lang, "Aa")).clicked() {
-                    pending.push(term_app::vocab::FilterAction::ToggleCase);
-                }
-                // 正则。
-                if ui
-                    .selectable_label(regex, t(lang, "Regular expression"))
-                    .clicked()
-                {
-                    pending.push(term_app::vocab::FilterAction::ToggleRegex);
-                }
-                // 计数（每帧现算）。
-                ui.label(format!("{kept}/{hidden}"));
-                // 关闭。
-                if ui.button(t(lang, "Close")).clicked() {
-                    pending.push(term_app::vocab::FilterAction::Close);
-                }
-                if let Some(err) = regex_error.as_deref() {
-                    ui.label(
-                        egui::RichText::new(err).color(egui::Color32::from_rgb(0xE0, 0x6C, 0x6C)),
-                    );
-                }
-            });
-        });
-
-        for action in pending {
-            // `Action::Filter` 不写 `ViewState`；对本会话那条 tab 落地（分屏互不串味）。
-            self.apply_filter_on(session, action);
-        }
-    }
-
     /// 一枚 R 方块 + 远端 CPU 读数，贴在三段读数条左侧。
     fn draw_remote_chip(
         &self,
@@ -587,7 +505,7 @@ impl TerminalWindow {
     /// 收起态：右端一枚**无边框**的 `Sysmon` 文字按钮。hover 只出底色
     /// （与全项目一致：蓝底是指向色，不是固有底色）。
     fn draw_sysmon_button(&self, ui: &mut egui::Ui, rect: egui::Rect, hovered: bool, label: &str) {
-        let r = button_rect(ui, rect, label);
+        let r = button_rect(ui, rect, rect.left(), label);
         let p = ui.painter();
         if hovered {
             p.rect_filled(r, 2.0, crate::theme::chrome(CHROME_SCALE.hover));
@@ -610,7 +528,7 @@ impl TerminalWindow {
         segs: &[Segment],
         hovered: bool,
     ) {
-        let strip = readout_rect_for(ui, rect, segs);
+        let strip = readout_rect_for(ui, rect, rect.left(), segs);
         let p = ui.painter();
         p.rect_filled(
             strip,
@@ -646,9 +564,39 @@ impl TerminalWindow {
     }
 }
 
-/// 展开态读数条的矩形（右对齐）。窄窗时不超过细带本身。
-fn readout_rect(rect: egui::Rect, width: f32) -> egui::Rect {
-    let w = width.min(rect.width() - EDGE_PAD * 2.0).max(24.0);
+/// `Filter` 按钮的最小命中宽：再窄就不是一枚按钮了（点击都落不进去）。
+const MIN_FILTER_W: f32 = 48.0;
+
+/// `Filter` 按钮的自然宽夹到 [MIN_FILTER_W, 条宽一半]。纯函数（不收 `&Ui`），
+/// 所以窄条下的命中几何能进单测。
+pub(in crate::ui) fn filter_button_width(rect: egui::Rect, filter_w: f32) -> f32 {
+    filter_w.min(rect.width() * 0.5).max(MIN_FILTER_W)
+}
+
+/// `Filter` 按钮的命中矩形：条左端，左内边距 `EDGE_PAD`。
+pub(in crate::ui) fn filter_button_rect(rect: egui::Rect, filter_w: f32) -> egui::Rect {
+    let w = filter_button_width(rect, filter_w);
+    egui::Rect::from_min_max(
+        egui::pos2(rect.left() + EDGE_PAD, rect.top() + 1.0),
+        egui::pos2(rect.left() + EDGE_PAD + w, rect.bottom() - 1.0),
+    )
+}
+
+/// 一段文字的实际宽度（用于排显式命中矩形，不依赖 egui 的居中布局）。
+pub(in crate::ui) fn label_width(ui: &egui::Ui, text: &str, font: &egui::FontId) -> f32 {
+    ui.painter()
+        .layout_no_wrap(text.to_string(), font.clone(), egui::Color32::WHITE)
+        .size()
+        .x
+}
+
+/// 展开态读数条的矩形（右对齐）。`min_left` 是**不许越过**的左边界——通常是
+/// `Filter` 按钮的右沿：`Filter` 与读数条在**同一条**工具条上，窄条里读数条往左
+/// 撑开会一路压到 `Filter` 上，于是同一块像素有两个命中区（谁都能点到）。夹在
+/// 这里之后两者永不重叠；代价是极窄条里读数文字会被裁，而不是被抢点击。
+fn readout_rect(rect: egui::Rect, min_left: f32, width: f32) -> egui::Rect {
+    let available = (rect.right() - EDGE_PAD - min_left).max(0.0);
+    let w = width.min(available).max(8.0);
     egui::Rect::from_min_max(
         egui::pos2(rect.right() - EDGE_PAD - w, rect.top() + 1.0),
         egui::pos2(rect.right() - EDGE_PAD, rect.bottom() - 1.0),
@@ -656,20 +604,26 @@ fn readout_rect(rect: egui::Rect, width: f32) -> egui::Rect {
 }
 
 /// 内容宽度托底 265pt：夹具那一组值仍画成基线宽度，长读数才把条撑宽。
-fn readout_rect_for(ui: &egui::Ui, rect: egui::Rect, segs: &[Segment]) -> egui::Rect {
-    readout_rect(rect, segments_width(ui, segs).max(READOUT_W))
+fn readout_rect_for(
+    ui: &egui::Ui,
+    rect: egui::Rect,
+    min_left: f32,
+    segs: &[Segment],
+) -> egui::Rect {
+    readout_rect(rect, min_left, segments_width(ui, segs).max(READOUT_W))
 }
 
-/// R 方块的矩形：贴在读数条左边，宽度随读数文字走；窄窗时仍留在细带内。
-fn remote_chip_rect(ui: &egui::Ui, bar: egui::Rect, strip: egui::Rect, text: &str) -> egui::Rect {
-    let font = egui::FontId::monospace(FONT_PT);
-    let text_w = ui
-        .painter()
-        .layout_no_wrap(text.to_string(), font, egui::Color32::WHITE)
-        .size()
-        .x;
+/// R 方块的矩形：贴在读数条左边，宽度随读数文字走；窄条时停在 `min_left`，
+/// 绝不越过 `Filter` 按钮。
+fn remote_chip_rect(
+    ui: &egui::Ui,
+    min_left: f32,
+    strip: egui::Rect,
+    text: &str,
+) -> egui::Rect {
+    let text_w = label_width(ui, text, &egui::FontId::monospace(FONT_PT));
     let w = CHIP + 4.0 + text_w + GAP;
-    let left = (strip.left() - w - 2.0).max(bar.left());
+    let left = (strip.left() - w - 2.0).max(min_left);
     egui::Rect::from_min_max(
         egui::pos2(left, strip.top()),
         egui::pos2(left + w, strip.bottom()),
@@ -677,207 +631,19 @@ fn remote_chip_rect(ui: &egui::Ui, bar: egui::Rect, strip: egui::Rect, text: &st
 }
 
 /// 收起态按钮的矩形：按 `Sysmon` 文字自然宽度 + 左右留白，右对齐。
-fn button_rect(ui: &egui::Ui, rect: egui::Rect, label: &str) -> egui::Rect {
-    let font = crate::ui::type_scale::body();
-    let text_w = ui
-        .painter()
-        .layout_no_wrap(label.to_string(), font, egui::Color32::WHITE)
-        .size()
-        .x;
-    let w = (text_w + PAD_L * 2.0).min(rect.width());
+/// `min_left` 同 [`readout_rect`]：不许压到 `Filter` 按钮上。
+fn button_rect(ui: &egui::Ui, rect: egui::Rect, min_left: f32, label: &str) -> egui::Rect {
+    let text_w = label_width(ui, label, &crate::ui::type_scale::body());
+    let w = (text_w + PAD_L * 2.0)
+        .min(rect.right() - EDGE_PAD - min_left)
+        .max(8.0);
     egui::Rect::from_min_max(
         egui::pos2(rect.right() - EDGE_PAD - w, rect.top() + 1.0),
         egui::pos2(rect.right() - EDGE_PAD, rect.bottom() - 1.0),
     )
 }
 
+
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn readout_and_button_share_the_same_right_edge() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, SYSMON_BAR_H));
-        let strip = readout_rect(rect, READOUT_W);
-        // 按钮宽度由字体决定，这里只要求读数条右沿贴住 EDGE_PAD。
-        assert!((strip.right() - (rect.right() - EDGE_PAD)).abs() < 0.01);
-        assert!(strip.width() <= READOUT_W);
-    }
-
-    #[test]
-    fn longer_readouts_grow_left_ward_without_moving_the_right_edge() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(640.0, SYSMON_BAR_H));
-        let fixture = readout_rect(rect, READOUT_W);
-        let long = readout_rect(rect, READOUT_W + 40.0);
-        assert!(long.left() < fixture.left(), "长读数要往左撑开");
-        assert_eq!(long.right(), fixture.right(), "右沿必须钉死");
-        assert!(long.width() <= rect.width());
-    }
-
-    #[test]
-    fn remote_text_never_invents_a_reading() {
-        let none = crate::sysmon_sample::Reading::default();
-        assert_eq!(remote_text(false, Some(&none)), "—", "关着就不报数");
-        assert_eq!(remote_text(true, None), "—", "采不到就是没有");
-        assert_eq!(remote_text(true, Some(&none)), "0.0%", "真采到的 0 才是 0");
-        let live = crate::sysmon_sample::Reading {
-            cpu_pct: 37.5,
-            ..none
-        };
-        assert_eq!(remote_text(true, Some(&live)), "37.5%");
-    }
-
-    #[test]
-    fn mem_text_matches_the_reference_format() {
-        let used = 24_117_248u64;
-        let total = 24_776_704u64;
-        assert_eq!(mem_text(used, total), "23.00/23.63 GiB");
-        assert_eq!(mem_text(0, 0), "—/— GiB");
-    }
-
-    #[test]
-    fn a_failed_remote_sample_shows_a_dash_not_zero_percent() {
-        let failed = crate::sysmon_remote::from_exec(
-            crate::sysmon_remote::Target::Linux,
-            0,
-            Err(term_ssh::SshError::Config("采样失败".to_string())),
-        );
-        assert!(failed.is_none());
-        assert_eq!(remote_text(true, failed.as_ref()), "—");
-    }
-
-    #[test]
-    fn remote_target_key_ignores_session_identity_but_separates_machines() {
-        let a = SessionConfig::new(Protocol::Ssh);
-        let mut renamed = a.clone();
-        renamed.name = "另一条会话".to_string();
-        assert_eq!(remote_target_key(&a), remote_target_key(&renamed));
-        let mut other_host = a.clone();
-        other_host.host = "10.0.0.2".to_string();
-        assert_ne!(remote_target_key(&a), remote_target_key(&other_host));
-        let mut other_user = a.clone();
-        other_user.username = "root".to_string();
-        assert_ne!(remote_target_key(&a), remote_target_key(&other_user));
-        let mut other_port = a.clone();
-        other_port.port = 2222;
-        assert_ne!(remote_target_key(&a), remote_target_key(&other_port));
-    }
-
-    /// 切换远端源时，上一台机器的读数不能在新机器上继续显示。
-    /// 同一台机器重复同步也不许清——否则每帧都归零，读数永远出不来。
-    #[test]
-    fn switching_remote_target_clears_the_previous_reading() {
-        let stale = crate::sysmon_sample::Reading {
-            cpu_pct: 77.7,
-            ..Default::default()
-        };
-        set_remote_target(None);
-        crate::sysmon_remote::clear();
-        assert!(set_remote_target(Some("alice@10.0.0.1:22")));
-        crate::sysmon_remote::seed_reading_for_test(Some(stale.clone()));
-        assert_eq!(
-            crate::sysmon_remote::reading().map(|r| r.cpu_pct),
-            Some(77.7),
-            "上一台机器的读数确实在快照里"
-        );
-        assert!(
-            !set_remote_target(Some("alice@10.0.0.1:22")),
-            "同一台不重置"
-        );
-        assert!(crate::sysmon_remote::reading().is_some());
-        assert!(
-            set_remote_target(Some("bob@10.0.0.2:2222")),
-            "换机器必须重置"
-        );
-        assert!(
-            crate::sysmon_remote::reading().is_none(),
-            "上一台机器的读数不能留到新机器上"
-        );
-        crate::sysmon_remote::seed_reading_for_test(Some(stale));
-        assert!(set_remote_target(None), "关掉开关也要重置");
-        assert!(crate::sysmon_remote::reading().is_none());
-        set_remote_target(None);
-        crate::sysmon_remote::clear();
-    }
-
-    /// 过滤行与 Sysmon 读数共用同一条细带、不产生第二个 `TopBottomPanel` 声明。
-    ///
-    /// 源码/绘制形状断言（仓库已有 `include_str!` 风格）：`draw_sysmon_bar` 里同时
-    /// 含 Sysmon 读数与过滤行；`ui/mod.rs` 里没有 `filter_bar` 独立面板；过滤输入
-    /// 与按钮 id 带 `pane_salt`；没有 `filter_bar.rs` / `draw_filter_bar`。
-    #[test]
-    fn filter_row_shares_the_sysmon_band_no_second_panel() {
-        let src = include_str!("sysmon_bar.rs");
-        let mod_src = include_str!("../mod.rs");
-        let shell_src = include_str!("mod.rs");
-
-        // 不产生第二个 TopBottomPanel 声明（这条细带只声明一次 sysmon_bar）。
-        assert!(
-            !mod_src.contains("TopBottomPanel::bottom(\"filter_bar\")"),
-            "不许有独立过滤底栏 TopBottomPanel::bottom(filter_bar)"
-        );
-        assert!(
-            !mod_src.contains("filter_bar"),
-            "ui/mod.rs 不许再有 filter_bar 独立面板"
-        );
-        assert!(
-            !shell_src.contains("mod filter_bar;"),
-            "filter_bar.rs 已删除"
-        );
-        assert!(
-            !shell_src.contains("draw_filter_bar"),
-            "不再有 draw_filter_bar"
-        );
-
-        // 过滤行与 Sysmon 读数共用同一个 `draw_sysmon_bar` 这一条 25pt 细带。
-        assert!(src.contains("pub(in crate::ui) const SYSMON_BAR_H: f32 = 25.0;"));
-        assert!(
-            src.contains("fn draw_filter_row"),
-            "过滤行画在 sysmon 细带内"
-        );
-        assert!(
-            src.contains("draw_sysmon_readout"),
-            "Sysmon 读数仍在同一细带"
-        );
-        // `Filter` 按钮 + 过滤行在同一个 `draw_sysmon_bar` 里。
-        let bar_body = &src[src.find("pub(in crate::ui) fn draw_sysmon_bar").unwrap()
-            ..src.find("/// 紧凑过滤行").unwrap()];
-        assert!(
-            bar_body.contains("draw_filter_row"),
-            "过滤行由 draw_sysmon_bar 派发"
-        );
-        assert!(
-            bar_body.contains("draw_sysmon_readout"),
-            "Sysmon 读数由 draw_sysmon_bar 派发"
-        );
-        assert!(
-            bar_body.contains("filter_visible"),
-            "Filter 按钮在两态之间切换"
-        );
-        // 过滤行内含 TextEdit + grep/grep-v + 大小写 + 正则 + 关闭。
-        assert!(
-            src.contains("egui::TextEdit::singleline"),
-            "过滤行有 TextEdit"
-        );
-        assert!(
-            src.contains("FilterUiCommand::ToggleMode"),
-            "grep / grep -v 切换"
-        );
-        assert!(src.contains("FilterAction::ToggleCase"), "大小写");
-        assert!(src.contains("FilterAction::ToggleRegex"), "正则");
-        assert!(src.contains("FilterAction::Close"), "关闭");
-        // 输入与按钮 id 带 pane_salt。
-        assert!(
-            src.contains("(\"sysmon_filter\", p)"),
-            "Filter 按钮 id 带 pane_salt"
-        );
-        assert!(
-            src.contains("(\"sysmon_filter_query\", salt)"),
-            "输入 id 带 pane_salt"
-        );
-        assert!(
-            src.contains("ui.push_id((\"sysmon_filter_row\", salt)"),
-            "过滤行 id 带 pane_salt"
-        );
-    }
-}
+#[path = "tab_toolbar_tests.rs"]
+mod tests;

@@ -210,6 +210,10 @@ pub struct Tab {
     /// 窗口：分屏 / 多标签时每条会话保留自己的查询与缓冲，互不覆盖。
     /// 不进 `ViewState`、不落盘。
     pub(in crate::ui) filter_input: String,
+    /// 本帧的诊断（`kept/hidden` + 正则错误），由 `ensure_view` 在 `drop_rows`
+    /// **之前**用同一次编译算好写入。UI 只读这一份，不再二次编译；`None` = 本会话
+    /// 还没画过一帧（没有 `ensure_view` 算过），UI 按「不过滤」读。
+    pub(in crate::ui) filter_diag: Option<term_app::filter::FilterDiag>,
     /// 用户在本标签里敲过回车的那些行（历史绝对行，升序去重）。
     ///
     /// [`Tab::fold_inputs`] 的第二数据源：`snapshot.blocks`（OSC 133）为空——也就是

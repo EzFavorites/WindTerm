@@ -94,6 +94,26 @@ pub struct FindState {
     pub current_match: usize,
 }
 
+/// 行过滤的两档语义。原定义住在 `vocab`（`FilterAction::SetMode` 携带它，`vocab`
+/// 是分层最底层），这里原样再导出，既有引用点（`state::FilterMode`）不改名——
+/// 分层单向只许 `state → vocab`，不许反向。
+pub use crate::vocab::FilterMode;
+
+/// 行过滤状态。与 Find 同纪律：**不存命中集合、不存计数**。
+///
+/// 命中与否是 `(query, mode, 正则/大小写, 事实窗口)` 的纯函数值；过滤本身
+/// 发生在渲染前最后一步 `ScreenImage::drop_rows`，所以这里只有用户的选择。
+/// 行号 / 时间戳不重排由 `LineSlice.row` 原样保留来保证，状态层不参与。
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct FilterState {
+    pub visible: bool,
+    pub query: String,
+    pub mode: FilterMode,
+    pub case_sensitive: bool,
+    pub regex: bool,
+}
+
+
 /// 所有视图开关。纯数据，不含任何 UI 框架类型，可单测。
 ///
 /// 字段集与「读者」一一对应（读者在 `ui/`，括号里注明）：

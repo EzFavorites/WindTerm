@@ -95,6 +95,7 @@ mod tests {
             folds: term_app::folds::Folds::new(),
             filter: term_app::state::FilterState::default(),
             filter_input: String::new(),
+            filter_diag: None,
             input_rows: std::cell::RefCell::new(Vec::new()),
             command_texts: std::cell::RefCell::new(Vec::new()),
             pending_local_sends: Vec::new(),

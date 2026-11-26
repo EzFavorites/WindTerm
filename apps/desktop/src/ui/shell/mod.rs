@@ -30,7 +30,8 @@ mod quick_config_menu;
 mod quick_layout;
 mod quick_mark;
 mod status_bar;
-mod sysmon_bar;
+mod tab_toolbar;
+mod tab_toolbar_filter;
 mod tab_bar;
 mod tab_menu;
 mod tab_strip;
@@ -67,7 +68,8 @@ pub(in crate::ui) use popup_lists::{
     action_cyan, address_blue, draw_session_glyph, group_green, paint_right,
 };
 pub(in crate::ui) use quick_command_bar::draw_quick_command_bar;
-pub(in crate::ui) use sysmon_bar::{sysmon_bar_frame, SYSMON_BAR_H};
+pub(in crate::ui) use tab_toolbar::{filter_button_rect, label_width, tab_toolbar_frame, EDGE_PAD, GAP, TAB_TOOLBAR_FILTER_H, TAB_TOOLBAR_H};
+
 // 2026-11-25：点外收起那一击的判据不止快捷栏按钮要用——终端的折叠列点击与
 // xterm 鼠标报告同样得跳过它，所以按原样再导出，判据只有 `click_not_consumed` 一份。
 pub(in crate::ui) use quick_command_bar::click_not_consumed;

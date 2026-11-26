@@ -9,10 +9,10 @@
 //! `grep(pat)` / `grep_v(pat)` 同一套编译器，字面与正则共用一条语法路径。
 //! 这里不引入第二个正则实现，也不碰 PTY / 窗口。
 
-use crate::state::{FilterMode, FilterState};
-use crate::vocab::{Action, FilterAction};
+pub use crate::state::FilterState;
+pub use crate::vocab::{Action, FilterAction, FilterMode};
 use std::collections::HashSet;
-use term_core::automation::{LinePolicy, Pattern, Syntax};
+use term_core::automation::{LinePolicy, Pattern, PatternError, Syntax};
 use term_core::grid::ScreenImage;
 
 /// 栏内开关走 `SetQuery` 的保留前缀（同 Find 的做法），不新增命令 ID。
@@ -59,7 +59,7 @@ fn decode_ui_command(payload: &str) -> Option<FilterUiCommand> {
 ///   “全丢”语义，那会让用户一敲删除键整屏消失。
 /// - 模式写错 → `Err(消息)`，调用方保持上一帧画面并给出红框提示，**不**
 ///   静默退回字面匹配（与 Find 的正则错误反馈同一原则）。
-pub fn compile(state: &FilterState) -> Result<Option<LinePolicy>, String> {
+pub fn compile(state: &FilterState) -> Result<Option<LinePolicy>, PatternError> {
     if !state.visible || state.query.is_empty() {
         return Ok(None);
     }
@@ -68,8 +68,7 @@ pub fn compile(state: &FilterState) -> Result<Option<LinePolicy>, String> {
     } else {
         Syntax::Literal
     };
-    let pattern =
-        Pattern::compile(&state.query, syntax, state.case_sensitive).map_err(|e| e.to_string())?;
+    let pattern = Pattern::compile(&state.query, syntax, state.case_sensitive)?;
     let policy = match state.mode {
         FilterMode::KeepMatching => LinePolicy::KeepIf(pattern),
         FilterMode::DropMatching => LinePolicy::DropIf(pattern),
@@ -83,21 +82,66 @@ pub fn compile(state: &FilterState) -> Result<Option<LinePolicy>, String> {
 /// 不会留下过期行号）。`LineSlice::text()` 是“渲染后的行文本”——跳过宽字符
 /// 延续格、去掉行尾空白，与 Find 的扫描口径一致。
 pub fn hidden_rows(state: &FilterState, window: &ScreenImage) -> HashSet<i64> {
-    let Ok(Some(policy)) = compile(state) else {
-        return HashSet::new();
-    };
-    window
-        .lines
-        .iter()
-        .filter(|line| !policy.admits(&line.text()))
-        .map(|line| line.row)
-        .collect()
+    let (hidden, _) = diagnose(state, window);
+    hidden
 }
 
 /// 每帧现算的可见 / 隐藏计数，供过滤栏显示 `kept/hidden`。不进状态。
 pub fn counts(state: &FilterState, window: &ScreenImage) -> (usize, usize) {
     let hidden = hidden_rows(state, window).len();
     (window.lines.len().saturating_sub(hidden), hidden)
+}
+
+/// 一帧的诊断结果：`kept/hidden` 计数 + 正则错误。**命中集合不进状态**——它由
+/// [`diagnose`] 在渲染前最后一步现算，UI 只读这一份，不再二次编译。
+#[derive(Clone, Debug, Default)]
+pub struct FilterDiag {
+    pub kept: usize,
+    pub hidden: usize,
+    pub error: Option<PatternError>,
+}
+
+/// 一次编译给出「要丢哪些行 + 诊断」。同一帧只应调用一次（`ensure_view` 在
+/// `drop_rows` **之前**），计数与丢弃因此必然同源——绝不允许 UI 从丢掉之后的
+/// 窗口反算（`hidden` 会恒为 0），也不允许 UI 再编译一遍（一帧编译两次正则）。
+pub fn diagnose(
+    state: &FilterState,
+    window: &ScreenImage,
+) -> (HashSet<i64>, FilterDiag) {
+    match compile(state) {
+        Ok(Some(policy)) => {
+            let hidden: HashSet<i64> = window
+                .lines
+                .iter()
+                .filter(|line| !policy.admits(&line.text()))
+                .map(|line| line.row)
+                .collect();
+            let diag = FilterDiag {
+                kept: window.lines.len().saturating_sub(hidden.len()),
+                hidden: hidden.len(),
+                error: None,
+            };
+            (hidden, diag)
+        }
+        Ok(None) => {
+            let diag = FilterDiag {
+                kept: window.lines.len(),
+                hidden: 0,
+                error: None,
+            };
+            (HashSet::new(), diag)
+        }
+        Err(e) => {
+            // 模式写错：**不过滤**（保持上一帧画面），只报诊断。与 Find 的正则
+            // 错误反馈同一原则——不静默退回字面匹配。
+            let diag = FilterDiag {
+                kept: window.lines.len(),
+                hidden: 0,
+                error: Some(e),
+            };
+            (HashSet::new(), diag)
+        }
+    }
 }
 
 /// 只写 `FilterState`，不写任何窗口状态。

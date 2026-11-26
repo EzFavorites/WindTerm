@@ -19,7 +19,7 @@
 use crate::ui::layout::{pane_group_name, PaneGroup, PaneId};
 use crate::ui::shell::{
     paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
-    PANE_TOOLS_H, SYSMON_BAR_H, TAB_BAR_H,
+    PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_FILTER_H, TAB_TOOLBAR_H,
 };
 use crate::ui::*;
 use term_app::menu::{TabTool, TAB_TOOLS};
@@ -44,20 +44,23 @@ struct LeafRects {
     tab: Option<egui::Rect>,
     tools: Option<egui::Rect>,
     term: egui::Rect,
-    sysmon: Option<egui::Rect>,
+    toolbar: Option<egui::Rect>,
 }
 
-fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
+fn leaf_rects(rect: egui::Rect, focus: bool, toolbar_h_in: f32) -> LeafRects {
     if focus {
         return LeafRects {
             tab: None,
             tools: None,
             term: rect,
-            sysmon: None,
+            toolbar: None,
         };
     }
+    // 工具条高度只允许两档：收起 [`TAB_TOOLBAR_H`]、过滤激活 [`TAB_TOOLBAR_FILTER_H`]。
+    // 夹在这里，调用方多传一个别的值也不会把这条工具条画成第三种高度。
+    let toolbar_h_in = toolbar_h_in.clamp(TAB_TOOLBAR_H, TAB_TOOLBAR_FILTER_H);
     // 矮窗格保底：三段 chrome 先按可用高度收缩，终端至少留一行高。
-    let chrome = TAB_BAR_H + PANE_TOOLS_H + SYSMON_BAR_H;
+    let chrome = TAB_BAR_H + PANE_TOOLS_H + toolbar_h_in;
     let term_h = (rect.height() - chrome).max(16.0);
     let scale = if rect.height() < chrome + 16.0 {
         (rect.height() - 16.0).max(0.0) / chrome
@@ -66,7 +69,7 @@ fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
     };
     let tab_h = TAB_BAR_H * scale;
     let tools_h = PANE_TOOLS_H * scale;
-    let sysmon_h = SYSMON_BAR_H * scale;
+    let toolbar_h = toolbar_h_in * scale;
     let tab_rect = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), tab_h));
     let tools_rect = egui::Rect::from_min_size(
         egui::pos2(rect.left(), rect.min.y + tab_h),
@@ -76,15 +79,15 @@ fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
         egui::pos2(rect.left(), rect.min.y + tab_h + tools_h),
         egui::vec2(rect.width(), term_h),
     );
-    let sysmon_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.left(), rect.max.y - sysmon_h),
-        egui::vec2(rect.width(), sysmon_h),
+    let toolbar_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left(), rect.max.y - toolbar_h),
+        egui::vec2(rect.width(), toolbar_h),
     );
     LeafRects {
         tab: Some(tab_rect),
         tools: Some(tools_rect),
         term: term_rect,
-        sysmon: Some(sysmon_rect),
+        toolbar: Some(toolbar_rect),
     }
 }
 
@@ -99,7 +102,11 @@ pub(in crate::ui) fn draw_pane_leaf(
     group: &PaneGroup,
     rect: egui::Rect,
 ) {
-    let parts = leaf_rects(rect, win.view.focus_mode);
+    let parts = leaf_rects(
+        rect,
+        win.view.focus_mode,
+        win.tab_toolbar_height(Some(group.active)),
+    );
     if let Some(tab_rect) = parts.tab {
         let mut top = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect));
         draw_pane_tab_strip(win, &mut top, pane, group);
@@ -112,9 +119,9 @@ pub(in crate::ui) fn draw_pane_leaf(
         let mut term = ui.new_child(egui::UiBuilder::new().max_rect(parts.term));
         win.draw_terminal_area_for(&mut term, group.active);
     }
-    if let Some(sysmon_rect) = parts.sysmon {
-        let mut sysmon = ui.new_child(egui::UiBuilder::new().max_rect(sysmon_rect));
-        win.draw_sysmon_bar(&mut sysmon, Some(pane.0), Some(group.active));
+    if let Some(toolbar_rect) = parts.toolbar {
+        let mut toolbar = ui.new_child(egui::UiBuilder::new().max_rect(toolbar_rect));
+        win.draw_tab_toolbar(&mut toolbar, Some(pane.0), Some(group.active));
     }
     // 父 Ui 必须知道整片被占掉了，否则后续内容会叠上来（与 Split 分支同款）。
     ui.allocate_rect(rect, egui::Sense::hover());
@@ -342,12 +349,34 @@ mod tests {
     #[test]
     fn non_focus_leaf_keeps_all_three_chrome_segments() {
         let r = leaf_rect();
-        let parts = leaf_rects(r, false);
+        let parts = leaf_rects(r, false, TAB_TOOLBAR_H);
         assert!(parts.tab.is_some(), "tab 条不能丢");
         assert!(parts.tools.is_some(), "工具行 / 地址栏不能丢");
-        assert!(parts.sysmon.is_some(), "Sysmon 细带不能丢");
+        assert!(parts.toolbar.is_some(), "tab 工具条不能丢");
         assert_eq!(parts.term.top(), r.top() + TAB_BAR_H + PANE_TOOLS_H);
-        assert_eq!(parts.sysmon.unwrap().bottom(), r.bottom());
+        assert_eq!(parts.toolbar.unwrap().bottom(), r.bottom());
+    }
+
+    /// 分屏每片按**自己那条会话**的工具条高度切段：过滤激活的那片终端更矮，
+    /// 收起的那片一个像素都不变。
+    #[test]
+    fn split_leaf_sizes_its_terminal_by_its_own_toolbar_height() {
+        let r = leaf_rect();
+        let plain = leaf_rects(r, false, TAB_TOOLBAR_H);
+        let filtered = leaf_rects(r, false, TAB_TOOLBAR_FILTER_H);
+        assert_eq!(
+            plain.term.width(),
+            filtered.term.width(),
+            "宽度不受影响"
+        );
+        assert!(
+            filtered.term.height() + TAB_TOOLBAR_FILTER_H
+                == plain.term.height() + TAB_TOOLBAR_H,
+            "过滤态吃掉的正是多出来的 17pt"
+        );
+        assert_eq!(plain.toolbar.unwrap().height(), TAB_TOOLBAR_H);
+        assert_eq!(filtered.toolbar.unwrap().height(), TAB_TOOLBAR_FILTER_H);
+        assert_eq!(filtered.toolbar.unwrap().bottom(), r.bottom());
     }
 
     /// 专注模式压掉的不只是单窗格那条全窗顶栏——**每一片分屏窗格**也只剩终端。
@@ -355,10 +384,10 @@ mod tests {
     #[test]
     fn focus_leaf_hides_every_chrome_segment() {
         let r = leaf_rect();
-        let parts = leaf_rects(r, true);
+        let parts = leaf_rects(r, true, TAB_TOOLBAR_H);
         assert!(parts.tab.is_none());
         assert!(parts.tools.is_none());
-        assert!(parts.sysmon.is_none());
+        assert!(parts.toolbar.is_none());
         assert_eq!(parts.term, r, "终端吃满整片窗格");
     }
 

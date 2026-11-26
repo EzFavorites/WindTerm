@@ -186,8 +186,9 @@ pub(in crate::ui) fn tab_from(
             // 真的敲一次回车）。与 `marks` 一样是「每条会话一份」的显示状态。
             folds: term_app::folds::Folds::new(),
             // 行过滤器出厂关着、查询为空：每条会话一份，不落盘。
-            filter: term_app::state::FilterState::default(),
+            filter: term_app::filter::FilterState::default(),
             filter_input: String::new(),
+            filter_diag: None,
             input_rows: std::cell::RefCell::new(Vec::new()),
             command_texts: std::cell::RefCell::new(Vec::new()),
             pending_local_sends: Vec::new(),
@@ -229,13 +230,17 @@ pub(in crate::ui) fn ensure_view(tab: &mut Tab, rows: usize) -> ScreenImage {
     // 取窗口（含折叠）照旧；过滤是**最后一次**变换。过滤状态从本会话
     // `tab.filter` 取，不再由调用方传入。
     let image = ensure_view_core(tab, rows);
-    // 过滤必须是最后一次变换：`crop_view` 依赖行号连续，`drop_rows` 之后行号带洞，
-    // 边栏按 `line.row` 取绝对行号与时间戳（margin.rs 已如此），不重排。
-    // `LineSlice.row` 原样保留。从 `tab.filter` 读状态，每帧现算命中，不缓存。
-    let hidden = filter::hidden_rows(&tab.filter, &image);
+    // 一帧只编译一次：诊断（`kept/hidden` + 正则错误）与「要丢哪些行」同源于
+    // 这一次编译，且都在 `drop_rows` **之前**算——细带画不了 `tab.view`，因为那
+    // 已经是丢掉之后的窗口，从它反算 `kept` 会把被隐藏的行数成可见（恒为 0）。
+    let (hidden, diag) = filter::diagnose(&tab.filter, &image);
+    tab.filter_diag = Some(diag);
     if hidden.is_empty() {
         image
     } else {
+        // 过滤必须是最后一次变换：`crop_view` 依赖行号连续，`drop_rows` 之后
+        // 行号带洞，边栏按 `line.row` 取绝对行号与时间戳（margin.rs 已如此），
+        // 不重排。`LineSlice.row` 原样保留，所以行号带洞但顺序不变。
         image.drop_rows(|row| hidden.contains(&row))
     }
 }
