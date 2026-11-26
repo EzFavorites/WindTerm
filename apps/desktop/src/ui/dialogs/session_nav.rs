@@ -306,6 +306,12 @@ pub(in crate::ui) fn default_page(protocol: Protocol) -> usize {
 
 /// 夹具用：给某页挑一个**真的包含它**的协议，让单页出图显示正确的树。
 pub(in crate::ui) fn protocol_for_page(page: usize) -> Protocol {
+    // 21 是 Telnet / Tcp 共用的 TCP Connection 页。视觉基线只有
+    // `dialog_new_session_tcp_connection.png`，按 ALL 顺序首中会挑 Telnet，
+    // 左树协议头就画成 `Telnet`——T00 差异要的是 `Tcp`，这里给夹具定死。
+    if page == 21 {
+        return Protocol::Tcp;
+    }
     Protocol::ALL
         .into_iter()
         .find(|p| contains(*p, page))

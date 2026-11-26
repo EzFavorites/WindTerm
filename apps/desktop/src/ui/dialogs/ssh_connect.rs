@@ -90,6 +90,11 @@ pub(in crate::ui) struct Connector {
     /// 账本，重连再用 Strict 真校验——不再让 Tofu 自己决定记哪把钥匙。
     accepted_fingerprint: Option<String>,
     pub(in crate::ui) accepted_key: Option<String>,
+    /// 本次尝试的代数。每次发起都从窗口领一个新值，回调落地前核对。
+    pub(in crate::ui) gen: u64,
+    /// 这次连接是自动重连发起的（手动 Reconnect / 侧栏连接不是）。失败时
+    /// 只有自动重连会按退出原因显式排下一次。
+    pub(in crate::ui) auto: bool,
 }
 
 impl Connector {
@@ -102,7 +107,15 @@ impl Connector {
             pending: PendingOpen::Append,
             accepted_fingerprint: None,
             accepted_key: None,
+            gen: 0,
+            auto: false,
         }
+    }
+
+    /// 把这次连接标记为自动重连，并钉住它领到的代数。
+    pub(in crate::ui) fn mark_auto(&mut self, gen: u64) {
+        self.gen = gen;
+        self.auto = true;
     }
 
     /// 指定这条会话连上之后落在哪儿（默认 [`PendingOpen::Append`]）。

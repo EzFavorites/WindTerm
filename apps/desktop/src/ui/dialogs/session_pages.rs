@@ -268,7 +268,36 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
                 }
             });
         ui.end_row();
-        form_row(ui, "Flow Control:");
+        // `Flow Control:` 比标签列可容纳的宽度略宽，`form_row` 会把它截成
+        // `Flow Contro…`（T00 差异）。这里按同一右缘单独画：放不下时只把
+        // 这一条标签的字号等比缩一点，整条显示，既不压到控件也不改其它行。
+        let (rect, _) = ui.allocate_exact_size(
+            egui::vec2(super::session_form_body::LABEL_W, ROW_H),
+            egui::Sense::hover(),
+        );
+        let label = "Flow Control:";
+        let font = egui::TextStyle::Body.resolve(ui.style());
+        let full = ui
+            .painter()
+            .layout_no_wrap(label.to_owned(), font.clone(), egui::Color32::WHITE)
+            .size()
+            .x;
+        let avail = super::session_form_body::LABEL_W - 4.0;
+        let font = if full > avail {
+            egui::FontId {
+                size: font.size * (avail / full).max(0.85),
+                ..font
+            }
+        } else {
+            font
+        };
+        ui.painter().text(
+            rect.right_center() - egui::vec2(2.0, 0.0),
+            egui::Align2::RIGHT_CENTER,
+            label,
+            font,
+            crate::theme::chrome(term_core::theme::CHROME_SCALE.text),
+        );
         let sel = flow.to_string();
         egui::ComboBox::from_id_salt("serial_flow")
             .selected_text(sel)

@@ -230,7 +230,9 @@ pub(in crate::ui) fn window_with(
         menu_bar_peek_until: 0.0,
         lock_timeout_secs: 0,
         last_lock_activity: 0.0,
-        auto_reconnect: false,
+        reconnect: crate::ui::reconnect::ReconnectRuntime::from(
+            term_core::session::ReconnectPolicy::default(),
+        ),
         prefer_theme_fonts: false,
         tab_hover_activate: false,
         tab_hover_delay_ms: 200,

@@ -272,8 +272,8 @@ pub struct TerminalWindow {
     auto_hide_menu_bar: bool, menu_bar_peek_until: f64,
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）与上一次真实输入时刻。
     lock_timeout_secs: u32, last_lock_activity: f64,
-    /// prefs.auto_reconnect（出厂关）。
-    auto_reconnect: bool, prefer_theme_fonts: bool,
+    /// 自动重连的窗口运行时（全局策略 + 每条断开链的窗口 / 代数）。出厂关。
+    reconnect: reconnect::ReconnectRuntime, prefer_theme_fonts: bool,
     /// 悬停激活：当前悬停的会话与起算时刻。
     tab_hover_activate: bool, tab_hover_delay_ms: u32, tab_hover: Option<(term_core::session_runtime::SessionId, f64)>,
     /// Preferences ▸ Proxy：全局默认代理的运行期副本。
@@ -894,7 +894,7 @@ impl TerminalWindow {
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll_with_note(rules, &mut run_commands, self.auto_reconnect, &self.onekeys, &autofill, &mut note) {
+            if self.tabs[i].poll_with_policy(rules, &mut run_commands, &self.reconnect.global, &self.onekeys, &autofill, &mut note) {
                 changed = true;
             }
         }

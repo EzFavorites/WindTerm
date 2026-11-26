@@ -7,6 +7,13 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+// `lib.rs` 不在本改动的领地里，所以不新增顶层 `pub mod reconnect;`：用 `#[path]`
+// 把同目录的新文件挂在 `session` 下，并从这里再导出一次。对外两个名字都能用——
+// `term_core::session::reconnect::backoff` 与 `term_core::session::backoff`。
+#[path = "reconnect.rs"]
+pub mod reconnect;
+pub use reconnect::{backoff, effective, is_terminal, ReconnectOverride, ReconnectPolicy};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Protocol {
     Shell,
@@ -513,6 +520,11 @@ pub struct SessionConfig {
     /// `adopt_channel`，本地 Shell 是进程已经起来），所以不必再分两档。
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub logon_script: String,
+    /// 自动重连的逐会话覆盖。**平铺**进会话 JSON 的六个可选键，每个都带
+    /// `#[serde(default)]`（见 [`ReconnectOverride`]）：老会话库缺键时读出来
+    /// 全是 `None` = 沿用全局策略（出厂关闭），不会让老文件反序列化失败。
+    #[serde(flatten, default)]
+    pub reconnect: ReconnectOverride,
 }
 
 /// 会话配置不足以生成启动计划。
@@ -663,6 +675,17 @@ impl SessionConfig {
             word_separators_alt: String::new(),
             bracket_pairs: String::new(),
             logon_script: String::new(),
+            // 全协议共用同一套默认（None = 沿用全局）；本地 shell 例外：
+            // 它显式写死 enabled=false，即使在全局策略被手改成开的情况下也
+            // 不重连——本地进程退出是用户主动结束，不是链路断开。
+            reconnect: if protocol == Protocol::Shell {
+                ReconnectOverride {
+                    enabled: Some(false),
+                    ..ReconnectOverride::default()
+                }
+            } else {
+                ReconnectOverride::default()
+            },
         }
     }
 
@@ -678,6 +701,19 @@ impl SessionConfig {
         let mut config = Self::new(Protocol::Shell);
         config.username = login.to_string();
         config
+    }
+
+    /// 这条会话现在能不能进自动重连链：**唯一判据**。
+    ///
+    /// 替掉了 UI 里两处 `protocol != Shell` 的硬编码。本地 shell 永不重连；
+    /// 其余协议看有效策略的 `enabled`（全局 + 本会话覆盖），退出原因另行由
+    /// [`reconnect::allows_exit`] 判定——两件事分开，免得把「本地 shell」和
+    /// 「终止性失败」揉成同一个布尔。
+    pub fn allows_reconnect(&self, global: &ReconnectPolicy) -> bool {
+        if self.protocol == Protocol::Shell {
+            return false;
+        }
+        reconnect::effective(global, &self.reconnect).enabled
     }
 
     /// 实际要尝试的**有序**认证方法链 = 首选 `auth` 在前 + 回退链依次在后，
@@ -1332,6 +1368,30 @@ mod tests {
         assert_eq!(back.proxy_host, "");
         assert_eq!(back.proxy_port, 0);
         assert!(!back.auto_login, "老配置缺 auto_login 键 → 不自动登录");
+        assert_eq!(back.reconnect, ReconnectOverride::default(), "老配置缺重连平铺键 → 全 None");
+    }
+
+    #[test]
+    fn reconnect_overrides_round_trip_and_shell_is_hard_disabled() {
+        let mut s = SessionConfig::new(Protocol::Ssh);
+        s.reconnect = ReconnectOverride {
+            enabled: Some(true),
+            initial_secs: Some(2),
+            backoff: Some(3),
+            max_delay_secs: Some(60),
+            retry_window_secs: Some(300),
+            max_attempts: Some(9),
+        };
+        let json = serde_json::to_string(&s).expect("新配置能写");
+        let back: SessionConfig = serde_json::from_str(&json).expect("新配置能读");
+        assert_eq!(back.reconnect, s.reconnect);
+
+        let shell = SessionConfig::new(Protocol::Shell);
+        assert_eq!(shell.reconnect.enabled, Some(false), "本地 shell 显式不重连");
+        assert!(!shell.allows_reconnect(&ReconnectPolicy::from_enabled(true)));
+        let ssh = SessionConfig::new(Protocol::Ssh);
+        assert!(ssh.allows_reconnect(&ReconnectPolicy::from_enabled(true)));
+        assert!(!ssh.allows_reconnect(&ReconnectPolicy::default()));
     }
 
     #[test]

@@ -30,7 +30,7 @@ use term_core::ansi::TextCleaner;
 use term_core::coords::ViewRange;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::session_runtime::{
-    Cancel, ClipboardRequest, FacetKind, OutputReader, Session, SessionState, WaitError,
+    Cancel, ClipboardRequest, ExitKind, FacetKind, OutputReader, Session, SessionState, WaitError,
     WaitMatch, WaitRegistration,
 };
 use term_core::vt::Terminal;
@@ -170,7 +170,9 @@ enum Event {
     /// 落进 `SupervisorHandle.preview_screen` 独立槽，与 `Screen` 物理隔离
     /// （ADR-0028）。旧 `Screen` 变体一字不改。
     PreviewScreen(ScreenImage),
-    Finished(String),
+    /// 会话结束：状态文本 + 退出原因分类。分类在监管者线程里就定下来
+    /// （本地 shell = Normal，其余通道结束 = Retryable），UI 不必再猜。
+    Finished { status: String, kind: ExitKind },
     /// `OSC 52` 请求，由 UI 按会话策略放行 / 拒绝。
     Clipboard(ClipboardRequest),
     /// 日志状态变化（开始 / 暂停 / 恢复 / 停止 / 失败）。
@@ -288,9 +290,10 @@ impl SupervisorHandle {
                     self.preview_screen = Some(s);
                     changed = true;
                 }
-                Event::Finished(st) => {
-                    self.status.exit_status = Some(st);
+                Event::Finished { status, kind } => {
+                    self.status.exit_status = Some(status);
                     self.status.alive = false;
+                    self.status.exit_kind = kind;
                     changed = true;
                 }
                 Event::Clipboard(req) => {
@@ -870,6 +873,14 @@ fn start(
     let worker_mailbox = Arc::clone(&mailbox);
     let snapshot = GridSnapshot::empty(init_cols, init_rows);
     let scrollback = config.scrollback;
+    // 退出原因分类：只有协议上下文（这里才有 config）知道「本地 shell 退出」
+    // 与「对端链路掉了」的区别。具体 SSH 错误到 ExitKind 的映射在 apps 层
+    // （`ui::reconnect::exit_kind_for_ssh`），本 crate 不认识 term-ssh。
+    let exit_kind = if config.protocol == Protocol::Shell {
+        ExitKind::Normal
+    } else {
+        ExitKind::Retryable
+    };
     // 退出原因的最后落点：线程退出时写一次，句柄随时可读。
     let exit_note = Arc::new(Mutex::new(None));
     let worker_exit_note = Arc::clone(&exit_note);
@@ -905,6 +916,7 @@ fn start(
                     worker_exit_note,
                     vt,
                     bell,
+                    exit_kind,
                 )
             }));
             if let Err(payload) = outcome {
@@ -935,6 +947,7 @@ fn start(
             connected: true,
             alive: true,
             exit_status: None,
+            exit_kind: ExitKind::Unknown,
         },
         log: LogStatus::default(),
         clipboard_requests: Vec::new(),
@@ -957,6 +970,7 @@ fn run(
     exit_note: Arc<Mutex<Option<String>>>,
     mut vt: Terminal,
     mut bell: crate::bell::BellGate,
+    exit_kind: ExitKind,
 ) {
     let mut version = 0u64;
     // 有变化但还没能放进邮箱（上一份还没被取走）。下一轮槽空了就补上。
@@ -1325,8 +1339,11 @@ fn run(
             pending = false;
         }
         // 先落最终屏、再报退出：顺序反了就仍有「事件已到、屏未到」的窗口。
-        if let Some(st) = exited {
-            let _ = ev_tx.send(Event::Finished(st));
+        if let Some(status) = exited {
+            let _ = ev_tx.send(Event::Finished {
+                status,
+                kind: exit_kind,
+            });
         }
         // 请求看到的是本轮最终状态；不递增 version（不产生新事实）。
         for r in requested {

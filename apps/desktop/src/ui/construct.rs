@@ -230,7 +230,7 @@ impl TerminalWindow {
                 data_bits: term_core::config::SERIAL_DATA_BITS,
                 stop_bits: term_core::config::SERIAL_STOP_BITS,
                 parity: term_core::config::SERIAL_PARITY.to_string(),
-                flow_control: term_core::config::SERIAL_FLOW_CONTROL.to_string(),
+                flow_control: term_core::config::SERIAL_FLOW_CONTROL.to_string(), reconnect: Default::default(),
             },
             session_dialog: SessionDialogKind::New { group: None },
             // Default Session Settings 的落盘模板：用户没保存过时回落出厂值。
@@ -297,7 +297,7 @@ impl TerminalWindow {
             menu_bar_peek_until: 0.0,
             lock_timeout_secs: prefs.lock_timeout_secs,
             last_lock_activity: 0.0,
-            auto_reconnect: prefs.auto_reconnect,
+            reconnect: prefs.effective_reconnect().into(),
             prefer_theme_fonts: prefs.prefer_theme_fonts,
             tab_hover_activate: prefs.tab_hover_activate,
             tab_hover_delay_ms: prefs.tab_hover_delay_ms,
