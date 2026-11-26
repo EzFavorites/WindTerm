@@ -409,7 +409,9 @@ impl TerminalWindow {
         self.tabs
             .get(self.active_slot())
             .map(|tab| tab.marks)
-            .unwrap_or_default()
+            // 没有活动标签时给出厂值：原版高亮四项默认勾选，不能用
+            // `MarksParams::default()` 的全关把菜单勾画成另一种状态。
+            .unwrap_or_else(|| marks_defaults(&term_runtime::prefs::Prefs::default()))
     }
 
     /// 当前活动标签的 hex 排版参数。菜单用它画三组互斥档位的勾
@@ -678,7 +680,7 @@ mod tests {
 
         let marks = window.active_marks();
         assert!(marks.line_endings && marks.indent_guides && marks.wrap_symbols);
-        assert!(marks.caret_line);
+        assert!(!marks.caret_line, "切换应翻转出厂勾选态");
         assert_eq!(
             marks.column_marker,
             Some(super::super::marks::COLUMN_MARKER_DEFAULT),
