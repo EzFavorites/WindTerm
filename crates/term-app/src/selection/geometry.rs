@@ -604,8 +604,10 @@ pub(super) fn scope_rows(image: &ScreenImage, blocks: &[CommandBlock<i64>]) -> V
 /// 相邻两条输入之间的输出是一个块，最后一条输入之后不折。这里只做一件
 /// 事——把历史绝对行换算成视口行并丢掉落在当前窗口之外的块；不重新定义
 /// 「什么是折叠块」，避免出现第二套折叠口径。
-pub(super) fn fold_rows(image: &ScreenImage, inputs: &[HistoryRow]) -> Vec<(i64, i64)> {
-    crate::folds::blocks_from_inputs(inputs)
+/// `blocks` 由调用方从折叠引擎算出后传入：几何层不依赖 `folds`（分层门禁），
+/// 也不重新定义"什么是折叠块"。
+pub(super) fn fold_rows(image: &ScreenImage, blocks: &[CommandBlock<i64>]) -> Vec<(i64, i64)> {
+    blocks
         .iter()
         .filter_map(|region| {
             let start = block_view_row(image, region.start().get())?;

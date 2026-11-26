@@ -23,8 +23,7 @@ use term_core::vt::paste_bytes_for;
 mod debug_log;
 mod fold;
 mod mode;
-mod search;
-pub(in crate::ui) mod theme;
+mod search; pub(in crate::ui) mod theme;
 
 impl TerminalWindow {
     /// 帧末批量落地：同步输入广播 + 折叠列点击。两项都要借整个窗口，

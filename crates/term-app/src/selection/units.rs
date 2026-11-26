@@ -74,7 +74,7 @@ pub(super) fn fold_unit(
     current: Option<Selection>,
     inputs: &[HistoryRow],
 ) -> Option<Selection> {
-    let rows = fold_rows(image, inputs);
+    let rows = fold_rows(image, &crate::folds::blocks_from_inputs(inputs));
     match op {
         Op::Fold => {
             let (from, to) = rows
