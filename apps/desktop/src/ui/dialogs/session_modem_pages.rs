@@ -34,6 +34,11 @@ pub(in crate::ui) fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let hint = "/Users/unique/Downloads";
     let mut protocol = win.new_session.modem_protocol;
     let mut use_default = win.new_session.modem_use_default;
+    let mut open_after = win.new_session.modem_open_after;
+    // 手改过 JSON 的越界下标在这里就归一：下拉不会显示空白档，写回也只写 0..6。
+    let mut policy_index = crate::xfer_conflict::policy_index(
+        crate::xfer_conflict::policy_from_index(win.new_session.modem_conflict_policy),
+    );
     let mut up_dir = win.new_session.modem_upload_dir.clone();
     let mut down_dir = win.new_session.modem_download_dir.clone();
     let mut commands = win.new_session.modem_commands.clone();
@@ -95,6 +100,27 @@ pub(in crate::ui) fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             &mut use_default,
             true,
         );
+        // 接收侧两项会话默认：完成后自动打开下载目录 + 同名冲突的七档策略。
+        // 文案与判据共用 `xfer_conflict::POLICIES`，弹层下拉也是同一份清单。
+        choice_row(
+            ui,
+            ChoiceKind::Checkbox,
+            "Open download folder when done",
+            "Open",
+            &mut open_after,
+            true,
+        );
+        ui.label("If a file with the same name already exists:");
+        egui::ComboBox::from_id_salt("modem_conflict_policy")
+            .selected_text(crate::xfer_conflict::label(crate::xfer_conflict::policy_from_index(policy_index)))
+            .width(ui.available_width())
+            .show_ui(ui, |ui| {
+                for (i, (_, text)) in crate::xfer_conflict::POLICIES.into_iter().enumerate() {
+                    if ui.selectable_label(policy_index == i, text).clicked() {
+                        policy_index = i;
+                    }
+                }
+            });
 
         // 勾选行 → 页签条：行距 9pt 已由 item_spacing 给出，不再另加空白。
         let outcome = strip(ui, &TABS, tab, 25.0, 8.0);
@@ -162,6 +188,8 @@ pub(in crate::ui) fn modem_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     let cfg = &mut win.new_session;
     cfg.modem_protocol = protocol;
+    cfg.modem_open_after = open_after;
+    cfg.modem_conflict_policy = policy_index;
     cfg.modem_use_default = use_default;
     cfg.modem_upload_dir = up_dir;
     cfg.modem_download_dir = down_dir;

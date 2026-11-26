@@ -133,6 +133,9 @@ pub(in crate::ui) struct NewSessionData {
     pub(in crate::ui) modem_protocol: usize,
     pub(in crate::ui) modem_upload_dir: String,
     pub(in crate::ui) modem_download_dir: String,
+    /// X/Y/ZMODEM 接收：冲突策略下标（0..6）与完成后是否打开下载目录。
+    pub(in crate::ui) modem_conflict_policy: usize,
+    pub(in crate::ui) modem_open_after: bool,
     pub(in crate::ui) modem_use_default: bool,
     /// X/Y/Z 三页签的上传命令与包长档位（见 `SessionConfig` 同名字段）。
     pub(in crate::ui) modem_commands: [String; 3],
@@ -221,6 +224,8 @@ impl NewSessionData {
             modem_protocol: config.modem_protocol,
             modem_upload_dir: config.modem_upload_dir.clone(),
             modem_download_dir: config.modem_download_dir.clone(),
+            modem_conflict_policy: config.modem_conflict_policy,
+            modem_open_after: config.modem_open_after,
             modem_use_default: config.modem_use_default,
             modem_commands: config.modem_commands.clone(),
             modem_large_packets: config.modem_large_packets,
@@ -351,6 +356,8 @@ impl NewSessionData {
         c.modem_protocol = self.modem_protocol;
         c.modem_upload_dir = self.modem_upload_dir.clone();
         c.modem_download_dir = self.modem_download_dir.clone();
+        c.modem_conflict_policy = self.modem_conflict_policy;
+        c.modem_open_after = self.modem_open_after;
         c.modem_use_default = self.modem_use_default;
         c.modem_commands = self.modem_commands.clone();
         c.modem_large_packets = self.modem_large_packets;
@@ -575,6 +582,24 @@ mod tests {
         let blank = NewSessionData::from_config(&SessionConfig::new(Protocol::Ssh));
         assert_eq!(blank.cols, term_core::config::DEFAULT_COLS);
         assert_eq!(blank.wheel_lines, term_core::config::MOUSE_WHEEL_SCROLL_LINES);
+    }
+
+    #[test]
+    fn modem_receive_defaults_round_trip_through_the_form() {
+        // 表单 ↔ 配置两向都要带这两格，否则 Modify 属性页「改了没存」。
+        let mut c = SessionConfig::new(Protocol::Ssh);
+        c.modem_conflict_policy = 4;
+        c.modem_open_after = true;
+        let f = NewSessionData::from_config(&c);
+        assert_eq!(f.modem_conflict_policy, 4);
+        assert!(f.modem_open_after);
+        let saved = f.to_config(SessionConfig::new(Protocol::Ssh));
+        assert_eq!(saved.modem_conflict_policy, 4);
+        assert!(saved.modem_open_after);
+        // 新建表单与出厂配置一致：Overwrite / 不打开。
+        let fresh = NewSessionData::from_config(&SessionConfig::new(Protocol::Ssh));
+        assert_eq!(fresh.modem_conflict_policy, 0);
+        assert!(!fresh.modem_open_after);
     }
 
     #[test]

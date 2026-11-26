@@ -208,6 +208,8 @@ impl TerminalWindow {
                 modem_protocol: 2,
                 modem_upload_dir: String::new(),
                 modem_download_dir: String::new(),
+                modem_conflict_policy: 0,
+                modem_open_after: false,
                 modem_use_default: false,
                 modem_commands: ["rx".into(), "rb".into(), "rz".into()],
                 modem_large_packets: [false, true, false],
@@ -277,11 +279,7 @@ impl TerminalWindow {
             // 斑马线也在这里：它是同一个设置页上的第五个同类参数，**没有**理由
             // 单独留在窗口上（留在窗口上就意味着勾一下当场改掉所有已开标签）。
             hex_defaults: crate::ui::terminal::HexParams::from_prefs(
-                prefs.hex_base,
-                prefs.hex_columns,
-                prefs.hex_group,
-                prefs.hex_division,
-                prefs.alternate_column_bg,
+                prefs.hex_base, prefs.hex_columns, prefs.hex_group, prefs.hex_division, prefs.alternate_column_bg,
             ),
             focus_new_tab: prefs.focus_new_tab,
             // Tabs 页三项：同一份 prefs，同一写法（构造时读一次，设置页改完

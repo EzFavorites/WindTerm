@@ -80,6 +80,17 @@ pub(crate) fn label(policy: ConflictPolicy) -> &'static str {
         .unwrap_or(POLICIES[0].1)
 }
 
+/// 会话属性里存的下标 → 策略。`POLICIES` 是唯一真相源：越界（手改过 JSON、
+/// 老版本写进过更大的档位）一律回落 Overwrite，绝不在下拉里显示空白档。
+pub(crate) fn policy_from_index(index: usize) -> ConflictPolicy {
+    POLICIES.get(index).map(|(policy, _)| *policy).unwrap_or_default()
+}
+
+/// 策略 → 会话属性里存的下标。未知档位同样回落到 0，保证写回的永远是 0..6。
+pub(crate) fn policy_index(policy: ConflictPolicy) -> usize {
+    POLICIES.iter().position(|(candidate, _)| *candidate == policy).unwrap_or(0)
+}
+
 /// 改名用的候选个数上限。`decide` 用 9999；测试用小值，不必真造一万个文件。
 const RENAME_ATTEMPTS: u32 = 9999;
 
@@ -206,6 +217,23 @@ mod tests {
         for &(policy, text) in &POLICIES {
             assert_eq!(label(policy), text);
         }
+    }
+
+    #[test]
+    fn policy_indexes_round_trip_through_the_single_policy_list() {
+        for (i, &(policy, _)) in POLICIES.iter().enumerate() {
+            assert_eq!(policy_from_index(i), policy, "下标 {i} 应取回列表里的那一档");
+            assert_eq!(policy_index(policy), i, "这一档应写回下标 {i}");
+        }
+    }
+
+    #[test]
+    fn out_of_range_policy_indexes_fall_back_to_overwrite() {
+        assert_eq!(policy_from_index(POLICIES.len()), ConflictPolicy::Overwrite);
+        assert_eq!(policy_from_index(usize::MAX), ConflictPolicy::Overwrite);
+        // 列表本身不变：回落不会凭空多出第八档。
+        assert_eq!(POLICIES.len(), 7);
+        assert_eq!(policy_index(policy_from_index(usize::MAX)), 0);
     }
 
     #[test]

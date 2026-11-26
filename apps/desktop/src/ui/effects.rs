@@ -59,9 +59,7 @@ impl TerminalWindow {
     /// 循环切到相对位置的标签（+1 / -1，到头回绕）。
     pub(super) fn activate_tab(&mut self, delta: i32) {
         let n = self.tabs.len();
-        if n == 0 {
-            return;
-        }
+        if n == 0 { return; }
         let n = n as i32;
         let idx = (((self.active_slot() as i32 + delta) % n) + n) % n;
         self.set_active_slot(idx as usize);
@@ -69,16 +67,12 @@ impl TerminalWindow {
 
     /// 会话名是纯属性，不需要选区。
     pub(super) fn copy_session_name(&self) {
-        if let Some(tab) = self.tabs.get(self.active_slot()) {
-            self.ctx.copy_text(tab.config.name.clone());
-        }
+        if let Some(tab) = self.tabs.get(self.active_slot()) { self.ctx.copy_text(tab.config.name.clone()); }
     }
 
     /// 连接串同样来自配置；Shell 本地会话退化成名字（没有 URL 可讲）。
     pub(super) fn copy_session_url(&self) {
-        if let Some(tab) = self.tabs.get(self.active_slot()) {
-            self.ctx.copy_text(session_url(&tab.config));
-        }
+        if let Some(tab) = self.tabs.get(self.active_slot()) { self.ctx.copy_text(session_url(&tab.config)); }
     }
 
     pub(super) fn open_help(&self) {
@@ -113,11 +107,7 @@ impl TerminalWindow {
         self.dispatch_action(Action::Find(FindAction::SetQuery(
             self.selection_text.clone(),
         )));
-        let step = if dir > 0 {
-            FindAction::Next
-        } else {
-            FindAction::Previous
-        };
+        let step = if dir > 0 { FindAction::Next } else { FindAction::Previous };
         self.dispatch_action(Action::Find(step));
     }
 
@@ -303,9 +293,7 @@ impl TerminalWindow {
     /// 粘贴与控制字符过滤在不同终端模式下因此只有一份行为。
     /// 没有活动 PTY（夹具 / 已断开）时静默，与既有粘贴路径一致。
     pub(super) fn send_command(&mut self, text: &str) {
-        if text.is_empty() {
-            return;
-        }
+        if text.is_empty() { return; }
         // 「按钮栏」：快速命令里写一条 `Script.RunFile:<路径>`，点它就
         // 是一个脚本按钮——与映射键同一个命令 ID，三条入口一套写法。
         //
@@ -331,12 +319,8 @@ impl TerminalWindow {
             // 「重新连接会话」指的就是眼前这条。以前它连侧栏选中的那一条
             // ——用户在一个断开的标签上点 Reconnect，连的却是另一台机器。
             Effect::Reconnect => self.reconnect_active_tab(),
-            Effect::OpenNewSession => {
-                // 菜单开新会话：表单状态由 reduce 写进 ViewState，这里只清掉
-                // 上一次「属性」留下的编辑目标——否则菜单里点「新建会话」会
-                // 悄悄改掉那条会话。对话框开关本身不需要额外副作用。
-                self.session_dialog = SessionDialogKind::New { group: None };
-            }
+            // 菜单开新会话：只清掉上次「属性」的编辑目标，免得改到那条会话。
+            Effect::OpenNewSession => self.session_dialog = SessionDialogKind::New { group: None },
             Effect::OpenSettings | Effect::ShowAbout => {
                 // 对话框开关已由 reduce 写入 ViewState，无需额外副作用。
             }
@@ -355,15 +339,11 @@ impl TerminalWindow {
             }
             Effect::CopySelection => {
                 // 文本已在绘制时从事实窗口提取；这里只做「写剪贴板」这一件副作用。
-                if !self.selection_text.is_empty() {
-                    self.ctx.copy_text(self.selection_text.clone());
-                }
+                if !self.selection_text.is_empty() { self.ctx.copy_text(self.selection_text.clone()); }
             }
             // `Cmd::Move` 与 `Cmd::Set`（集合命令）共用一个待办槽位——
             // 落地在 `ui/terminal/pane.rs`：只有那一处手上有本帧的事实窗口。
-            Effect::Select(cmd) => {
-                self.pending_select = Some(cmd);
-            }
+            Effect::Select(cmd) => self.pending_select = Some(cmd),
             Effect::Log(action) => self.apply_log(action),
             Effect::Paste => {
                 // 平台剪贴板读由框架代劳。egui 0.29 只暴露写接口，
@@ -441,7 +421,12 @@ impl TerminalWindow {
                 }
             }
             Effect::Xfer(cmd) => {
-                self.xfer_prompt = crate::ui::dialogs::xfer::XferPrompt::from(cmd);
+                // 菜单、`modem_use_default` 直启共用这一处：弹层出厂值必须来自
+                // 活动会话，否则属性页选了策略/打开目录却完全不生效。
+                let (idx, open) = self.tabs.get(self.active_slot())
+                    .map(|t| (t.config.modem_conflict_policy, t.config.modem_open_after))
+                    .unwrap_or((0, false));
+                self.xfer_prompt = xfer_prompt(cmd, idx, open);
             }
             // 标签右键只发 `Action::Tab`，落地全在这一处。
             Effect::Tab(action) => self.apply_tab_action(action),
@@ -723,6 +708,15 @@ pub(in crate::ui) fn next_active_tab(
     active.min(tab_count.saturating_sub(1))
 }
 
+/// `XferPrompt::from` 只拆命令；会话默认（冲突策略 / 打开目录）在这里注入，
+/// 所以直启路径与菜单路径拿到的是同一份弹层状态。无活动标签时用出厂值。
+fn xfer_prompt(cmd: XferCmd, index: usize, open_after: bool) -> Option<crate::ui::dialogs::xfer::XferPrompt> {
+    let mut prompt = crate::ui::dialogs::xfer::XferPrompt::from(cmd)?;
+    prompt.policy = crate::xfer_conflict::policy_from_index(index);
+    prompt.open_after = open_after;
+    Some(prompt)
+}
+
 /// 把会话配置拼成连接串（`ssh://user@host:port`），Shell 退化成名字。
 fn session_url(cfg: &SessionConfig) -> String {
     if matches!(cfg.protocol, Protocol::Shell) {
@@ -751,7 +745,24 @@ fn session_url(cfg: &SessionConfig) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::next_active_tab;
+    use super::{next_active_tab, xfer_prompt};
+    use term_app::action::{XferCmd, XferProtocol};
+
+    #[test]
+    fn a_new_xfer_prompt_inherits_the_active_sessions_receive_defaults() {
+        // 菜单与 `modem_use_default` 直启都经这里；出厂是 Overwrite / 不打开。
+        let cmd = XferCmd::Receive(XferProtocol::Zmodem);
+        let fresh = xfer_prompt(cmd, 0, false).unwrap();
+        assert_eq!(fresh.policy, crate::xfer_conflict::policy_from_index(0));
+        assert!(!fresh.open_after);
+        let configured = xfer_prompt(cmd, 4, true).unwrap();
+        assert_eq!(configured.policy, crate::xfer_conflict::policy_from_index(4));
+        assert!(configured.open_after);
+        // 手改 JSON 的越界下标回落 Overwrite，不会让弹层画出空白档。
+        assert_eq!(xfer_prompt(cmd, usize::MAX, false).unwrap().policy, fresh.policy);
+        assert!(xfer_prompt(XferCmd::Cancel, 4, true).is_none());
+    }
+
     #[test]
     fn a_new_tab_takes_focus_when_the_setting_is_on() {
         // 出厂行为：开一条新标签就切过去（分屏 / 从会话树连接 / 复制标签同一条）。
