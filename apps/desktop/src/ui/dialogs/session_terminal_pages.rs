@@ -274,8 +274,8 @@ fn selection_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
 /// 17 `Terminal ▾ Bell`：视觉基线 `common/03-bell.png`。
 ///
-/// 响铃方式与去重窗口在 `SessionConfig` 里还没有字段，因此整页灰显 +
-/// 说明。选中的那一项按视觉基线画在 `Beep using the PC speaker` 上。
+/// 响铃方式、声音文件与去重窗口都接真并写回 `SessionConfig`。
+/// 标签沿用视觉基线的完整文案，不要缩短成 `PC speaker` 之类。
 fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut style = win.new_session.bell_style;
     let mut sound = win.new_session.bell_sound.clone();
@@ -283,7 +283,7 @@ fn bell_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     if let Some(i) = radio_choices(
         ui,
         "Bell styles:",
-        &["Mute", "PC speaker", "Custom sound"],
+        &["Mute", "Beep using the PC speaker", "Play the custom sound"],
         style,
         true,
         126.0,
