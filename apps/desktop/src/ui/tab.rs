@@ -190,6 +190,26 @@ pub struct Tab {
     /// 命令行本身是块的折叠头，永远可见。所以这里存的是「已经折了哪些块」，
     /// 不是「打算折哪些」——块是从输入行算出来的，本字段只记用户的实际动作。
     pub(in crate::ui) folds: term_app::folds::Folds,
+    /// 本会话的**终端行过滤器**状态（`grep` / `grep -v`）。
+    ///
+    /// 归 tab 而不是 `ViewState`：与 [`Tab::folds`] / [`Tab::marks`] 同款——
+    /// 同一个窗口里两个标签、分屏两个 pane 可以各过滤各的，互不串味；进
+    /// `ViewState` 就变成整窗一份全局过滤。
+    ///
+    /// 只存用户的选择（开没开 / 查询 / 模式 / 大小写 / 正则），**不存命中集合、
+    /// 不存计数**：命中每帧由 `term_app::filter::hidden_rows` 从 `(状态, 事实窗口)`
+    /// 现算，过滤发生在渲染前最后一步 `ScreenImage::drop_rows`
+    /// （见 `ui/terminal/setup.rs::ensure_view`），`LineSlice.row` 原样保留、
+    /// 行号与时间戳带洞不重排。状态只由 `term_app::filter::reduce` 写，
+    /// 投影层从 `ui/effects.rs::apply_filter` 对本标签落地。**不落盘**。
+    pub(in crate::ui) filter: term_app::state::FilterState,
+    /// 本会话过滤输入框的**控件缓冲**（`egui::TextEdit` 受控输入）。
+    ///
+    /// 与 [`Tab::filter`]`.query` 分工：`filter_input` 是正在敲的那份，`query`
+    /// 是已提交参与过滤的那份；受控输入时一次 `SetQuery` 同步两者。归 tab 而不是
+    /// 窗口：分屏 / 多标签时每条会话保留自己的查询与缓冲，互不覆盖。
+    /// 不进 `ViewState`、不落盘。
+    pub(in crate::ui) filter_input: String,
     /// 用户在本标签里敲过回车的那些行（历史绝对行，升序去重）。
     ///
     /// [`Tab::fold_inputs`] 的第二数据源：`snapshot.blocks`（OSC 133）为空——也就是
@@ -244,7 +264,6 @@ pub struct Tab {
     pub(in crate::ui) auto_reconnect_blocked: bool,
 
     // ── N：恢复时注入的运行态（持久化只存，不主动读；restore_layout 里写入）──
-
     /// 待恢复的 scroll_top（0 = 历史顶部，history_len = 贴底）。
     /// `restore_layout` 从 `SavedTab.scroll_top` 读入；`Tab::poll` 中首帧应用后清 None。
     pub(in crate::ui) restore_scroll_top: Option<u64>,
@@ -288,7 +307,11 @@ impl Tab {
     /// 换算口径必须与本文件逐字一致，所以那边调这个方法而不是自己再写一遍
     /// （两份 `history + min(cursor, rows - 1)` 迟早会漂）。
     pub(in crate::ui) fn cursor_abs_row(&self) -> Option<term_core::coords::HistoryRow> {
-        let grid = self.snapshot.cursor.0.min(self.snapshot.rows.saturating_sub(1));
+        let grid = self
+            .snapshot
+            .cursor
+            .0
+            .min(self.snapshot.rows.saturating_sub(1));
         term_core::coords::HistoryRow::new(self.snapshot.history as i64 + grid as i64)
     }
 

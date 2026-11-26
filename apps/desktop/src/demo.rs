@@ -73,6 +73,10 @@ pub struct DemoSpec {
     /// `true` = 夹具额外派发 `TogglePanel(Sysmon)`，拍展开后的 `T/C/M` 读数条。
     /// 只描述「按了哪个按钮」，与 `margin` / `shell` 同一条「夹具不发状态」的路。
     pub sysmon: bool,
+    /// `Some(query)` = 夹具打开行过滤（`grep` 只留命中行）并填入查询词；
+    /// 只派发 `Action::Filter(Open)` + `SetQuery`，不直接写状态。过滤状态按会话
+    /// 持有：走同一条动作路径设置「活动 tab」的 `Tab.filter`。
+    pub filter: Option<&'static str>,
     /// `true` = 夹具开启软换行（把内容折到 wrap column）。与 `mode` 同类：
     /// 这是显示模式，夹具直接写 `tab.word_wrap`，不经过 reducer。
     pub word_wrap: bool,
@@ -112,6 +116,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -144,6 +149,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -170,6 +176,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -187,6 +194,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -204,6 +212,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -222,6 +231,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -240,6 +250,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -259,6 +270,7 @@ impl DemoSpec {
         bin: BinKind::Line,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -276,6 +288,7 @@ impl DemoSpec {
         bin: BinKind::Overflow,
         preview_hover: None,
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -294,6 +307,7 @@ impl DemoSpec {
         bin: BinKind::None,
         preview_hover: Some(0.5),
         sysmon: false,
+        filter: None,
         word_wrap: false,
         rainbow_brackets: false,
     };
@@ -303,6 +317,14 @@ impl DemoSpec {
     /// 于是这张基线图守住 `T/C/M` 头与 `time/system/mem` 三段的位置和颜色。
     pub const SYSMON: DemoSpec = DemoSpec {
         sysmon: true,
+        ..DemoSpec::SCROLL
+    };
+
+    /// 行过滤夹具：`grep` 模式只留含 "line" 的行，行号与时间戳保持原值。
+    /// 与 Sysmon 同款——只派发 `Open` + `SetQuery`，不写状态；过滤落在活动 tab。
+    pub const FILTER: DemoSpec = DemoSpec {
+        filter: Some("line"),
+        sel: SelSpec::None,
         ..DemoSpec::SCROLL
     };
 
@@ -326,6 +348,8 @@ impl DemoSpec {
             "preview" => Some(DemoSpec::PREVIEW),
             // Sysmon 展开：`T/C/M` 头 + `time/system/mem` 读数条。
             "sysmon" => Some(DemoSpec::SYSMON),
+            // 行过滤：`grep` 只留 "line" 命中行，验证行号 / 时间戳带洞不重排。
+            "filter" => Some(DemoSpec::FILTER),
             // 弹窗夹具：背景用回看画面，弹 New Session 对话框（与组件基线比对用）。
             "newsession" => Some(DemoSpec {
                 open_new_session: true,
@@ -437,11 +461,11 @@ fn rainbow_bytes(rows: usize) -> Vec<Vec<u8>> {
 /// 只会给第一行盖上时刻，图里就变成「一行有时间、其余空着」。
 fn demo_bytes(rows: usize) -> Vec<Vec<u8>> {
     let mut chunks: Vec<Vec<u8>> = (1..=(rows * 3))
-        .map(|i| format!("line {i:02}  the quick brown fox jumps over the lazy dog\r\n").into_bytes())
+        .map(|i| {
+            format!("line {i:02}  the quick brown fox jumps over the lazy dog\r\n").into_bytes()
+        })
         .collect();
-    chunks.push(
-        b"\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m \x1b[7minverse\x1b[0m\r\n".to_vec(),
-    );
+    chunks.push(b"\x1b[31mred\x1b[0m \x1b[1mbold\x1b[0m \x1b[7minverse\x1b[0m\r\n".to_vec());
     chunks
 }
 
@@ -670,12 +694,19 @@ pub fn build(spec: DemoSpec, cols: usize, rows: usize) -> Fixture {
         // 底带会从图上消失。夹具只负责钉死字节流，不碰外壳状态。
         // Sysmon 是唯一的例外：它出厂关着（底部细带只露按钮），展开夹具派发
         // 一次 TogglePanel 把细带翻成 T/C/M 读数（与用户点按钮同一条 reduce）。
-        shell: if spec.sysmon {
-            vec![Action::Shell(term_app::shell::ShellAction::TogglePanel(
-                term_app::dock::PanelId::Sysmon,
-            ))]
-        } else {
-            Vec::new()
+        shell: {
+            let mut actions: Vec<Action> = Vec::new();
+            if spec.sysmon {
+                actions.push(Action::Shell(term_app::shell::ShellAction::TogglePanel(
+                    term_app::dock::PanelId::Sysmon,
+                )));
+            }
+            if let Some(query) = spec.filter {
+                use term_app::vocab::FilterAction;
+                actions.push(Action::Filter(FilterAction::Open));
+                actions.push(Action::Filter(FilterAction::SetQuery(query.to_string())));
+            }
+            actions
         },
         preview_screen: spec.preview_hover.map(|ratio| {
             let range = preview_range(history, ratio as f64, rows);
@@ -739,8 +770,14 @@ mod tests {
         assert_eq!(f.screen.lines.len(), 24);
         // 上滚 6 行后，首行应是第二屏靠后的内容，而不是第 1 行。
         let first = f.screen.lines[0].text();
-        assert!(first.starts_with("line "), "首行应是普通文本，实际：{first}");
-        assert_ne!(first, "line 01  the quick brown fox jumps over the lazy dog");
+        assert!(
+            first.starts_with("line "),
+            "首行应是普通文本，实际：{first}"
+        );
+        assert_ne!(
+            first,
+            "line 01  the quick brown fox jumps over the lazy dog"
+        );
     }
 
     #[test]
@@ -749,7 +786,10 @@ mod tests {
         let sel = f.selection.expect("scroll 夹具带选区");
         let text = sel.text(&f.screen, &f.snapshot.wraps);
         assert_eq!(text.lines().count(), 3, "跨三行的选区应产出三行文本");
-        assert!(text.lines().all(|l| !l.is_empty()), "每行都应有内容：{text}");
+        assert!(
+            text.lines().all(|l| !l.is_empty()),
+            "每行都应有内容：{text}"
+        );
         assert!(text.contains("line"), "内容应来自夹具文本：{text}");
     }
 
@@ -757,7 +797,11 @@ mod tests {
     fn word_fixture_selects_exactly_one_token() {
         let f = build(DemoSpec::WORD, 80, 24);
         let sel = f.selection.expect("word 夹具带选区");
-        assert_eq!(sel.text(&f.screen, &f.snapshot.wraps), "quick", "双击应只选中一个词");
+        assert_eq!(
+            sel.text(&f.screen, &f.snapshot.wraps),
+            "quick",
+            "双击应只选中一个词"
+        );
         assert_eq!(sel.anchor().row, sel.head().row, "选词不跨行");
     }
 
@@ -773,7 +817,11 @@ mod tests {
             rows.iter().all(|r| r.len() == rows[0].len()),
             "每行宽度应一致（同一段列）：{text}"
         );
-        assert!(rows[0].starts_with("the quick"), "列从 the 开始：{:?}", rows[0]);
+        assert!(
+            rows[0].starts_with("the quick"),
+            "列从 the 开始：{:?}",
+            rows[0]
+        );
     }
 
     #[test]
@@ -798,10 +846,18 @@ mod tests {
         }
         assert!(state.visible);
         let found = term_app::find::matches(&state, &f.screen);
-        assert!(found.len() > 4, "回看窗口里应有若干匹配，实际 {}", found.len());
+        assert!(
+            found.len() > 4,
+            "回看窗口里应有若干匹配，实际 {}",
+            found.len()
+        );
         // 匹配行号必须落在窗口范围内，否则高亮会画到屏外。
         for m in &found {
-            assert!(f.screen.range.contains(&m.row), "匹配行 {} 不在窗口内", m.row);
+            assert!(
+                f.screen.range.contains(&m.row),
+                "匹配行 {} 不在窗口内",
+                m.row
+            );
             assert!(
                 f.screen
                     .view_range()
@@ -811,7 +867,11 @@ mod tests {
             );
         }
         // 首行是历史行（负数），证明搜的是回看缓冲而不是当前屏。
-        assert!(found[0].row < 0, "首个匹配应在历史行上，实际 {}", found[0].row);
+        assert!(
+            found[0].row < 0,
+            "首个匹配应在历史行上，实际 {}",
+            found[0].row
+        );
     }
 
     #[test]
@@ -823,9 +883,16 @@ mod tests {
         assert!(!f.snapshot.blocks.is_empty(), "夹具必须留下 OSC 133 提示符");
         assert!(!f.snapshot.wraps.is_empty(), "夹具必须有折行");
         // 每一行都打了时刻，且严格递增（20:01:48 起一秒一行）。
-        assert!(f.snapshot.row_times.len() >= 6, "{:?}", f.snapshot.row_times);
+        assert!(
+            f.snapshot.row_times.len() >= 6,
+            "{:?}",
+            f.snapshot.row_times
+        );
         let rows: Vec<i64> = f.snapshot.row_times.iter().map(|(r, _)| *r).collect();
-        assert!(rows.windows(2).all(|w| w[1] > w[0]), "行号应严格递增：{rows:?}");
+        assert!(
+            rows.windows(2).all(|w| w[1] > w[0]),
+            "行号应严格递增：{rows:?}"
+        );
         let secs: Vec<u64> = f.snapshot.row_times.iter().map(|(_, t)| *t).collect();
         assert!(secs.windows(2).all(|w| w[1] >= w[0]), "时刻不该倒流");
         // 夹具只描述动作：时间戳列现在是出厂默认开着的，夹具不再改状态。
@@ -851,7 +918,10 @@ mod tests {
         assert!(!DemoSpec::SCROLL.sysmon);
         // 只有 margin 夹具走那套「带标记 + 折行」的字节流。
         // 常量断言会被 clippy 判成「恒真」；用运行时等价比对，语义一样。
-        assert_eq!(DemoSpec::MARGIN.marks, DemoSpec::parse("margin").unwrap().marks);
+        assert_eq!(
+            DemoSpec::MARGIN.marks,
+            DemoSpec::parse("margin").unwrap().marks
+        );
         for spec in [
             DemoSpec::SCROLL,
             DemoSpec::FIND,
@@ -957,7 +1027,8 @@ mod tests {
         // 怎么占位」，脚本量「屏幕上真的占了几格」，两者一致才叫验过。
         use term_core::width::is_wide;
         let two = [
-            "汉", "字", "界", "面", "测", "试", "中", "文", "🦀", "🚀", "🎉", "👍", "🔥", "Ａ", "　",
+            "汉", "字", "界", "面", "测", "试", "中", "文", "🦀", "🚀", "🎉", "👍", "🔥", "Ａ",
+            "　",
         ];
         let one = [
             "M", "W", "i", "@", "#", "8", "0", ".", "✅", "⚡", "❤", "ｱ", "\u{e0b0}", "\u{f0a0}",

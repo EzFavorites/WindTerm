@@ -4,9 +4,9 @@
 //! 这个文件纯属行数上限：之前它连同判据一起塞进 `pane.rs`，把那个文件顶到 518 行
 //! （上限 500）。**只搬位置，不改行为**——判据原样跟着搬过来。
 
-use crate::ui::*;
 use super::pane::now_secs;
 use super::tab_slot::{tab_of, TabSlot};
+use crate::ui::*;
 
 impl TerminalWindow {
     /// 粘贴的**唯一**落地点：编码 → 写 PTY → 喂输入行 → 记命令行历史。
@@ -70,9 +70,9 @@ mod tests {
             // 空白/符号可视化六项（`View ▸ *` / `Text ▸ HighlightCaretLine`）：
             // 粘贴测试不碰它们，取出厂值（全关 = 屏幕一个像素都不变）。
             marks: crate::ui::terminal::MarksParams::default(),
-        trigger_highlight_rows: Vec::new(),
-        onekey_expects_fired: std::collections::HashSet::new(),
-        modem: crate::ui::modem_auto::TabState::default(),
+            trigger_highlight_rows: Vec::new(),
+            onekey_expects_fired: std::collections::HashSet::new(),
+            modem: crate::ui::modem_auto::TabState::default(),
             // 调试覆盖层：粘贴测试不碰它，取出厂值（关 = 屏幕一个像素都不变）。
             debug: false,
             debug_log_active: false,
@@ -93,7 +93,11 @@ mod tests {
             auto_reconnect_blocked: false,
             // 折叠与输入行表出厂为空：粘贴测试不折任何东西（空集合 = 一屏不变）。
             folds: term_app::folds::Folds::new(),
-            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
+            filter: term_app::state::FilterState::default(),
+            filter_input: String::new(),
+            input_rows: std::cell::RefCell::new(Vec::new()),
+            command_texts: std::cell::RefCell::new(Vec::new()),
+            pending_local_sends: Vec::new(),
             // N：恢复运行态字段（新建标签出厂 None）。
             restore_scroll_top: None,
             restore_history_len: None,

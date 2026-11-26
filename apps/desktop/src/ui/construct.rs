@@ -6,10 +6,10 @@
 
 use super::*;
 // 目录树里的两个新模块 ：`use super::*` 看不到私有 `mod`，要显式引入。
+use crate::ui::layout::mint_pane_identity;
+use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::{comp, harness};
 use term_profile::prefs::Prefs;
-use crate::ui::layout::{PaneGroup, PaneId};
-use crate::ui::layout::mint_pane_identity;
 
 /// prefs 里的全局代理 → 控制面能认的类型；0 档 / 缺主机 / 缺端口都当没配。
 fn global_proxy_from_prefs(prefs: &Prefs) -> Option<term_core::session::GlobalProxy> {
@@ -99,7 +99,13 @@ impl TerminalWindow {
         let init_pane = mint_pane_identity();
         let mut pane_groups: std::collections::HashMap<PaneId, PaneGroup> = Default::default();
         if let Some(s) = active {
-            pane_groups.insert(init_pane, PaneGroup { order: vec![s], active: s });
+            pane_groups.insert(
+                init_pane,
+                PaneGroup {
+                    order: vec![s],
+                    active: s,
+                },
+            );
         }
 
         // 主题自带字体只在开关打开且主题真的声明了它时才覆盖用户选择；
@@ -107,7 +113,8 @@ impl TerminalWindow {
         let (font_families, font_weight) = if prefs.prefer_theme_fonts {
             let (family, weight) = palette.theme_fonts();
             (
-                family.map(|f| [f, String::new(), String::new(), String::new()])
+                family
+                    .map(|f| [f, String::new(), String::new(), String::new()])
                     .unwrap_or_else(|| prefs.font_family_value()),
                 weight.unwrap_or_else(|| prefs.font_weight_value()),
             )
@@ -139,7 +146,8 @@ impl TerminalWindow {
             selected_session: 0,
             session_filter: String::new(),
             panel_filters: crate::ui::layout::PanelFilters::default(),
-            shell_tabs: Vec::new(), pending_ip_hit: None,
+            shell_tabs: Vec::new(),
+            pending_ip_hit: None,
             shell_active: None,
             shell_filter: String::new(),
             shell_list_open: false,
@@ -155,7 +163,11 @@ impl TerminalWindow {
                 auth: AuthMethod::Password,
                 // 新会话勾选集按金标准 `14-ssh-authentication.png`：ssh-agent 空，
                 // 其余四种都勾（首选 password，其余进回退链）。
-                auth_chain: vec![AuthMethod::PublicKey, AuthMethod::KeyboardInteractive, AuthMethod::GssapiWithMic],
+                auth_chain: vec![
+                    AuthMethod::PublicKey,
+                    AuthMethod::KeyboardInteractive,
+                    AuthMethod::GssapiWithMic,
+                ],
                 group: term_core::config::DEFAULT_GROUP.to_string(),
                 keep_alive: term_core::config::KEEP_ALIVE,
                 connection_timeout: term_core::config::CONNECTION_TIMEOUT,
@@ -186,9 +198,15 @@ impl TerminalWindow {
                 forwards: String::new(),
                 forward_error: None,
                 proxy_jump: String::new(),
-                auth_identity: Default::default(), auth_exec_command: Default::default(), auth_exec_delay: [1, 1, 1],
-                auth_tab: term_core::session::auth_platform(), auth_vault_open: false, auth_vault_note: None, verify_host_key: true,
-                rekey_time_minutes: 60, rekey_data_mbytes: 1000,
+                auth_identity: Default::default(),
+                auth_exec_command: Default::default(),
+                auth_exec_delay: [1, 1, 1],
+                auth_tab: term_core::session::auth_platform(),
+                auth_vault_open: false,
+                auth_vault_note: None,
+                verify_host_key: true,
+                rekey_time_minutes: 60,
+                rekey_data_mbytes: 1000,
                 agent_forward: false,
                 x11_forward: false,
                 x11_screen: 0,
@@ -233,11 +251,15 @@ impl TerminalWindow {
                 data_bits: term_core::config::SERIAL_DATA_BITS,
                 stop_bits: term_core::config::SERIAL_STOP_BITS,
                 parity: term_core::config::SERIAL_PARITY.to_string(),
-                flow_control: term_core::config::SERIAL_FLOW_CONTROL.to_string(), reconnect: Default::default(),
+                flow_control: term_core::config::SERIAL_FLOW_CONTROL.to_string(),
+                reconnect: Default::default(),
             },
             session_dialog: SessionDialogKind::New { group: None },
             // Default Session Settings 的落盘模板：用户没保存过时回落出厂值。
-            default_session: prefs.default_session.clone().unwrap_or_else(|| SessionConfig::new(Protocol::Ssh)),
+            default_session: prefs
+                .default_session
+                .clone()
+                .unwrap_or_else(|| SessionConfig::new(Protocol::Ssh)),
             // 快捷命令表出厂四组十五项；文件坏 / 不存在都回默认，不拦启动。
             quick_bar: term_runtime::quickbar::load(),
             // 三个显示开关从 prefs 读初值（兼容终端 user.config 的位置）；
@@ -269,7 +291,10 @@ impl TerminalWindow {
             // 设置页改完写回并同步窗口副本 + 活动标签的 marks）。
             wrap_symbols: prefs.view_wrap_symbols,
             column_marker_col: prefs.view_column_marker,
-            wrap_settings: term_app::wrap::WrapSettings::from_prefs(prefs.wrap_mode, prefs.wrap_column),
+            wrap_settings: term_app::wrap::WrapSettings::from_prefs(
+                prefs.wrap_mode,
+                prefs.wrap_column,
+            ),
             // I-AC：补全偏好一次读入运行期副本，与 wrap 两项同一写法。
             completion: prefs.completion.clone(),
             completion_state: Default::default(),
@@ -305,7 +330,9 @@ impl TerminalWindow {
             global_proxy_host: prefs.global_proxy_host.clone(),
             global_proxy_port: prefs.global_proxy_port,
             tab_thumbnail_pct: prefs.tab_thumbnail_pct,
-            filer_rect: None, path_picker: None, upload_picker: None,
+            filer_rect: None,
+            path_picker: None,
+            upload_picker: None,
             clipboard_requests: Vec::new(),
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
@@ -354,7 +381,8 @@ impl TerminalWindow {
             palette_input: String::new(),
             goto_input: String::new(),
             center_input: String::new(),
-            lock_password: String::new(), show_lock_password: false,
+            lock_password: String::new(),
+            show_lock_password: false,
             shortcuts: shortcut_map,
             shortcut_capture: None,
             shortcut_new_id: String::new(),
@@ -364,7 +392,10 @@ impl TerminalWindow {
             tmux_log: Vec::new(),
             tunnel_input: String::new(),
             tunnel_error: None,
-            tmux_input: String::new(), tmux_send: String::new(), tmux_pane_name: String::new(), tmux_session_name: String::new(),
+            tmux_input: String::new(),
+            tmux_send: String::new(),
+            tmux_pane_name: String::new(),
+            tmux_session_name: String::new(),
             tmux_blocks: Vec::new(),
             connector: None,
             ssh_password: String::new(),
@@ -382,7 +413,8 @@ impl TerminalWindow {
                 filer.show_hidden = prefs.filer_show_hidden;
                 filer
             },
-            script: None, script_manager: None,
+            script: None,
+            script_manager: None,
             // 脚本停靠面板：常驻状态（路径 / 在跑的线程 / 结果 / 错误）。
             script_panel: crate::ui::panels::ScriptPanel::default(),
             // 脚本新开会话的交接队列（ADR-0025 阶段 5）：出厂空队列，脚本线程往里
@@ -691,10 +723,7 @@ impl TerminalWindow {
     /// 为什么由宿主（`main.rs`）调而不是在这里自己读文件：文件 IO 在
     /// `term-runtime::persist`，窗口层不认识路径；窗口只领一份已经
     /// `reconfigure` 过的纯数据（容量 / TTL 由 `prefs` 决定）。
-    pub fn adopt_command_history(
-        &mut self,
-        history: term_core::command_history::CommandHistory,
-    ) {
+    pub fn adopt_command_history(&mut self, history: term_core::command_history::CommandHistory) {
         self.command_history = history;
     }
 

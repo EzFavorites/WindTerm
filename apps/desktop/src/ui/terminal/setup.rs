@@ -5,11 +5,14 @@
 //! 五张视觉基线逐字节一致仍是判据。`ui/terminal.rs` 用 `pub(in crate::ui) use` 重新导出，
 //! 所有调用点一处都不用改。
 
-use super::hex_params::HexParams; use super::{MarksParams, WhitespaceMode};
+use super::hex_params::HexParams;
+use super::{MarksParams, WhitespaceMode};
 /// `MarksParams` / `WhitespaceMode` 走 `mod.rs` 的再导出（与 `HexParams` 同一
 /// 条路径）：菜单那一侧（`ui/effects.rs`）也只认这一条，两处引用同一个名字，
 /// 将来挪文件只需改 `mod.rs` 一行。
-use crate::ui::*; use term_core::session_runtime::SessionId;
+use crate::ui::*;
+use term_app::filter;
+use term_core::session_runtime::SessionId;
 
 /// ADR-0025：标签恒在身份铸造源。每条 tab 在 `tab_from` 一次性领取，
 /// 与存活态（`session`）解耦——断连 / 重连都不回收、不改值。进程内单调递增，
@@ -182,7 +185,12 @@ pub(in crate::ui) fn tab_from(
             // 折叠：新建标签还没折过任何一段，输入行表也是空的（第一批要等用户
             // 真的敲一次回车）。与 `marks` 一样是「每条会话一份」的显示状态。
             folds: term_app::folds::Folds::new(),
-            input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
+            // 行过滤器出厂关着、查询为空：每条会话一份，不落盘。
+            filter: term_app::state::FilterState::default(),
+            filter_input: String::new(),
+            input_rows: std::cell::RefCell::new(Vec::new()),
+            command_texts: std::cell::RefCell::new(Vec::new()),
+            pending_local_sends: Vec::new(),
             // 恢复运行态字段——默认 None，由 restore_layout 写入
             restore_scroll_top: None,
             restore_history_len: None,
@@ -218,6 +226,22 @@ pub(in crate::ui) fn tab_from(
 /// 两条路径**没有**被参数化合并成一条——合并就意味着要在老路径上多算几个值，
 /// 而「空折叠时一屏一个像素都不能变」是比复用更硬的约束。
 pub(in crate::ui) fn ensure_view(tab: &mut Tab, rows: usize) -> ScreenImage {
+    // 取窗口（含折叠）照旧；过滤是**最后一次**变换。过滤状态从本会话
+    // `tab.filter` 取，不再由调用方传入。
+    let image = ensure_view_core(tab, rows);
+    // 过滤必须是最后一次变换：`crop_view` 依赖行号连续，`drop_rows` 之后行号带洞，
+    // 边栏按 `line.row` 取绝对行号与时间戳（margin.rs 已如此），不重排。
+    // `LineSlice.row` 原样保留。从 `tab.filter` 读状态，每帧现算命中，不缓存。
+    let hidden = filter::hidden_rows(&tab.filter, &image);
+    if hidden.is_empty() {
+        image
+    } else {
+        image.drop_rows(|row| hidden.contains(&row))
+    }
+}
+
+/// 过滤之前的取窗口路径（原 `ensure_view` 逐字节保留）。
+fn ensure_view_core(tab: &mut Tab, rows: usize) -> ScreenImage {
     // 空折叠 = 老路径（下面整段未改动）。只有真的有折叠才进新分支。
     if !tab.folds.is_empty() {
         return folded_view(tab, rows);
@@ -245,7 +269,12 @@ pub(in crate::ui) fn ensure_view(tab: &mut Tab, rows: usize) -> ScreenImage {
     let history = tab.snapshot.history;
     match &tab.screen {
         Some(img) => img.crop_view(desired.clone()).unwrap_or_else(|| {
-            ScreenImage::blank_view_with_history(tab.snapshot.cols, version, desired.clone(), history)
+            ScreenImage::blank_view_with_history(
+                tab.snapshot.cols,
+                version,
+                desired.clone(),
+                history,
+            )
         }),
         None => ScreenImage::blank_view_with_history(tab.snapshot.cols, version, desired, history),
     }
@@ -476,11 +505,13 @@ impl TerminalWindow {
     /// 开关与列号合成一个动作：菜单上只有一格勾，没有「设成第几列」的输入框。
     /// 列号夹值仍走 [`MarksParams::with_column_marker`]（`8..=512`）。
     pub(in crate::ui) fn toggle_column_marker(&mut self) {
-        self.set_marks(|m| m.with_column_marker(if m.column_marker.is_some() {
-            None
-        } else {
-            Some(super::marks::COLUMN_MARKER_DEFAULT)
-        }));
+        self.set_marks(|m| {
+            m.with_column_marker(if m.column_marker.is_some() {
+                None
+            } else {
+                Some(super::marks::COLUMN_MARKER_DEFAULT)
+            })
+        });
     }
 
     /// 直接指定参考列（`None` = 关）。给「把当前列号设成参考列」这类入口用。
@@ -563,13 +594,28 @@ mod tests {
         assert_eq!(tab.mode, DisplayMode::Text, "出厂是文本模式");
 
         tx.send(b"first chunk".to_vec()).expect("送第一块");
-        assert!(tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()), "环里进了字节，就该说「有新事实」");
+        assert!(
+            tab.poll(
+                &[],
+                &mut Vec::new(),
+                false,
+                &[],
+                &std::collections::HashMap::new()
+            ),
+            "环里进了字节，就该说「有新事实」"
+        );
         assert_eq!(tab.raw.ring.len(), 11, "Text 模式下字节也必须进环");
 
         // 切到 Bin：不清环、不重挂 tap，只换一种画法。历史必须接着算。
         tab.mode = DisplayMode::Bin;
         tx.send(b" more".to_vec()).expect("送第二块");
-        assert!(tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()));
+        assert!(tab.poll(
+            &[],
+            &mut Vec::new(),
+            false,
+            &[],
+            &std::collections::HashMap::new()
+        ));
         assert_eq!(tab.raw.ring.len(), 16, "切模式不清历史，新字节接着攒");
         assert_eq!(tab.raw.ring.take(0, 16), b"first chunk more".to_vec());
     }
@@ -688,7 +734,10 @@ mod tests {
             "开关打开时落在出厂列号"
         );
         assert_eq!(marks.whitespace, WhitespaceMode::InSelection);
-        assert_eq!(window.tabs[1].marks, untouched, "另一个标签的六项一个字都不许动");
+        assert_eq!(
+            window.tabs[1].marks, untouched,
+            "另一个标签的六项一个字都不许动"
+        );
 
         // 再点一次全部翻回出厂态：勾掉与勾上是同一句话的反面。
         window.toggle_line_endings();
@@ -790,12 +839,7 @@ mod tests {
     #[test]
     fn extra_rows_needed_leaves_exactly_one_screen_visible() {
         let (base_start, base_end, rows) = (0i64, 10i64, 10usize);
-        let cases: [&[(i64, i64)]; 4] = [
-            &[(5, 7)],
-            &[(-5, 1)],
-            &[(5, 20)],
-            &[(2, 4), (6, 12)],
-        ];
+        let cases: [&[(i64, i64)]; 4] = [&[(5, 7)], &[(-5, 1)], &[(5, 20)], &[(2, 4), (6, 12)]];
         for folds in cases {
             let extra = extra_rows_needed(folds, base_start, base_end, rows);
             assert!(extra <= rows as i64, "不得越过上限: {folds:?}");
@@ -803,8 +847,13 @@ mod tests {
             let visible = (win_start..base_end)
                 .filter(|row| !hidden_by_fold(folds, *row))
                 .count();
-            let hidden = (win_start..base_end).filter(|row| hidden_by_fold(folds, *row)).count();
-            assert_eq!(hidden, extra as usize, "藏的行数必须等于补进来的行数: {folds:?}");
+            let hidden = (win_start..base_end)
+                .filter(|row| hidden_by_fold(folds, *row))
+                .count();
+            assert_eq!(
+                hidden, extra as usize,
+                "藏的行数必须等于补进来的行数: {folds:?}"
+            );
             assert_eq!(visible, rows, "剩下的可见行必须正好一屏: {folds:?}");
         }
     }
@@ -831,7 +880,11 @@ mod tests {
 
         // 贴底：老路径直接 `snapshot.to_screen_image()`。
         let view = ensure_view(&mut tab, 24);
-        assert_eq!(view, tab.snapshot.to_screen_image(), "空折叠贴底必须与快照派生同值");
+        assert_eq!(
+            view,
+            tab.snapshot.to_screen_image(),
+            "空折叠贴底必须与快照派生同值"
+        );
 
         // 回看：夹具里没有会话（`session = None`），范围事实永远到不了手上，
         // 所以老路径给的就是视口那一截的空白帧——同样覆盖到了。
@@ -873,12 +926,13 @@ mod tests {
         assert!(tab.screen.is_none(), "夹具没有会话，范围事实永远不来");
         let view = ensure_view(&mut tab, 24);
         // [0,3] 在 0..24 里藏 1、2、3 → extra = 3 → 请求 -3..24。
-        let requested = tab
-            .last_request
-            .clone()
-            .expect("贴底也必须发范围请求");
+        let requested = tab.last_request.clone().expect("贴底也必须发范围请求");
         assert_eq!(requested.0.start().get(), -3, "向上多要三行");
         assert_eq!(requested.0.end().get(), 24, "窗口尾不动");
-        assert_eq!(view, tab.snapshot.to_screen_image(), "事实没到 = 不折的画面");
+        assert_eq!(
+            view,
+            tab.snapshot.to_screen_image(),
+            "事实没到 = 不折的画面"
+        );
     }
 }

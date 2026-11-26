@@ -107,8 +107,6 @@ pub struct FindState {
 // 长度一致（`quick_command_bar.rs` 的测试会断言）；改任意两边都要同步。
 pub const QUICK_GROUP_COUNT: usize = 4;
 
-
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewState {
     // ── 窗口 chrome ──
@@ -354,10 +352,9 @@ mod tests {
         // 新版截图默认铺满：左 Explorer/Filer、右会话树/Outline、底 Sender/Shell。
         // 另两个工具面板（Session 列表 / Transfer）视觉基线里没有，仍默认关。
         assert!(s.show_sidebar && s.show_filer);
-        assert!(s.show_pane_explorer
-            && s.show_pane_outline
-            && s.show_pane_sender
-            && s.show_pane_shell);
+        assert!(
+            s.show_pane_explorer && s.show_pane_outline && s.show_pane_sender && s.show_pane_shell
+        );
         assert!(!s.show_pane_session && !s.show_pane_transfer && !s.show_pane_sysmon);
         // 出厂读本机，不主动开第二条连接（远端 exec 要等用户明确点 R）。
         assert!(!s.sysmon_remote);

@@ -114,7 +114,7 @@ pub(in crate::ui) fn draw_pane_leaf(
     }
     if let Some(sysmon_rect) = parts.sysmon {
         let mut sysmon = ui.new_child(egui::UiBuilder::new().max_rect(sysmon_rect));
-        win.draw_sysmon_bar(&mut sysmon, Some(pane.0));
+        win.draw_sysmon_bar(&mut sysmon, Some(pane.0), Some(group.active));
     }
     // 父 Ui 必须知道整片被占掉了，否则后续内容会叠上来（与 Split 分支同款）。
     ui.allocate_rect(rect, egui::Sense::hover());
@@ -154,7 +154,10 @@ fn draw_pane_tab_strip(
             };
             // 编号按**本组内**的位置算：分屏时每片窗格的标签条各数各的，
             // 与全窗标签条按全局位置编号不冲突。
-            Some((*sid, format!("{}{}", tab_number_prefix(win.tab_numbers, i), title)))
+            Some((
+                *sid,
+                format!("{}{}", tab_number_prefix(win.tab_numbers, i), title),
+            ))
         })
         .collect();
 
@@ -165,12 +168,12 @@ fn draw_pane_tab_strip(
     let mut x = band.left();
     for (sid, title) in &labels {
         let is_active = *sid == group.active;
-        let g = ui.painter().layout_no_wrap(title.clone(), font.clone(), strong_c);
+        let g = ui
+            .painter()
+            .layout_no_wrap(title.clone(), font.clone(), strong_c);
         let w = TAB_PAD + ICON_W + ICON_GAP + g.size().x + CLOSE_GAP + CLOSE_W + TAB_PAD;
-        let rect = egui::Rect::from_min_size(
-            egui::pos2(x, band.top()),
-            egui::vec2(w, band.height()),
-        );
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(x, band.top()), egui::vec2(w, band.height()));
         let cy = rect.center().y;
         {
             let p = ui.painter();
@@ -183,7 +186,10 @@ fn draw_pane_tab_strip(
             }
             paint_tab_icon(p, egui::pos2(rect.left() + TAB_PAD + ICON_W / 2.0, cy));
             p.galley(
-                egui::pos2(rect.left() + TAB_PAD + ICON_W + ICON_GAP, cy - g.size().y / 2.0),
+                egui::pos2(
+                    rect.left() + TAB_PAD + ICON_W + ICON_GAP,
+                    cy - g.size().y / 2.0,
+                ),
                 g,
                 if is_active { strong_c } else { text_c },
             );
@@ -246,11 +252,7 @@ fn draw_pane_tab_strip(
         } else {
             egui::Sense::hover()
         };
-        let resp = ui.interact(
-            rect,
-            egui::Id::new(("pane_tool", pane.0, *tool)),
-            sense,
-        );
+        let resp = ui.interact(rect, egui::Id::new(("pane_tool", pane.0, *tool)), sense);
         {
             let p = ui.painter();
             if resp.hovered() {
@@ -312,7 +314,12 @@ fn draw_pane_tab_strip(
 ///
 /// 2026-11-15 修正：上一版这里只手写了面包屑文字，导致分屏时「工具栏和地址栏
 /// 都不见了」——那是把 `tool_bar::draw` 的整套绘制漏掉了，不是方案如此。
-fn draw_pane_address_bar(win: &mut TerminalWindow, ui: &mut egui::Ui, pane: PaneId, session: SessionId) {
+fn draw_pane_address_bar(
+    win: &mut TerminalWindow,
+    ui: &mut egui::Ui,
+    pane: PaneId,
+    session: SessionId,
+) {
     crate::ui::shell::draw_tool_bar(
         win,
         ui,
@@ -364,7 +371,10 @@ mod tests {
         let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
         win.view.focus_mode = focus;
         let pane = crate::ui::layout::mint_pane_identity();
-        let group = PaneGroup { order: Vec::new(), active: 0 };
+        let group = PaneGroup {
+            order: Vec::new(),
+            active: 0,
+        };
         let mut shapes = 0;
         for _ in 0..2 {
             let input = egui::RawInput {

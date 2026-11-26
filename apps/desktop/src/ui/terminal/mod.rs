@@ -2,30 +2,23 @@
 //!
 //! 落点：这里只收 `&ScreenImage` 与只读快照，一切写入经 `Action`。
 
+/// hex 视图的**绘制**：表头徽标、逐行 dump、回看药丸。只吃 `&RawLog` 与几何，
+/// 不持 `&mut TerminalWindow`——绘制与窗口状态分开，`pane.rs` 才只留一个分叉点。
+mod bin;
+/// hex 视图的**状态与纯函数**（原始字节环、视口锚点、一行怎么排版）。
+/// 零 `egui`，可单测；绘制在 `bin.rs`。
+///
+/// `pub(in crate::ui)`：`Tab` 要持有 `RawLog`（见 `ui/tab.rs`），而兄弟模块之间
+/// 的可见性不互通，模块本身也得放开。
+pub(in crate::ui) mod bin_spec;
+/// 官网 #47/#48/#49 三个内置触发器的悬停浮层（hex / 时间戳 / 压缩包）：
+/// 只展示换算结果，不写 PTY、不改选区。纯检测与换算在 `term_app::trigger_builtins`。
+mod builtin_hover;
+pub(in crate::ui) mod completion_popup;
 mod context_menu;
 /// 视觉基线两份右键菜单的逐字清单 + 与菜单栏同源的四栏手绘。
 /// `pub(in crate::ui)` 让 `comp/context_fixtures.rs` 能直接复用出图。
 pub(in crate::ui) mod context_rows;
-mod margin;
-/// 折叠列的指针几何命中：不依赖内容区 `Response`（margin 右键 interact 会抢走它）。
-mod fold_hit;
-/// 空白与符号可视化：**参数**与**纯决策**（零 `egui`，可无头单测）。
-///
-/// `View ▸ Toggle Line Endings / Column Marker / Indent Guides / Wrap Symbols`、
-/// `View ▸ White Spaces` 五档、`Text ▸ Highlight Caret Line` 一共十一个开关的
-/// 「这一行该画哪些标记、画在第几列」全在这里回答；把它们变成像素的是
-/// `marks_paint.rs`。拆成两个文件是单文件上限的老规矩：`view.rs` 已贴着单文件上限，
-/// 而这些判据要能被没有窗口的单测钉死。
-mod highlights;
-mod history_scope;
-/// 彩虹括号：按嵌套深度给括号字自身上前景色（改 `Cell.fg`，与字下淡色底不同）。
-mod rainbow;
-mod vim_apply;
-mod marks;
-/// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
-mod marks_paint;
-/// 叠层标记的段内夹取（软折后按段而不按 `lines` 下标）。
-mod overlay_segments;
 /// `Mode ▸ Debug Mode` 的**绘制**：`Cell` → 属性位 / 色号种类 / 宽字符标记 → `painter` 调用。
 ///
 /// 它收的是 `&ScreenImage` 与一格几何（`origin` + `cell`），**不碰任何状态**——
@@ -38,11 +31,39 @@ mod overlay_segments;
 /// `pane_overlays.rs` 的第三与第四段之间（`if !bin && tab.debug`）。
 /// 正文一格没动：它只让「SGR 属性 / 色号 / 宽字形」从不可见变成可读。
 mod debug_paint;
-pub(in crate::ui) mod completion_popup;
+/// Find All 结果按标签身份发布 / 校验（分屏时不再互相覆盖）。
+pub(in crate::ui) mod find_results_slot;
+/// 折叠列的指针几何命中：不依赖内容区 `Response`（margin 右键 interact 会抢走它）。
+mod fold_hit;
+/// hex 视图的**参数与排版**：三张档位表、`HexParams`、一行多宽、窗宽夹取。
+/// 零 `egui`，可单测；`bin_spec.rs` 的 `row_text` 用它的宽度算法。
+pub(in crate::ui) mod hex_params;
+/// 空白与符号可视化：**参数**与**纯决策**（零 `egui`，可无头单测）。
+///
+/// `View ▸ Toggle Line Endings / Column Marker / Indent Guides / Wrap Symbols`、
+/// `View ▸ White Spaces` 五档、`Text ▸ Highlight Caret Line` 一共十一个开关的
+/// 「这一行该画哪些标记、画在第几列」全在这里回答；把它们变成像素的是
+/// `marks_paint.rs`。拆成两个文件是单文件上限的老规矩：`view.rs` 已贴着单文件上限，
+/// 而这些判据要能被没有窗口的单测钉死。
+mod highlights;
+mod history_scope;
+/// 悬停浮层的帧间锚点锁存（不追指针，指针进浮层继续 show）。
+mod hover_anchor;
+/// 鼠标 → 选区的全部手势与它要的窗格几何（`pointer_selection` / `GridGeom`）。
+///
+/// 2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
+/// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
+/// 搬走的这一块本来就是自由函数，行为一行未改。
+/// 悬停浮层的纯几何：文本偏移 → 屏幕 cell 列（宽字符前缀不能偏列）。
+mod hover_hit;
+mod ip_hover;
+mod margin;
+mod marks;
+/// 上一条的**绘制**：`Mark` → `painter` 调用（空格点、Tab 箭头、参考线、`$`、折行勾）。
+mod marks_paint;
+/// 叠层标记的段内夹取（软折后按段而不按 `lines` 下标）。
+mod overlay_segments;
 mod pane;
-/// 弹层点外收起那一击的终端侧闸门：折叠列点击 / xterm 鼠标报告两个分支共用。
-/// `pub(in crate::ui)` 让 shell 侧的接线单测直接调到生产同一把判据。
-pub(in crate::ui) mod pane_click_gate;
 /// 正文**二选一**：字符网格（`view::paint_rows`）还是 hex 转储（`bin::paint`），
 /// 含 `Text ▸ Highlight Caret Line` 那个视口行号的算法。
 ///
@@ -52,6 +73,9 @@ pub(in crate::ui) mod pane_click_gate;
 /// 写成方法会同时要 `&mut self`（E0499），所以只收拆分好的借用，字形缓存那一句
 /// 也由调用点算好再传。
 mod pane_body;
+/// 弹层点外收起那一击的终端侧闸门：折叠列点击 / xterm 鼠标报告两个分支共用。
+/// `pub(in crate::ui)` 让 shell 侧的接线单测直接调到生产同一把判据。
+pub(in crate::ui) mod pane_click_gate;
 /// 正文之后的**全部叠层**：查找高亮 / 常驻词高亮 / 空白与符号标记 / 调试覆盖层 /
 /// 回看药丸 / 光标。
 ///
@@ -62,49 +86,22 @@ mod pane_body;
 /// 调试覆盖层（`Mode ▸ Debug Mode`）是后来**插进**第三与第四段之间的第六段——
 /// 它的几何全在 `debug_paint.rs`，本文件只多一个调用点。
 mod pane_overlays;
-/// 「画哪一块终端」的槽位（主区标签页 / 底带 Shell 面板内的某一条）与按槽位取
-/// 状态的那几个自由函数。2026-11-15：底带 Shell 面板不再有自己的渲染，改走
-/// `pane::draw_tab`。
-///
-/// `pub(in crate::ui)`：`panels/shell_panel.rs` 要用 `TabSlot` 与过滤判据
-/// （`shell_tab_matches`），它们与槽位是同一件事（面板里的标签就是槽位的一端）。
-pub(in crate::ui) mod tab_slot;
-/// 鼠标 → 选区的全部手势与它要的窗格几何（`pointer_selection` / `GridGeom`）。
-///
-/// 2026-11-13 从 `pane.rs` 拆出——栅格可视化接线往那边塞进两处
-/// `apply_cmd_with_blocks`，把 `pane.rs` 顶到 527 代码行（单文件上限 500）。
-/// 搬走的这一块本来就是自由函数，行为一行未改。
-/// 悬停浮层的纯几何：文本偏移 → 屏幕 cell 列（宽字符前缀不能偏列）。
-mod hover_hit;
-/// 悬停浮层的帧间锚点锁存（不追指针，指针进浮层继续 show）。
-mod hover_anchor;
-/// 自定义菜单 `Run command` 的载荷判据：命令 ID 走 dispatch，正文走 SendLine。
-mod trigger_menu;
-mod ip_hover;
-/// 官网 #47/#48/#49 三个内置触发器的悬停浮层（hex / 时间戳 / 压缩包）：
-/// 只展示换算结果，不写 PTY、不改选区。纯检测与换算在 `term_app::trigger_builtins`。
-mod builtin_hover;
 mod pane_pointer;
-/// 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
-///
-/// 浮动叠加：不改 `avail_w` / `cols`，贴底视觉基线零 diff。纯几何在
-/// `crates/term-app/src/scrollbar.rs`，这里只做像素投影与交互。
-mod pane_scrollbar;
 /// 悬停预览窗：轨道 hover → 第二事实窗口（独立槽）→ 半透明历史快照框。
 ///
 /// 第 7 段 chrome（在 `pane_scrollbar` 之后）；只读 `tab.preview_screen`，不动
 /// `tab.view` / `tab.viewport` / `tab.last_request`（不变式）。
 mod pane_preview;
+/// 终端滚动条：egui 几何适配、轨道/滑块绘制、命中区、拖拽、点击跳转、滚轮补位。
+///
+/// 浮动叠加：不改 `avail_w` / `cols`，贴底视觉基线零 diff。纯几何在
+/// `crates/term-app/src/scrollbar.rs`，这里只做像素投影与交互。
+mod pane_scrollbar;
 /// 粘贴的落地路径（`commit_paste`）与它的判据。从 `pane.rs` 拆出来：
 /// 把这 129 行塞进那边，把 `pane.rs` 顶到 518（上限 500）。
 mod paste;
-/// Find All 结果按标签身份发布 / 校验（分屏时不再互相覆盖）。
-pub(in crate::ui) mod find_results_slot;
-/// Vim `p` / `P` 的粘贴漏斗（临时离开只读 → 落地 → 恢复）与帧末触发器派发。
-pub(in crate::ui) mod vim_paste;
-#[cfg(test)]
-#[path = "vim_paste_tests.rs"]
-mod vim_paste_tests;
+/// 彩虹括号：按嵌套深度给括号字自身上前景色（改 `Cell.fg`，与字下淡色底不同）。
+mod rainbow;
 mod script;
 /// 「运行脚本」窗口的两份清单：脚本库（读盘）与最近用过（读 prefs）。
 ///
@@ -118,30 +115,28 @@ mod session;
 /// （定义在 `layout/split.rs`，与 `PaneId` 同处）。`setup` 模块放开给 `crate::ui`
 /// 下兄弟模块调用，本身是终端构造入口的聚合点。
 pub(in crate::ui) mod setup;
-mod view;
-/// hex 视图的**绘制**：表头徽标、逐行 dump、回看药丸。只吃 `&RawLog` 与几何，
-/// 不持 `&mut TerminalWindow`——绘制与窗口状态分开，`pane.rs` 才只留一个分叉点。
-mod bin;
-/// hex 视图的**参数与排版**：三张档位表、`HexParams`、一行多宽、窗宽夹取。
-/// 零 `egui`，可单测；`bin_spec.rs` 的 `row_text` 用它的宽度算法。
-pub(in crate::ui) mod hex_params;
-/// hex 视图的**状态与纯函数**（原始字节环、视口锚点、一行怎么排版）。
-/// 零 `egui`，可单测；绘制在 `bin.rs`。
+/// 「画哪一块终端」的槽位（主区标签页 / 底带 Shell 面板内的某一条）与按槽位取
+/// 状态的那几个自由函数。2026-11-15：底带 Shell 面板不再有自己的渲染，改走
+/// `pane::draw_tab`。
 ///
-/// `pub(in crate::ui)`：`Tab` 要持有 `RawLog`（见 `ui/tab.rs`），而兄弟模块之间
-/// 的可见性不互通，模块本身也得放开。
-pub(in crate::ui) mod bin_spec;
+/// `pub(in crate::ui)`：`panels/shell_panel.rs` 要用 `TabSlot` 与过滤判据
+/// （`shell_tab_matches`），它们与槽位是同一件事（面板里的标签就是槽位的一端）。
+pub(in crate::ui) mod tab_slot;
+/// 自定义菜单 `Run command` 的载荷判据：命令 ID 走 dispatch，正文走 SendLine。
+mod trigger_menu;
+mod view;
+mod vim_apply;
+/// Vim `p` / `P` 的粘贴漏斗（临时离开只读 → 落地 → 恢复）与帧末触发器派发。
+pub(in crate::ui) mod vim_paste;
+#[cfg(test)]
+#[path = "vim_paste_tests.rs"]
+mod vim_paste_tests;
 /// 传输：进度状态行 + 起点接线（弹层确认 → `XferHandle::start` → 画一行）。
 /// `pub(in crate::ui)` 让 `ui/mod.rs` 的 `draw()` 直接调 `terminal::xfer`。
 pub(in crate::ui) mod xfer;
 // `xfer.rs` 只画与接线，`xfer_spec.rs` 持有状态 / 措辞 / 单测。
 mod xfer_spec;
 
-pub(in crate::ui) use pane::draw_caret;
-pub(in crate::ui) use script::ScriptDialog;
-pub(in crate::ui) use setup::{ensure_view, make_tab, make_tab_with_channel, tab_from};
-pub(in crate::ui) use tab_slot::TabSlot;
-pub(in crate::ui) use view::LineCache;
 /// hex 的参数类型与档位表：`ui/mod.rs` 的字段、`ui/construct.rs` 的初值、
 /// `ui/effects.rs` 的落地点都要用它，所以在这里转一次手，调用方不必写长路径。
 ///
@@ -152,6 +147,11 @@ pub(in crate::ui) use hex_params::HexParams;
 /// `ui/effects.rs` 的落地点、`setup.rs` 的初值入口、`pane.rs` 的绘制都要用它，
 /// 所以在这里转一次手，调用方不必写长路径。
 pub(in crate::ui) use marks::{MarksParams, WhitespaceMode};
+pub(in crate::ui) use pane::draw_caret;
+pub(in crate::ui) use script::ScriptDialog;
+pub(in crate::ui) use setup::{ensure_view, make_tab, make_tab_with_channel, tab_from};
+pub(in crate::ui) use tab_slot::TabSlot;
+pub(in crate::ui) use view::LineCache;
 
 /// 斑马线作用域的两条回归单测：设置页改默认值只影响**新**标签。
 ///
@@ -171,6 +171,11 @@ mod zebra_scope_tests;
 #[cfg(test)]
 #[path = "marks_menu_tests.rs"]
 mod marks_menu_tests;
+
+/// 行过滤器「每条会话独立」：两个 tab 互不串味，`Action::Filter` 不写 `ViewState`。
+#[cfg(test)]
+#[path = "filter_session_tests.rs"]
+mod filter_session_tests;
 
 /// 控制行经 tap 字节流自动 feed 的回归判据。单独成文件是因为
 /// `bin_spec.rs` 已顶到上限附近，新测试再塞进去会踩 500 行红线。
