@@ -696,7 +696,11 @@ mod tests {
         window.toggle_caret_line();
         window.toggle_column_marker();
         window.set_whitespace_mode(WhitespaceMode::HideAll);
-        assert_eq!(window.active_marks(), factory, "翻两次回到出厂态（高亮四项默认勾选）");
+        assert_eq!(
+            window.active_marks(),
+            marks_defaults(&term_runtime::prefs::Prefs::default()),
+            "翻两次回到出厂态（高亮四项默认勾选）"
+        );
     }
 
     // ── 折叠渲染：补行算法（`extra_rows_needed`）──────────────────────────

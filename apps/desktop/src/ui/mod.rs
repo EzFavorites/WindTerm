@@ -92,7 +92,7 @@ use terminal::make_tab;
 pub(crate) use comp::comp_names; pub(crate) use comp::comp_list;
 
 use crate::fonts::TerminalFonts; use crate::theme::{apply_ui_style, to_color32};
-pub(in crate::ui) use tr::t; use crate::ui::shell::draw_find_bar; use eframe::egui; use term_app::state::ViewState; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
+pub(in crate::ui) use tr::t; use crate::ui::shell::{draw_filter_bar, draw_find_bar}; use eframe::egui; use term_app::state::ViewState; use egui::emath::Align2; use egui::{DragValue, Rect, Sense, TextEdit, Vec2};
 use term_app::action::{reduce, Action}; use term_app::capability;
 use term_app::dock::{DockZone, PanelId}; use term_app::find::{self, current_index}; use term_app::log::LogAction;
 use term_app::menu::{menus, BarGlyph, DockItem, Item, BAR_TOOLS, DOCK_ITEMS}; use term_app::selection::{line_span_at, word_at_with, Cmd, Op, Pos, Selection, Selections}; use term_app::viewport::Viewport; use term_core::grid::{Rgb, GridSnapshot, ScreenImage};
@@ -386,6 +386,8 @@ pub struct TerminalWindow {
     /// 缓冲的，每帧重建会逐帧重复拼接。所以缓冲必须跨帧存活——但它只属于投影，
     /// `ViewState` 仍然只由 `reduce` 写。
     find_input: String,
+    /// 行过滤栏的输入缓冲（与 `find_input` 同一类：跨帧存活、状态只读）。
+    filter_input: String,
     /// R14-c：命令面板输入框的编辑缓冲（与 `find_input` 同一类）。
     palette_input: String,
     /// R14-d：Goto 行号输入框的编辑缓冲（与 `find_input` 同一类）。
@@ -1085,6 +1087,44 @@ impl TerminalWindow {
                 .frame(shell::sysmon_bar_frame())
                 .show_separator_line(false)
                 .show(ctx, |ui| self.draw_sysmon_bar(ui, None));
+        }
+
+        // 行过滤栏：紧贴 Sysmon 细带上方，与 Find 栏同款「先收集动作、再统一
+        // reduce」。计数由 (状态, 事实窗口) 现算，不缓存。与 Sysmon 一样只在
+        // 单窗格、非专注模式下画，避免分屏时一个全局过滤器管多个 pane。
+        if self.view.filter.visible && !focus && self.layout.is_single() {
+            let (kept, hidden) = match self.tabs.get(self.active_slot()) {
+                Some(tab) => term_app::filter::counts(&self.view.filter, &tab.view),
+                None => (0, 0),
+            };
+            let mut filter_actions: Vec<Action> = Vec::new();
+            let filter_state = &self.view.filter;
+            let input = &mut self.filter_input;
+            egui::TopBottomPanel::bottom("filter_bar")
+                .exact_height(shell::FILTER_BAR_H)
+                .frame(shell::filter_bar_frame())
+                .show_separator_line(false)
+                .show(ctx, |ui| {
+                    let mut dispatch = |action: Action| filter_actions.push(action);
+                    draw_filter_bar(
+                        ui,
+                        filter_state,
+                        input,
+                        kept,
+                        hidden,
+                        self.view.lang,
+                        &mut dispatch,
+                    );
+                });
+            for action in filter_actions {
+                let effects = {
+                    let window = self.tabs.get(self.active_slot()).map(|t| &t.view);
+                    reduce(&mut self.view, action, window)
+                };
+                for effect in effects {
+                    self.apply_effect(effect);
+                }
+            }
         }
 
         // P4：拖拽中的落点提示（只在按住时画）+ 松手判定。两件都必须在三条带
