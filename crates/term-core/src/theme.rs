@@ -288,16 +288,16 @@ pub fn rgb(v: u32) -> Rgb {
     Rgb::from_u32(v)
 }
 
-/// 从 `reference-spec` 逐帧像素采样得到的设计 token（单一真相源）。
+/// 本仓自己钉定的设计 token（单一真相源），不是从原版截图反推出来的常量表。
 ///
 /// 纯数据、零 UI 依赖；投影层 `apps/desktop/src/theme.rs` 再把它转成绘制用的颜色
 /// 与尺寸（`to_color32` / `apply_ui_style`）。这里只认 `u32` 色值与点数，
 /// 不认任何绘制框架的类型——判据是按整个文件 grep 的，注释里点名也不行。
-/// 每个值都可回溯到 `reference-spec/extract_design.py` 的输出或 `SPEC.md`：
+/// 每个值都是本仓的自有常量，改它要同步自有视觉基线，而不是回头去找原版取样：
 /// - 强调蓝 `#047CCC`、弹窗底 `#343434`、面板底 `#1C1C1C`、文字灰阶 `#FCFCFC→#A4A4A4`：
-///   跨 657 张图累计主色（见 `extracted-palette.json`）。
-/// - 侧栏 200px：参考文档常量。标题条 22px / 状态栏 23px：`measure_layout.py` 实测。
-/// - 12 标签色：`picture-100.jpg` 像素聚类实测（见 `design-tokens.json`）。
+///   本仓配色令牌；取值一旦调整，按设计文档 §9 归因后重冻基线。
+/// - 侧栏 200px、标题条 22px / 状态栏 23px：本仓尺寸令牌，和组件基线同尺。
+/// - 12 标签色：本仓固定色表，顺序与 `TAB_COLOR_NAMES` 严格一致。
 pub struct DesignTokens {
     // 颜色（#RRGGBB）
     pub panel_bg: u32,

@@ -66,7 +66,7 @@ SKIP_GIT_CHECK=1 bash scripts/verify.sh   # 提交前跑（跳过工作树干净
 VERIFY_CLIPPY=1 bash scripts/verify.sh    # 额外跑 clippy（-D warnings）
 ```
 
-脚本里引用内部台账（`docs/facts.txt`）的步骤在公开检出上会自动跳过。
+公开检出应包含内部台账 `docs/facts.txt`；只有缺失时才跳过引用它的那一步（旧版「内部台账不随公开仓库发布」的口径已作废）。
 
 ## 打包
 

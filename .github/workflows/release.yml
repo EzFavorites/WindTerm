@@ -2,7 +2,8 @@
 # 产物：macOS .dmg / Linux .deb + .zip / Windows .msi + .zip，各带 .sha256。
 #
 # 版本号的唯一来源是 apps/desktop/Cargo.toml 的 `version`；tag 只用于触发，
-# 不参与产物命名（tag 与 Cargo 版本不一致时打印警告，不阻断）。
+# 不参与产物命名。仅在 refs/tags/v* 触发时校验 tag 与 Cargo 版本，不一致即硬失败；
+# workflow_dispatch 没有 tag 上下文，不比对也不误伤。
 name: release
 
 on:
@@ -37,9 +38,14 @@ jobs:
             exit 1
           fi
           TAG="${GITHUB_REF_NAME:-}"
-          if [ -n "$TAG" ] && [ "${TAG#v}" != "$V" ]; then
-            echo "::warning::tag $TAG 与 apps/desktop/Cargo.toml 的 version $V 不一致；产物按 $V 命名"
-          fi
+          case "${GITHUB_REF:-}" in
+            refs/tags/v*)
+              if [ "${TAG#v}" != "$V" ]; then
+                echo "::error::tag $TAG 与 apps/desktop/Cargo.toml 的 version $V 不一致；拒绝发布（tag 必须严格等于 v + Cargo 版本）" >&2
+                exit 1
+              fi
+              ;;
+          esac
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 

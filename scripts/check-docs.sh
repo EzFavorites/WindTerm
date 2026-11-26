@@ -79,7 +79,10 @@ tests_xfer=$(( $(count_tests crates/term-xfer) + $(grep -rcE '#\[(tokio::)?test\
 tests_zmodem=$(( $(count_tests crates/term-zmodem) + $(grep -rcE '#\[(tokio::)?test\]' crates/term-zmodem/tests --include='*.rs' 2>/dev/null | awk -F: '{s+=$2} END {print s+0}') ))
 tests_total=$((tests_core + tests_paths + tests_profile + tests_io + tests_import + tests_app + tests_vault + tests_ssh + tests_store + tests_tunnel + tests_sftp + tests_script + tests_bridge + tests_session + tests_desk + tests_xfer + tests_zmodem))
 
-verify_steps=$(grep -c 'step "' scripts/verify.sh 2>/dev/null || echo 0)
+# 只数行首的 step：verify.sh 末尾那个 `  step "10. cargo clippy…"` 是缩进在
+# `if VERIFY_CLIPPY` 里的可选步骤，不计入冻结账本；旧口径把它算进去得 38，
+# 与「^step 实为 37」的门禁账本不符。
+verify_steps=$(grep -c '^step ' scripts/verify.sh 2>/dev/null || echo 0)
 
 # 能力面：以 capability.rs 里的显式断言为准（那里是「数字必须一起改」的地方）
 menu_commands=$(grep -oE 'inventory\(\)\.len\(\), *[0-9]+' crates/term-app/src/capability.rs | grep -oE '[0-9]+$')
@@ -93,15 +96,25 @@ golden_cases=$(ls apps/desktop/tests/golden/*.json 2>/dev/null | wc -l | tr -d '
 crates=$(ls -d crates/*/ 2>/dev/null | wc -l | tr -d ' ')
 apps=$(ls -d apps/*/ 2>/dev/null | wc -l | tr -d ' ')
 
-# 能力矩阵的任务条目数（`| 数字 |` 开头的行）。数字本身不重要，重要的是它别被删空——
-# 这张表是「用户视角」的唯一口径，删掉就等于没人再看这个维度。
-matrix_tasks=$(grep -cE '^\| [0-9]+ \|' docs/design/12-capability-surface-and-menus.md 2>/dev/null || echo 0)
+# 下面三项原先扫的是 docs/capability-matrix.md / docs/parity.md /
+# docs/menu-backlog.md——都是没随公开仓发布的内部台账，迁到 design/12、14 后
+# 表名与行形对不上，三项恒为 0（门禁看起来在查，实际什么都没查）。
+# 公开检出里口径改为已发布的真实来源，数字本身不重要，重要的是别被删空。
 
-# 与原程序的功能对齐度条目数（同样是「别被删空」的意思）
-parity_items=$(grep -cE '^\| [0-9]+ \|' docs/design/14-scope-and-requirements.md 2>/dev/null || echo 0)
+# 用户视角的能力任务条目：功能范围文档 §2–§4 的 P0/P1/P2 能力表，逐行一条。
+matrix_tasks=$(awk '/^## 2\./,/^## 5\./' docs/design/14-scope-and-requirements.md 2>/dev/null \
+  | grep -E '^\| ' | grep -vE '^\|[ :-]+\|$' | grep -vE '^\| (模块|级别) \|' \
+  | wc -l | tr -d ' ')
 
-# 菜单未完成清单的明细行数（必须等于「菜单总数 - 已接线」）
-menu_backlog_rows=$(grep -cE '^\| `[A-Za-z]+\.[A-Za-z0-9]+` \|' docs/design/12-capability-surface-and-menus.md 2>/dev/null || echo 0)
+# 与原程序的功能对齐度决策条目：§6「明确不做」表，逐行一条对外口径。
+parity_items=$(awk '/^## 6\./,/^## 7\./' docs/design/14-scope-and-requirements.md 2>/dev/null \
+  | grep -E '^\| ' | grep -vE '^\|[ :-]+\|$' | grep -vE '^\| 不做 \|' \
+  | wc -l | tr -d ' ')
+
+# 菜单未完成清单的明细行数：以能力台账的占位断言为准（菜单总数 − 已接线），
+# 公开仓没有单独的 menu-backlog 明细表，不再拿一张不存在的表做恒 0 检查。
+menu_backlog_rows=$(grep -oE 'assert_eq!\(planned, *[0-9]+' crates/term-app/src/capability.rs 2>/dev/null \
+  | grep -oE '[0-9]+$' || echo 0)
 
 actual="tests_core=$tests_core
 tests_paths=$tests_paths

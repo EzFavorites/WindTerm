@@ -85,6 +85,27 @@ else
   ok "工具链 $tc_out"
 fi
 
+# 版本门禁的**软校验**，留在 step 0 内（不新增 step）：只在确实处于 tag 上下文
+# 时才比对 tag 与 Cargo 版本，本地开发 / workflow_dispatch 不误伤。
+# 硬失败由 release workflow 的 meta job 负责；这里只把不一致说清楚，不把本地
+# 验收染红——本地跑到这条时 GITHUB_REF 通常为空，故默认跳过。
+VC_TAG="${GITHUB_REF_NAME:-${GITHUB_REF:-}}"
+case "$VC_TAG" in
+  refs/tags/v*) VC_TAG="${VC_TAG#refs/tags/}" ;;
+  v*) : ;;
+  *) VC_TAG="" ;;
+esac
+if [ -n "$VC_TAG" ]; then
+  VC_CARGO=$(sed -n 's/^version *= *"\([0-9][^"]*\)".*/\1/p' apps/desktop/Cargo.toml | head -1)
+  if [ -n "$VC_CARGO" ] && [ "${VC_TAG#v}" = "$VC_CARGO" ]; then
+    ok "版本口径一致（tag $VC_TAG ↔ Cargo $VC_CARGO）"
+  else
+    printf '  ! tag %s 与 Cargo version %s 不一致；release 工作流在 refs/tags/v* 下会硬失败\n' "$VC_TAG" "${VC_CARGO:-<未找到>}"
+  fi
+else
+  ok "版本软校验跳过（无 tag 上下文）"
+fi
+
 step "1. cargo check --workspace（0 error）"
 if cargo check --workspace --target-dir "$TARGET" --quiet 2>/dev/null; then
   ok "编译通过"
@@ -532,7 +553,7 @@ done | grep -E '"[A-Z][A-Za-z]+\.[A-Za-z]+"' | grep -vE ':[0-9]+: *"[A-Z][A-Za-z
 unhandled=$(grep -rn 'Action::Unhandled\|Unhandled' crates/term-app/src apps/desktop/src --include='*.rs' 2>/dev/null || true)
 slot_write=$(grep -rEn 'total_matches|current_match[[:space:]]*=[^=]' apps/desktop/src/ui --include='*.rs' 2>/dev/null || true)
 # 2026-11-15：`Application.NewWindow` 的「空 arm」护栏，挂在 4e 里而不是新增
-# step（verify_steps 冻结在 38，不为一个判据动账本）。`main.rs` 有 crate 级
+# step（verify_steps 冻结在 37，不为一个判据动账本）。`main.rs` 有 crate 级
 # `#![allow(dead_code)]`，`apply_effect` 的 arm 写成 `{}` 时 cargo test 与
 # clippy -D warnings 会**双双全绿**——`#[must_use] SpawnPlan` 只抓「造了 plan
 # 却没 launch」，抓不到「连 plan 都没造」。这两条是源码级存在性断言：
@@ -658,8 +679,8 @@ DESK_SZ_LIMIT=500
 DESK_SZ_DEBT="apps/desktop/src/xfer_run.rs apps/desktop/src/session_open.rs apps/desktop/src/script_run.rs apps/desktop/src/ui/terminal/script.rs apps/desktop/src/ui/dialogs/session_form.rs apps/desktop/src/ui/terminal/setup.rs"
 # 2026-11-15（架构审查 §5-6 扩面）：4j 原来只扫 apps/desktop/src，crates/ 下
 # 190 个 .rs **一次都没被量过**——supervisor.rs 1677 代码行、vt.rs 1605 行，
-# 不是「合规」而是没被看见。这里把现存 23 个超限文件登记为**可见基线**：
-#   · 第 24 个超限文件出现即红；
+# 不是「合规」而是没被看见。这里把现存 27 个超限文件登记为**可见基线**：
+#   · 第 28 个超限文件出现即红；
 #   · 谁把某个文件拆到 ≤500，必须从这张表里删掉（下面 stale_debt 断言），
 #     否则基线会悄悄变成永久豁免。与 4p/4q 同一口径：基线是现状事实，不是许可额度。
 # 排除 `*/tests/*`：4j 的 desk 口径本来就不含 apps/desktop/tests，两边保持一致，
@@ -724,7 +745,7 @@ if [ -n "$over_files" ] || [ -n "$stale_debt" ]; then
   # 超限时才走到，于是这层检查长期只能说「绿」或「崩」，从不说「红」。
   bad "单文件代码行超限：${over_files}；待拆清单需更新：${stale_debt}（全仓最大的是 ${max_file}，${max_lines} 行）"
 else
-  ok "文件规模合规（递归 ${n_files} 个文件；desk 2 处 + crates ${crates_over_n} 处已登记欠账，其余均 ≤ ${DESK_SZ_LIMIT}；全仓最大 $max_file = $max_lines 行，属欠账）"
+  ok "文件规模合规（递归 ${n_files} 个文件；desk 6 处 + crates ${crates_over_n} 处已登记欠账，其余均 ≤ ${DESK_SZ_LIMIT}；全仓最大 $max_file = $max_lines 行，属欠账）"
 fi
 
 step "4i. crate 边界的错误必须分类（不得退回 String）"
@@ -894,24 +915,24 @@ else
   ok "生产路径 panic ${panic_n} 处（基线 ${PANIC_BASELINE}，只许减不许增；整文件排除 ${excluded_n} 个纯测试模块）"
 fi
 
-step "4q. 全仓错误边界 String 化基线（只许减不许增，基线 40）"
+step "4q. 全仓错误边界 String 化基线（只许减不许增，基线 50）"
 # 4i 只扫 `term-core` / `term-runtime`，其余 crate 与 `apps/` 从没被量过——把判据
 # 扩到 `crates` + `apps` 立刻命中 42 行，其中 6 行是**旧正则的误报**：
 # `Result<Option<String>, VaultError>` / `Result<Vec<(String, Option<String>)>, StoreError>`
 # 这种「String 出现在值位置」也被 `\)) -> Result<[^>]*String>` 算成了错误类型。
 # 先收紧：只认以 `, String>` 结尾的，即第二个泛型参数确实是 String。
 #
-# 收紧后 40 处（2026-11-11 实测），分布：
+# 收紧当时是 40 处（2026-11-11 实测），分布：
 #   apps/desktop 19 —— CLI 参数解析与面板命令的**用户文案**，刻意设计，不是债务；
 #   term-sftp 5 / term-script 5 / term-app 5 / term-zmodem 2 / term-ssh 2 /
 #   term-xfer 1 / term-session 1。
-# 这 40 处一次改不完：每改一处都要先给那个 crate 定义错误枚举，属于独立重构，
-# 所以这里只做**冻结**。基线是现状的事实，不是许可额度：只许减不许增。
-# ADR-0027（2026-11-16）：40→51。新增的 11 处全在 `apps/desktop` 的脚本端口
-# 实现（`script_human` / `script_fs` / `script_proc` / `script_sftp` / `script_recorder`
-# / `script_run`）：它们的 String 是**给人看的原话**（「写不到脚本 X」这类），
-# 与基线里已有的 19 处同一类别，不是「本该分类却拍平了」。改这 11 处要先给
-# 每个端口定义错误枚举再翻译成 `PrimitiveError`，属独立重构。
+# ADR-0027（2026-11-16）把脚本端口计入后一度到 51：新增的 11 处全在
+# `apps/desktop` 的脚本端口实现（`script_human` / `script_fs` / `script_proc` /
+# `script_sftp` / `script_recorder` / `script_run`），它们的 String 是**给人看的
+# 原话**（「写不到脚本 X」这类），与已有的 19 处同一类别，不是「本该分类却拍平了」。
+# 后来回收一处，现行实测与冻结基线都是 50。每改一处都要先给那个 crate 定义错误
+# 枚举再翻译成 `PrimitiveError`，属独立重构，所以这里只做**冻结**。
+# 基线是现状的事实，不是许可额度：只许减不许增；减了必须同步下调并记账。
 STRING_ERR_BASELINE=50
 str_err_n=$(grep -rEn '\) -> Result<.*, *String>' crates apps --include='*.rs' 2>/dev/null | wc -l | tr -d ' ')
 if [ "${str_err_n:-0}" -gt "$STRING_ERR_BASELINE" ]; then
@@ -924,16 +945,17 @@ fi
 
 step "4s. ADR-0014 门面收敛：term_runtime:: 引用只许减不许增（基线 148）"
 # `term-runtime` 是兼容门面：`lib.rs` 自称「等 ui/ 重新校对完可以删掉」，
-# 但此前**没有任何机制让这个数字下降**。2026-11-14 架构审查实测
-# apps/desktop/src 下 145 行 / 50 文件引用（含文档注释），比文档记录时更多——
-# 临时兼容层永久化的典型形态。照 4p/4q 的「只许减不许增」基线范式钉住它。
+# 但此前**没有任何机制让这个数字下降**。2026-11-14 架构审查发现它比文档记录时
+# 更多（当时连文档注释一起数是 145 行 / 50 文件）——临时兼容层永久化的典型形态。
+# 照 4p/4q 的「只许减不许增」基线范式钉住它，冻结值 148 取自当时的现状。
 #
 # 口径：
 #   · 只数 apps/desktop/src 的 .rs（门面的消费者在这一层）；crates/ 下那几处
 #     `term_runtime::` 全是文档注释里的旧路径说明，零真引用，不计入也不约束；
 #   · 排除整行注释：文档里提一句旧路径，不等于还留着一条依赖；
 #   · 行尾注释所在的代码行仍算（那一行本来就是代码）。
-# 基线 138 = 145 行命中 − 7 行整行注释（文件数相应 50 → 49）。降到更少时**同步下调基线并记账**，
+# 现在按这条口径实测是 144 行 / 54 文件：行数降了，但文件数因注释分布变化而上下
+# 浮动，所以冻结量只取行数，文件数只用于报账。降到更少时**同步下调基线并记账**，
 # 别把差额留成隐形额度（第 4 刀把 4p 从 44 降到 22 就是这么做的）。
 FACADE_REF_BASELINE=148
 facade_hits=$(grep -rn 'term_runtime::' apps/desktop/src --include='*.rs' 2>/dev/null \

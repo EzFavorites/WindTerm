@@ -10,7 +10,7 @@
 
 `crates/term-core` 的定位不是一个「放终端逻辑的目录」，而是一个可以无头编译、无头测试的值计算库。三条边界由 `scripts/verify.sh` 逐条检查，而不是靠约定：
 
-- **无 UI**：`term-core/src` 内不得出现 `egui` / `eframe` / `epaint` / `winit`，Cargo 依赖表也按 crate 名拦同一份词表。语义层里的颜色是 `Rgb { r, g, b }`，只有在 `apps/desktop/src/theme.rs` 的 `to_color32` 才变成绘制框架的类型。
+- **无 UI**：`term-core/src` 内不得出现 `egui` / `eframe` / `epaint` / `winit`，Cargo 依赖表也按 crate 名拦同一份词表。语义层里的颜色是 `Colour::Rgb(u8, u8, u8)` 元组变体，只有在 `apps/desktop/src/theme.rs` 的 `to_color32` 才变成绘制框架的类型。
 - **无 IO**：不读文件、不开 socket、不启动线程。主题文件的「找路径 + 读文件」住在 `crates/term-import/src/theme.rs`，解析本身是 `Palette::from_scheme` 的纯函数。
 - **无 OS 句柄、无墙钟**：语义层不持有 PTY、串口、窗口，也不读时钟。边栏时间戳由宿主在写入前递入（`Terminal::stamp_row`），内核只把它记到那一行——时间是「被传入的数据」，不是「被调用的 API」。
 

@@ -20,8 +20,9 @@ WINDTERM_PROFILE_DIR=/tmp/wt-profile ./windterm
 - 新建会话时选择连接类型：**SSH**、**Telnet**、**TCP**、**Serial**、**本地
   Shell**，或独立的 **SFTP** 会话。
 - 会话树支持分组、重命名、拖拽排序与过滤；树结构随会话库持久化。
-- 可以从 MobaXterm 导出的会话文件批量导入（树结构还原，重复项按
-  `name + host + port` 去重）。导入只带配置不带密码——密码永不迁移。
+- 可以从 MobaXterm 导出的会话文件批量导入（树结构还原；按**会话名**归并去重，
+  同名在本次导入内做区分，不覆盖已有会话；主机 + 端口相同不算重复）。
+  导入只带配置不带密码——密码永不迁移。
 - 模型上是**会话为单元、标签为投影**：分屏时每个窗格各自持有一组标签，
   标签只是会话在某个窗格上的一个视角。
 
@@ -50,8 +51,8 @@ WINDTERM_PROFILE_DIR=/tmp/wt-profile ./windterm
 ### 终端
 
 - 多标签、左右/上下分屏与四宫格分屏。
-- 查找、字号缩放、回滚行数、配色方案（内置多套，可导入 Windows Terminal 的
-  `schemes` JSON 与 iTerm2 的 `.itermcolors`）。
+- 查找、字号缩放、回滚行数、配色方案（内置七套 + 自家 `.theme` 文件；
+  Windows Terminal 的 `schemes` JSON 与 iTerm2 的 `.itermcolors` 解析未实现）。
 - 编码切换（UTF-8 / GBK / GB2312 / Big5 / Shift_JIS / EUC-JP / EUC-KR /
   KOI8-R / ISO-8859-1 / ISO-8859-15）：只影响切换之后的输出，已显示内容不重排。
 - 选中即复制、多行粘贴确认、bracketed paste、鼠标上报。

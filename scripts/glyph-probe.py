@@ -34,8 +34,8 @@ span，位置是 `origin.x + col*cell_w`。两条路径的取整不同，本机�
   完整度。当前实现里它们都是否定的，但那是**已知缺口**不是回归；将来哪天
   补上了，这个脚本不该因为「变好了」而变红。
 
-依赖仅 Pillow + numpy（本机已有，与 `scripts/compare-golden.py` 一致），
-不进 Cargo 依赖树。
+依赖仅 Pillow + numpy（本机已有；旧版与已删除的 `scripts/compare-golden.py`
+共用这套依赖，该脚本不在仓库里了，本脚本独立运行），不进 Cargo 依赖树。
 """
 
 import argparse

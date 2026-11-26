@@ -76,7 +76,8 @@ pub fn caret_style_to_shape_blink(idx: usize) -> (crate::grid::CursorShape, bool
 /// 光标外观，改动只影响新会话。
 pub const DEFAULT_CARET_PERIOD: f32 = 0.5;
 
-/// 光标宽度的出厂值（像素，`Underline` / `Beam` 用）。视觉基线显示 `1.5 pixels`。
+/// 光标宽度的出厂值（像素，`Underline` / `Beam` 用），本仓自有常量 `1.5`；
+/// 不是从任何外部截图读出的刻度。
 ///
 /// `Block` / `HollowBlock` 是整格填充，不使用这个值。渲染侧会夹进
 /// `[0.5, 格宽/格高]`，避免手改 prefs 写出一个盖满整格的横杠。
@@ -149,8 +150,8 @@ pub const S_IFREG: u32 = 0o100000;
 pub const S_IFDIR: u32 = 0o40000;
 /// 状态栏时钟的刷新周期（2000 ms）。
 pub const CLOCK_REFRESH_MS: u64 = 2000;
-/// 标签着色 12 色的**名称**，与 `theme::DESIGN_TOKENS.tab_colors` 同序，
-/// 即 `design-tokens.json › tabColorSwatches`（picture-100.jpg 像素聚类实测）。
+/// 标签着色 12 色的**名称**，与 `theme::DESIGN_TOKENS.tab_colors` 同序；
+/// 两者同属本仓自有常量表，不引用任何外部取样文件。
 /// 顺序严格对应，改这里必须同步 `DESIGN_TOKENS.tab_colors`。
 pub const TAB_COLOR_NAMES: [&str; 12] = [
     "Dark Cyan",
