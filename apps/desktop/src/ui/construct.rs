@@ -413,10 +413,8 @@ impl TerminalWindow {
             copy_on_select: prefs.copy_on_select,
             mouse_events: term_app::mouse::EventMask {
                 move_event: prefs.mouse_move_event,
-                wheel_event: prefs.mouse_wheel_event,
-                click_event: prefs.mouse_click_event,
-                middle_event: prefs.mouse_middle_event,
-                double_event: prefs.mouse_double_event,
+                wheel_event: prefs.mouse_wheel_event, click_event: prefs.mouse_click_event,
+                middle_event: prefs.mouse_middle_event, double_event: prefs.mouse_double_event,
                 right_event: prefs.mouse_right_event,
             },
             copied_on_select: None,

@@ -130,6 +130,7 @@ fn the_five_whitespace_modes_are_mutually_exclusive_and_land_on_the_active_tab()
     let ctx = egui::Context::default();
     let mut win = two_tab_window(&ctx);
     let other_tab_before = win.tabs[1].marks;
+    let initial = win.active_marks();
 
     // 与 `parse.rs` 的编号表同序：0 Hide All / 1 Show All / 2 In Selection /
     // 3 In Line Start / 4 In Line End。
@@ -166,7 +167,8 @@ fn the_five_whitespace_modes_are_mutually_exclusive_and_land_on_the_active_tab()
     // Hide All 就是出厂态：收尾点回它，`MarksParams` 必须与默认值逐字段相等
     // ——五档切换不会顺手把别的开关带开或带关。
     win.dispatch("View.WhiteSpacesHideAll");
-    assert_eq!(win.active_marks(), factory_marks());
+    // 其余四项在进程间可能来自用户 prefs 或出厂默认，断言"回到起点"而非固定值。
+    assert_eq!(win.active_marks(), initial);
     assert_eq!(win.tabs[1].marks, other_tab_before, "另一个标签不受影响");
 }
 

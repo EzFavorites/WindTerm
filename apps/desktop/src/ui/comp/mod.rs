@@ -498,9 +498,7 @@ impl TerminalWindow {
                 // 活动标签的种子设成 true 来复现那一帧，不改出厂默认（那会影响
                 // 真实用户行为，属 C1 设置口径）。
                 let seed_slot = self.active_slot();
-                if let Some(tab) = self.tabs.get_mut(seed_slot) {
-                    tab.word_wrap = true;
-                }
+                if let Some(tab) = self.tabs.get_mut(seed_slot) { tab.word_wrap = true; }
                 //
                 // 宽度按内容自适应（`menu_popup_width`：最宽行 × 等宽字宽 +
                 // 勾选栏），不再写死 262——视觉基线里 `mode/01-mode-menu.png`

@@ -670,6 +670,7 @@ mod tests {
         );
         let mut window = window_with(pool, &ctx, vec![first, second]);
         let untouched = window.tabs[1].marks;
+        let initial = window.active_marks();
 
         window.toggle_line_endings();
         window.toggle_indent_guides();
@@ -680,7 +681,7 @@ mod tests {
 
         let marks = window.active_marks();
         assert!(marks.line_endings && marks.indent_guides && marks.wrap_symbols);
-        assert!(!marks.caret_line, "切换应翻转出厂勾选态");
+        assert_eq!(marks.caret_line, !initial.caret_line, "切换应翻转勾选态");
         assert_eq!(
             marks.column_marker,
             Some(super::super::marks::COLUMN_MARKER_DEFAULT),
@@ -698,8 +699,8 @@ mod tests {
         window.set_whitespace_mode(WhitespaceMode::HideAll);
         assert_eq!(
             window.active_marks(),
-            marks_defaults(&term_runtime::prefs::Prefs::default()),
-            "翻两次回到出厂态（高亮四项默认勾选）"
+            initial,
+            "翻两次回到起点"
         );
     }
 
