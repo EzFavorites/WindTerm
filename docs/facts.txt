@@ -2,7 +2,7 @@
 # 生成：bash scripts/check-docs.sh --print > docs/facts.txt，再人工确认后入库。
 # 改任何单测数 / 验收项数 / 能力面三元组 / 基线张数，必须同步改这里或先改这里再改正文。
 # 公开检出应包含本文件；只有缺失时 verify.sh 的步骤 11 才跳过对账。
-tests_core=419
+tests_core=422
 tests_paths=8
 tests_profile=121
 tests_io=140
@@ -17,10 +17,10 @@ tests_sftp=81
 tests_script=154
 tests_bridge=46
 tests_session=41
-tests_desk=1303
+tests_desk=1313
 tests_xfer=120
 tests_zmodem=143
-tests_total=3375
+tests_total=3388
 verify_steps=37
 menu_commands=256
 commands_wired=218
