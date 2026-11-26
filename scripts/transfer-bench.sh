@@ -13,7 +13,7 @@
 #   KEEP=1 bash scripts/transfer-bench.sh                   # 跑完留容器
 #   SKIP_BUILD=1 bash scripts/transfer-bench.sh             # 复用已有镜像
 #
-# 不挂 `scripts/verify.sh` 的 step：那会把 verify_steps 从 38 改到 39，必须同步 facts.txt。
+# 不挂 `scripts/verify.sh` 的 step：那会把 verify_steps 从 37 改到 38，必须同步 facts.txt。
 # 本脚本人工运行；`scripts/check-docs.sh` 也不统计 scripts/ 下的脚本数量。
 set -uo pipefail
 

@@ -71,7 +71,7 @@ impl TerminalWindow {
         // 系统 `ssh` 那条路径不经过本函数，只有控制面才能同时罩住两条。
         // 这里问它要两份东西：覆盖后的配置（喂给 `ask`）和方案本身（凭据在
         // 保险库里，控制面不认识保险库）。
-        // 「Auto login next time」没勾（或没选方案）时，OneKey 不参与自动登录：
+        // 没选 OneKey 方案（或方案为 None）时，OneKey 不参与自动登录：
         // 不覆盖用户名/私钥、不取保险库里的密码与键盘交互应答，照旧问用户。
         // 判定只有 `wants_onekey_auto_login` 一个出处——无窗口那条路径
         // （`session_open::open_session`）用的是同一个函数，不会出现

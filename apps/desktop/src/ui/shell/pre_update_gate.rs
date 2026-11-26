@@ -16,6 +16,9 @@ impl TerminalWindow {
         // 空闲超时先判：这一帧刚派发的 Lock 立刻生效，不留一帧空窗。
         self.poll_lock_timeout(ctx);
         if self.view.lock.locked {
+            // 锁屏是凭据边界：后台隧道 / Filer 仍可调用 resolve_auth，
+            // 必须把运行时明文与重建副本一并清掉，否则锁屏期间还能重建密码。
+            crate::ui::dialogs::vault::clear_runtime_secrets();
             // 锁屏是**用户键盘输入**的边界，但不是「后台脚本与界面之间的
             // 非键盘往返」的边界：触发器脚本不会因为屏幕锁了就停。若把这几条
             // 队列连同整帧一起跳过，脚本的 app_* 会在 2 秒后误报 Timeout，

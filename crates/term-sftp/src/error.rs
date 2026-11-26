@@ -54,7 +54,7 @@ impl From<term_ssh::SshError> for SftpError {
 /// 字样，仍走 `Failed`，两边不能串味。
 pub(crate) fn is_disconnect(message: &str) -> bool {
     let lowered = message.to_ascii_lowercase();
-    ["broken pipe", "connection reset", "connection closed", "eof", "not connected"]
+    ["broken pipe", "connection reset", "connection closed", "unexpected eof", "not connected"]
         .iter()
         .any(|needle| lowered.contains(needle))
         || message.contains("SendError")

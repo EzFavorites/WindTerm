@@ -158,7 +158,10 @@ impl TerminalWindow {
         let due: Vec<usize> = (0..self.tabs.len())
             .filter(|i| self.tabs[*i].auto_reconnect_at.is_some_and(|at| now >= at))
             .collect();
-        for i in due {
+        // 每帧只处理一条：连接层只有一个全局 Connector 槽位，同一帧给两条
+        // 会话发起重连会让后一条覆盖前一条，前者既没连上也不会再排下一次。
+        // 其余到点的标签留在原队列里，下一帧自然轮到（at 仍到期）。
+        for i in due.into_iter().take(1) {
             let identity = self.tabs[i].identity;
             let policy = effective(&self.reconnect.global, &self.tabs[i].config.reconnect);
             let gen = self.reconnect.begin(identity, now, policy.initial_secs);

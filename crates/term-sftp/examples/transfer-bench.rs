@@ -3,7 +3,7 @@
 //! 为什么不用系统 `sftp` 命令：`protocol-verify.sh` 用系统客户端验的是「对端协议兼容」，
 //! 而基准要回答的是「我们自己的传输实现有多快」。用系统客户端测出来的数字与本仓代码无关。
 //!
-//! 不挂 `verify.sh` 的 step（那会把 `verify_steps` 从 38 改成 39，连带 `facts.txt`），
+//! 不挂 `verify.sh` 的 step（那会把 `verify_steps` 从 37 改成 38，连带 `facts.txt`），
 //! 由 `scripts/transfer-bench.sh` 起容器后显式调用。连接参数全部走
 //! `WINDTERM_DOCKER_*`，与 `crates/term-ssh/tests/docker_sshd.rs` 同一套约定。
 

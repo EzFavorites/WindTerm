@@ -44,8 +44,9 @@ const ZOOM_NOTE: &str = "Zoom level is the offset from the factory font size; it
 // 接上字段后它**删掉**了而不是留着：同一页上「已经能勾」与「没有这个粒度」
 // 并存，正是 Tabs 页上次那份自相矛盾的说明。一页只能有一份说明。
 
-// 自动重连 2026-11-21 接真（`Prefs.auto_reconnect`）：断线边沿排一次退避，
-// 1/2/4/8 秒后原地重连，连上清零；显式 Disconnect 不重试。策略在 `ui/reconnect.rs`。
+// 自动重连已参数化：默认关闭、仅连接断开触发、180 秒窗口、连上清零；
+// 显式 Disconnect 不重试，密码/主机密钥类失败立即停止。策略在 `ui/reconnect.rs`，
+// 控件在会话属性的 Session 页（本页不再有入口）。
 
 /// 一行**没有消费者**的控件：整行交给数据表的画法。
 ///
