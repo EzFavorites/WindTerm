@@ -600,11 +600,17 @@ mod tests {
         let next = QuickBarConfig::default();
         assert!(save_to(&p, &next));
         assert_eq!(load_from(&p), next);
+        // 只清本用例自己的备份：`/tmp` 是共享目录，宽泛的 "bad-" 过滤会顺手删掉
+        // 并行用例刚保全的坏文件，让「坏文件必须留一份备份」随机失败。
+        let backup_prefix = format!("{}.config.bad-", p.file_stem().unwrap().to_string_lossy());
         let preserved: Vec<_> = std::fs::read_dir(p.parent().unwrap())
             .unwrap()
             .filter_map(|e| e.ok())
             .map(|e| e.path())
-            .filter(|q| q.to_string_lossy().contains("bad-"))
+            .filter(|q| {
+                q.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with(&backup_prefix))
+            })
             .collect();
         assert!(!preserved.is_empty(), "坏文件必须留一份副本");
         for q in preserved {
