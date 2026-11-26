@@ -238,7 +238,8 @@ mod tests {
 
     #[test]
     fn the_event_mask_only_clears_its_own_event_kind() {
-        let mut frame = term_core::mouse_report::PointerFrame {
+        // apply 只清被关掉的位，不会把已清掉的位恢复；每个用例用一份新帧。
+        let fresh = || term_core::mouse_report::PointerFrame {
             x: 3.0,
             y: 4.0,
             has_pos: true,
@@ -254,17 +255,20 @@ mod tests {
                 ctrl: false,
             },
         };
+        let mut frame = fresh();
         // 出厂掩码：双击开（不影响帧），右键未勾 → 只清 secondary（下标 2）。
         EventMask::ALL.apply(&mut frame);
         assert!(frame.dragged && frame.hovered && frame.scroll > 0.0);
         assert_eq!(frame.pressed, [true, true, false]);
 
         // 勾上右键事件后，secondary 原样上报。
+        frame = fresh();
         let right = EventMask { right_event: true, ..EventMask::ALL };
         right.apply(&mut frame);
         assert_eq!(frame.pressed, [true, true, true]);
 
         // 关掉中键：只清下标 1，主键与右键原样。
+        frame = fresh();
         let mask = EventMask { middle_event: false, right_event: true, ..EventMask::ALL };
         mask.apply(&mut frame);
         assert_eq!(frame.pressed, [true, false, true]);
