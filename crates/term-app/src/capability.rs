@@ -409,8 +409,8 @@ mod capability_readers_tests;
         // 且它不在任何已接线的能力族里。
         // `Window.GotoSymbol` 2026-11-23 已接线（符号表 = OSC 133 命令块）；
         // `Window.SetRemoteMode` 同日接线；`Text.ToggleWordWrap` 2026-11-24
-        // 接线。这里改用仍未接线的 `Text.ToggleVirtualSpace`（已删除的编辑器
-        // 语义）钉住置灰这一侧。
+        // 接线。这里改用仍未接线的 `Text.ToggleVirtualSpace`（待实现的终端
+        // 行编辑行为）钉住置灰这一侧。
         assert_eq!(describe("Text.ToggleVirtualSpace").state, CapState::Planned);
     }
 

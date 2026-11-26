@@ -142,7 +142,7 @@ pub enum Item {
     /// |---|---|---|
     /// | Remote Mode | Live | 2026-11-23 已接线：`Window.SetRemoteMode` 退出只读，勾读 `Tab.local_mode`（`!local_mode_on()`） |
     /// | Word Wrap | Live | 2026-11-24 已接线：`Text.ToggleWordWrap` 翻 `Tab.word_wrap`，段表按位软折 |
-    /// | Virtual Space | Fixed(false) | 编辑器语义，已从本程序删除，命令未接线，空框按视觉基线写死 |
+    /// | Virtual Space | Fixed(false) | 终端行编辑行为，尚未实现（待办）；空框按视觉基线写死 |
     /// | Multiple Caret | Fixed(true) | 同上；勾按视觉基线写死，不代表命令可用 |
     ///
     /// 另有一种 [`CheckState::Live`]：**这一行是个勾选框，

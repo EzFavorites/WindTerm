@@ -851,7 +851,7 @@ pub fn menus() -> Vec<Menu> {
             // 前两条已接线：`Remote Mode` / `Word Wrap` 的 `checked` 都是
             // `CheckState::Live`，勾由投影层现读（分别看 `Tab.local_mode` /
             // `Tab.word_wrap`），点得到、勾会跟着变。只剩 `Virtual Space` /
-            // `Multiple Caret` 是删掉的编辑器语义，`checked` 仍是 `CheckState::Fixed`：
+            // `Multiple Caret` 是尚未实现的终端行编辑行为（待办），`checked` 仍是 `CheckState::Fixed`：
             // 空框 / 勾照视觉基线画死，动作没接线、点不动。
             // 判据在 `crates/term-app/src/menu_check_tests.rs` 的
             // `a_wired_command_must_read_live_state`：双向断言

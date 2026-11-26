@@ -349,7 +349,7 @@ mod tests {
     fn anything_shows_planned_items_but_they_are_not_executable() {
         let mut s = open(PaletteMode::Anything);
         // 锁定一条确定未接线的项：Goto Symbol / ToggleWordWrap 已接线，
-        // 这里的占位样本改用仍未接线的 `Text.ToggleVirtualSpace`（已删的编辑器语义）。
+        // 这里的占位样本改用仍未接线的 `Text.ToggleVirtualSpace`（待实现的终端行编辑行为）。
         let idx = entries(PaletteMode::Anything)
             .iter()
             .position(|e| e.id == "Text.ToggleVirtualSpace")
