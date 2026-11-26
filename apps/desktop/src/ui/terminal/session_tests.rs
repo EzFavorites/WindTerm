@@ -517,3 +517,123 @@ fn a_first_failed_reconnect_still_schedules_the_next_attempt() {
     assert!(at >= before + 1 && at <= crate::now_secs() + 2, "下一次约 1s 退避：{at}");
     assert_eq!(win.tabs[0].auto_reconnect_attempts, 1);
 }
+
+// ---- S2 · Send Condition 端到端验证 ----
+
+/// 夹具：假 tap 注入本帧输出，`Writes` 记录真正写出去的字节。
+fn cond_tab(id: &str) -> (crate::ui::Tab, crate::hex_tap::TapSender, Writes) {
+    let ctx = egui::Context::default();
+    let pool = Arc::new(term_session::SessionPool::new());
+    let writes = Writes::default();
+    let ch = WriteChannel { writes: writes.clone(), finished: false };
+    let mut tab = crate::ui::terminal::make_tab_with_channel(
+        &pool, SessionConfig::new(term_core::session::Protocol::Shell), Box::new(ch), egui::Id::new(id), &ctx);
+    let (tx, rx) = std::sync::mpsc::channel();
+    tab.raw.attach(crate::hex_tap::HexTap::new(rx));
+    (tab, crate::hex_tap::TapSender::new(tx), writes)
+}
+
+/// 输出型规则：命中 "wake" 就 SendText("SEND")。不设 `later_secs`，吃新的默认 0。
+fn cond_rule(id: &str, condition: term_core::trigger::SendCondition) -> term_core::trigger::Rule {
+    let mut r = term_core::trigger::Rule::default();
+    r.id = id.into();
+    r.enabled = true;
+    r.on = term_core::trigger::TriggerOn::Output;
+    r.pattern = "wake".into();
+    r.literal = true;
+    r.config.send.condition = condition;
+    r.actions = vec![term_core::trigger::TriggerAction::SendText("SEND".into())];
+    r
+}
+
+/// `pool.send` 经监管者线程异步落盘，等字节真的出现再断言。
+fn assert_sent(writes: &Writes) {
+    crate::ui::lifecycle_test_support::eventually("Send text 写出", || {
+        writes.0.lock().map(|w| w.as_slice() == b"SEND").unwrap_or(false)
+    });
+}
+
+/// 默认不延迟之后，Prompt 条件必须真的扣住发送，直到像提示符的块到达。
+#[test]
+fn a_prompt_condition_holds_the_send_until_a_prompt_chunk_arrives() {
+    let (mut tab, tx, writes) = cond_tab("cond-prompt");
+    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    tx.send(b"wake".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+    assert!(writes.0.lock().unwrap().is_empty(), "提示符未到不能发");
+    tx.send(b"user@host:~$ ".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_sent(&writes);
+}
+
+/// 换行条件由本帧输出里的 `\n` 放行，不必等提示符。
+#[test]
+fn a_line_break_condition_holds_the_send_until_a_newline_chunk_arrives() {
+    let (mut tab, tx, writes) = cond_tab("cond-line-break");
+    let rules = [cond_rule("lb", term_core::trigger::SendCondition::AfterMatchAndLineBreak)];
+    tx.send(b"wake".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_eq!(tab.triggers.pending_count(), 1, "换行未到先排队");
+    assert!(writes.0.lock().unwrap().is_empty(), "换行未到不能发");
+    tx.send(b"next line\n".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_sent(&writes);
+}
+
+/// 反向：普通换行只放行 LineBreak 门，不会误放行等提示符的项。
+#[test]
+fn a_prompt_condition_is_not_released_by_a_plain_line_break() {
+    let (mut tab, tx, writes) = cond_tab("cond-lb-not-prompt");
+    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    tx.send(b"wake".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tx.send(b"next line\n".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_eq!(tab.triggers.pending_count(), 1, "换行不放行 Prompt 门");
+    assert!(writes.0.lock().unwrap().is_empty(), "没有提示符就不发");
+}
+
+/// `AfterMatch` 同帧落地：既不排队，也不等下一个事件。
+#[test]
+fn an_immediate_match_condition_fires_in_the_same_frame() {
+    let (mut tab, tx, writes) = cond_tab("cond-match");
+    let rules = [cond_rule("m", term_core::trigger::SendCondition::AfterMatch)];
+    tx.send(b"wake".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_eq!(tab.triggers.pending_count(), 0, "Match 条件不排队");
+    assert_sent(&writes);
+}
+
+/// 空闲帧的 `due` 只取到期的 Send Later；等提示符的 Ready 项不该被时钟放行。
+#[test]
+fn a_prompt_queued_send_is_not_released_by_an_idle_due_tick() {
+    let (mut tab, tx, writes) = cond_tab("cond-idle");
+    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    tx.send(b"wake".to_vec()).unwrap();
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    for t in 101..105 {
+        super::session::set_test_now(Some(t));
+        tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    }
+    assert_eq!(tab.triggers.pending_count(), 1, "空闲 due 不放行 Prompt 门");
+    assert!(writes.0.lock().unwrap().is_empty(), "没有提示符就不发");
+    super::session::set_test_now(None);
+}
+
+/// 设计边界：事件类规则经 `event` → `apply_trigger` 直达，不进 Send Condition 队列；
+/// 即使配了 Prompt 条件，也在连上那一帧立即写出。
+#[test]
+fn a_connect_rule_send_text_bypasses_the_send_condition() {
+    let (mut tab, _tx, writes) = cond_tab("cond-connect");
+    let mut r = term_core::trigger::Rule::default();
+    r.id = "c".into();
+    r.enabled = true;
+    r.on = term_core::trigger::TriggerOn::Connect;
+    r.config.send.condition = term_core::trigger::SendCondition::AfterMatchAndPrompt;
+    r.actions = vec![term_core::trigger::TriggerAction::SendText("SEND".into())];
+    let rules = [r];
+    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    assert_sent(&writes);
+    assert_eq!(tab.triggers.pending_count(), 0, "事件类规则不排队");
+}
