@@ -59,13 +59,22 @@ impl OpenError {
     }
 }
 
+/// 这是 URL 还是本地路径？`https://…` 之类的 `scheme://` 没有文件系统意义，
+/// 不能过 [`std::path::Path::exists`]——那样每次在线搜索都会被当成「文件不存在」
+/// 而拒绝拉起浏览器。只有这一处认 URL，opener 仍然只有 `sysopen::open` 一个。
+pub fn is_url(path: &Path) -> bool {
+    path.to_str()
+        .is_some_and(|s| s.contains("://") && !s.starts_with('/'))
+}
+
 /// 交给系统默认程序打开。返回失败原因（调用方决定怎么告诉用户）。
 ///
-/// 前置校验先于副作用：路径不存在直接 `Err`，**不 spawn**。这条不只是为了
+/// 前置校验先于副作用：本地路径不存在直接 `Err`，**不 spawn**。这条不只是为了
 /// 省一次进程——`open` 对不存在的路径会弹系统对话框，那既打断用户又掩盖
-/// 「我们的路径拼错了」这个真问题。
+/// 「我们的路径拼错了」这个真问题。URL 没有文件系统落点，跳过存在性校验后
+/// 走同一个 `sysopen`，不新开第二条 opener。
 pub fn open_path(path: &Path) -> Result<(), OpenError> {
-    if !path.exists() {
+    if !is_url(path) && !path.exists() {
         return Err(OpenError::NotFound(path.to_path_buf()));
     }
     crate::sysopen::open(path).map_err(|err| OpenError::Spawn {
@@ -130,6 +139,20 @@ mod tests {
         assert!(message.contains("no such file"), "失败原因要能读懂：{message}");
         // 错误信息里带上路径本身，用户才知道是哪一个文件没开成。
         assert!(message.contains("windterm-no-such-file-xfer07.txt"), "{message}");
+    }
+
+    #[test]
+    fn search_urls_are_recognised_without_touching_the_filesystem() {
+        // 在线搜索拉起浏览器时不能过 `Path::exists`：URL 不是文件，
+        // 把 `https://…` 当路径校验会让六个引擎全部变成「找不到文件」。
+        for url in [
+            "https://www.google.com/search?q=rust",
+            "https://duckduckgo.com/?q=%E7%BB%88%E7%AB%AF",
+        ] {
+            assert!(is_url(Path::new(url)), "{url} 必须认成 URL");
+        }
+        assert!(!is_url(Path::new("/tmp/notes.txt")), "绝对路径不是 URL");
+        assert!(!is_url(Path::new("notes.txt")), "相对路径不是 URL");
     }
 
     #[test]

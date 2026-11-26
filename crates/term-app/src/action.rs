@@ -353,6 +353,94 @@ mod tests {
         assert_eq!(state, before, "位移在投影层算，reducer 不写视图状态");
     }
 
+    /// `View ▸ Syntax Schemes` 七条：每条解析成自己的方案名，reducer 原样
+    /// 带出去；名字到调色板的映射只有 term-core 一处，这里不写第二份。
+    #[test]
+    fn syntax_schemes_each_keep_their_own_name() {
+        let ids = [
+            ("Terminal.SchemeCmd", "cmd"),
+            ("Terminal.SchemeDumb", "dumb"),
+            ("Terminal.SchemeLinux", "linux"),
+            ("Terminal.SchemeMacos", "macos"),
+            ("Terminal.SchemeNone", "none"),
+            ("Terminal.SchemePowershell", "powershell"),
+            ("Terminal.SchemeRouteros", "routeros"),
+        ];
+        for (id, name) in ids {
+            let action = Action::parse(id).unwrap_or_else(|| panic!("{id} 必须能解析"));
+            assert_eq!(action, Action::Shell(ShellAction::SetScheme(name)), "{id}");
+            assert_eq!(action.feature(), FeatureId::Shell, "{id}");
+            let mut state = ViewState::default();
+            let effects = reduce(&mut state, action, None);
+            assert_eq!(effects, vec![Effect::SetScheme(name)], "{id}");
+        }
+    }
+
+    /// `Search ▸ Search Online` 六条：每条都要解析成**自己那个引擎**，并且
+    /// reducer 原样把名字带出去（投影层按名字查表拼 URL，不在这里写第二份）。
+    #[test]
+    fn search_online_engines_each_keep_their_own_name() {
+        let ids = [
+            ("Text.SearchOnlineGoogle", "Google"),
+            ("Text.SearchOnlineBing", "Bing"),
+            ("Text.SearchOnlineGithub", "Github"),
+            ("Text.SearchOnlineStackoverflow", "Stackoverflow"),
+            ("Text.SearchOnlineWikipedia", "Wikipedia"),
+            ("Text.SearchOnlineDuckDuckGo", "DuckDuckGo"),
+        ];
+        for (id, name) in ids {
+            let action = Action::parse(id).unwrap_or_else(|| panic!("{id} 必须能解析"));
+            assert_eq!(
+                action,
+                Action::Shell(ShellAction::SearchOnlineWith(name)),
+                "{id}"
+            );
+            assert_eq!(action.feature(), FeatureId::Shell, "{id}");
+            let mut state = ViewState::default();
+            let effects = reduce(&mut state, action, None);
+            assert_eq!(effects, vec![Effect::SearchOnlineWith(name)], "{id}");
+        }
+    }
+
+    /// `Select` 五条 + `Select To` 十六条（2026-11-27 补完）。
+    /// 每条都走 `Effect::Select(Cmd::Move(op))`，与 Shift+方向键同一条纯函数
+    /// 路径；Select To 的 14 条与 Goto 共用同一个 `Op`，不存在两套边界规则。
+    #[test]
+    fn select_and_select_to_commands_are_all_wired_to_their_own_op() {
+        let ids = [
+            ("Text.SelectParagraph", Op::Paragraph),
+            ("Text.SelectPair", Op::Pair),
+            ("Text.SelectFold", Op::Fold),
+            ("Text.SelectScope", Op::Scope),
+            ("Text.SelectIndentation", Op::Indentation),
+            ("Text.SelectToPreviousWordPart", Op::WordPartPrev),
+            ("Text.SelectToNextWordPart", Op::WordPartNext),
+            ("Text.SelectToPreviousStutteredPage", Op::StutteredPagePrev),
+            ("Text.SelectToNextStutteredPage", Op::StutteredPageNext),
+            ("Text.SelectToPreviousPair", Op::PairPrev),
+            ("Text.SelectToNextPair", Op::PairNext),
+            ("Text.SelectToPreviousParagraph", Op::ParagraphPrev),
+            ("Text.SelectToNextParagraph", Op::ParagraphNext),
+            ("Text.SelectToPreviousFold", Op::FoldPrev),
+            ("Text.SelectToNextFold", Op::FoldNext),
+            ("Text.SelectToPreviousScope", Op::ScopePrev),
+            ("Text.SelectToNextScope", Op::ScopeNext),
+            ("Text.SelectToPreviousIndentation", Op::IndentationPrev),
+            ("Text.SelectToNextIndentation", Op::IndentationNext),
+            ("Text.SelectToPairStart", Op::PairStart),
+            ("Text.SelectToPairEnd", Op::PairEnd),
+        ];
+        assert_eq!(ids.len(), 21);
+        for (id, want) in ids {
+            let action = Action::parse(id).unwrap_or_else(|| panic!("{id} 必须能解析"));
+            assert_eq!(action, Action::Select(want), "{id}");
+            assert_eq!(action.feature(), FeatureId::Selection, "{id}");
+            let mut state = ViewState::default();
+            let effects = reduce(&mut state, action, None);
+            assert_eq!(effects, vec![Effect::Select(Cmd::Move(want))], "{id}");
+        }
+    }
+
     // ── 9 条集合命令 ──
     #[test]
     fn set_commands_route_to_the_selection_feature() {

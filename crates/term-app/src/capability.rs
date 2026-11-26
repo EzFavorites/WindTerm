@@ -318,9 +318,17 @@ mod tests {
         // 按 ADR-0015 置灰；同时原先占菜单位的四条（SearchOnline / SchemeList /
         // ToolbarList / ToolbarCustomize）退出菜单树。
         // → 已接线 222→218、占位 2→38、总数 224→256。
+        // 2026-11-27 M1：把那 36 条灰项里的 34 条真正接线——
+        //   · Search Online 六条按引擎名打开系统浏览器（选区 / 输入缓冲为查询词）；
+        //   · Syntax Schemes 七条用 `builtin_scheme` 换运行中调色板并写回 scheme_name；
+        //   · Select 5 + Select To 16 全部落到 selection 的纯函数（Fold 三条读折叠
+        //     输入行表；其余复用既有 Op 边界规则）。
+        // 两条 Toolbar 行仍置灰：本版没有自定义工具栏条目模型，原图里它们本来
+        // 就是空态灰字，不摆点了没反应的假控件。
+        // → 已接线 218→252、占位 38→4、总数 256 不变（一条菜单都没增删）。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 218, "已接线命令数变化需显式确认");
-        assert_eq!(planned, 38, "占位命令数变化需显式确认");
+        assert_eq!(implemented, 252, "已接线命令数变化需显式确认");
+        assert_eq!(planned, 4, "占位命令数变化需显式确认");
         assert_eq!(inventory().len(), 256);
     }
 

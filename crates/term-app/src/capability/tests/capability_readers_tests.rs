@@ -428,6 +428,54 @@ fn every_implemented_command_has_a_reader() {
         "Text.MarginFold",
         "Text.GotoPreviousFold",
         "Text.GotoNextFold",
+        // 2026-11-27 M1：34 条从 Planned 转 Implemented，每条的「点了哪里会变」
+        // 逐组写在这里（总数仍是「菜单里点得到」的一张表）：
+        //   · Search Online 6：`Effect::SearchOnlineWith` → `ui/effects/search.rs`
+        //     取选区 / 输入缓冲，按引擎表拼 URL，走 `open_with::open_path`
+        //     拉起系统默认浏览器——窗口外可见的后果。
+        //   · Syntax Schemes 7：`Effect::SetScheme` → `ui/effects/theme.rs` 用
+        //     `builtin_scheme(name)` 换运行中调色板并 load-modify-save 写回
+        //     `Prefs.scheme_name`；下一次绘制的终端 16 色当场变化，重启仍在。
+        //   · Select 5：`selection::units::select_unit` / `fold_unit` 取 head
+        //     所在语义单位（折叠块用输入行表算），写回活动选区——屏幕上那段
+        //     文字的底色真的变了；与 Shift+方向键同一条纯函数路径。
+        //   · Select To 16：`Effect::Select(Cmd::Move)` → `selection::apply_*`
+        //     （Fold 两条经带上下文的入口），只挪 head；14 条复用 Goto 已经
+        //     验过的边界 Op，不存在第二套位移规则。
+        "Text.SearchOnlineGoogle",
+        "Text.SearchOnlineBing",
+        "Text.SearchOnlineGithub",
+        "Text.SearchOnlineStackoverflow",
+        "Text.SearchOnlineWikipedia",
+        "Text.SearchOnlineDuckDuckGo",
+        "Terminal.SchemeCmd",
+        "Terminal.SchemeDumb",
+        "Terminal.SchemeLinux",
+        "Terminal.SchemeMacos",
+        "Terminal.SchemeNone",
+        "Terminal.SchemePowershell",
+        "Terminal.SchemeRouteros",
+        "Text.SelectParagraph",
+        "Text.SelectPair",
+        "Text.SelectFold",
+        "Text.SelectScope",
+        "Text.SelectIndentation",
+        "Text.SelectToPreviousWordPart",
+        "Text.SelectToNextWordPart",
+        "Text.SelectToPreviousStutteredPage",
+        "Text.SelectToNextStutteredPage",
+        "Text.SelectToPreviousPair",
+        "Text.SelectToNextPair",
+        "Text.SelectToPreviousParagraph",
+        "Text.SelectToNextParagraph",
+        "Text.SelectToPreviousFold",
+        "Text.SelectToNextFold",
+        "Text.SelectToPreviousScope",
+        "Text.SelectToNextScope",
+        "Text.SelectToPreviousIndentation",
+        "Text.SelectToNextIndentation",
+        "Text.SelectToPairStart",
+        "Text.SelectToPairEnd",
     ]
     .into_iter()
     .collect();

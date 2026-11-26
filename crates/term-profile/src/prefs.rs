@@ -535,6 +535,14 @@ pub struct Prefs {
     /// 16 色」，而不是 dige-black 整窗主题。两处默认值同一函数，就不会再漂。
     #[serde(default = "default_theme_name")]
     pub theme_name: String,
+    /// `View ▸ Syntax Schemes` 选中的终端配色方案名（七套内置之一）。
+    ///
+    /// 空串 = 没选过：启动时只用上面的整窗 `theme_name` 加载调色板，菜单里
+    /// 的七个 scheme 是**终端 16 色**，与整窗主题是两份不同的真相。用裸
+    /// `#[serde(default)]`（`String` 缺省就是空串），老 `prefs.json` 缺这一项
+    /// 时保持原行为，不会因为新字段把用户选过的主题冲掉。
+    #[serde(default)]
+    pub scheme_name: String,
     /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 true（原版设置页勾选）。
     #[serde(default = "default_true")]
     pub prefer_theme_fonts: bool,
@@ -865,6 +873,7 @@ impl Default for Prefs {
             auto_reconnect: false,
             reconnect_policy: term_core::session::ReconnectPolicy::default(),
             theme_name: default_theme_name(),
+            scheme_name: String::new(),
             prefer_theme_fonts: true,
             tab_hover_activate: true,
             tab_hover_delay_ms: 200,
@@ -1631,6 +1640,23 @@ mod tests {
         let path = tmp();
         std::fs::write(&path, r#"{"theme_name":""}"#).unwrap();
         assert_eq!(load_from(&path).unwrap().theme_name, "");
+    }
+
+    /// 终端配色方案是独立的一格：老 `prefs.json` 缺键时保持空串（不动整窗主题），
+    /// 写过的值逐字 round-trip，否则菜单选的 scheme 重启后就丢了。
+    #[test]
+    fn the_terminal_scheme_round_trips_without_touching_the_theme() {
+        let path = tmp();
+        std::fs::write(&path, r#"{"theme_name":"dige-light"}"#).unwrap();
+        let back = load_from(&path).expect("缺键不该让整份文件读不出来");
+        assert_eq!(back.scheme_name, "");
+        assert_eq!(back.theme_name, "dige-light");
+        let mut prefs = back;
+        prefs.scheme_name = "powershell".to_string();
+        assert!(save_to(&path, &prefs));
+        let again = load_from(&path).unwrap();
+        assert_eq!(again.scheme_name, "powershell");
+        assert_eq!(again.theme_name, "dige-light", "改 scheme 不许冲掉主题");
     }
 
     #[test]

@@ -56,7 +56,28 @@ pub(crate) fn shell_parse(id: &str) -> Option<ShellAction> {
         "Terminal.CopySessionName" => ShellAction::CopySessionName,
         "Terminal.CopySessionUrl" => ShellAction::CopySessionUrl,
         "Help.Help" => ShellAction::Help,
+        // `View ▸ Syntax Schemes` 的七行同样是运行期展开（config 只有一条
+        // `Terminal.SchemeList`）。名字逐字取方案名，调色板只有
+        // `term_core::theme::builtin_scheme` 一份；未知名字那里返回 `None`，
+        // 菜单里永远不会出现第八个假条目。
+        "Terminal.SchemeCmd" => ShellAction::SetScheme("cmd"),
+        "Terminal.SchemeDumb" => ShellAction::SetScheme("dumb"),
+        "Terminal.SchemeLinux" => ShellAction::SetScheme("linux"),
+        "Terminal.SchemeMacos" => ShellAction::SetScheme("macos"),
+        "Terminal.SchemeNone" => ShellAction::SetScheme("none"),
+        "Terminal.SchemePowershell" => ShellAction::SetScheme("powershell"),
+        "Terminal.SchemeRouteros" => ShellAction::SetScheme("routeros"),
         "Text.SearchOnline" => ShellAction::SearchOnline,
+        // `Search ▸ Search Online` 的六行是引擎表在运行期的展开（config 里
+        // 只有一条 `Text.SearchOnline`）。这里按名字分派，URL 模板仍只有
+        // `term_profile::search::SEARCH_ENGINES` 一份；ID 与名字的对应关系在
+        // `action.rs` 的测试里逐条钉住，避免菜单标签换了引擎却没换动作。
+        "Text.SearchOnlineGoogle" => ShellAction::SearchOnlineWith("Google"),
+        "Text.SearchOnlineBing" => ShellAction::SearchOnlineWith("Bing"),
+        "Text.SearchOnlineGithub" => ShellAction::SearchOnlineWith("Github"),
+        "Text.SearchOnlineStackoverflow" => ShellAction::SearchOnlineWith("Stackoverflow"),
+        "Text.SearchOnlineWikipedia" => ShellAction::SearchOnlineWith("Wikipedia"),
+        "Text.SearchOnlineDuckDuckGo" => ShellAction::SearchOnlineWith("DuckDuckGo"),
         "Text.ZoomIn" => ShellAction::ZoomIn,
         "Text.ZoomOut" => ShellAction::ZoomOut,
         "Text.ResetZoom" => ShellAction::ZoomReset,
@@ -379,6 +400,30 @@ pub(crate) fn selection_parse(id: &str) -> Option<Op> {
         "Text.GotoPairEnd" => Op::PairEnd,
         "Text.GotoPreviousPair" => Op::PairPrev,
         "Text.GotoNextPair" => Op::PairNext,
+        // M1（2026-11-27）补完 Select / Select To 的 21 条。Select To 的 14 条
+        // **复用上面已有的边界 Op**（同一份位移规则，菜单与 Goto 不可能各走各的）；
+        // Select 5 是新语义「整段选中」；Fold 两方向要折叠块表，另立两个变体。
+        "Text.SelectParagraph" => Op::Paragraph,
+        "Text.SelectPair" => Op::Pair,
+        "Text.SelectFold" => Op::Fold,
+        "Text.SelectScope" => Op::Scope,
+        "Text.SelectIndentation" => Op::Indentation,
+        "Text.SelectToPreviousWordPart" => Op::WordPartPrev,
+        "Text.SelectToNextWordPart" => Op::WordPartNext,
+        "Text.SelectToPreviousStutteredPage" => Op::StutteredPagePrev,
+        "Text.SelectToNextStutteredPage" => Op::StutteredPageNext,
+        "Text.SelectToPreviousPair" => Op::PairPrev,
+        "Text.SelectToNextPair" => Op::PairNext,
+        "Text.SelectToPreviousParagraph" => Op::ParagraphPrev,
+        "Text.SelectToNextParagraph" => Op::ParagraphNext,
+        "Text.SelectToPreviousFold" => Op::FoldPrev,
+        "Text.SelectToNextFold" => Op::FoldNext,
+        "Text.SelectToPreviousScope" => Op::ScopePrev,
+        "Text.SelectToNextScope" => Op::ScopeNext,
+        "Text.SelectToPreviousIndentation" => Op::IndentationPrev,
+        "Text.SelectToNextIndentation" => Op::IndentationNext,
+        "Text.SelectToPairStart" => Op::PairStart,
+        "Text.SelectToPairEnd" => Op::PairEnd,
         _ => return None,
     };
     Some(op)

@@ -61,8 +61,9 @@ impl TerminalWindow {
         // 第二写入者：之后的每一次切换都走 `ShellAction::SetLanguage` → reduce。
         // 同一份 prefs 还带着两个「不再提示」抑制位（关闭确认弹窗用）。
         let prefs = term_runtime::prefs::load().unwrap_or_default();
-        // 整窗主题按偏好加载；老 prefs 没 theme_name 时回落 dige-black。
-        let palette = term_import::theme::load_palette_named(&prefs.theme_name);
+        // 调色板按偏好加载：菜单选过的终端 scheme 优先，否则整窗主题
+        // （老 prefs 没 scheme_name / theme_name 时回落 dige-black）。
+        let palette = effects::theme::startup_palette(&prefs.scheme_name, &prefs.theme_name);
         pool.set_global_proxy(global_proxy_from_prefs(&prefs));
         // OneKey 方案表必须在**第一条会话之前**就位：控制面只在自己开会话时
         // 读它（`SessionPool::resolve_onekey`），而系统 `ssh` 那条路径不经过

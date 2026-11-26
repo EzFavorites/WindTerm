@@ -183,9 +183,10 @@ pub fn menus() -> Vec<Menu> {
                     id: "Text.Find",
                 },
                 // 原版这一层是六个搜索引擎（菜单配置里写一条 `Text.SearchOnline`，
-                // 运行期由设置里的引擎表展开成六行）。本版六个入口尚未接线，
-                // 按 ADR-0015 一律置灰，悬停给「Not wired (placeholder)」；
-                // 不拿一条什么都不做的共享 ID 冒充六个引擎。
+                // 运行期由设置里的引擎表展开成六行）。本版六条各带自己的引擎名，
+                // 经 `ShellAction::SearchOnlineWith` → `Effect::SearchOnlineWith`
+                // 落到投影层：选区（无选区退回输入缓冲）按引擎表拼 URL，用系统
+                // 默认浏览器打开；不拿一条什么都不做的共享 ID 冒充六个引擎。
                 Item::Submenu {
                     label: "Search Online",
                     items: vec![
@@ -292,8 +293,9 @@ pub fn menus() -> Vec<Menu> {
                 },
                 // 原版 `menu.config` 的 Select To 是 12 组 Previous/Next +
                 // 六条尾项（Pair Start/End、Line Home/End、Document Start/End），
-                // 三组分隔线。本版只接了 Char/Word/Line/Page 与四条尾项，
-                // 其余按 ADR-0015 置灰，悬停给「Not wired (placeholder)」。
+                // 三组分隔线。2026-11-27 全部接通：Char/Word/Line/Page 那批复用
+                // 既有 `Op`，Word Part / 半页 / 段落 / Scope / 缩进 / Pair 也复用
+                // Goto 那 26 条已有的边界规则，Fold 两条走折叠输入行表。
                 Item::Submenu {
                     label: "Select To",
                     items: vec![
@@ -322,10 +324,6 @@ pub fn menus() -> Vec<Menu> {
                             id: "Text.SelectToPreviousPage",
                         },
                         Item::Action {
-                            label: "Select To Previous Stuttered Page",
-                            id: "Text.SelectToPreviousStutteredPage",
-                        },
-                        Item::Action {
                             label: "Select To Previous Pair",
                             id: "Text.SelectToPreviousPair",
                         },
@@ -340,6 +338,13 @@ pub fn menus() -> Vec<Menu> {
                         Item::Action {
                             label: "Select To Previous Scope",
                             id: "Text.SelectToPreviousScope",
+                        },
+                        // 原图 03-selection-select-to-submenu.png 与 config 第二处
+                        // （493 行）都把它放在 Scope 之后、Indentation 之前；
+                        // config 488 行那一条是重复项，C2 曾照抄到 Page 之后。
+                        Item::Action {
+                            label: "Select To Previous Stuttered Page",
+                            id: "Text.SelectToPreviousStutteredPage",
                         },
                         Item::Action {
                             label: "Select To Previous Indentation",
@@ -371,10 +376,6 @@ pub fn menus() -> Vec<Menu> {
                             id: "Text.SelectToNextPage",
                         },
                         Item::Action {
-                            label: "Select To Next Stuttered Page",
-                            id: "Text.SelectToNextStutteredPage",
-                        },
-                        Item::Action {
                             label: "Select To Next Pair",
                             id: "Text.SelectToNextPair",
                         },
@@ -390,13 +391,20 @@ pub fn menus() -> Vec<Menu> {
                             label: "Select To Next Scope",
                             id: "Text.SelectToNextScope",
                         },
+                        // 同上：按 03 图与 config 第二处（507 行）放在 Scope 后。
+                        Item::Action {
+                            label: "Select To Next Stuttered Page",
+                            id: "Text.SelectToNextStutteredPage",
+                        },
                         Item::Action {
                             label: "Select To Next Indentation",
                             id: "Text.SelectToNextIndentation",
                         },
                         Item::Separator,
+                        // 原图逐字是 `Start Of Pair`（画面底边），C2 写成
+                        // `Select To Pair Start`；2026-11-27 按图改回。
                         Item::Action {
-                            label: "Select To Pair Start",
+                            label: "Start Of Pair",
                             id: "Text.SelectToPairStart",
                         },
                         Item::Action {
@@ -684,8 +692,10 @@ pub fn menus() -> Vec<Menu> {
                 // 2026-11-23 参考图 `01-view-menu.png`：Panes 与 Syntax Schemes
                 // 之间有一条分隔线（旧图判成连排，已纠正）。
                 // 原版这一层由已安装的语法配色运行期展开成七档（菜单配置里
-                // 只有一条 `Terminal.SchemeList`）。七个入口本版未接线，
-                // 按 ADR-0015 置灰，不画成点了能切的假单选。
+                // 只有一条 `Terminal.SchemeList`）。本版七条各带方案名，
+                // 经 `ShellAction::SetScheme` → `Effect::SetScheme` 落到投影层：
+                // 用 `term_core::theme::builtin_scheme` 换运行中调色板，并
+                // load-modify-save 写回 `Prefs.scheme_name`，重启仍生效。
                 Item::Submenu {
                     label: "Syntax Schemes",
                     items: vec![

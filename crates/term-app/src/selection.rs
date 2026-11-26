@@ -34,8 +34,10 @@
 
 use term_core::grid::ScreenImage;
 
+mod context;
 mod geometry;
 mod ops;
+mod units;
 mod words;
 
 // 对外 API 一个都没变：数据模型在本文件，命令落地在 `ops`，
@@ -47,6 +49,8 @@ pub use ops::{
     apply, apply_cmd, apply_cmd_with_blocks, apply_cmd_with_blocks_seps, apply_cmd_with_pairs,
     apply_with_blocks, apply_with_blocks_seps, apply_with_pairs, parse, parse_set, Selections,
 };
+// M1：Fold 三命令需要折叠输入行表，菜单走带上下文的入口；旧入口签名不变。
+pub use context::{apply_cmd_with_context, apply_with_context};
 pub use words::{line_span_at, separators_or_default, word_at, word_at_with, DEFAULT_SEPARATORS};
 pub use geometry::{
     bracket_depths, pair_end, pair_end_with, pair_selection_at, pair_selection_at_with, pair_start,
@@ -709,12 +713,37 @@ mod tests {
             ("Text.SelectToNextWordStart", Op::WordStartNext),
             ("Text.SelectToPreviousWordEnd", Op::WordEndPrev),
             ("Text.SelectToNextWordEnd", Op::WordEndNext),
+            // 2026-11-27：Select 5 + Select To 16 全部补完，其中大部分复用
+            // Goto 那批已有的边界 Op，没有第二套位移规则。
+            ("Text.SelectParagraph", Op::Paragraph),
+            ("Text.SelectPair", Op::Pair),
+            ("Text.SelectFold", Op::Fold),
+            ("Text.SelectScope", Op::Scope),
+            ("Text.SelectIndentation", Op::Indentation),
+            ("Text.SelectToPreviousWordPart", Op::WordPartPrev),
+            ("Text.SelectToNextWordPart", Op::WordPartNext),
+            ("Text.SelectToPreviousStutteredPage", Op::StutteredPagePrev),
+            ("Text.SelectToNextStutteredPage", Op::StutteredPageNext),
+            ("Text.SelectToPreviousPair", Op::PairPrev),
+            ("Text.SelectToNextPair", Op::PairNext),
+            ("Text.SelectToPreviousParagraph", Op::ParagraphPrev),
+            ("Text.SelectToNextParagraph", Op::ParagraphNext),
+            ("Text.SelectToPreviousFold", Op::FoldPrev),
+            ("Text.SelectToNextFold", Op::FoldNext),
+            ("Text.SelectToPreviousScope", Op::ScopePrev),
+            ("Text.SelectToNextScope", Op::ScopeNext),
+            ("Text.SelectToPreviousIndentation", Op::IndentationPrev),
+            ("Text.SelectToNextIndentation", Op::IndentationNext),
+            ("Text.SelectToPairStart", Op::PairStart),
+            ("Text.SelectToPairEnd", Op::PairEnd),
         ];
+        assert_eq!(ids.len(), 38, "选择命令表条数变化需显式确认");
         for (id, want) in ids {
             assert_eq!(parse(id), Some(want), "{id}");
         }
-        // 仍然是占位的邻居不能被顺手接走。
-        assert_eq!(parse("Text.SelectParagraph"), None);
+        // 真正还占位的邻居不能被顺手接走：
+        // `Select Command` 要 shell 集成标记（走 `Effect::SelectCommand`），
+        // 两条 Toolbar 行没有自定义工具栏模型，保留置灰。
         assert_eq!(parse("Text.SelectCommand"), None, "要 shell 集成标记");
         // 集合命令走 `parse_set`，不在位移表里——两边都认同一条 ID 就会出现
         // 「有的入口按位移解释、有的按集合解释」的第二口径。

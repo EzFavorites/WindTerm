@@ -665,3 +665,7 @@ mod quick_bar_tests {
         assert_eq!(QUICK_BAR.file, CHROME_SCALE.focus);
     }
 }
+
+#[cfg(test)]
+#[path = "theme_scheme_tests.rs"]
+mod theme_scheme_tests;
