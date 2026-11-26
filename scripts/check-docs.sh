@@ -106,7 +106,7 @@ matrix_tasks=$(awk '/^## 2\./,/^## 5\./' docs/design/14-scope-and-requirements.m
   | grep -E '^\| ' | grep -vE '^\|[ :-]+\|$' | grep -vE '^\| (模块|级别) \|' \
   | wc -l | tr -d ' ')
 
-# 与原程序的功能对齐度决策条目：§6「明确不做」表，逐行一条对外口径。
+# 与参考功能的一致性决策条目：§6「明确不做」表，逐行一条对外口径。
 parity_items=$(awk '/^## 6\./,/^## 7\./' docs/design/14-scope-and-requirements.md 2>/dev/null \
   | grep -E '^\| ' | grep -vE '^\|[ :-]+\|$' | grep -vE '^\| 不做 \|' \
   | wc -l | tr -d ' ')

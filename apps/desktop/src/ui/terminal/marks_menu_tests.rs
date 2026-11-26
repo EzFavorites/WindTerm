@@ -30,7 +30,7 @@ use crate::ui::TerminalWindow;
 use super::marks::COLUMN_MARKER_DEFAULT;
 use term_app::shell::MarksKnob;
 
-/// 出厂 prefs 的 marks 快照（原版高亮项默认勾选），用于替代旧的"全关"期望。
+/// 出厂 prefs 的 marks 快照（参考高亮项默认勾选），用于替代旧的"全关"期望。
 fn factory_marks() -> MarksParams {
     super::setup::marks_defaults(&term_runtime::prefs::Prefs::default())
 }

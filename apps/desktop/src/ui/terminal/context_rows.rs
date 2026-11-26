@@ -261,7 +261,7 @@ pub(in crate::ui) const TERMINAL_ROWS: &[Row] = &[
 pub(in crate::ui) const VIEW_ROWS: &[Row] = &[
     row("Copy", "Shift+Del", Some(0), Some(Work::Copy)),
     // 与终端内容右键的 Copy Command 同一条数据层命令：复制最近一条 OSC 133
-    // 命令块。原版这一列也有这行，此前只在 TERMINAL_ROWS 里出现。
+    // 命令块。参考这一列也有这行，此前只在 TERMINAL_ROWS 里出现。
     command("Copy Command", "", Some(6), term_app::menu::context_ids::COPY_COMMAND),
     row("Paste", "Shift+Ins", Some(0), Some(Work::Paste)),
     // 与内容菜单同一行同一条动作：粘的是**屏幕上的选区**，不是剪贴板。

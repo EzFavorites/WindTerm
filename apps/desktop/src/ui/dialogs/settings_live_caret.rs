@@ -99,7 +99,7 @@ fn draw(ui: &mut egui::Ui, current: usize, period: f32, width: f32) -> CaretEdit
     // 视觉基线 `13-text-caret.png`：内容区第一个字就是组标题 `Caret`。
     // 老实现画了灰页标题 `Caret` + 框内标题 `Caret`，同一个词出现两次。
     // 标签列按本页最长的 `Width:` 量。
-    // 标签用原版的 `Shape:`（而非 `Style:`），与参考页 1:1。
+    // 标签用参考的 `Shape:`（而非 `Style:`），与参考页 1:1。
     let col = label_col(ui, &["Shape:", "Period:", "Width:"]);
     group_box(ui, Some("Caret"), |ui| {
         // `Style` 与同页 `Period` / `Width` 是同一个盒子：标签 + 通栏字段框。

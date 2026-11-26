@@ -130,11 +130,11 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Terminal.ManageOneKeys", chord: "Cmd+T, Cmd+K" },
     BindingRow { id: "Terminal.ManageTriggers", chord: "Cmd+T, Cmd+T" },
     BindingRow { id: "Terminal.ManageTunnels", chord: "Cmd+Shift+U" },
-    // 原版 Mode 菜单把 Alt+Return 写在 Local Mode 那一行，不是 Remote Mode。
+    // 参考 Mode 菜单把 Alt+Return 写在 Local Mode 那一行，不是 Remote Mode。
     BindingRow { id: "Window.SetLocalMode", chord: "Alt+Return" },
     BindingRow { id: "Text.ToggleHexEdit", chord: "Alt+M, Alt+H" },
     BindingRow { id: "Text.ToggleWordWrap", chord: "Alt+M, Alt+W" },
-    // 原版 Edit ▸ IntelliSense 的 Complete History 右侧写 Alt+R。
+    // 参考 Edit ▸ IntelliSense 的 Complete History 右侧写 Alt+R。
     BindingRow { id: "Terminal.CompleteHistory", chord: "Alt+R" },
     BindingRow { id: "Window.ToggleFocusMode", chord: "Ctrl+Return" },
     BindingRow { id: "Window.ToggleFullScreen", chord: "Cmd+F11" },

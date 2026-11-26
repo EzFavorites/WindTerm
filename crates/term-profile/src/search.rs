@@ -22,7 +22,7 @@ pub struct SearchEngine {
     pub url: &'static str,
 }
 
-/// 出厂引擎表，顺序与文案逐项对齐原版设置页的两列表格：
+/// 出厂引擎表，顺序与文案逐项对齐参考设置页的两列表格：
 /// Google / Bing / Github / Stackoverflow / Wikipedia / DuckDuckGo。
 ///
 /// 六条都是真实可用的搜索入口，且都不需要 key / 登录。出厂模板是最后那条

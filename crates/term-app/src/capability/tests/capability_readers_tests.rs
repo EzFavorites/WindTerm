@@ -84,7 +84,7 @@ fn every_implemented_command_has_a_reader() {
         "Terminal.CopySessionUrl",
         "Help.Help",
         // `Text.SearchOnline` / `Terminal.SchemeList` / 两条 Toolbar 命令
-        // 2026-11-26 从菜单里退出：原版这三处是运行期展开的引擎 / scheme /
+        // 2026-11-26 从菜单里退出：参考这三处是运行期展开的引擎 / scheme /
         // 空工具栏列表，本版对应入口尚未接线，按 ADR-0015 置灰，
         // 因此不再属于「已接线且可见」集合。
         "Text.ZoomIn",

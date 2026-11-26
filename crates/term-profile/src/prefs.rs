@@ -242,13 +242,13 @@ pub struct Prefs {
     /// 决定要不要叠这一层，滚动时不会因为视口位置变化而闪。
     #[serde(default)]
     pub text_alternate_row_bg: bool,
-    /// `Text ▸ Activate multiple carets`：多光标编辑。出厂 `true`，与原版设置页
+    /// `Text ▸ Activate multiple carets`：多光标编辑。出厂 `true`，与参考设置页
     /// 的出厂勾选一致。落盘字段 + 设置页写回，不是只画一个勾的假控件。
     #[serde(default = "default_true")]
     pub text_multiple_carets: bool,
     /// `Text ▸ Hide cursor when typing`：最近一次键盘输入后的 500ms 内不画光标。
     ///
-    /// 出厂 `true`（与原版设置页出厂勾选一致）。消费者是
+    /// 出厂 `true`（与参考设置页出厂勾选一致）。消费者是
     /// `ui/terminal/pane.rs` 画光标的那一段，判据来自 `Tab` 上记的输入时刻。
     #[serde(default = "default_true")]
     pub text_hide_cursor_while_typing: bool,
@@ -288,27 +288,27 @@ pub struct Prefs {
     #[serde(default)]
     pub font_weight: u16,
     /// `Tabs ▸ Activate the tab after closing:`：0 = 下一个 / 1 = 上一个 /
-    /// 2 = 上一次激活的那条。出厂 2（原版 `previously selected`）。
+    /// 2 = 上一次激活的那条。出厂 2（参考 `previously selected`）。
     #[serde(default = "default_tab_activate_after_close")]
     pub tab_activate_after_close: usize,
-    /// `Tabs ▸ Double click:`：0 = 没有动作 / 1 = 关闭标签。出厂 1（原版
+    /// `Tabs ▸ Double click:`：0 = 没有动作 / 1 = 关闭标签。出厂 1（参考
     /// `Close tab`）。中键另有 `Rename tab` 一档，见 `tab_middle_click`。
     #[serde(default = "default_tab_double_click")]
     pub tab_double_click: usize,
     /// `Tabs ▸ Tab text elide mode:`：0 = 不省略 / 1 = 省略左侧 / 2 = 省略右侧 /
-    /// 3 = 省略中间。出厂 3（原版 `Elide middle`）。
+    /// 3 = 省略中间。出厂 3（参考 `Elide middle`）。
     #[serde(default = "default_tab_elide")]
     pub tab_elide: usize,
     /// `Tabs ▸ Show the tab number on tabs:`：0 = 不显示 / 1 = 前九个 /
-    /// 2 = 全部。出厂 1（原版 `First nine tabs`）。
+    /// 2 = 全部。出厂 1（参考 `First nine tabs`）。
     #[serde(default = "default_tab_numbers")]
     pub tab_numbers: usize,
     /// `Tabs ▸ Mouse Actions ▸ Middle click:`：0 = 没有动作 / 1 = 关闭标签 /
-    /// 2 = 重命名标签。出厂 2（原版 `Rename tab`）。
+    /// 2 = 重命名标签。出厂 2（参考 `Rename tab`）。
     #[serde(default = "default_tab_middle_click")]
     pub tab_middle_click: usize,
     /// `Tabs ▸ Mouse Actions ▸ Right click:`：0 = 标签菜单 / 1 = 关闭标签 /
-    /// 2 = 没有动作。出厂 2（原版 `No action`）。
+    /// 2 = 没有动作。出厂 2（参考 `No action`）。
     #[serde(default = "default_tab_right_click")]
     pub tab_right_click: usize,
     /// hex 视图的**出厂参数**（设置 ▸ Binary 页那四个数）。
@@ -395,13 +395,13 @@ pub struct Prefs {
     pub view_whitespace: usize,
     /// `Text ▸ Highlight Caret Line`：光标所在行铺一层很淡的底色。
     ///
-    /// 出厂 `true`，与前四个原版高亮项一起逐项对齐原版设置页的出厂勾选。
+    /// 出厂 `true`，与前四个参考高亮项一起逐项对齐参考设置页的出厂勾选。
     /// 命名前缀是 `text_` 而不是 `view_`：写它的菜单项在 `Text` 那一栏，
     /// 与 `text_alternate_row_bg` 同组。消费在 `ui/terminal/view.rs` 的逐行
     /// 循环里——它必须压在字形**之下**。
     #[serde(default = "default_true")]
     pub text_highlight_caret_line: bool,
-    /// 高亮光标下的词 / 当前折叠块 / 当前括号对。出厂全开（原版设置页逐项勾选）。
+    /// 高亮光标下的词 / 当前折叠块 / 当前括号对。出厂全开（参考设置页逐项勾选）。
     #[serde(default = "default_true")]
     pub text_highlight_caret_word: bool,
     #[serde(default = "default_true")]
@@ -437,7 +437,7 @@ pub struct Prefs {
     pub confirm_close_multi_tabs: bool,
     /// `Terminal ▸ Show paste dialog on the main screen`：主屏粘贴前先弹确认。
     ///
-    /// 出厂 `true`，与原版设置页的出厂勾选一致。备用屏那一项仍出厂关——
+    /// 出厂 `true`，与参考设置页的出厂勾选一致。备用屏那一项仍出厂关——
     /// 两档是刻意分开的粒度，不因为主屏改了默认值就一起翻。
     #[serde(default = "default_true")]
     pub paste_confirm_main: bool,
@@ -477,12 +477,12 @@ pub struct Prefs {
     pub mouse_click_event: bool,
     #[serde(default = "default_true")]
     pub mouse_middle_event: bool,
-    /// `Preferences ▸ Mouse Tracking ▸ Double click event`：出厂 `true`（原版
+    /// `Preferences ▸ Mouse Tracking ▸ Double click event`：出厂 `true`（参考
     /// 勾选且启用）。xterm 协议没有双击报告；这里作为真字段落盘，并通过
     /// `EventMask.double_event` 控制本地双击选词手势是否生效。
     #[serde(default = "default_true")]
     pub mouse_double_event: bool,
-    /// `Preferences ▸ Mouse Tracking ▸ Right click event`：原版可见、非灰显、
+    /// `Preferences ▸ Mouse Tracking ▸ Right click event`：参考可见、非灰显、
     /// 出厂不勾。`EventMask.right_event` 会据此决定是否把 secondary 按钮上报。
     #[serde(default)]
     pub mouse_right_event: bool,
@@ -513,7 +513,7 @@ pub struct Prefs {
     #[serde(default)]
     pub auto_hide_menu_bar: bool,
     /// `Preferences ▸ Security ▸ Lock screen timeout`（秒）。
-    /// 出厂 0 = Off（与原版设置页出厂态一致）；老文件里已有的具体秒数照常生效。
+    /// 出厂 0 = Off（与参考设置页出厂态一致）；老文件里已有的具体秒数照常生效。
     #[serde(default)]
     pub lock_timeout_secs: u32,
     /// `prefs.auto_reconnect`（原 Behaviour 页已移除）。
@@ -543,10 +543,10 @@ pub struct Prefs {
     /// 时保持原行为，不会因为新字段把用户选过的主题冲掉。
     #[serde(default)]
     pub scheme_name: String,
-    /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 true（原版设置页勾选）。
+    /// `Text ▸ Font ▸ Prefer theme fonts`：出厂 true（参考设置页勾选）。
     #[serde(default = "default_true")]
     pub prefer_theme_fonts: bool,
-    /// `Tabs ▸ Activate the tab after hovering`：出厂开、0.2 秒（原版档位）。
+    /// `Tabs ▸ Activate the tab after hovering`：出厂开、0.2 秒（参考档位）。
     #[serde(default = "default_true")]
     pub tab_hover_activate: bool,
     /// 悬停多久才切换（毫秒），出厂 200ms。
@@ -560,7 +560,7 @@ pub struct Prefs {
     #[serde(default)]
     pub global_proxy_port: u16,
     /// `Tabs ▸ Tab thumbnail radio`：缩略图相对标签宽度的百分比，0 = 关闭。
-    /// 出厂 40（原版 `40 %`）。
+    /// 出厂 40（参考 `40 %`）。
     #[serde(default = "default_40")]
     pub tab_thumbnail_pct: usize,
     /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
@@ -637,11 +637,11 @@ pub struct Prefs {
     /// 所以这里用 `default = "default_opacity_one"` 显式指定，老文件缺键回落 1.0。
     #[serde(default = "default_opacity_one")]
     pub window_opacity: f32,
-    /// `Terminal ▸ Enable local mode`：出厂 `true`（原版设置页出厂勾选）。
+    /// `Terminal ▸ Enable local mode`：出厂 `true`（参考设置页出厂勾选）。
     ///
     /// 这是**新会话的初值种子**：`Tab::local_mode` 仍是每条会话的瞬态位
     /// （不落盘），但新建标签的工厂用这一位决定起点。改这里只影响之后新建
-    /// 的标签，已经开着的会话不动——与原版「设置页改默认值」的语义一致。
+    /// 的标签，已经开着的会话不动——与参考「设置页改默认值」的语义一致。
     #[serde(default = "default_true")]
     pub enable_local_mode: bool,
     /// 地址栏的「最近使用」目标串（`user@host:port` 形态），MRU 在队首。
@@ -805,14 +805,14 @@ impl Default for Prefs {
             search_url: String::new(),
             filer_show_hidden: false,
             text_alternate_row_bg: false,
-            // 原版设置页出厂勾选：多光标 + 打字隐光标。
+            // 参考设置页出厂勾选：多光标 + 打字隐光标。
             text_multiple_carets: true,
             text_hide_cursor_while_typing: true,
             focus_new_tab: true,
             font_size: 0.0,
             font_family: Default::default(),
             font_weight: 0,
-            // 八行都按原版出厂态：previously selected / Close tab / Elide
+            // 八行都按参考出厂态：previously selected / Close tab / Elide
             // middle / First nine tabs / Rename tab / No action。
             tab_activate_after_close: 2,
             tab_double_click: 1,
@@ -837,7 +837,7 @@ impl Default for Prefs {
             wrap_mode: 0,
             wrap_column: 0,
             view_whitespace: 0,
-            // 原版四项出厂勾选；rainbow brackets 是我们新增的功能，保留出厂关。
+            // 参考四项出厂勾选；rainbow brackets 是我们新增的功能，保留出厂关。
             text_highlight_caret_line: true,
             text_highlight_caret_word: true,
             text_highlight_current_fold: true,
@@ -858,7 +858,7 @@ impl Default for Prefs {
             mouse_wheel_event: true,
             mouse_click_event: true,
             mouse_middle_event: true,
-            // 双击出厂勾选且启用；右键原版可见、非灰显、出厂不勾。
+            // 双击出厂勾选且启用；右键参考可见、非灰显、出厂不勾。
             mouse_double_event: true,
             mouse_right_event: false,
             // 快捷命令栏显示开关：出厂「显示多组 + 显示组标题 + 不按字母序」，
@@ -1908,12 +1908,12 @@ mod tests {
 
     #[test]
     fn the_partially_wired_switches_default_to_the_reference_values() {
-        // 隔行底色是我们新增的渲染效果，出厂仍关；多光标 / 打字隐光标按原版
+        // 隔行底色是我们新增的渲染效果，出厂仍关；多光标 / 打字隐光标按参考
         // 设置页出厂勾选。serde 与 `Default` 必须逐项一致。
         let prefs = Prefs::default();
         assert!(!prefs.text_alternate_row_bg);
-        assert!(prefs.text_multiple_carets, "原版出厂勾选");
-        assert!(prefs.text_hide_cursor_while_typing, "原版出厂勾选");
+        assert!(prefs.text_multiple_carets, "参考出厂勾选");
+        assert!(prefs.text_hide_cursor_while_typing, "参考出厂勾选");
         // `focus_new_tab`：现状就是新标签抢焦点，出厂必须是 `true`。
         assert!(prefs.focus_new_tab, "新标签默认切过去，这是现状");
         let path = tmp();
@@ -2067,7 +2067,7 @@ mod tests {
 
     #[test]
     fn the_tab_prefs_default_to_the_reference_values() {
-        // 八行出厂态逐项对齐原版设置页：previously selected / 0.2 秒 /
+        // 八行出厂态逐项对齐参考设置页：previously selected / 0.2 秒 /
         // First nine tabs / Elide middle / 40% / Close tab / Rename tab /
         // No action。serde 默认与 `Default` 必须逐项一致。
         let prefs = Prefs::default();
@@ -2220,11 +2220,11 @@ mod tests {
 
     #[test]
     fn the_close_and_paste_switches_default_to_the_reference_values() {
-        // 关多标签与主屏粘贴确认出厂勾选（原版），备用屏粘贴确认仍关。
+        // 关多标签与主屏粘贴确认出厂勾选（参考），备用屏粘贴确认仍关。
         // serde 默认必须与 `Default` 一模一样。
         let prefs = Prefs::default();
         assert!(prefs.confirm_close_multi_tabs, "出厂就问「关多标签」");
-        assert!(prefs.paste_confirm_main, "原版主屏出厂勾选");
+        assert!(prefs.paste_confirm_main, "参考主屏出厂勾选");
         assert!(!prefs.paste_confirm_alt);
         let path = tmp();
         std::fs::write(&path, r#"{"language":"en"}"#).unwrap();
@@ -2613,7 +2613,7 @@ mod tests {
         assert!(!back.view_indent_guides);
         assert!(!back.view_wrap_symbols);
         assert_eq!(back.view_whitespace, 0, "0 = Hide All");
-        // 四行原版高亮出厂勾选（rainbow brackets 是我们新增的，仍关）。
+        // 四行参考高亮出厂勾选（rainbow brackets 是我们新增的，仍关）。
         assert!(back.text_highlight_caret_line);
         assert!(back.text_highlight_caret_word);
         assert!(back.text_highlight_current_fold);

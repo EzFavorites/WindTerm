@@ -24,7 +24,7 @@ fn every_scheme_has_its_own_sixteen_colours_and_name() {
         assert_ne!(palette.default_fg, palette.default_bg, "{name} 前景不能等于背景");
         sources.push(palette.ansi);
     }
-    // cmd 与 powershell、linux 与 routeros 共用色表是有意的（原版别名），
+    // cmd 与 powershell、linux 与 routeros 共用色表是有意的（参考别名），
     // 其余几套必须给出不同的 16 色，否则菜单切了等于没切。
     assert_ne!(sources[0], sources[1]);
     assert_ne!(sources[0], sources[3]);

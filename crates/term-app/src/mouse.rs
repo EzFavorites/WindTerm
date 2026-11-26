@@ -138,7 +138,7 @@ pub struct EventMask {
 }
 
 impl EventMask {
-    /// 出厂 = 「原版设置页」：双击勾选，右键可见但未勾。
+    /// 出厂 = 「参考设置页」：双击勾选，右键可见但未勾。
     pub const ALL: Self = Self {
         move_event: true,
         wheel_event: true,

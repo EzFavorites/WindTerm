@@ -494,7 +494,7 @@ impl TerminalWindow {
                 // Virtual Space / Multiple Caret 空框）+ 其余普通行。
                 //
                 // Word Wrap 是 `CheckState::Live`，勾读活动标签的 `Tab.word_wrap`。
-                // 原版 `mode/01-mode-menu.png` 那一格是打勾的运行态；夹具只把
+                // 参考 `mode/01-mode-menu.png` 那一格是打勾的运行态；夹具只把
                 // 活动标签的种子设成 true 来复现那一帧，不改出厂默认（那会影响
                 // 真实用户行为，属 C1 设置口径）。
                 let seed_slot = self.active_slot();

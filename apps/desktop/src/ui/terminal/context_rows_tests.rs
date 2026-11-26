@@ -130,7 +130,7 @@ fn the_two_two_stroke_view_shortcuts_are_fixture_literals() {
         let r = VIEW_ROWS.iter().find(|r| r.label == label).unwrap();
         assert_eq!(r.shortcut, literal, "{label} 必须照基线逐字抄");
         let id = r.gate.unwrap();
-        // C2 按原版 1:1 补了绑定表条目，显示现在从映射层派生；
+        // C2 按参考 1:1 补了绑定表条目，显示现在从映射层派生；
         // 夹具字面量与绑定表一致，不再有"表里没有、只能抄字面量"的偏差。
         assert_eq!(map.display(id), literal, "{id} 的绑定表条目应与夹具逐字一致");
         assert_eq!(
@@ -409,7 +409,7 @@ fn search_online_submenu_expands_the_same_tree_as_the_menu_bar() {
     assert_eq!(row.children, Some("Search Online"), "必须读菜单树那一棵");
     assert_eq!(row_state(row, None), MenuRowState::Enabled, "有真子树却灰着");
     let items = tree_submenu_items("Search Online");
-    // 原版这一层是运行期展开的六个搜索引擎，不再是一条泛化的 Search Online。
+    // 参考这一层是运行期展开的六个搜索引擎，不再是一条泛化的 Search Online。
     assert_eq!(items.len(), 6, "Search Online 子树是六个引擎");
     let labels: Vec<&str> = items
         .iter()

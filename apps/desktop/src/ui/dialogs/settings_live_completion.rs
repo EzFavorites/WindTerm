@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn factory_prefs_match_the_reference_screenshot() {
         let c = Prefs::default().completion;
-        // 原版参考页六项全勾选，默认值与之一比一。
+        // 参考参考页六项全勾选，默认值与之一比一。
         assert!(c.enabled && c.commands && c.options);
         assert!(c.parameters && c.history && c.quick);
         assert_eq!(c.min_chars, 1);

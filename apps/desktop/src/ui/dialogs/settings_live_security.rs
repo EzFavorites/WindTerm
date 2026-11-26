@@ -1,4 +1,4 @@
-//! `Preferences ▸ Security`：锁屏超时是真控件；Login Wizard 分组按原版恢复，
+//! `Preferences ▸ Security`：锁屏超时是真控件；Login Wizard 分组按参考恢复，
 //! `Username echo mode: Do not echo characters` 是只读展示（本仓库没有逐字回显的
 //! 中间层，不做一按没反应的假下拉）。
 //!
@@ -70,8 +70,8 @@ pub(in crate::ui) fn security(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         save_prefs(|prefs| prefs.lock_timeout_secs = secs);
     }
 
-    // 原版这一组只有一个下拉：Username echo mode。本仓库没有逐字回显的控制层，
-    // 所以按原版文案只读展示，并说清它为什么不可改——不画一按没反应的假控件。
+    // 参考这一组只有一个下拉：Username echo mode。本仓库没有逐字回显的控制层，
+    // 所以按参考文案只读展示，并说清它为什么不可改——不画一按没反应的假控件。
     ui.add_space(crate::ui::kit::spec::BLOCK_GAP);
     let col = label_col(ui, &["Username echo mode:"]);
     group_box(ui, Some("Login Wizard"), |ui| {

@@ -182,7 +182,7 @@ pub fn menus() -> Vec<Menu> {
                     label: "Find",
                     id: "Text.Find",
                 },
-                // 原版这一层是六个搜索引擎（菜单配置里写一条 `Text.SearchOnline`，
+                // 参考这一层是六个搜索引擎（菜单配置里写一条 `Text.SearchOnline`，
                 // 运行期由设置里的引擎表展开成六行）。本版六条各带自己的引擎名，
                 // 经 `ShellAction::SearchOnlineWith` → `Effect::SearchOnlineWith`
                 // 落到投影层：选区（无选区退回输入缓冲）按引擎表拼 URL，用系统
@@ -243,7 +243,7 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             label: "Selection",
             items: vec![
-                // 原版 `menu.config` 的 Select 子菜单是
+                // 参考 `menu.config` 的 Select 子菜单是
                 // All | Word/Line/Paragraph | Pair/SelectCommand/Fold/Scope/Indentation
                 // 两组（共 9 行命令 + 2 条分隔线）。后补的五条没有选区实现，
                 // 按 ADR-0015 置灰；已有的 Select All/Word/Line/Select Command
@@ -291,7 +291,7 @@ pub fn menus() -> Vec<Menu> {
                         },
                     ],
                 },
-                // 原版 `menu.config` 的 Select To 是 12 组 Previous/Next +
+                // 参考 `menu.config` 的 Select To 是 12 组 Previous/Next +
                 // 六条尾项（Pair Start/End、Line Home/End、Document Start/End），
                 // 三组分隔线。2026-11-27 全部接通：Char/Word/Line/Page 那批复用
                 // 既有 `Op`，Word Part / 半页 / 段落 / Scope / 缩进 / Pair 也复用
@@ -615,7 +615,7 @@ pub fn menus() -> Vec<Menu> {
                             id: "Window.ToggleStatusBar",
                             checked: CheckState::Live,
                         },
-                        // 原版展开只有两行且都是灰的：没有自定义工具栏条目时
+                        // 参考展开只有两行且都是灰的：没有自定义工具栏条目时
                         // 显示 `[Toolbar list is empty]`，`Customize…` 也灰着。
                         // 本版没有工具栏条目模型，按 ADR-0015 用未接线 ID
                         // 置灰，不摆点了没反应的假按钮。
@@ -691,7 +691,7 @@ pub fn menus() -> Vec<Menu> {
                 Item::Separator,
                 // 2026-11-23 参考图 `01-view-menu.png`：Panes 与 Syntax Schemes
                 // 之间有一条分隔线（旧图判成连排，已纠正）。
-                // 原版这一层由已安装的语法配色运行期展开成七档（菜单配置里
+                // 参考这一层由已安装的语法配色运行期展开成七档（菜单配置里
                 // 只有一条 `Terminal.SchemeList`）。本版七条各带方案名，
                 // 经 `ShellAction::SetScheme` → `Effect::SetScheme` 落到投影层：
                 // 用 `term_core::theme::builtin_scheme` 换运行中调色板，并

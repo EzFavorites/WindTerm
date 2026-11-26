@@ -261,7 +261,7 @@ impl CompId {
             // Preferences 的 24 页：首轮出图即冻结，之后「哪一页被改坏」是
             // 逐字节问题，不再需要在一整张默认页截图里靠肉眼找。
             CompId::SettingsPage(_) => true,
-            // B1-c：Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
+            // Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
             // 对过（勾选栏几何见 视觉基线），纳入比对。
             CompId::MenuMode => true,
             CompId::MenuSubmenu(_)

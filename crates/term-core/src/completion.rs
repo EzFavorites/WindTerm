@@ -66,7 +66,7 @@ pub enum Preselect {
     Best,
 }
 
-/// 补全偏好。**六个勾出厂全开**（与原版设置页出厂态逐项一致）、1 字符触发、
+/// 补全偏好。**六个勾出厂全开**（与参考设置页出厂态逐项一致）、1 字符触发、
 /// 7 行、不预选。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

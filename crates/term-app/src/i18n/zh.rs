@@ -128,7 +128,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Find Next Selection" => "在选区中查找下一个",
         "Find Previous Selection" => "在选区中查找上一个",
         "Search Online" => "在线搜索",
-        // Search ▸ Search Online 的六个引擎（原版由引擎表展开）。
+        // Search ▸ Search Online 的六个引擎（参考由引擎表展开）。
         "Google" => "谷歌",
         "Bing" => "必应",
         "Github" => "GitHub 搜索",
@@ -205,7 +205,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Margin Blank" => "边距：空白",
         "Syntax Schemes" => "语法配色",
         "Scheme List" => "配色列表",
-        // View ▸ Syntax Schemes 的七个 scheme（原版按已安装配色展开）。
+        // View ▸ Syntax Schemes 的七个 scheme（参考按已安装配色展开）。
         "cmd" => "cmd 命令行",
         "dumb" => "dumb 哑终端",
         "linux" => "linux Linux 控制台",

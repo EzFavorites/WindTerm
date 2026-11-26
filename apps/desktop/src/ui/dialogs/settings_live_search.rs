@@ -1,9 +1,9 @@
-//! `Preferences ▸ Search`：与原版逐项一致的两列引擎表 + Query URL + `Modify`。
+//! `Preferences ▸ Search`：与参考逐项一致的两列引擎表 + Query URL + `Modify`。
 //!
 //! # 这一页真在哪
 //!
 //! - 表格六行来自 `term_runtime::prefs::SEARCH_ENGINES`（唯一一份数据，菜单里的
-//!   `Text ▸ Search Online` 也读它），顺序 / 文案照原版：Google / Bing / Github /
+//!   `Text ▸ Search Online` 也读它），顺序 / 文案照参考：Google / Bing / Github /
 //!   Stackoverflow / Wikipedia / DuckDuckGo；
 //! - 点一行＝把它那条模板填进 Query URL 行；`Modify` 按钮把当前 URL 落盘；
 //! - Query URL 行是真的 `TextEdit`，改动即落 `prefs.json` 的 `search_url`。
@@ -40,7 +40,7 @@ pub(in crate::ui) fn search(ui: &mut egui::Ui) {
     let mut edited = false;
     let col = label_col(ui, &["Search engine:"]);
 
-    // 原版 `Search Engines` 分组框：上面是两列表（Engine / Value），
+    // 参考 `Search Engines` 分组框：上面是两列表（Engine / Value），
     // 下面是 Query URL + Modify。这里把表做成真可选行，不是只读标签。
     group_box(ui, Some("Search Engines"), |ui| {
         egui::Frame::none()

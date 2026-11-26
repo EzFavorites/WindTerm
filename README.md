@@ -230,7 +230,7 @@ macOS 上是 Command，Windows / Linux 上归一为 Ctrl；设置里可以改绑
 ## 已知限制
 
 - 4 条命令仍然置灰：`Text.ToggleVirtualSpace`、`Text.ToggleMultipleCaret`
-  是终端行编辑行为（不是内建文本编辑器语义），尚未实现，列为待办并按原版视觉基线先画勾选态；
+  是终端行编辑行为（不是内建文本编辑器语义），尚未实现，列为待办并按对齐后的视觉基线先画勾选态；
   `Window.ToolbarListEmpty`、
   `Window.ToolbarCustomizePlaceholder` 是原图里 Toolbar 子菜单的两行空态灰字，
   本版没有自定义工具栏条目模型，不摆点了没反应的假控件。以下已接线：

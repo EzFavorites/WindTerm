@@ -57,7 +57,7 @@ const DOUBLE_CLICK_ACTIONS: [&str; TAB_DOUBLE_CLICK_ACTIONS] = ["No action", "Cl
 /// 编号三档。0 档是接线前的行为（一条编号都不画），所以默认不改外观。
 const NUMBER_MODES: [&str; TAB_NUMBER_MODES] = ["No numbers", "First nine tabs", "All tabs"];
 
-/// 中键三档，与原版 1:1：没有动作 / 关闭标签 / 重命名标签。
+/// 中键三档，与参考 1:1：没有动作 / 关闭标签 / 重命名标签。
 /// 重命名复用标签右键菜单的 Rename Tab 动作（打开会话属性），不是空档。
 const MIDDLE_ACTIONS: [&str; TAB_MIDDLE_CLICK_ACTIONS] = ["No action", "Close tab", "Rename tab"];
 

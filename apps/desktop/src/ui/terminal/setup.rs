@@ -409,7 +409,7 @@ impl TerminalWindow {
         self.tabs
             .get(self.active_slot())
             .map(|tab| tab.marks)
-            // 没有活动标签时给出厂值：原版高亮四项默认勾选，不能用
+            // 没有活动标签时给出厂值：参考高亮四项默认勾选，不能用
             // `MarksParams::default()` 的全关把菜单勾画成另一种状态。
             .unwrap_or_else(|| marks_defaults(&term_runtime::prefs::Prefs::default()))
     }
@@ -636,7 +636,7 @@ mod tests {
             marks_defaults(&prefs),
             "六项初值必须来自 Prefs.view_* / text_highlight_caret_line"
         );
-        // 出厂 prefs（老文件缺键时读到的也是它）：原版高亮四项默认勾选。
+        // 出厂 prefs（老文件缺键时读到的也是它）：参考高亮四项默认勾选。
         let factory = marks_defaults(&term_runtime::prefs::Prefs::default());
         assert!(factory.caret_line && factory.caret_word);
         assert!(factory.current_fold && factory.current_pair);
