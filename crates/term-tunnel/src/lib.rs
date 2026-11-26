@@ -38,10 +38,48 @@ use tokio::sync::Notify;
 /// 收到远端 `Eof` 之后等 `Close` / 末尾数据的短兜底（见 `pump`）。
 const EOF_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
 
+/// 「隧道还活着吗」拆成两件事：SSH 那条连接，以及每条规则的监听。
+///
+/// 过去一个 `AtomicBool` 谁都能写：某条 `-L` 的 accept 失败就把整条隧道
+/// 标死，而 SSH 其实还好着；反过来 SSH 已经被服务端断开时，只要没有连接
+/// 进来，监听任务永远不报错，界面就一直显示「在跑」。现在两类状态分开记，
+/// `is_alive()` 两者都要求为真，SSH 那一半由 `ChannelOpener::is_closed()`
+/// 主动轮询驱动，不再等「某条连接恰好失败」。
+#[derive(Clone)]
+struct Liveness {
+    ssh: Arc<AtomicBool>,
+    rules: Arc<Vec<Arc<AtomicBool>>>,
+}
+
+impl Liveness {
+    fn new(rule_count: usize) -> Self {
+        Self {
+            ssh: Arc::new(AtomicBool::new(true)),
+            rules: Arc::new(
+                (0..rule_count)
+                    .map(|_| Arc::new(AtomicBool::new(true)))
+                    .collect(),
+            ),
+        }
+    }
+
+    fn is_alive(&self) -> bool {
+        self.ssh.load(Ordering::Relaxed)
+            && self.rules.iter().all(|r| r.load(Ordering::Relaxed))
+    }
+
+    fn close(&self) {
+        self.ssh.store(false, Ordering::Relaxed);
+        for rule in self.rules.iter() {
+            rule.store(false, Ordering::Relaxed);
+        }
+    }
+}
+
 /// 一条在跑着的隧道。
 pub struct Tunnel {
     stop: Arc<Notify>,
-    alive: Arc<AtomicBool>,
+    alive: Liveness,
     /// 每条规则实际落在哪个端口（`-R` 让服务器挑端口时，这里才有意义）。
     ports: Arc<Mutex<Vec<u16>>>,
     rules: Vec<Forward>,
@@ -70,13 +108,13 @@ impl Tunnel {
         }
 
         let stop = Arc::new(Notify::new());
-        let alive = Arc::new(AtomicBool::new(true));
+        let alive = Liveness::new(forwards.len());
         let ports = Arc::new(Mutex::new(Vec::new()));
         let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Vec<u16>, TunnelError>>();
 
         let worker = {
             let stop = Arc::clone(&stop);
-            let alive = Arc::clone(&alive);
+            let alive = alive.clone();
             let ports = Arc::clone(&ports);
             let rules = forwards.clone();
             std::thread::Builder::new()
@@ -118,9 +156,9 @@ impl Tunnel {
         self.ports.lock().map(|p| p.clone()).unwrap_or_default()
     }
 
-    /// 隧道还活着吗（连接断了 / 某条监听挂了就变 false）。
+    /// 隧道还活着吗（SSH 连接断了 / 任意一条监听挂了就变 false）。
     pub fn is_alive(&self) -> bool {
-        self.alive.load(Ordering::Relaxed)
+        self.alive.is_alive()
     }
 
     /// 规则的可读描述（状态栏 / 日志）。
@@ -131,7 +169,7 @@ impl Tunnel {
     /// 收摊：停监听、撤 `-R`、挂断连接。重复调用安全。
     pub fn close(&mut self) {
         self.stop.notify_one();
-        self.alive.store(false, Ordering::Relaxed);
+        self.alive.close();
         // 不等线程：join 会把调用方（UI）卡住几十毫秒。线程自己收尾后退出。
         self.worker.take();
     }
@@ -147,7 +185,7 @@ fn run(
     opts: SshOptions,
     rules: Vec<Forward>,
     stop: Arc<Notify>,
-    alive: Arc<AtomicBool>,
+    alive: Liveness,
     ports: Arc<Mutex<Vec<u16>>>,
     ready: std::sync::mpsc::Sender<Result<Vec<u16>, TunnelError>>,
 ) {
@@ -158,7 +196,7 @@ fn run(
         Ok(rt) => rt,
         Err(e) => {
             let _ = ready.send(Err(TunnelError::Config(format!("无法创建异步运行时：{e}"))));
-            alive.store(false, Ordering::Relaxed);
+            alive.close();
             return;
         }
     };
@@ -168,7 +206,7 @@ fn run(
             Ok(a) => a,
             Err(e) => {
                 let _ = ready.send(Err(e.into()));
-                alive.store(false, Ordering::Relaxed);
+                alive.close();
                 return;
             }
         };
@@ -177,14 +215,15 @@ fn run(
         // 先把所有监听 / 服务器侧监听建起来，再回报「就绪」。
         let mut bound: Vec<u16> = Vec::with_capacity(rules.len());
         let mut remote: Vec<(String, u16, Target)> = Vec::new();
-        for rule in &rules {
+        for (i, rule) in rules.iter().enumerate() {
             match rule {
                 Forward::Local { bind, target } => match TcpListener::bind(bind).await {
                     Ok(listener) => {
                         let actual = listener.local_addr().map(|a| a.port()).unwrap_or(0);
                         bound.push(actual);
                         let opener = opener.clone();
-                        let alive = Arc::clone(&alive);
+                        // 每条规则一面自己的旗：一条挂了不该把整条隧道标死。
+                        let alive = Arc::clone(&alive.rules[i]);
                         let target = target.clone();
                         tokio::spawn(async move {
                             serve_local(listener, target, opener, alive).await
@@ -196,7 +235,7 @@ fn run(
                             source: e,
                         }));
                         opener.disconnect().await;
-                        alive.store(false, Ordering::Relaxed);
+                        alive.close();
                         return;
                     }
                 },
@@ -205,7 +244,7 @@ fn run(
                         let actual = listener.local_addr().map(|a| a.port()).unwrap_or(0);
                         bound.push(actual);
                         let opener = opener.clone();
-                        let alive = Arc::clone(&alive);
+                        let alive = Arc::clone(&alive.rules[i]);
                         tokio::spawn(async move { serve_socks5(listener, opener, alive).await });
                     }
                     Err(e) => {
@@ -214,7 +253,7 @@ fn run(
                             source: e,
                         }));
                         opener.disconnect().await;
-                        alive.store(false, Ordering::Relaxed);
+                        alive.close();
                         return;
                     }
                 },
@@ -230,7 +269,7 @@ fn run(
                     Err(e) => {
                         let _ = ready.send(Err(TunnelError::Forward(e.to_string())));
                         opener.disconnect().await;
-                        alive.store(false, Ordering::Relaxed);
+                        alive.close();
                         return;
                     }
                 },
@@ -239,12 +278,27 @@ fn run(
 
         if !remote.is_empty() {
             let opener = opener.clone();
-            let alive = Arc::clone(&alive);
+            let alive = Arc::clone(&alive.ssh);
             let rules_for_task = remote.clone();
             tokio::spawn(async move {
                 serve_remote(forwarded, rules_for_task, opener, alive).await
             });
         }
+        // SSH 可能在没有任何连接进来时被服务端断开；监听任务不会报错，
+        // 所以主动盯着 opener 的 is_closed()，别让界面一直显示「在跑」。
+        let watcher = opener.clone();
+        let watcher_alive = alive.clone();
+        let watcher_stop = stop.clone();
+        tokio::spawn(async move {
+            loop {
+                if watcher.is_closed() {
+                    watcher_alive.ssh.store(false, Ordering::Relaxed);
+                    watcher_stop.notify_one();
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            }
+        });
         if let Ok(mut slot) = ports.lock() {
             *slot = bound.clone();
         }
@@ -256,7 +310,7 @@ fn run(
             opener.cancel_remote_forward(addr, *port).await;
         }
         opener.disconnect().await;
-        alive.store(false, Ordering::Relaxed);
+        alive.close();
     });
 }
 
@@ -487,6 +541,24 @@ mod tests {
                 password: "x".into(),
             },
         )
+    }
+
+    /// 活性由「SSH 连接 + 每条规则监听」共同决定：单独一条监听挂掉不能
+    /// 冒充 SSH 断了，SSH 断了也不能靠「监听还在 accept」被判成活着。
+    #[test]
+    fn liveness_combines_ssh_connection_and_each_rule_listener() {
+        let live = Liveness::new(2);
+        assert!(live.is_alive());
+        live.rules[0].store(false, Ordering::Relaxed);
+        assert!(!live.is_alive(), "一条规则挂了整条隧道就不算活着");
+        // 其它规则不受影响：把那条恢复，SSH 仍然好着。
+        live.rules[0].store(true, Ordering::Relaxed);
+        assert!(live.is_alive());
+        live.ssh.store(false, Ordering::Relaxed);
+        assert!(!live.is_alive(), "SSH 关了才算真的断了");
+        // close() 把两类旗一起收，重复调用安全。
+        live.close();
+        assert!(!live.is_alive());
     }
 
     #[test]

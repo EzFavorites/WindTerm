@@ -507,8 +507,27 @@ pub fn start_in_background(
             let _ = evt_tx.send(Event::Ready { home });
             wake_inner();
 
-            while let Some(req) = req_rx.recv().await {
-                let event = match req {
+            // 稳态循环：既收请求，也盯 SSH 连接本身。过去只在请求到来时才
+            // 发现对端已经没了，空闲时界面一直停在「同步中 / 预览等待中」。
+            // 500ms 的轮询只用于读一个 AtomicBool，不产生网络 IO。
+            loop {
+                let req = tokio::select! {
+                    maybe = req_rx.recv() => match maybe {
+                        Some(req) => req,
+                        None => break,
+                    },
+                    _ = tokio::time::sleep(Duration::from_millis(500)) => {
+                        if auth.is_closed() {
+                            let _ = evt_tx.send(Event::Closed {
+                                message: "SFTP 会话的 SSH 连接已断开".to_string(),
+                            });
+                            wake_inner();
+                            break;
+                        }
+                        continue;
+                    }
+                };
+                let mut event = match req {
                     Request::List(path) => match sftp.read_dir(&path).await {
                         Ok(rd) => Event::Listed {
                             path,
@@ -718,8 +737,17 @@ pub fn start_in_background(
                         },
                     },
                 };
+                // 断连类的请求失败单独映射成 `Closed`：UI 收到后清预览 /
+                // 同步态。业务错误（`Permission denied` 等）仍是 `Failed`。
+                if let Event::Failed { path, message } = event {
+                    event = failure_event(path, message);
+                }
+                let closed = matches!(event, Event::Closed { .. });
                 let _ = evt_tx.send(event);
                 wake_inner();
+                if closed {
+                    break;
+                }
             }
             // 请求通道断了 = 句柄那边 `close()` 了（或句柄被丢掉）。
             //
@@ -761,6 +789,19 @@ fn wrote(path: String, result: Result<(), impl std::fmt::Display>) -> Event {
             path,
             message: e.to_string(),
         },
+    }
+}
+
+/// 请求失败的终态映射：**断连 ≠ 这一次操作失败**。
+///
+/// 会话已经没了时 UI 必须清掉「预览等待」与「同步执行中」的态（否则界面永远
+/// 停在那一步），所以这类失败升级成 [`Event::Closed`]；服务端明确拒绝的
+/// 业务错误仍用 [`Event::Failed`]，两者的处置路径不同，不能混。
+fn failure_event(path: String, message: String) -> Event {
+    if crate::error::is_disconnect(&message) {
+        Event::Closed { message }
+    } else {
+        Event::Failed { path, message }
     }
 }
 
@@ -952,6 +993,23 @@ async fn tree_and_report(
 #[cfg(test)]
 mod background_cancel_tests {
     use super::*;
+
+    /// 断连类失败必须报 `Event::Closed`（UI 据此清预览 / 同步态），
+    /// 业务错误仍报 `Failed`（只画一条红字）。
+    #[test]
+    fn a_disconnect_class_failure_emits_event_closed() {
+        match failure_event("/home".to_string(), "I/O: Broken pipe (os error 32)".to_string()) {
+            Event::Closed { message } => assert!(message.contains("Broken pipe"), "{message}"),
+            other => panic!("断连该报 Event::Closed，实得 {other:?}"),
+        }
+        match failure_event("/home".to_string(), "Permission denied".to_string()) {
+            Event::Failed { path, message } => {
+                assert_eq!(path, "/home");
+                assert_eq!(message, "Permission denied");
+            }
+            other => panic!("业务错误该报 Failed，实得 {other:?}"),
+        }
+    }
 
     fn opts_for(token: &CancelToken) -> TransferOpts<'_> {
         TransferOpts {

@@ -20,25 +20,30 @@ use std::path::{Path, PathBuf};
 use term_core::session::{AuthMethod, ProxyType};
 use term_ssh::{AuthMethod as SshAuth, HostKeyPolicy, OutboundProxy, ProxyKind, SshError, SshOptions};
 
-use crate::ui::dialogs::vault::{is_secret_ref, take_secret};
+use crate::ui::dialogs::vault::{is_secret_ref, rebuild_secret, take_secret};
 
 /// `Tab.auth` / `Connector.auth` 里存的是「凭据引用」而不是明文。真正建连时
-/// 才从运行时寄存器取一次（取走即清空）；锁屏 / 断线后取不到就明确报错，
-/// 不拿一份活了整会话的密码去偷偷重连。
+/// 才从运行时寄存器取一份；同一会话的隧道与 Filer/SFTP 各取各的，句柄取空
+/// 之后按会话名从仍解锁的保险库重建一份（见 `rebuild_secret`）。锁屏 / 断线
+/// 会把两份一起清掉，那时才明确报错，绝不拿一份活了整会话的密码偷偷重连。
 pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
     let missing = || {
         SshError::Config(
             "凭据已清理（保险库已锁定或会话已断开），请重新输入密码".to_string(),
         )
     };
+    // 一次 resolve 两种来源：先走独立句柄，取空了再按引用里的会话名重建。
+    let resolve = |reference: &str| {
+        take_secret(reference).or_else(|| rebuild_secret(reference))
+    };
     match auth {
         SshAuth::Password { password } if is_secret_ref(&password) => Ok(SshAuth::Password {
-            password: take_secret(&password).ok_or_else(missing)?,
+            password: resolve(&password).ok_or_else(missing)?,
         }),
         SshAuth::KeyboardInteractive { answers }
             if answers.first().is_some_and(|a| is_secret_ref(a)) =>
         {
-            let raw = take_secret(&answers[0]).ok_or_else(missing)?;
+            let raw = resolve(&answers[0]).ok_or_else(missing)?;
             let decoded = serde_json::from_str::<Vec<String>>(&raw).unwrap_or_default();
             Ok(SshAuth::KeyboardInteractive { answers: decoded })
         }
@@ -47,7 +52,7 @@ pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
             passphrase: Some(passphrase),
         } if is_secret_ref(&passphrase) => Ok(SshAuth::PrivateKey {
             path,
-            passphrase: Some(take_secret(&passphrase).ok_or_else(missing)?),
+            passphrase: Some(resolve(&passphrase).ok_or_else(missing)?),
         }),
         other => Ok(other),
     }
@@ -304,6 +309,10 @@ pub(crate) fn options_for(
     }
     opts.keepalive = (config.keep_alive > 0)
         .then(|| std::time::Duration::from_secs(config.keep_alive as u64));
+    // 这两项过去只写不读：现在内建 SSH 真的把它们落到第一段 TCP（见
+    // `term_ssh::tcp_tune`）与 russh 的 nodelay 上。
+    opts.tcp_low_delay = config.tcp_low_delay;
+    opts.tcp_keep_alive = config.tcp_keep_alive;
     // Authentication 页的「Verifying the server's fingerprint」关掉时明确走
     // Insecure；默认开着时保持调用方给的严格/TOFU 策略不变。
     opts.host_key = if config.verify_host_key {
@@ -409,6 +418,37 @@ mod tests {
         c.auth = auth;
         c.term = "xterm".to_string();
         c
+    }
+
+    /// 同一条会话的隧道 / Filer / SFTP 三个消费者从同一份引用取凭据：
+    /// 谁先取都不该让其他人拿到「凭据已清理」（T03 并发争用回归）。
+    #[test]
+    fn concurrent_consumers_of_one_session_each_get_their_credentials() {
+        use crate::ui::dialogs::vault::{clear_session_secrets, stash_secret};
+
+        let reference = stash_secret("concurrent-session", "s3cret");
+        let ask_again = || {
+            resolve_auth(SshAuth::Password {
+                password: reference.clone(),
+            })
+        };
+        // 第一个取一份句柄，其余按会话名重建，谁都拿得到。
+        for _ in 0..3 {
+            match ask_again() {
+                Ok(SshAuth::Password { password }) => assert_eq!(password, "s3cret"),
+                other => panic!("同一会话的并发消费者不该抢凭据：{other:?}"),
+            }
+        }
+        // 句柄取空后仍可按会话名从已解锁的保险库重建。
+        for _ in 0..2 {
+            assert!(ask_again().is_ok());
+        }
+        // 断线 / 锁屏之后必须彻底失败，不能复活。
+        clear_session_secrets("concurrent-session");
+        match ask_again() {
+            Err(SshError::Config(message)) => assert!(message.contains("凭据已清理"), "{message}"),
+            other => panic!("清掉之后不该还能取到凭据：{other:?}"),
+        }
     }
 
     #[test]
@@ -530,6 +570,9 @@ mod tests {
         assert_eq!(opts.connect_timeout.as_secs(), 5);
         assert_eq!(opts.keepalive.map(|d| d.as_secs()), Some(30));
         assert_eq!(opts.host_key, HostKeyPolicy::Strict);
+        // 表单的 TCP 两项必须真的走到连接层，不能只写进 SessionConfig。
+        assert_eq!(opts.tcp_low_delay, c.tcp_low_delay);
+        assert_eq!(opts.tcp_keep_alive, c.tcp_keep_alive);
     }
 
     #[test]

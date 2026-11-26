@@ -8,6 +8,7 @@
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use russh::Channel;
 use russh::client::{self, Handle};
@@ -20,33 +21,86 @@ use crate::options::{HostKeyPolicy, SshOptions};
 /// 记录拒绝原因的信箱：`Handler` 只能返回 `false`，说不出为什么。
 pub(crate) type Rejection = Arc<Mutex<Option<SshError>>>;
 
+/// 一把「给用户看过的」公钥在内存里最多留多久、最多留几把。
+///
+/// 这张表是进程级的，按 host:port 记。没有上限时，长时间运行的桌面进程每
+/// 连一台新机器就多留一条；更糟的是用户确认了一个**早就过时**的 key：
+/// 服务器换了钥匙之后，对话框里 pin 的仍是几小时前那把。15 分钟是「用户
+/// 看完指纹、点下信任」这件交互的自然上界；64 条远大于一个人一天里会确认
+/// 的主机数，只是防止无界增长。
+const PRESENTED_TTL: Duration = Duration::from_secs(15 * 60);
+const PRESENTED_CAP: usize = 64;
+
 /// 最近一次收到的服务器公钥（openssh 单行），按 host:port 记。
 ///
 /// `HostKeyProblem::Unknown` 只带指纹，不带钥匙本体；界面在用户确认后需要把
 /// **用户看过的那把** pin 进 known_hosts，否则重连时 Tofu 会把「那一刻服务器
 /// 给的那把」悄悄写进去（TOCTOU）。这里只记公钥，不含任何私密材料。
-static PRESENTED_KEYS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+static PRESENTED_KEYS: Mutex<Vec<PresentedKey>> = Mutex::new(Vec::new());
+
+struct PresentedKey {
+    token: String,
+    key: String,
+    at: Instant,
+}
 
 fn presented_key(host: &str, port: u16) -> String {
     format!("{host}:{port}")
 }
 
+/// 先按 TTL 淘汰过期的，再按「先进先出」把超出的裁掉。
+///
+/// `now` 由调用方给：时间本身不可测，把它做成参数后上限与过期都能在单测里
+/// 用确定的值钉住，不必 sleep。
+fn prune_presented(keys: &mut Vec<PresentedKey>, now: Instant, ttl: Duration, cap: usize) {
+    keys.retain(|k| now.saturating_duration_since(k.at) < ttl);
+    while keys.len() > cap {
+        keys.remove(0);
+    }
+}
+
+fn take_from(
+    keys: &mut Vec<PresentedKey>,
+    token: &str,
+    now: Instant,
+    ttl: Duration,
+    cap: usize,
+) -> Option<String> {
+    prune_presented(keys, now, ttl, cap);
+    let at = keys.iter().position(|k| k.token == token)?;
+    Some(keys.remove(at).key)
+}
+
 pub(crate) fn remember_presented(host: &str, port: u16, key_line: &str) {
     if let Ok(mut keys) = PRESENTED_KEYS.lock() {
+        let now = Instant::now();
+        prune_presented(&mut keys, now, PRESENTED_TTL, PRESENTED_CAP);
         let token = presented_key(host, port);
-        if let Some(slot) = keys.iter_mut().find(|(k, _)| k == &token) {
-            slot.1 = key_line.to_string();
+        if let Some(slot) = keys.iter_mut().find(|k| k.token == token) {
+            slot.key = key_line.to_string();
+            slot.at = now;
         } else {
-            keys.push((token, key_line.to_string()));
+            keys.push(PresentedKey {
+                token,
+                key: key_line.to_string(),
+                at: now,
+            });
         }
+        // 插入后把容量裁回上限：进程级表不能因为「一直在连新主机」而无界长。
+        prune_presented(&mut keys, now, PRESENTED_TTL, PRESENTED_CAP);
     }
 }
 
 pub(crate) fn take_presented(host: &str, port: u16) -> Option<String> {
     let token = presented_key(host, port);
     let mut keys = PRESENTED_KEYS.lock().ok()?;
-    let at = keys.iter().position(|(k, _)| k == &token)?;
-    Some(keys.remove(at).1)
+    take_from(
+        &mut keys,
+        &token,
+        Instant::now(),
+        PRESENTED_TTL,
+        PRESENTED_CAP,
+    )
 }
 
 /// 校验主机密钥的客户端 `Handler`。
@@ -436,6 +490,47 @@ async fn bridge_x11_tcp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn presented(token: &str, at: Instant) -> PresentedKey {
+        PresentedKey {
+            token: token.to_string(),
+            key: format!("key-{token}"),
+            at,
+        }
+    }
+
+    /// 进程级表必须同时有容量与过期两道上界：既不能无界增长，也不能让用户
+    /// 在几小时后还 pin 住一次早已过时的握手结果。
+    #[test]
+    fn presented_keys_are_capped_and_expire() {
+        let now = Instant::now();
+        let mut keys: Vec<PresentedKey> = (0..PRESENTED_CAP + 3)
+            .map(|i| presented(&format!("h{i}:22"), now))
+            .collect();
+        prune_presented(&mut keys, now, PRESENTED_TTL, PRESENTED_CAP);
+        assert_eq!(keys.len(), PRESENTED_CAP);
+        // 淘汰的是最旧的那几条，最近握手的仍留着。
+        assert!(!keys.iter().any(|k| k.token == "h0:22"));
+        assert!(keys.iter().any(|k| k.token == "h66:22"));
+
+        // 过期：即使还在容量内，TTL 一到也不该再交出去。
+        let stale = now
+            .checked_sub(PRESENTED_TTL + Duration::from_secs(1))
+            .expect("测试用的时刻应当还能往前退");
+        let mut keys = vec![presented("old:22", stale), presented("fresh:22", now)];
+        assert!(take_from(
+            &mut keys,
+            "old:22",
+            now,
+            PRESENTED_TTL,
+            PRESENTED_CAP
+        )
+        .is_none());
+        assert_eq!(
+            take_from(&mut keys, "fresh:22", now, PRESENTED_TTL, PRESENTED_CAP),
+            Some("key-fresh:22".to_string())
+        );
+    }
 
     #[test]
     fn local_display_with_colon_resolves_to_unix_socket() {

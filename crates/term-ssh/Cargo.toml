@@ -16,6 +16,9 @@ edition = "2021"
 # 在 macOS 上要多编一个 C 库），带 flate2（压缩）与 rsa（老服务器常见）。
 [dependencies]
 tokio = { version = "1", features = ["rt", "net", "io-util", "sync", "time", "macros"] }
+# 第一段 TCP 的 SO_KEEPALIVE：tokio 的 TcpStream 没有 set_keepalive，借 socket2
+# 的 SockRef 设同一个 fd（已在依赖图里，仅提成直接依赖）。
+socket2 = "0.6"
 russh = { version = "0.65", default-features = false, features = ["ring", "flate2", "rsa"] }
 # 日志只用于「配置允许但运行时做不到」的几处（agent 转发桥接失败）：
 # 那些失败回给谁都不合适（不在这条连接的握手里），但**绝不能**静默。

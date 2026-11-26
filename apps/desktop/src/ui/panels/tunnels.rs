@@ -297,7 +297,9 @@ impl TerminalWindow {
         let profiles = self.tunnel_profiles.clone();
         // 起不来的由 `start_profile_tunnel` 自己留成一条 failed，
         // 让面板能说出原因（与规则写错同一条路）——这里只看有没有起来。
-        for profile in profiles.iter().filter(|p| p.should_run()) {
+        // 启动期与手动开总开关都按 `auto_open && status` 判：只勾 Status
+        // 并不等于「开机自动起」（见 tunnel_settings::startup_profiles）。
+        for profile in super::dialogs::tunnel_settings::startup_profiles(&profiles) {
             self.start_profile_tunnel(profile);
         }
     }
@@ -357,6 +359,13 @@ impl TerminalWindow {
 
     /// 每帧收一次隧道结果，并收掉「会话已经不在」的那些。
     pub(in crate::ui) fn poll_tunnels(&mut self) {
+        // 启动期只做一次：把从 prefs 读到的总线开关真正兑现成隧道，而不是
+        // 只留一个布尔位等人手动再点一次。判据在 set_tunnels_enabled 里。
+        let boot = egui::Id::new("tunnels_bootstrapped");
+        if !self.ctx.data(|d| d.get_temp::<bool>(boot).unwrap_or(false)) {
+            self.ctx.data_mut(|d| d.insert_temp(boot, true));
+            self.set_tunnels_enabled(self.tunnels_enabled);
+        }
         let mut changed = false;
         for tunnel in &mut self.tunnels {
             changed |= tunnel.poll();
@@ -485,6 +494,22 @@ impl TerminalWindow {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 启动期拉起按 `auto_open && status`，不是只看 `Status`（T03 回归）。
+    #[test]
+    fn startup_profiles_require_both_auto_open_and_status() {
+        use term_core::tunnel::TunnelProfile;
+        let mut p = TunnelProfile::new("db");
+        p.status = true;
+        assert!(crate::ui::dialogs::tunnel_settings::startup_profiles(std::slice::from_ref(&p)).is_empty());
+        p.auto_open = true;
+        assert_eq!(
+            crate::ui::dialogs::tunnel_settings::startup_profiles(std::slice::from_ref(&p)).len(),
+            1
+        );
+        p.status = false;
+        assert!(crate::ui::dialogs::tunnel_settings::startup_profiles(std::slice::from_ref(&p)).is_empty());
+    }
 
     #[test]
     fn a_session_without_fingerprint_check_uses_insecure_for_its_tunnel() {
