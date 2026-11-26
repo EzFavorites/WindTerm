@@ -566,8 +566,11 @@ fn each_switch_adds_shapes_to_the_frame_it_belongs_to() {
     // 1、3、5 行是自动换行的续行（`wraps` 里的绝对行号）。
     tab.snapshot = grid_fixture(vec![1, 3, 5]);
     let mut win = window_with(pool, &ctx, vec![tab]);
+    // 本用例逐项测「每打开一项多哪些图元」，先把出厂的高亮默认归零，
+    // 否则基线已经带着高亮图元，后面的增量断言全部错位。
+    win.tabs[0].marks = MarksParams::default();
 
-    // 出厂六项全关：这一帧是基线。
+    // 六项全关：这一帧是基线。
     let base = drawn(&ctx, &mut win);
     assert_eq!(base.paths, 0, "基线里不该有任何线段");
 

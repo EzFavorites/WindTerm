@@ -130,13 +130,14 @@ fn the_two_two_stroke_view_shortcuts_are_fixture_literals() {
         let r = VIEW_ROWS.iter().find(|r| r.label == label).unwrap();
         assert_eq!(r.shortcut, literal, "{label} 必须照基线逐字抄");
         let id = r.gate.unwrap();
-        assert!(map.display(id).is_empty(), "{id} 在绑定表里没有条目，才走到字面量");
+        // C2 按原版 1:1 补了绑定表条目，显示现在从映射层派生；
+        // 夹具字面量与绑定表一致，不再有"表里没有、只能抄字面量"的偏差。
+        assert_eq!(map.display(id), literal, "{id} 的绑定表条目应与夹具逐字一致");
         assert_eq!(
             shortcut_on_platform(r, &map),
             literal,
-            "{label} 的偏差只允许在夹具字面量这一层"
+            "{label} 的显示应来自绑定表"
         );
-        // 有 gate 也只说明判态/派 dispatched 接真，不代表键位来自绑定表。
         assert!(matches!(r.work, Some(Work::Command(w)) if w == id));
     }
     // 对照组：Word Wrap 走的是绑定表真值，不许被这条测试误伤成字面量偏差。

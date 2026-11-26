@@ -634,10 +634,11 @@ mod tests {
             marks_defaults(&prefs),
             "六项初值必须来自 Prefs.view_* / text_highlight_caret_line"
         );
-        // 出厂 prefs（老文件缺键时读到的也是它）六项全关。
+        // 出厂 prefs（老文件缺键时读到的也是它）：原版高亮四项默认勾选。
         let factory = marks_defaults(&term_runtime::prefs::Prefs::default());
-        assert_eq!(factory, MarksParams::default(), "出厂六项全关");
-        assert!(!factory.any_enabled());
+        assert!(factory.caret_line && factory.caret_word);
+        assert!(factory.current_fold && factory.current_pair);
+        assert!(!factory.line_endings && !factory.indent_guides && !factory.wrap_symbols);
     }
 
     /// 菜单那六个落地点只改**活动标签**，且都是「再点一次回到原样」。

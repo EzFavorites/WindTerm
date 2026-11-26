@@ -169,8 +169,9 @@ mod tests {
     #[test]
     fn factory_prefs_match_the_reference_screenshot() {
         let c = Prefs::default().completion;
-        assert!(!c.enabled && !c.commands && !c.options);
-        assert!(!c.parameters && !c.history && !c.quick);
+        // 原版参考页六项全勾选，默认值与之一比一。
+        assert!(c.enabled && c.commands && c.options);
+        assert!(c.parameters && c.history && c.quick);
         assert_eq!(c.min_chars, 1);
         assert_eq!(c.list_height, 7);
         assert_eq!(c.preselect, term_core::completion::Preselect::Nowhere);

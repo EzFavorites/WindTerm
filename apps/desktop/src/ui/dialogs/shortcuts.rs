@@ -143,6 +143,8 @@ fn key_name(key: egui::Key) -> Option<&'static str> {
         // 也不消费事件——用户感受是「按了没反应」，而 macOS 上
         // `Event::Text` 还会把组合字符（`µ`）原样送进 PTY。
         K::M => "M",
+        // View ▸ Indent Guides 的两段式后继 `Alt+T, Alt+I`。
+        K::I => "I",
         K::F1 => "F1", K::F2 => "F2", K::F3 => "F3", K::F4 => "F4",
         K::F5 => "F5", K::F6 => "F6", K::F7 => "F7", K::F8 => "F8",
         K::F9 => "F9", K::F10 => "F10", K::F11 => "F11", K::F12 => "F12",

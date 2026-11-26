@@ -30,6 +30,11 @@ use crate::ui::TerminalWindow;
 use super::marks::COLUMN_MARKER_DEFAULT;
 use term_app::shell::MarksKnob;
 
+/// 出厂 prefs 的 marks 快照（原版高亮项默认勾选），用于替代旧的"全关"期望。
+fn factory_marks() -> MarksParams {
+    super::setup::marks_defaults(&term_runtime::prefs::Prefs::default())
+}
+
 /// 两条标签的窗口：第 0 条是活动标签，第 1 条用来证明「只改活动那一条」。
 fn two_tab_window(ctx: &egui::Context) -> TerminalWindow {
     let pool = std::sync::Arc::new(term_session::SessionPool::new());
@@ -61,7 +66,7 @@ fn changed_fields(before: MarksParams, after: MarksParams) -> usize {
 fn each_toggle_reaches_the_active_tab_and_flips_only_its_own_field() {
     let ctx = egui::Context::default();
     let mut win = two_tab_window(&ctx);
-    assert_eq!(win.active_marks(), MarksParams::default(), "出厂六项全关");
+    assert_eq!(win.active_marks(), factory_marks(), "出厂六项全关");
     let other_tab_before = win.tabs[1].marks;
 
     let toggles: [(&str, MarksKnob); 5] = [
@@ -106,7 +111,7 @@ fn each_toggle_reaches_the_active_tab_and_flips_only_its_own_field() {
     );
     win.dispatch("View.ToggleColumnMarker");
 
-    assert_eq!(win.active_marks(), MarksParams::default(), "收尾要回到全关");
+    assert_eq!(win.active_marks(), factory_marks(), "收尾要回到全关");
     assert_eq!(
         win.tabs[1].marks, other_tab_before,
         "第二个标签的六项一个字都不许动——`View` 改的是当前会话"
@@ -159,7 +164,7 @@ fn the_five_whitespace_modes_are_mutually_exclusive_and_land_on_the_active_tab()
     // Hide All 就是出厂态：收尾点回它，`MarksParams` 必须与默认值逐字段相等
     // ——五档切换不会顺手把别的开关带开或带关。
     win.dispatch("View.WhiteSpacesHideAll");
-    assert_eq!(win.active_marks(), MarksParams::default());
+    assert_eq!(win.active_marks(), factory_marks());
     assert_eq!(win.tabs[1].marks, other_tab_before, "另一个标签不受影响");
 }
 
@@ -174,7 +179,7 @@ fn the_marks_commands_are_silent_without_an_active_tab() {
     let ctx = egui::Context::default();
     let pool = std::sync::Arc::new(term_session::SessionPool::new());
     let mut win = window_with(pool, &ctx, Vec::new());
-    assert_eq!(win.active_marks(), MarksParams::default(), "没标签时给出厂值");
+    assert_eq!(win.active_marks(), factory_marks(), "没标签时给出厂值");
 
     for id in [
         "View.ToggleLineEndings",
@@ -187,7 +192,7 @@ fn the_marks_commands_are_silent_without_an_active_tab() {
         win.dispatch(id);
         assert_eq!(
             win.active_marks(),
-            MarksParams::default(),
+            factory_marks(),
             "{id} 在没有标签时改了东西"
         );
     }
