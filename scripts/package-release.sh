@@ -15,7 +15,8 @@
 #              WindTerm-<ver>-linux-x86_64.zip       便携目录（解压即用）
 #   Windows → WindTerm-<ver>-windows-x86_64.msi      每用户安装器（WiX v5）
 #              WindTerm-<ver>-windows-x86_64.zip     便携目录
-# 每个产物都配一个 `<产物名>.sha256`。
+# 每个产物都配一个 `<产物名>.sha256`——校验和是强制项：打包前先确认至少一个
+# SHA-256 工具可用，缺工具就硬失败，绝不产出没有校验和的半成品发布包。
 #
 # 依赖：macOS 需 hdiutil（系统自带）；Linux 需 dpkg-deb；Windows 需 WiX v5
 # （`dotnet tool install -g wix --version 5.0.2` + WixToolset.UI.wixext）。
@@ -25,6 +26,19 @@ TARGET="${1:?用法: package-release.sh <target-triple> <version> <binary> [outd
 VERSION="${2:?缺少 version}"
 BIN="${3:?缺少二进制路径}"
 OUT="${4:-dist}"
+
+# 校验和是强制项：在任何产物落盘之前先确认至少有一个 SHA-256 工具可用。
+# 没有工具时直接硬失败，避免产出「无 .sha256 的半成品发布包」。
+require_sha256_tool() {
+  if command -v sha256sum >/dev/null 2>&1 ||
+     command -v shasum >/dev/null 2>&1 ||
+     command -v openssl >/dev/null 2>&1; then
+    return 0
+  fi
+  echo "错误：找不到任何 SHA-256 工具（sha256sum / shasum -a 256 / openssl dgst -sha256）；校验和是强制项，拒绝打包。" >&2
+  exit 1
+}
+require_sha256_tool
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="WindTerm"
@@ -88,7 +102,8 @@ sha256_of() {
   elif command -v openssl >/dev/null 2>&1; then
     (cd "$OUT" && printf '%s  %s\n' "$(openssl dgst -sha256 "$f" | sed 's/.*= //')" "$f" > "$f.sha256")
   else
-    echo "找不到 sha256sum / shasum / openssl，跳过校验和" >&2
+    echo "错误：找不到 sha256sum / shasum / openssl，无法生成校验和；校验和是强制项，拒绝产出无校验和的产物。" >&2
+    exit 1
   fi
 }
 
