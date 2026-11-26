@@ -100,18 +100,21 @@ impl TerminalWindow {
                     .filter(|p| !p.is_empty())
             });
         let home = dirs::home_dir();
+        // 建连前错误落盘的开关就取既有的 `tab.debug`（窗口级：任一会话开着
+        // Debug Mode 就算开），不另设配置。连接还没建好时没有本会话的 tab。
+        let debug_on = self.tabs.iter().any(|t| t.debug);
         let mut connector = match ask(&config, password.as_deref(), &answers, home.as_deref()) {
             Ask::Connect(auth) => {
-                let mut c = Connector::new(config, Step::Connecting).with_pending(pending);
+                let mut c = Connector::new(config, Step::Connecting).with_pending(pending).with_debug(debug_on);
                 c.launch(auth, &self.ctx);
                 c
             }
             Ask::Password => {
                 let reason = self.why_no_password(&config, scheme.is_some());
-                Connector::waiting_password_with(config, reason).with_pending(pending)
+                Connector::waiting_password_with(config, reason).with_pending(pending).with_debug(debug_on)
             }
             // 连不上就没有「落在哪儿」这回事，但 pending 还是记着——用户可能重试。
-            Ask::Unsupported(message) => Connector::failed(config, message).with_pending(pending),
+            Ask::Unsupported(message) => Connector::failed(config, message).with_pending(pending).with_debug(debug_on),
         };
         // 每次发起都领一个新的 epoch。异步回调落地前会核对它，避免
         // `PendingOpen::Replace` 与「到期重连」竞态时旧回调顶掉新会话。
@@ -209,6 +212,7 @@ impl TerminalWindow {
                     }
                     Next::ShowError { message } => {
                         connector.rx = None;
+                        term_io::pre_session_log::log_pre_session_error(term_io::pre_session_log::ErrorStage::Connect, &message, connector.debug);
                         connector.step = Step::Failed { message };
                     }
                 }

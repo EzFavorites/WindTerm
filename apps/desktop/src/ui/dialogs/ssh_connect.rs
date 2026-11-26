@@ -104,6 +104,8 @@ pub(in crate::ui) struct Connector {
     /// 这次连接是自动重连发起的（手动 Reconnect / 侧栏连接不是）。失败时
     /// 只有自动重连会按退出原因显式排下一次。
     pub(in crate::ui) auto: bool,
+    /// 建连前错误落盘的开关：复用既有的 `tab.debug`，不另设配置。
+    pub(in crate::ui) debug: bool,
 }
 
 impl Connector {
@@ -118,7 +120,23 @@ impl Connector {
             accepted_key: None,
             gen: 0,
             auto: false,
+            debug: false,
         }
+    }
+
+    /// 把既有 Debug 日志开关带进来，供建连前错误落盘判定。
+    pub(in crate::ui) fn with_debug(mut self, on: bool) -> Self {
+        self.debug = on;
+        self
+    }
+
+    /// 建连前失败的单一出口：先写一条排障 note，再进失败弹窗的 `Step`。
+    ///
+    /// 日志写入永远静默降级（见 `log_pre_session_error`），所以文案与用户
+    /// 可见行为与加日志之前完全一致。
+    fn fail(&mut self, stage: term_io::pre_session_log::ErrorStage, message: String) {
+        term_io::pre_session_log::log_pre_session_error(stage, &message, self.debug);
+        self.step = Step::Failed { message };
     }
 
     /// 把这次连接标记为自动重连，并钉住它领到的代数。
@@ -161,9 +179,7 @@ impl Connector {
         let real = match ssh_ask::resolve_auth(auth) {
             Ok(auth) => auth,
             Err(e) => {
-                self.step = Step::Failed {
-                    message: e.to_string(),
-                };
+                self.fail(term_io::pre_session_log::ErrorStage::Auth, e.to_string());
                 return;
             }
         };
@@ -176,9 +192,10 @@ impl Connector {
         let opts = match options_for(&self.config, real, policy) {
             Ok(opts) => opts,
             Err(e) => {
-                self.step = Step::Failed {
-                    message: format!("跳板链（ProxyJump）写得不对：{e}"),
-                };
+                self.fail(
+                    term_io::pre_session_log::ErrorStage::Connect,
+                    format!("跳板链（ProxyJump）写得不对：{e}"),
+                );
                 return;
             }
         };
@@ -211,15 +228,18 @@ impl Connector {
             self.config.port
         };
         let Some(key_line) = term_ssh::SshChannel::take_presented_host_key(&host, port) else {
-            self.step = Step::Failed {
-                message: "没拿到刚才确认的那把服务器公钥，拒绝盲目信任；请重试连接".to_string(),
-            };
+            self.fail(
+                term_io::pre_session_log::ErrorStage::Auth,
+                "没拿到刚才确认的那把服务器公钥，拒绝盲目信任；请重试连接".to_string(),
+            );
             return;
         };
         let Some(path) = self.known_hosts_path() else {
-            self.step = Step::Failed {
-                message: format!("{NO_PATH_PREFIX}，无法保存已确认的钥匙"),
-            };
+            // 同时保留 W39 的共享降级文案前缀与 W50 的落盘：先记排障 note 再弹窗。
+            self.fail(
+                term_io::pre_session_log::ErrorStage::Auth,
+                format!("{NO_PATH_PREFIX}，无法保存已确认的钥匙"),
+            );
             return;
         };
         match term_ssh::known_hosts_admin::trust_openssh(&path, &host, port, &key_line) {
@@ -231,17 +251,19 @@ impl Connector {
                 }
             }
             Ok(outcome) => {
-                self.step = Step::Failed {
-                    message: format!(
+                self.fail(
+                    term_io::pre_session_log::ErrorStage::Auth,
+                    format!(
                         "确认的指纹 {fingerprint} 与写入账本的钥匙 {} 不一致，已拒绝连接",
                         outcome.fingerprint
                     ),
-                };
+                );
             }
             Err(e) => {
-                self.step = Step::Failed {
-                    message: format!("保存已确认的主机密钥失败：{e}"),
-                };
+                self.fail(
+                    term_io::pre_session_log::ErrorStage::Auth,
+                    format!("保存已确认的主机密钥失败：{e}"),
+                );
             }
         }
     }
@@ -260,9 +282,10 @@ impl Connector {
         };
         let changed = changed.clone();
         let Some(path) = self.known_hosts_path() else {
-            self.step = Step::Failed {
-                message: "找不到 known_hosts 的位置（没有家目录），无法替换记录".to_string(),
-            };
+            self.fail(
+                term_io::pre_session_log::ErrorStage::Auth,
+                "找不到 known_hosts 的位置（没有家目录），无法替换记录".to_string(),
+            );
             return;
         };
         match term_ssh::known_hosts_admin::trust_openssh(
@@ -277,9 +300,10 @@ impl Connector {
                 }
             }
             Err(e) => {
-                self.step = Step::Failed {
-                    message: format!("替换 known_hosts 记录失败：{e}"),
-                };
+                self.fail(
+                    term_io::pre_session_log::ErrorStage::Auth,
+                    format!("替换 known_hosts 记录失败：{e}"),
+                );
             }
         }
     }

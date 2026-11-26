@@ -271,6 +271,8 @@ impl TerminalWindow {
         };
         let config = tab.config.clone();
         let auth = tab.auth.clone();
+        // 既有 Debug 开关：这条会话没连上，但 tab 还在，取它的 `debug` 即可。
+        let debug_on = tab.debug;
         // 没有远端凭据（本地 shell / 系统 ssh）或会话显式关掉了 Sftp 子系统时，
         // 都退回本地用户目录——与面板既有的「无凭据看本地」同一条路径，不另造空态。
         if !filer_uses_sftp(&config, auth.is_some()) {
@@ -289,7 +291,13 @@ impl TerminalWindow {
         let opts = match ssh_connect::options_for(&config, auth, term_ssh::HostKeyPolicy::Tofu) {
             Ok(opts) => opts,
             Err(e) => {
-                self.filer.error = Some(format!("会话的连接参数有误，无法打开 SFTP：{e}"));
+                let message = format!("会话的连接参数有误，无法打开 SFTP：{e}");
+                term_io::pre_session_log::log_pre_session_error(
+                    term_io::pre_session_log::ErrorStage::Sftp,
+                    &message,
+                    debug_on,
+                );
+                self.filer.error = Some(message);
                 self.filer.loading = false;
                 return;
             }

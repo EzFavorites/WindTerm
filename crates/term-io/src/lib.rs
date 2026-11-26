@@ -29,6 +29,7 @@
 //! - `telnet_channel`：原生 Telnet（`TcpStream` + 读线程 + 协商分流，不拉系统 `telnet`）
 //! - `supervisor`：每会话一个线程，`drain → vt → 快照 / 范围窗口` 发布
 //! - `log`：会话日志写入端（清洗在 `term_core::ansi`，落盘在这里）
+//! - `pre_session_log`：建连前错误的落盘（与 Debug 排障日志同源、同一套脱敏）
 //! - `local_dir`：本地目录枚举（Filer 的本地数据源；IO 不进 `ui/`）
 //! - `host`：宿主环境事实（当前登录名）——`term-core` 不读环境，值从这里注入
 //! - `preview`：文件头部读取 + 内容类型嗅探（预览窗的数据底座）
@@ -47,6 +48,7 @@ pub mod error;
 pub mod host;
 pub mod local_dir;
 pub mod log;
+pub mod pre_session_log;
 pub mod pty;
 pub mod preview;
 pub mod serial;

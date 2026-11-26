@@ -34,7 +34,7 @@ const FLUSH_INTERVAL: Duration = Duration::from_secs(1);
 // 脱敏单独成文件：既守住 4j 的单文件行数门禁，也把「raw 日志必须逐字节保真」
 // 这一条放在一处说清楚（`from_utf8_lossy` 会把非 UTF-8 改写成 U+FFFD）。
 #[path = "log_redact.rs"]
-mod log_redact;
+pub(crate) mod log_redact;
 
 pub use log_redact::register_secret;
 use log_redact::redact;

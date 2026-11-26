@@ -22,7 +22,7 @@ pub fn register_secret(secret: &str) {
 
 /// 字节级替换：非 UTF-8 的旧编码与转义序列原样保留，只把已登记的凭据换成
 /// `[redacted]`。登记表每 chunk 只读一次，匹配窗口逐个secret 前进。
-pub(super) fn redact(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn redact(bytes: &[u8]) -> Vec<u8> {
     let known = KNOWN_SECRETS.lock().map(|k| k.clone()).unwrap_or_default();
     if known.is_empty() {
         return bytes.to_vec();

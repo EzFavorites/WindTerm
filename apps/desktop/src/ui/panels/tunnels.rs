@@ -235,12 +235,19 @@ impl TerminalWindow {
         match self.try_start_profile_tunnel(profile) {
             Ok(()) => true,
             Err(why) => {
+                let message = why.to_string();
+                // 弹窗之前先留痕；开关取既有 `tab.debug`（隧道借那条会话的凭据）。
+                term_io::pre_session_log::log_pre_session_error(
+                    term_io::pre_session_log::ErrorStage::Tunnel,
+                    &message,
+                    self.tabs.iter().any(|t| t.config.name == profile.session && t.debug),
+                );
                 let key = profile.key();
                 self.tunnels.retain(|t| t.key != key);
                 self.tunnels.push(RunningTunnel::failed(
                     key,
                     profile.session.clone(),
-                    why.to_string(),
+                    message,
                 ));
                 false
             }
@@ -342,6 +349,11 @@ impl TerminalWindow {
         let opts = match built {
             Ok(opts) => opts,
             Err(message) => {
+                term_io::pre_session_log::log_pre_session_error(
+                    term_io::pre_session_log::ErrorStage::Tunnel,
+                    &message,
+                    self.tabs.iter().any(|t| t.config.name == config.name && t.debug),
+                );
                 self.tunnels.retain(|t| t.key != key);
                 self.tunnels.push(RunningTunnel::failed(key, config.name.clone(), message));
                 return;
