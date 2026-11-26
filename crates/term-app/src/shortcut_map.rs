@@ -130,9 +130,12 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Terminal.ManageOneKeys", chord: "Cmd+T, Cmd+K" },
     BindingRow { id: "Terminal.ManageTriggers", chord: "Cmd+T, Cmd+T" },
     BindingRow { id: "Terminal.ManageTunnels", chord: "Cmd+Shift+U" },
-    BindingRow { id: "Window.SetRemoteMode", chord: "Alt+Return" },
+    // 原版 Mode 菜单把 Alt+Return 写在 Local Mode 那一行，不是 Remote Mode。
+    BindingRow { id: "Window.SetLocalMode", chord: "Alt+Return" },
     BindingRow { id: "Text.ToggleHexEdit", chord: "Alt+M, Alt+H" },
     BindingRow { id: "Text.ToggleWordWrap", chord: "Alt+M, Alt+W" },
+    // 原版 Edit ▸ IntelliSense 的 Complete History 右侧写 Alt+R。
+    BindingRow { id: "Terminal.CompleteHistory", chord: "Alt+R" },
     BindingRow { id: "Window.ToggleFocusMode", chord: "Ctrl+Return" },
     BindingRow { id: "Window.ToggleFullScreen", chord: "Cmd+F11" },
     BindingRow { id: "Window.LockScreen", chord: "Cmd+Alt+L" },
@@ -176,6 +179,13 @@ pub const DEFAULT_BINDINGS: &[BindingRow] = &[
     BindingRow { id: "Text.MarginFoldColumn", chord: "Alt+T, Alt+F" },
     BindingRow { id: "Text.MarginSymbol", chord: "Alt+T, Alt+S" },
     BindingRow { id: "Text.MarginTimestamp", chord: "Alt+T, Alt+T" },
+    // View ▸ Symbols 四行（06-button-popups 清晰图逐项抄）：Alt+T 段的
+    // E/L/I/W 分别给 Line Endings / Column Marker / Indent Guides /
+    // Wrap Symbols。与 Margin 五行同前缀、不同后继，状态机按整段优先判。
+    BindingRow { id: "View.ToggleLineEndings", chord: "Alt+T, Alt+E" },
+    BindingRow { id: "View.ToggleColumnMarker", chord: "Alt+T, Alt+L" },
+    BindingRow { id: "View.ToggleIndentGuides", chord: "Alt+T, Alt+I" },
+    BindingRow { id: "View.ToggleWrapSymbols", chord: "Alt+T, Alt+W" },
 ];
 
 /// 把绑定文本里的 `Cmd+` 换成平台主修饰键写法，其余 token 原样保留。

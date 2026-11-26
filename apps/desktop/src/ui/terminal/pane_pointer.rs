@@ -85,6 +85,9 @@ pub(super) fn pointer_selection(
     pairs: &term_app::selection::Pairs,
     // 与正文同源的一帧折行配置：命中反查必须走同一张段表。
     wrap_cfg: term_app::wrap::WrapConfig,
+    // `Preferences ▸ Mouse Tracking ▸ Double click event`：关掉时本地双击
+    // 不再选词 / 选对，单击与拖动照旧。
+    double_click_enabled: bool,
 ) {
     let image_cols = image.cols.max(1);
     // 鼠标命中用的段表，与正文 / margin 同一口径：软折开时屏幕行 ≠ 逻辑行，
@@ -168,7 +171,7 @@ pub(super) fn pointer_selection(
         if let Some(p) = resp.interact_pointer_pos() {
             selections.set_active(line_span_at(image, to_pos(p).row));
         }
-    } else if resp.double_clicked() {
+    } else if double_click_enabled && resp.double_clicked() {
         if let Some(p) = resp.interact_pointer_pos() {
             let pos = to_pos(p);
             // 双击括号 → 选整对（含两端）；不在括号上才回退双击选词。

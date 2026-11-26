@@ -416,6 +416,8 @@ impl TerminalWindow {
                 wheel_event: prefs.mouse_wheel_event,
                 click_event: prefs.mouse_click_event,
                 middle_event: prefs.mouse_middle_event,
+                double_event: prefs.mouse_double_event,
+                right_event: prefs.mouse_right_event,
             },
             copied_on_select: None,
             copied_on_select_shell: None,

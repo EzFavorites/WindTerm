@@ -312,10 +312,16 @@ mod tests {
         // ClearScrollback / ClearAll）从私有 Work 提升到 parse + 台账，孤儿命令
         // `Window.TogglePaneTmux` 也补进台账 → 已接线 217→222、占位 2 不变、
         // 总数 219→224。
+        // 2026-11-26 C2 菜单 1:1：`Search ▸ Search Online` 的六个引擎、
+        // `View ▸ Syntax Schemes` 的七个 scheme、`Selection` 补 5 条、
+        // `Select To` 补 16 条、Toolbar 两行占位共 36 条新命令全部未接线，
+        // 按 ADR-0015 置灰；同时原先占菜单位的四条（SearchOnline / SchemeList /
+        // ToolbarList / ToolbarCustomize）退出菜单树。
+        // → 已接线 222→218、占位 2→38、总数 224→256。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 222, "已接线命令数变化需显式确认");
-        assert_eq!(planned, 2, "占位命令数变化需显式确认");
-        assert_eq!(inventory().len(), 224);
+        assert_eq!(implemented, 218, "已接线命令数变化需显式确认");
+        assert_eq!(planned, 38, "占位命令数变化需显式确认");
+        assert_eq!(inventory().len(), 256);
     }
 
 #[cfg(test)]

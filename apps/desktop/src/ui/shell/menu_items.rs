@@ -73,6 +73,12 @@ pub(in crate::ui) fn live_check(win: &TerminalWindow, id: &str) -> bool {
         Some(Action::Shell(ShellAction::SetRemoteMode)) => !win.local_mode_on(),
         // Word Wrap 勾的是活动标签的 Tab.word_wrap，与 toggle_word_wrap 共用同一位。
         Some(Action::Shell(ShellAction::ToggleWordWrap)) => win.word_wrap_on(),
+        // View ▸ Bars 的三条勾选行读的是同一份 `ViewState` 开关（reducer 的
+        // `ToggleMenuBar/StatusBar/QuickBar` 写它，绘制也读它）。原先这里没有
+        // 分支，三条 `Live` 全落兜底画空框——「有开关、没反馈」的假勾。
+        Some(Action::Shell(ShellAction::ToggleMenuBar)) => win.view.show_menu_bar,
+        Some(Action::Shell(ShellAction::ToggleStatusBar)) => win.view.show_status_bar,
+        Some(Action::Shell(ShellAction::ToggleQuickBar)) => win.view.show_quick_bar,
         Some(Action::Shell(ShellAction::HexBase(base))) => win.active_hex().base == base,
         Some(Action::Shell(ShellAction::HexColumns(columns))) => {
             win.active_hex().columns == columns

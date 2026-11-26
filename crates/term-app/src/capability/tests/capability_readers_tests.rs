@@ -83,7 +83,10 @@ fn every_implemented_command_has_a_reader() {
         "Terminal.CopySessionName",
         "Terminal.CopySessionUrl",
         "Help.Help",
-        "Text.SearchOnline",
+        // `Text.SearchOnline` / `Terminal.SchemeList` / 两条 Toolbar 命令
+        // 2026-11-26 从菜单里退出：原版这三处是运行期展开的引擎 / scheme /
+        // 空工具栏列表，本版对应入口尚未接线，按 ADR-0015 置灰，
+        // 因此不再属于「已接线且可见」集合。
         "Text.ZoomIn",
         "Text.ZoomOut",
         "Text.ResetZoom",
@@ -138,8 +141,6 @@ fn every_implemented_command_has_a_reader() {
         "Terminal.OpenSessionSettings",
         "Terminal.OpenDefaultSessionSettings",
         "Application.OpenProfileDialog",
-        "Window.ToolbarList",
-        "Window.ToolbarCustomize",
         // 这两条此前是同一条命令。现在 `GotoAddressBar` 是地址栏
         // （连接目标输入框：解析 / 候选 / 最近使用在 `term_app::address`，
         // 浮层与 `dispatch_action` 在投影层），`GotoCommandLine` 是那个
@@ -148,7 +149,6 @@ fn every_implemented_command_has_a_reader() {
         "Window.GotoAddressBar",
         "Window.GotoCommandLine",
         "Terminal.CompleteHistory",
-        "Terminal.SchemeList",
         "Window.WindowList",
         "Window.WindowManager",
         "Window.OpenFocusModeSettings",

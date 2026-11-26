@@ -121,27 +121,31 @@ pub fn has_selection(selection: Option<&Selection>) -> bool {
     selection.is_some_and(|sel| !sel.is_collapsed())
 }
 
-/// `Preferences ▸ Mouse Tracking` 的四类事件掩码。
+/// `Preferences ▸ Mouse Tracking` 的六类事件掩码。
 ///
-/// xterm 鼠标协议只有「总开关 + mode + encoding」，没有「move / wheel /
-/// click / middle 各一个 bool」。这一层不是第二套协议，而是**送进编码器之前
-/// 的一道掩码**：DECSET 仍决定编码档位，掩码只决定某类本地事件要不要上报。
-/// 双击不是协议事件，所以这里没有 `double_click` 字段。
+/// xterm 鼠标协议只有「总开关 + mode + encoding」。这一层不是第二套协议，
+/// 而是**送进编码器之前的一道掩码**：DECSET 仍决定编码档位，掩码只决定某类
+/// 本地事件要不要上报。双击没有独立的协议报告，所以 `double_event` 管的是
+/// 本地双击选词手势；`right_event` 管 secondary 按钮是否上报。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EventMask {
     pub move_event: bool,
     pub wheel_event: bool,
     pub click_event: bool,
     pub middle_event: bool,
+    pub double_event: bool,
+    pub right_event: bool,
 }
 
 impl EventMask {
-    /// 出厂 = 全开：升级一次不改变已经接通的鼠标报告行为。
+    /// 出厂 = 「原版设置页」：双击勾选，右键可见但未勾。
     pub const ALL: Self = Self {
         move_event: true,
         wheel_event: true,
         click_event: true,
         middle_event: true,
+        double_event: true,
+        right_event: false,
     };
 
     /// 把掩码套到一帧指针事件上。**只清被关掉的那一类**，别的不动——
@@ -165,6 +169,12 @@ impl EventMask {
             frame.pressed[1] = false;
             frame.released[1] = false;
             frame.down[1] = false;
+        }
+        // 下标 2 = Secondary。关掉右键事件时只清这一位，主键与中键不受影响。
+        if !self.right_event {
+            frame.pressed[2] = false;
+            frame.released[2] = false;
+            frame.down[2] = false;
         }
     }
 }
@@ -244,31 +254,39 @@ mod tests {
                 ctrl: false,
             },
         };
-        // 出厂掩码什么都不清：接线前的鼠标报告一字不变。
+        // 出厂掩码：双击开（不影响帧），右键未勾 → 只清 secondary（下标 2）。
         EventMask::ALL.apply(&mut frame);
         assert!(frame.dragged && frame.hovered && frame.scroll > 0.0);
+        assert_eq!(frame.pressed, [true, true, false]);
+
+        // 勾上右键事件后，secondary 原样上报。
+        let right = EventMask { right_event: true, ..EventMask::ALL };
+        right.apply(&mut frame);
         assert_eq!(frame.pressed, [true, true, true]);
 
         // 关掉中键：只清下标 1，主键与右键原样。
-        let mask = EventMask { middle_event: false, ..EventMask::ALL };
+        let mask = EventMask { middle_event: false, right_event: true, ..EventMask::ALL };
         mask.apply(&mut frame);
         assert_eq!(frame.pressed, [true, false, true]);
         assert_eq!(frame.released, [true, false, true]);
         assert_eq!(frame.down, [true, false, true]);
         assert!(frame.dragged && frame.scroll > 0.0);
 
-        // 四个掩码全关：move / wheel / 主键 / 中键都清掉，坐标与修饰键仍留给
-        // 编码器。右键（下标 2）不在这四个掩码里——它的行为在 Terminal 页配。
+        // 六项全关：move / wheel / 主键 / 中键 / 右键都清掉，坐标与修饰键仍留给
+        // 编码器。双击没有协议帧，由本地选词手势那条路径读 `double_event`。
         let none = EventMask {
             move_event: false,
             wheel_event: false,
             click_event: false,
             middle_event: false,
+            double_event: false,
+            right_event: false,
         };
+        assert!(!none.double_event);
         none.apply(&mut frame);
         assert!(!frame.dragged && !frame.hovered);
         assert_eq!(frame.scroll, 0.0);
-        assert_eq!(frame.pressed, [false, false, true]);
+        assert_eq!(frame.pressed, [false, false, false]);
         assert!(frame.has_pos);
     }
 }

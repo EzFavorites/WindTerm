@@ -493,6 +493,15 @@ impl TerminalWindow {
                 // Mode 菜单：4 个勾选行（Remote Mode / Word Wrap 打勾，
                 // Virtual Space / Multiple Caret 空框）+ 其余普通行。
                 //
+                // Word Wrap 是 `CheckState::Live`，勾读活动标签的 `Tab.word_wrap`。
+                // 原版 `mode/01-mode-menu.png` 那一格是打勾的运行态；夹具只把
+                // 活动标签的种子设成 true 来复现那一帧，不改出厂默认（那会影响
+                // 真实用户行为，属 C1 设置口径）。
+                let seed_slot = self.active_slot();
+                if let Some(tab) = self.tabs.get_mut(seed_slot) {
+                    tab.word_wrap = true;
+                }
+                //
                 // 宽度按内容自适应（`menu_popup_width`：最宽行 × 等宽字宽 +
                 // 勾选栏），不再写死 262——视觉基线里 `mode/01-mode-menu.png`
                 // 的 262 只是那张图的最宽行，换字体 / 换文案就失效。

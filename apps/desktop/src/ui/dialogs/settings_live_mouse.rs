@@ -1,19 +1,17 @@
-//! `Mouse Tracking` 页：四个**真勾选** + 一行无协议语义的灰显。
+//! `Mouse Tracking` 页：六行**真勾选**，逐项对齐原版设置页。
 //!
 //! # 底层通道是通的，缺的只是掩码
 //!
 //! `term-core::mouse_report::encode_frame` 早就能把指针事件编成 X10 / SGR /
 //! UTF-8 / Urxvt，`pane.rs` 每帧采集并写回 PTY，`vt.rs` 的 DECSET
 //! （`?1000/1002/1003/1005/1006/1015h`）也真的驱动 mode / encoding。
-//! 所以这一页原来「缺编码通道」的说法是**过期的**。
+//! 协议模型是「总开关 + mode + encoding」，这里做的是**掩码**而不是第二套
+//! 协议：远端 DECSET 仍决定编码档位，`term_app::mouse::EventMask::apply`
+//! 只在送进编码器之前清掉被用户关掉的那一类事件。
 //!
-//! 真正缺的是「用户能否分别关掉某一类事件」。协议模型是「总开关 + mode +
-//! encoding」，不是五个 bool；这里做的是**掩码**而不是第二套协议：远端
-//! DECSET 仍然决定编码档位，`term_app::mouse::EventMask::apply` 只在送进
-//! 编码器之前清掉被用户关掉的那一类事件。
-//!
-//! `Double click event` 不是「还没接」：xterm 鼠标协议没有双击报告，本地
-//! 双击只用于选词。这一行保留形状并写清理由，不做假开关。
+//! 六行的语义不同：Move / Wheel / Click / Middle / Right 五类掩码直接清
+//! 对应按钮或移动帧；xterm 没有双击报告，所以 `Double click event` 管的是
+//! **本地双击选词手势**（出厂勾选），不是往 PTY 多写一个字节。
 
 use crate::ui::kit::field::{choice_row_resp, ChoiceKind, UnderlineStyle};
 use crate::ui::kit::spec::BLOCK_GAP;
@@ -21,20 +19,20 @@ use super::settings_live::save_prefs;
 use super::settings_pages_view::group_box;
 use crate::ui::*;
 
-const DOUBLE_CLICK_NOTE: &str = "The xterm mouse protocol has no double-click event. Local double \
-     click stays a selection gesture (double-click selects a word), so there is no byte to report \
-     and no field to store.";
+const DOUBLE_CLICK_NOTE: &str = "The xterm mouse protocol has no double-click report. This switch \
+     controls the local double-click gesture (double-click selects a word or a bracket pair); it is \
+     saved and applied at once. Uncheck it to turn that gesture off.";
 
-/// 右键的远端报告没有独立开关：`Terminal ▸ Mouse Actions ▸ Right click:` 管的是
-/// **本地**右键（菜单 / 粘贴 / 复制），与协议里是否上报 secondary click 不是一回事。
-const RIGHT_CLICK_NOTE: &str = "Right-click behaviour is configured in Preferences ▸ Terminal ▸ \
-     Mouse Actions ▸ Right click (context menu / paste / copy). The protocol reports the secondary \
-     button under the same DECSET mode as the other clicks; there is no second field here.";
+/// 右键的远端报告掩码与 `Terminal ▸ Mouse Actions ▸ Right click:` 的本地行为
+/// 是两件事：那里管菜单 / 粘贴 / 复制，这里管要不要把 secondary 按钮上报。
+const RIGHT_CLICK_NOTE: &str = "Reports the secondary button under the same DECSET mode as the other \
+     clicks. The local right-click action (menu / paste / copy) is set in Preferences ▸ Terminal ▸ \
+     Mouse Actions ▸ Right click. Saved and applied immediately.";
 
-/// 页底：哪四行当场生效，灰的那行为什么没有字段。
-const MOUSE_NOTE: &str = "Move, wheel, click and middle click mask the pointer events before they \
+/// 页底：六行各自的落点。
+const MOUSE_NOTE: &str = "Move, wheel, click, middle and right mask the pointer events before they \
      reach the mouse-report encoder; the program's DECSET mode still decides how the rest are \
-     encoded. Double click has no protocol event — see its tooltip.";
+     encoded. Double click has no protocol event — it gates the local selection gesture.";
 
 pub(in crate::ui) fn mouse_tracking(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     let mut mask = win.mouse_events;
@@ -46,16 +44,12 @@ pub(in crate::ui) fn mouse_tracking(win: &mut TerminalWindow, ui: &mut egui::Ui)
         changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Wheel event", "", &mut mask.wheel_event, true, UnderlineStyle::None).clicked();
         changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Click event", "", &mut mask.click_event, true, UnderlineStyle::None).clicked();
         changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Middle click event", "", &mut mask.middle_event, true, UnderlineStyle::None).clicked();
-        // 空框 + 灰字：勾代表「已生效」，而这一项没有可生效的东西。
-        let mut never = false;
-        ui.add_enabled(false, egui::Checkbox::new(&mut never, "Double click event"))
-            .on_disabled_hover_text(DOUBLE_CLICK_NOTE);
-        let mut never_right = false;
-        ui.add_enabled(
-            false,
-            egui::Checkbox::new(&mut never_right, "Right click event"),
-        )
-        .on_disabled_hover_text(RIGHT_CLICK_NOTE);
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Double click event", "", &mut mask.double_event, true, UnderlineStyle::None)
+            .on_hover_text(DOUBLE_CLICK_NOTE)
+            .clicked();
+        changed |= choice_row_resp(ui, ChoiceKind::Checkbox, "Right click event", "", &mut mask.right_event, true, UnderlineStyle::None)
+            .on_hover_text(RIGHT_CLICK_NOTE)
+            .clicked();
         // 原数据表面板在末尾有一段说明，这里保留同样的信息（不改布局高度）。
         ui.add_space(BLOCK_GAP);
         ui.label(MOUSE_NOTE);
@@ -69,6 +63,8 @@ pub(in crate::ui) fn mouse_tracking(win: &mut TerminalWindow, ui: &mut egui::Ui)
             prefs.mouse_wheel_event = mask.wheel_event;
             prefs.mouse_click_event = mask.click_event;
             prefs.mouse_middle_event = mask.middle_event;
+            prefs.mouse_double_event = mask.double_event;
+            prefs.mouse_right_event = mask.right_event;
         });
     }
 }
@@ -78,16 +74,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_mask_defaults_to_reporting_everything() {
-        // 出厂全开 = 接线前的行为；老文件缺键走 serde 的 `default_true`，
-        // 两边不一致就会让「升级一次」悄悄关掉某一类鼠标报告。
+    fn the_mask_defaults_to_the_reference_values() {
+        // 出厂：双击勾选（本地选词手势开），右键可见但未勾；其余四类全开。
+        // 老文件缺键走 serde 默认，两边必须一致。
         assert_eq!(term_app::mouse::EventMask::ALL, term_app::mouse::EventMask {
             move_event: true,
             wheel_event: true,
             click_event: true,
             middle_event: true,
+            double_event: true,
+            right_event: false,
         });
         assert!(MOUSE_NOTE.contains("DECSET"), "要说清掩码不替代协议档位");
-        assert!(DOUBLE_CLICK_NOTE.contains("no double-click"), "灰行要说清缺的是协议事件");
+        assert!(DOUBLE_CLICK_NOTE.contains("local double-click"), "要说清双击管的是本地手势");
     }
 }

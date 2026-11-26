@@ -3,6 +3,34 @@
 //! 夹具只在 `127.0.0.1:0` 上 bind 一个 `TcpListener`（回环、不对外提供服务），
 //! 客户端与服务端都在本测试进程里：不需要真 telnet 服务端，也不需要任何新依赖。
 //! 服务端脚本通过 `mpsc` 控制，测试可以精确决定「何时发协商、何时断开」。
+//!
+//! # 为什么改成确定性同步（2026-11-26）
+//!
+//! 旧夹具的 `MockServer::new()` 只 `thread::spawn` 就返回：accept 线程什么时候
+//! 跑到 `accept()` 完全交给 OS 调度。而它只 accept **一次**，随后独占唯一的
+//! `script_rx` 进入读循环。于是有两处真实竞态：
+//!
+//! ① 全量验收的并发负载下，accept 线程可能被推迟很久。客户端的 connect 会
+//!    进内核 backlog、握手成功，但数据要等线程被调度才流动；BUDGET(2s) 一到
+//!    就报成「连接超时」。把 BUDGET 放大到 10s、connect 重试 3 次只是把症状
+//!    推后，并没有消除竞态。
+//!
+//! ② 任何**第二条**到同一端口的连接都会把那一次 accept 消耗掉。此后真正的
+//!    客户端虽然握手成功，却永远卡在 backlog 里收不到字节；`script_tx` 的
+//!    唯一接收端也随线程退出而消失，`send()` 直接 panic。独立复现实验见下方
+//!    `single-shot accept` 的证据：第二条连接 read 200ms 得到 WouldBlock，
+//!    而端口明明仍在监听。这正是偶发 `Connection refused` / `connection timed
+//!    out` 的形状——不是网络问题，是夹具自己把服务端弄死了。
+//!
+//! 现在：
+//! - accept 用**阻塞** socket，线程进入 `accept()` 前先发就绪信号，`new()`
+//!   必须收到信号才返回（有上界，失败立刻 panic，绝不挂死）；
+//! - 监听器始终归夹具所有，线程只持 `try_clone()` 句柄，生命周期彻底解耦；
+//! - `Drop` 用一次「自己连自己」确定性唤醒阻塞的 accept，线程看到 stop 立刻
+//!   收摊，不依赖 `WouldBlock` 轮询或 2ms sleep；
+//! - 错误分类用例不再 `bind → drop → connect`（那个空窗会被并行测试抢走端口，
+//!   当时的「重试 5 次」正是掩盖式补丁），改为「IPv4 回环绑住不放 + 连同一
+//!   端口的 `::1`」：内核确定返回 ECONNREFUSED，一个重试都不需要。
 
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
@@ -18,7 +46,10 @@ use term_io::channel::open_channel;
 use term_io::error::SpawnError;
 use term_io::telnet_channel::TelnetChannel;
 
-/// 每个等待的上界：拿不到就判失败，测试绝不挂死。
+/// 所有等待的**硬上界**：拿不到就 fail-fast，测试绝不挂死。
+///
+/// 这是诊断用的断路阈值，不是「多等一会儿」的宽容度：就绪握手、数据到达、
+/// 断连上报全都必须在 2 秒内发生，否则就是夹具或实现坏了。
 const BUDGET: Duration = Duration::from_secs(2);
 
 /// 服务端脚本动作。
@@ -32,13 +63,9 @@ enum ServerAction {
 /// 单连接的 mock telnet 服务端。
 struct MockServer {
     addr: SocketAddr,
-    /// 监听器**归夹具所有**，不再随 accept 线程一起活/死。
-    ///
-    /// 曾经把 listener 直接 move 进线程：线程一旦因为读循环里的 `return`
-    /// （对端断开、写失败）先退出，socket 随之 drop，此后客户端拿到的就是
-    /// `Connection refused`。把 BUDGET 放大、给 connect 加重试只是掩盖这个
-    /// 症状。现在 listener 的生命周期与本结构体一致（测试全程都在），线程
-    /// 只持有 `try_clone()` 出来的句柄，两件事彻底解耦。
+    /// 监听器**归夹具所有**。曾经把它直接 move 进 accept 线程：线程一旦
+    /// 提前退出，socket 随之 drop，后续连接拿到的就是 `Connection refused`。
+    /// 现在线程只持有 `try_clone()` 的句柄，两件事彻底解耦。
     _listener: TcpListener,
     /// 从客户端收到的全部原始字节（按到达顺序）。
     received: Arc<Mutex<Vec<u8>>>,
@@ -48,19 +75,18 @@ struct MockServer {
 }
 
 impl MockServer {
-    /// 在回环上绑定并起线程；listener 在**主线程**就 bind 好，客户端随即
-    /// 可以 connect（连接会排在 backlog 里等 accept）。
+    /// 绑定回环、起 accept 线程，并**等线程报到**才返回。
+    ///
+    /// `new()` 返回时保证 accept 线程已经在阻塞 `accept()`：客户端随后
+    /// connect 只是把连接交给内核 backlog，不依赖用户态线程何时被调度。
     fn new() -> Self {
         let listener = TcpListener::bind("127.0.0.1:0")
             .unwrap_or_else(|err| panic!("bind 回环 mock 服务端失败：{err}"));
         let addr = listener
             .local_addr()
             .unwrap_or_else(|err| panic!("取监听地址失败：{err}"));
-        listener
-            .set_nonblocking(true)
-            .unwrap_or_else(|err| panic!("accept 设为非阻塞失败：{err}"));
-        // 线程拿一份克隆：`accept` 用的是同一个底层 socket（共享 backlog 与
-        // 非阻塞标志），但所有权与本结构体无关。
+        // 阻塞式 accept：连接一到，内核直接唤醒线程；不再有非阻塞轮询 +
+        // sleep(2ms) 那套「赌调度」的时序依赖。
         let thread_listener = listener
             .try_clone()
             .unwrap_or_else(|err| panic!("克隆 mock 监听器失败：{err}"));
@@ -69,35 +95,22 @@ impl MockServer {
         let stop = Arc::new(AtomicBool::new(false));
         let (script_tx, script_rx) = mpsc::channel();
 
+        // 确定性就绪握手：线程在调用 accept() **之前**报到，`new()` 必须等到
+        // 这个信号才返回。上界 BUDGET 保证线程起不来时当场失败，不挂死。
+        let (ready_tx, ready_rx) = mpsc::channel();
         let thread_received = Arc::clone(&received);
         let thread_stop = Arc::clone(&stop);
         let thread = thread::spawn(move || {
-            let mut conn: TcpStream = loop {
-                match thread_listener.accept() {
-                    Ok((conn, _)) => break conn,
-                    // 非阻塞 accept 在负载/信号下也可能返回 Interrupted。
-                    // 这里的重试只针对「这一次 accept 没拿到连接」，不再是
-                    // 靠线程退出/超时去赌——监听器本身归夹具所有，不会因线程
-                    // 提前返回而 drop。
-                    Err(err)
-                        if matches!(
-                            err.kind(),
-                            ErrorKind::WouldBlock | ErrorKind::Interrupted
-                        ) =>
-                    {
-                        if thread_stop.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        thread::sleep(Duration::from_millis(2));
-                    }
-                    Err(_) => {
-                        if thread_stop.load(Ordering::SeqCst) {
-                            return;
-                        }
-                        thread::sleep(Duration::from_millis(2));
-                    }
-                }
+            let _ = ready_tx.send(());
+            let mut conn = match thread_listener.accept() {
+                Ok((conn, _)) => conn,
+                // 监听器关闭 / 唤醒用的自连接：收摊即可，不再重试。
+                Err(_) => return,
             };
+            // Drop 的自连接唤醒不能冒充客户端连接。
+            if thread_stop.load(Ordering::SeqCst) {
+                return;
+            }
             let _ = conn.set_read_timeout(Some(Duration::from_millis(20)));
             let mut buf = [0u8; 4096];
             loop {
@@ -130,12 +143,16 @@ impl MockServer {
                             ErrorKind::WouldBlock | ErrorKind::TimedOut | ErrorKind::Interrupted
                         ) =>
                     {
+                        // 读超时是让 stop 标志得以被检查的节奏，不是重试补丁。
                         thread::sleep(Duration::from_millis(2));
                     }
                     Err(_) => break,
                 }
             }
         });
+        ready_rx
+            .recv_timeout(BUDGET)
+            .unwrap_or_else(|err| panic!("mock 服务端 accept 线程未就绪：{err}"));
 
         Self {
             addr,
@@ -190,6 +207,9 @@ impl MockServer {
 impl Drop for MockServer {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::SeqCst);
+        // 确定性唤醒阻塞在 accept() 上的线程：一次自连接让 accept 立刻返回，
+        // 线程看到 stop 就退出。不需要等超时，也不靠「等一会儿」。
+        let _ = TcpStream::connect(self.addr);
         if let Some(handle) = self.thread.take() {
             let _ = handle.join();
         }
@@ -214,8 +234,7 @@ fn open_telnet(addr: &SocketAddr, cols: usize, rows: usize) -> TelnetChannel {
     let mut config = SessionConfig::new(Protocol::Telnet);
     config.host = addr.ip().to_string();
     config.port = addr.port();
-    // 只连一次：监听器现在归夹具所有，accept 线程提前退出也不会让端口变成
-    // 「没人监听」；靠加大超时或重试 3 次来掩盖症状的补丁已经撤掉。
+    // `new()` 已保证 accept 线程就位；这里只连一次，没有重试、没有加时。
     TelnetChannel::open(&config, cols, rows)
         .unwrap_or_else(|err| panic!("连本地 mock 服务端失败：{err}"))
 }
@@ -450,28 +469,29 @@ fn telnet_spawn_error_has_its_own_readable_class() {
 
 #[test]
 fn open_channel_reports_telnet_errors_without_falling_back() {
-    for _ in 0..5 {
-        // 绑一个回环端口再立刻放开：没人监听时 connect 会被明确拒绝。
-        // 万一被并行测试抢占，换一个端口重试即可（不允许静默回退系统客户端）。
-        let listener = TcpListener::bind("127.0.0.1:0")
-            .unwrap_or_else(|err| panic!("占一个临时端口失败：{err}"));
-        let port = listener
-            .local_addr()
-            .unwrap_or_else(|err| panic!("读取端口失败：{err}"))
-            .port();
-        drop(listener);
+    // 确定性制造「连接被拒」：在 IPv4 回环上绑一个监听器并**全程持有**，然后
+    // 让客户端连同一端口的 IPv6 回环地址 `::1`。该端口只在 IPv4 上监听，
+    // ::1 上没有 socket，内核确定返回 ECONNREFUSED（本机实测 os error 61）。
+    //
+    // 旧写法是 `bind(0) → 读端口 → drop → connect`：端口一旦放掉就出现空窗，
+    // 并行测试（或同进程另一个用例）的 `bind(0)` 可能抢走它，于是 connect
+    // 反而成功，测试靠 `for _ in 0..5` 重试去赌——那正是要删掉的掩盖式补丁。
+    // 现在端口从头到尾都被本用例占着，空窗消失，一次连接、一次判定。
+    let _listener =
+        TcpListener::bind("127.0.0.1:0").unwrap_or_else(|err| panic!("占一个临时端口失败：{err}"));
+    let port = _listener
+        .local_addr()
+        .unwrap_or_else(|err| panic!("读取端口失败：{err}"))
+        .port();
 
-        let mut config = SessionConfig::new(Protocol::Telnet);
-        config.host = "127.0.0.1".to_string();
-        config.port = port;
-        match open_channel(config, 80, 24) {
-            Err(err) => {
-                assert!(matches!(err, SpawnError::Telnet(_)), "{err:?}");
-                assert!(err.to_string().contains("Telnet"), "{err}");
-                return;
-            }
-            Ok(_) => continue,
+    let mut config = SessionConfig::new(Protocol::Telnet);
+    config.host = "::1".to_string();
+    config.port = port;
+    match open_channel(config, 80, 24) {
+        Err(err) => {
+            assert!(matches!(err, SpawnError::Telnet(_)), "{err:?}");
+            assert!(err.to_string().contains("Telnet"), "{err}");
         }
+        Ok(_) => panic!("连 ::1 不该成功：该端口只在 IPv4 回环上监听"),
     }
-    panic!("连续 5 个临时端口都被抢占，没能验证 Telnet 失败分类");
 }

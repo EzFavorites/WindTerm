@@ -66,7 +66,8 @@ pub enum Preselect {
     Best,
 }
 
-/// 补全偏好。**默认值严格照视觉基线**：六个勾全空、1 字符触发、7 行、不预选。
+/// 补全偏好。**六个勾出厂全开**（与原版设置页出厂态逐项一致）、1 字符触发、
+/// 7 行、不预选。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -93,12 +94,12 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            enabled: false,
-            commands: false,
-            options: false,
-            parameters: false,
-            history: false,
-            quick: false,
+            enabled: true,
+            commands: true,
+            options: true,
+            parameters: true,
+            history: true,
+            quick: true,
             min_chars: 1,
             list_height: 7,
             preselect: Preselect::Nowhere,
@@ -329,8 +330,8 @@ mod tests {
     #[test]
     fn factory_defaults_match_reference_screenshot() {
         let s = Settings::default();
-        assert!(!s.enabled && !s.commands && !s.options && !s.parameters);
-        assert!(!s.history && !s.quick);
+        assert!(s.enabled && s.commands && s.options && s.parameters);
+        assert!(s.history && s.quick);
         assert_eq!(s.min_chars, 1);
         assert_eq!(s.list_height, 7);
         assert_eq!(s.preselect, Preselect::Nowhere);
@@ -338,7 +339,8 @@ mod tests {
 
     #[test]
     fn disabled_returns_no_candidates() {
-        let s = Settings::default();
+        let mut s = Settings::default();
+        s.enabled = false;
         assert!(run("git st", &s).is_empty());
     }
 

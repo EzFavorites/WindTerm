@@ -182,12 +182,38 @@ pub fn menus() -> Vec<Menu> {
                     label: "Find",
                     id: "Text.Find",
                 },
+                // 原版这一层是六个搜索引擎（菜单配置里写一条 `Text.SearchOnline`，
+                // 运行期由设置里的引擎表展开成六行）。本版六个入口尚未接线，
+                // 按 ADR-0015 一律置灰，悬停给「Not wired (placeholder)」；
+                // 不拿一条什么都不做的共享 ID 冒充六个引擎。
                 Item::Submenu {
                     label: "Search Online",
-                    items: vec![Item::Action {
-                        label: "Search Online",
-                        id: "Text.SearchOnline",
-                    }],
+                    items: vec![
+                        Item::Action {
+                            label: "Google",
+                            id: "Text.SearchOnlineGoogle",
+                        },
+                        Item::Action {
+                            label: "Bing",
+                            id: "Text.SearchOnlineBing",
+                        },
+                        Item::Action {
+                            label: "Github",
+                            id: "Text.SearchOnlineGithub",
+                        },
+                        Item::Action {
+                            label: "Stackoverflow",
+                            id: "Text.SearchOnlineStackoverflow",
+                        },
+                        Item::Action {
+                            label: "Wikipedia",
+                            id: "Text.SearchOnlineWikipedia",
+                        },
+                        Item::Action {
+                            label: "DuckDuckGo",
+                            id: "Text.SearchOnlineDuckDuckGo",
+                        },
+                    ],
                 },
                 Item::Separator,
                 Item::Action {
@@ -216,6 +242,11 @@ pub fn menus() -> Vec<Menu> {
         Menu {
             label: "Selection",
             items: vec![
+                // 原版 `menu.config` 的 Select 子菜单是
+                // All | Word/Line/Paragraph | Pair/SelectCommand/Fold/Scope/Indentation
+                // 两组（共 9 行命令 + 2 条分隔线）。后补的五条没有选区实现，
+                // 按 ADR-0015 置灰；已有的 Select All/Word/Line/Select Command
+                // 继续读同一份选区能力，不换 ID。
                 Item::Submenu {
                     label: "Select",
                     items: vec![
@@ -232,13 +263,37 @@ pub fn menus() -> Vec<Menu> {
                             label: "Select Line",
                             id: "Text.SelectLine",
                         },
+                        Item::Action {
+                            label: "Select Paragraph",
+                            id: "Text.SelectParagraph",
+                        },
                         Item::Separator,
+                        Item::Action {
+                            label: "Select Pair",
+                            id: "Text.SelectPair",
+                        },
                         Item::Action {
                             label: "Select Command",
                             id: "Text.SelectCommand",
                         },
+                        Item::Action {
+                            label: "Select Fold",
+                            id: "Text.SelectFold",
+                        },
+                        Item::Action {
+                            label: "Select Scope",
+                            id: "Text.SelectScope",
+                        },
+                        Item::Action {
+                            label: "Select Indentation",
+                            id: "Text.SelectIndentation",
+                        },
                     ],
                 },
+                // 原版 `menu.config` 的 Select To 是 12 组 Previous/Next +
+                // 六条尾项（Pair Start/End、Line Home/End、Document Start/End），
+                // 三组分隔线。本版只接了 Char/Word/Line/Page 与四条尾项，
+                // 其余按 ADR-0015 置灰，悬停给「Not wired (placeholder)」。
                 Item::Submenu {
                     label: "Select To",
                     items: vec![
@@ -255,12 +310,40 @@ pub fn menus() -> Vec<Menu> {
                             id: "Text.SelectToPreviousWordEnd",
                         },
                         Item::Action {
+                            label: "Select To Previous Word Part",
+                            id: "Text.SelectToPreviousWordPart",
+                        },
+                        Item::Action {
                             label: "Select To Previous Line",
                             id: "Text.SelectToPreviousLine",
                         },
                         Item::Action {
                             label: "Select To Previous Page",
                             id: "Text.SelectToPreviousPage",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Stuttered Page",
+                            id: "Text.SelectToPreviousStutteredPage",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Pair",
+                            id: "Text.SelectToPreviousPair",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Paragraph",
+                            id: "Text.SelectToPreviousParagraph",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Fold",
+                            id: "Text.SelectToPreviousFold",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Scope",
+                            id: "Text.SelectToPreviousScope",
+                        },
+                        Item::Action {
+                            label: "Select To Previous Indentation",
+                            id: "Text.SelectToPreviousIndentation",
                         },
                         Item::Separator,
                         Item::Action {
@@ -276,6 +359,10 @@ pub fn menus() -> Vec<Menu> {
                             id: "Text.SelectToNextWordEnd",
                         },
                         Item::Action {
+                            label: "Select To Next Word Part",
+                            id: "Text.SelectToNextWordPart",
+                        },
+                        Item::Action {
                             label: "Select To Next Line",
                             id: "Text.SelectToNextLine",
                         },
@@ -283,7 +370,35 @@ pub fn menus() -> Vec<Menu> {
                             label: "Select To Next Page",
                             id: "Text.SelectToNextPage",
                         },
+                        Item::Action {
+                            label: "Select To Next Stuttered Page",
+                            id: "Text.SelectToNextStutteredPage",
+                        },
+                        Item::Action {
+                            label: "Select To Next Pair",
+                            id: "Text.SelectToNextPair",
+                        },
+                        Item::Action {
+                            label: "Select To Next Paragraph",
+                            id: "Text.SelectToNextParagraph",
+                        },
+                        Item::Action {
+                            label: "Select To Next Fold",
+                            id: "Text.SelectToNextFold",
+                        },
+                        Item::Action {
+                            label: "Select To Next Scope",
+                            id: "Text.SelectToNextScope",
+                        },
+                        Item::Action {
+                            label: "Select To Next Indentation",
+                            id: "Text.SelectToNextIndentation",
+                        },
                         Item::Separator,
+                        Item::Action {
+                            label: "Select To Pair Start",
+                            id: "Text.SelectToPairStart",
+                        },
                         Item::Action {
                             label: "Select To Line Home",
                             id: "Text.SelectToLineHome",
@@ -293,6 +408,10 @@ pub fn menus() -> Vec<Menu> {
                             id: "Text.SelectToDocumentStart",
                         },
                         Item::Separator,
+                        Item::Action {
+                            label: "Select To Pair End",
+                            id: "Text.SelectToPairEnd",
+                        },
                         Item::Action {
                             label: "Select To Line End",
                             id: "Text.SelectToLineEnd",
@@ -488,17 +607,20 @@ pub fn menus() -> Vec<Menu> {
                             id: "Window.ToggleStatusBar",
                             checked: CheckState::Live,
                         },
+                        // 原版展开只有两行且都是灰的：没有自定义工具栏条目时
+                        // 显示 `[Toolbar list is empty]`，`Customize…` 也灰着。
+                        // 本版没有工具栏条目模型，按 ADR-0015 用未接线 ID
+                        // 置灰，不摆点了没反应的假按钮。
                         Item::Submenu {
                             label: "Toolbar",
                             items: vec![
                                 Item::Action {
-                                    label: "Toolbar List",
-                                    id: "Window.ToolbarList",
+                                    label: "[Toolbar list is empty]",
+                                    id: "Window.ToolbarListEmpty",
                                 },
-                                Item::Separator,
                                 Item::Action {
-                                    label: "Toolbar Customize",
-                                    id: "Window.ToolbarCustomize",
+                                    label: "Customize…",
+                                    id: "Window.ToolbarCustomizePlaceholder",
                                 },
                             ],
                         },
@@ -561,12 +683,41 @@ pub fn menus() -> Vec<Menu> {
                 Item::Separator,
                 // 2026-11-23 参考图 `01-view-menu.png`：Panes 与 Syntax Schemes
                 // 之间有一条分隔线（旧图判成连排，已纠正）。
+                // 原版这一层由已安装的语法配色运行期展开成七档（菜单配置里
+                // 只有一条 `Terminal.SchemeList`）。七个入口本版未接线，
+                // 按 ADR-0015 置灰，不画成点了能切的假单选。
                 Item::Submenu {
                     label: "Syntax Schemes",
-                    items: vec![Item::Action {
-                        label: "Scheme List",
-                        id: "Terminal.SchemeList",
-                    }],
+                    items: vec![
+                        Item::Action {
+                            label: "cmd",
+                            id: "Terminal.SchemeCmd",
+                        },
+                        Item::Action {
+                            label: "dumb",
+                            id: "Terminal.SchemeDumb",
+                        },
+                        Item::Action {
+                            label: "linux",
+                            id: "Terminal.SchemeLinux",
+                        },
+                        Item::Action {
+                            label: "macos",
+                            id: "Terminal.SchemeMacos",
+                        },
+                        Item::Action {
+                            label: "none",
+                            id: "Terminal.SchemeNone",
+                        },
+                        Item::Action {
+                            label: "powershell",
+                            id: "Terminal.SchemePowershell",
+                        },
+                        Item::Action {
+                            label: "routeros",
+                            id: "Terminal.SchemeRouteros",
+                        },
+                    ],
                 },
                 Item::Separator,
                 // 视觉基线 `01-view-menu.png`：这一条带框且**独占一行**，

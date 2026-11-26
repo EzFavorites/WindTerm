@@ -141,6 +141,7 @@ impl TerminalWindow {
 
         let mut x = band.left();
         let mut close_tab: Option<usize> = None;
+        let mut rename_tab = false;
         let mut rename_pane: Option<usize> = None;
         for (i, (title, color)) in labels.iter().enumerate() {
             let is_active = self.active_slot() == i;
@@ -200,9 +201,10 @@ impl TerminalWindow {
                     TabDoubleClick::None => {}
                 }
             } else if self.tab_middle_click == 1 && resp.middle_clicked() {
-                // 中键的语义固定为「关闭」：动作集里只有这一项，不做另一个
-                // 下拉。`middle_clicked` 与 `clicked` 正交，不会顺带激活。
                 close_tab = Some(i);
+            } else if self.tab_middle_click == 2 && resp.middle_clicked() {
+                // 中键第三档「Rename tab」复用标签右键菜单的 Rename Tab 动作。
+                rename_tab = true;
             } else if resp.clicked() {
                 self.set_active_slot(i);
             }
@@ -362,6 +364,9 @@ impl TerminalWindow {
             // 与命令面板里的 `Mux: Rename Pane` 是同一个 ID、同一条落地路径：
             // 打开 tmux 面板并聚焦 Pane name 输入框。
             self.dispatch(RENAME_PANE_PROMPT_ID);
+        }
+        if rename_tab {
+            self.dispatch_action(crate::ui::shell::tab_menu::rename_tab_action());
         }
         if let Some(i) = close_tab {
             // 标签栏 × 与菜单「Close」共用同一条关闭路径，右键

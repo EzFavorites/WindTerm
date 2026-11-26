@@ -372,6 +372,7 @@ impl TerminalWindow {
                 visible_separators(&tab.config, tab.snapshot.alt),
                 &term_app::selection::Pairs::parse(&tab.config.bracket_pairs),
                 self.wrap_settings.with(tab.word_wrap),
+                mouse_events.double_event,
             );
         }
 

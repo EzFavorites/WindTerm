@@ -344,10 +344,11 @@ fn the_three_clear_commands_are_three_distinct_actions() {
 #[test]
 fn view_menu_structure_matches_the_reference() {
     let labels: Vec<&str> = VIEW_ROWS.iter().filter(|r| !r.label.is_empty()).map(|r| r.label).collect();
-    assert_eq!(labels.len(), 12, "局部清晰图 12 个文字行（含 Paste Selected Text）");
-    assert_eq!(VIEW_ROWS.len(), 16, "12 行 + 4 条分隔线");
+    assert_eq!(labels.len(), 13, "12 行 + C2 补回的 Copy Command（含 Paste Selected Text）");
+    assert_eq!(VIEW_ROWS.len(), 17, "13 行 + 4 条分隔线");
     assert_eq!(VIEW_ROWS.iter().filter(|r| r.separator).count(), 4);
     assert_eq!(labels.first(), Some(&"Copy"));
+    assert_eq!(labels[1], "Copy Command", "紧跟 Copy 的同一类复制命令");
     assert_eq!(labels.last(), Some(&"Full Screen"));
 }
 
@@ -407,8 +408,21 @@ fn search_online_submenu_expands_the_same_tree_as_the_menu_bar() {
     assert_eq!(row.children, Some("Search Online"), "必须读菜单树那一棵");
     assert_eq!(row_state(row, None), MenuRowState::Enabled, "有真子树却灰着");
     let items = tree_submenu_items("Search Online");
-    assert_eq!(items.len(), 1, "Search Online 子树只有一条命令");
-    assert!(term_app::capability::is_implemented("Text.SearchOnline"));
+    // 原版这一层是运行期展开的六个搜索引擎，不再是一条泛化的 Search Online。
+    assert_eq!(items.len(), 6, "Search Online 子树是六个引擎");
+    let labels: Vec<&str> = items
+        .iter()
+        .map(|it| match it {
+            term_app::menu::Item::Action { label, .. }
+            | term_app::menu::Item::Check { label, .. } => *label,
+            term_app::menu::Item::Submenu { label, .. } => *label,
+            term_app::menu::Item::Separator => "",
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        ["Google", "Bing", "Github", "Stackoverflow", "Wikipedia", "DuckDuckGo"]
+    );
 }
 
 /// 2026-11-19：margin 栏的 Fold 列有折叠头绘制读者（`terminal/margin.rs`），

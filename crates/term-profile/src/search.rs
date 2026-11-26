@@ -22,16 +22,13 @@ pub struct SearchEngine {
     pub url: &'static str,
 }
 
-/// 出厂引擎表。第一项就是出厂模板（见 [`default_url`]），所以「没设置过」
-/// 与「打开设置页看到的那一项」是同一条 URL，不会出现「下拉显示 DuckDuckGo、
-/// 菜单却搜 Google」这种自相矛盾。
+/// 出厂引擎表，顺序与文案逐项对齐原版设置页的两列表格：
+/// Google / Bing / Github / Stackoverflow / Wikipedia / DuckDuckGo。
 ///
-/// 六条都是真实可用的搜索入口，且都不需要 key / 登录。
+/// 六条都是真实可用的搜索入口，且都不需要 key / 登录。出厂模板是最后那条
+/// DuckDuckGo（见 [`default_url`]），所以「没设置过」与「打开设置页看到的
+/// 那一项」仍是同一条 URL。
 pub const SEARCH_ENGINES: &[SearchEngine] = &[
-    SearchEngine {
-        name: "DuckDuckGo",
-        url: "https://duckduckgo.com/?q={}",
-    },
     SearchEngine {
         name: "Google",
         url: "https://www.google.com/search?q={}",
@@ -41,25 +38,26 @@ pub const SEARCH_ENGINES: &[SearchEngine] = &[
         url: "https://www.bing.com/search?q={}",
     },
     SearchEngine {
-        name: "Baidu",
-        url: "https://www.baidu.com/s?wd={}",
+        name: "Github",
+        url: "https://github.com/search?q={}",
     },
     SearchEngine {
-        name: "Stack Overflow",
+        name: "Stackoverflow",
         url: "https://stackoverflow.com/search?q={}",
     },
     SearchEngine {
-        name: "GitHub",
-        url: "https://github.com/search?q={}",
+        name: "Wikipedia",
+        url: "https://en.wikipedia.org/w/index.php?search={}",
+    },
+    SearchEngine {
+        name: "DuckDuckGo",
+        url: "https://duckduckgo.com/?q={}",
     },
 ];
 
-/// 出厂模板（`Prefs::search_url` 为空串时用它）。
-///
-/// 写成函数而不是 `const`：`SEARCH_ENGINES[0].url` 在常量求值里要索引切片，
-/// 换成函数就没有那层限制，而且「出厂 = 表的第一项」这条关系只写一次。
+/// 出厂模板（`Prefs::search_url` 为空串时用它）：最后那条 DuckDuckGo。
 pub fn default_url() -> &'static str {
-    SEARCH_ENGINES[0].url
+    SEARCH_ENGINES[SEARCH_ENGINES.len() - 1].url
 }
 
 /// 这个模板对应表里的第几个引擎；用户手写的模板返回 `None`（页面显示 `Custom`）。
@@ -112,10 +110,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_factory_template_is_the_first_engine() {
-        // 「空串 = 没设置」落到出厂模板，而设置页的默认选中项也必须是它。
-        assert_eq!(default_url(), SEARCH_ENGINES[0].url);
-        assert_eq!(engine_index_for(default_url()), Some(0));
+    fn the_factory_template_is_the_reference_default() {
+        // 「空串 = 没设置」落到出厂模板 DuckDuckGo，设置页默认选中项也是它。
+        assert_eq!(default_url(), "https://duckduckgo.com/?q={}");
+        assert_eq!(engine_index_for(default_url()), Some(SEARCH_ENGINES.len() - 1));
+        let names: Vec<&str> = SEARCH_ENGINES.iter().map(|e| e.name).collect();
+        assert_eq!(names, ["Google", "Bing", "Github", "Stackoverflow", "Wikipedia", "DuckDuckGo"]);
     }
 
     #[test]

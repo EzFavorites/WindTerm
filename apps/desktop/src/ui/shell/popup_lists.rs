@@ -165,7 +165,8 @@ pub(in crate::ui) fn paint_right(
 /// `06-button-popups/11-address-bar-down.png`：地址栏展开的两行列表。
 ///
 /// 布局从左到右：分组名（绿）→ 四色菱形 → 地址（链接蓝）→ 右侧动作（青蓝）
-/// → 快捷键（灰）。第二行 `Session` 没有动作与快捷键。
+/// → 快捷键（灰）。第二行 `Session` 没有动作文字，但右端有 `Alt+2`
+/// （原版 `11-address-bar-down.png` 逐字：第一行 `Alt+1`、第二行 `Alt+2`）。
 pub(in crate::ui) fn draw_address_dropdown(lang: Lang, ui: &mut egui::Ui) {
     let row_h =
         ui.text_style_height(&egui::TextStyle::Button) + 2.0 * ui.spacing().button_padding.y;
@@ -180,7 +181,12 @@ pub(in crate::ui) fn draw_address_dropdown(lang: Lang, ui: &mut egui::Ui) {
             Some(t(lang, "switch to tab")),
             Some("Alt+1"),
         ),
-        (t(lang, "Session"), "shell:///bash - /bin/bash", None, None),
+        (
+            t(lang, "Session"),
+            "shell:///bash - /bin/bash",
+            None,
+            Some("Alt+2"),
+        ),
     ];
     for (group, addr, action, shortcut) in rows {
         let (rect, _) =

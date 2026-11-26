@@ -248,7 +248,7 @@ pub(in crate::ui) fn appearance(
     // 参考图页脚：改语言/主题要重启的橙色提示（文案照抄，含原文 "affect"）。
     let gap = (ui.max_rect().bottom() - ui.cursor().top() - 18.0).max(0.0);
     ui.add_space(gap);
-    ui.colored_label(egui::Color32::from_rgb(0xFF, 0x84, 0x00), "* Requires a restart to take affect.");
+    ui.colored_label(egui::Color32::from_rgb(0xFF, 0x84, 0x00), "* Requires a restart to take affect");
     AppearanceEdit {
         lang: picked,
         theme_name: theme_picked,

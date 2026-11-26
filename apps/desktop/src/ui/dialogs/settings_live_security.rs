@@ -1,4 +1,6 @@
-//! `Preferences ▸ Security`：锁屏超时是真控件，登录向导那组已删除。
+//! `Preferences ▸ Security`：锁屏超时是真控件；Login Wizard 分组按原版恢复，
+//! `Username echo mode: Do not echo characters` 是只读展示（本仓库没有逐字回显的
+//! 中间层，不做一按没反应的假下拉）。
 //!
 //! 时钟与状态在 `ui/lock_timeout.rs`：这里只写偏好值，勾完当场改窗口上的
 //! 运行期副本并落盘。超时 0 = 不自动锁，出厂值与老文件缺省一致。
@@ -9,7 +11,9 @@
 //! 计算，不再是谁也够不着的死代码。
 
 use super::settings_live::save_prefs;
-use super::settings_pages_view::{group_box, set_row_rhythm};
+use super::settings_pages_view::{
+    dead_value, field_row, group_box, label_col, set_row_rhythm, Deco, Slot,
+};
 use crate::ui::*;
 use term_import::user_config::parse_user_config;
 use term_profile::prefs_import::{apply_user_config, Change};
@@ -65,6 +69,23 @@ pub(in crate::ui) fn security(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         win.last_lock_activity = ui.input(|i| i.time);
         save_prefs(|prefs| prefs.lock_timeout_secs = secs);
     }
+
+    // 原版这一组只有一个下拉：Username echo mode。本仓库没有逐字回显的控制层，
+    // 所以按原版文案只读展示，并说清它为什么不可改——不画一按没反应的假控件。
+    ui.add_space(crate::ui::kit::spec::BLOCK_GAP);
+    let col = label_col(ui, &["Username echo mode:"]);
+    group_box(ui, Some("Login Wizard"), |ui| {
+        set_row_rhythm(ui);
+        field_row(
+            ui,
+            "Username echo mode:",
+            Slot::Above,
+            col,
+            "Display only: per-character echo control has no backend here.",
+            |ui| dead_value(ui, "Do not echo characters", Deco::Down),
+        );
+    });
+
     ui.separator();
     draw_user_config_import(ui);
 }

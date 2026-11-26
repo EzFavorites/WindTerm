@@ -120,6 +120,12 @@ pub const DEFAULT_SHORTCUTS: &[Shortcut] = &[
         id: "Window.WindowList",
         label: "Window List",
     },
+    // 原版 Edit ▸ IntelliSense 的 Complete History 右侧写 Alt+R。
+    Shortcut {
+        chord: "Alt+R",
+        id: "Terminal.CompleteHistory",
+        label: "Complete History",
+    },
 ];
 
 /// 一条**两段式**（键序）绑定：`chord` 写原文（`"Alt+W, Alt+H"`），
@@ -210,6 +216,23 @@ pub const DEFAULT_SHORTCUT_SEQS: &[SeqShortcut] = &[
     SeqShortcut {
         chord: "Alt+T, Alt+T",
         id: "Text.MarginTimestamp",
+    },
+    // View ▸ Symbols 四行照原版快捷键列抄；与 shortcut_map 的同条绑定同源。
+    SeqShortcut {
+        chord: "Alt+T, Alt+E",
+        id: "View.ToggleLineEndings",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+L",
+        id: "View.ToggleColumnMarker",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+I",
+        id: "View.ToggleIndentGuides",
+    },
+    SeqShortcut {
+        chord: "Alt+T, Alt+W",
+        id: "View.ToggleWrapSymbols",
     },
 ];
 
