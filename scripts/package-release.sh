@@ -6,7 +6,7 @@
 # 用法：
 #   scripts/package-release.sh <target-triple> <version> <binary> [outdir]
 # 例：
-#   scripts/package-release.sh aarch64-apple-darwin 0.0.1-beta2 \
+#   scripts/package-release.sh aarch64-apple-darwin 0.0.1-beta3 \
 #       target/aarch64-apple-darwin/release/term-desk dist
 #
 # 产物（按平台分支）：
@@ -208,7 +208,7 @@ CONTROL
     zip_dir "$PORT" "$OUT/$ZIP_ART"
     ARTIFACTS+=("$ZIP_ART")
 
-    # MSI：WiX v5，版本号只取数字部分（MSI 不接受 beta2 这类后缀）。
+    # MSI：WiX v5，版本号只取数字部分（MSI 不接受 betaN 这类后缀）。
     command -v wix >/dev/null || { echo "Windows .msi 打包需要 WiX v5（wix 不在 PATH）" >&2; exit 1; }
     MSI_STAGE="$STAGE/msi"
     mkdir -p "$MSI_STAGE"

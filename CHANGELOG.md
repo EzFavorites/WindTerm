@@ -3,13 +3,28 @@
 本文件记录本项目面向用户的显著变更。格式沿用 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
 版本号与发布日期在实际发布时写入；未发布的内容留在 `[Unreleased]`。
 
-## [Unreleased]
+## [0.0.1-beta3] - 2026-11-26
+
+### Added
+
+- 自动重连：会话属性 Session 页可配置初始延迟、退避倍数、单次封顶、总重试窗口
+  （默认 180 秒，覆盖设备 reboot）与次数上限；默认关闭，仅"连接断开"触发（网络与串口），
+  密码/主机密钥错误立即停止，本地 Shell 不重连。
+- OneKey 自动登录改为内置语义：选中方案即登录，移除表单勾选框。
 
 ### Changed
 
-- 发布产物改为按平台分发：macOS `.dmg`、Linux `.deb` + 便携 `.zip`、
-  Windows `.msi` + 便携 `.zip`（均带 `.sha256`）。发布工作流直接产出 Pre-release，
-  不再先建草稿页。
+- 发布产物按平台分发：macOS `.dmg`、Linux `.deb` + 便携 `.zip`、
+  Windows `.msi` + 便携 `.zip`（均带 `.sha256`），直接发布 Pre-release。
+- 原版对照台账修正 12 条错图，全页核对结论见 `reference-page-audit.md`；
+  参考图暂不脱离归档，11 处设置页差异待逐项定夺。
+
+### Fixed
+
+- 会话层：修凭据一次性引用争用、SFTP 断线 `Closed` 语义、隧道活性与启动期拉起、
+  telnet mock 偶发失败。
+- 同帧多条自动重连改为每帧一条，避免全局 Connector 互相覆盖；锁屏时清运行时凭据。
+- Bell 页文案回归原版完整标签；修正多处过期注释与文档失真。
 
 ## [0.0.1-beta2] - 2026-11-26
 
