@@ -8,6 +8,7 @@ use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::dialogs::ssh_connect::{
     ask, next, options_for, Ask, Connector, Next, PendingOpen, SshAction, Step, FIRST_POLICY,
 };
+use crate::ui::dialogs::ssh_forget;
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use term_core::onekey::OneKey;
@@ -20,7 +21,7 @@ use term_ssh::AuthMethod as SshAuth;
 
 /// 连接流程里的内联动作按钮：沿用裸 `ui.button` 的尺寸口径，
 /// 绘制走 `kit::footer` 原语（配色/描边不再散在四个弹窗里）。
-fn action_button(ui: &mut egui::Ui, label: &str) -> bool {
+pub(in crate::ui) fn action_button(ui: &mut egui::Ui, label: &str) -> bool {
     use crate::ui::kit::spec::FooterButton;
     let spec = FooterButton::Plain
         .spec()
@@ -422,6 +423,9 @@ impl TerminalWindow {
             Step::NeedHostKey { .. } => Some("Waiting for host key confirmation".to_string()),
             Step::NeedPassword { .. } => Some("Waiting for a password".to_string()),
             Step::ReplaceKey { .. } => Some("Host key changed — replace the stored key?".to_string()),
+            Step::ConfirmForget { .. } | Step::ForgetResult { .. } => {
+                Some("Forget this host — confirm removing the recorded key?".to_string())
+            }
             Step::Failed { .. } => Some("Connection failed".to_string()),
         }
     }
@@ -439,7 +443,10 @@ impl TerminalWindow {
             Step::NeedHostKey { .. } => DialogId::SshHostkey,
             Step::NeedPassword { .. } => DialogId::SshPassword,
             Step::Failed { .. } => DialogId::SshFailed,
-            Step::ReplaceKey { .. } => DialogId::SshReplaceKey,
+            // 忘记这台主机的两步复用同一弹窗与键盘契约（Esc 取消 / Enter 不确认）。
+            Step::ReplaceKey { .. }
+            | Step::ConfirmForget { .. }
+            | Step::ForgetResult { .. } => DialogId::SshReplaceKey,
         };
         if step_id.keys().poll(ctx).cancel {
             action = SshAction::Cancel;
@@ -541,36 +548,10 @@ impl TerminalWindow {
                         }
                     });
             }
-            Step::ReplaceKey { changed } => {
-                DialogWindow::new(DialogId::SshReplaceKey, &title)
-                    .show(ctx, |ui| {
-                        ui.heading("Host key changed");
-                        ui.label(format!(
-                            "The key recorded for {}:{} (known_hosts line {}) is not the one \
-                             this server just offered. Either the machine was reinstalled, \
-                             or this connection is not going where you think it is.",
-                            changed.host, changed.port, changed.line
-                        ));
-                        ui.add_space(4.0);
-                        ui.monospace(changed.fingerprint.clone());
-                        ui.add_space(6.0);
-                        // 这一段是这个窗口存在的理由：说清「现在什么都没写」和
-                        // 「什么情况下才该替换」。不写「是否继续」那种问句。
-                        ui.label(
-                            "Nothing has been written yet. Replace the record only if you \
-                             got this fingerprint from the server's administrator, or you \
-                             know the machine was reinstalled. The old line is deleted.",
-                        );
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            if action_button(ui, "Cancel") {
-                                action = SshAction::Cancel;
-                            }
-                            if action_button(ui, "Replace stored key") {
-                                action = SshAction::ReplaceKey;
-                            }
-                        });
-                    });
+            // 冲突 / 二次确认 / 结果三步共用一套窗口；绘制与纯判据都在
+            // `ssh_forget`（本文件已贴 500 代码行上限，不再往里堆）。
+            Step::ReplaceKey { .. } | Step::ConfirmForget { .. } | Step::ForgetResult { .. } => {
+                ssh_forget::draw(connector, &title, ctx, &mut action);
             }
         }
 
@@ -593,6 +574,27 @@ impl TerminalWindow {
                 let ctx = self.ctx.clone();
                 if let Some(c) = self.connector.as_mut() {
                     c.replace_host_key(&ctx);
+                }
+            }
+            SshAction::Forget => {
+                if let Some(c) = self.connector.as_mut() {
+                    c.begin_forget();
+                }
+            }
+            SshAction::CancelForget => {
+                if let Some(c) = self.connector.as_mut() {
+                    c.forget_decision(false);
+                }
+            }
+            SshAction::ConfirmForget => {
+                if let Some(c) = self.connector.as_mut() {
+                    c.forget_decision(true);
+                }
+            }
+            SshAction::ReconnectAfterForget => {
+                let ctx = self.ctx.clone();
+                if let Some(c) = self.connector.as_mut() {
+                    c.reconnect_after_forget(&ctx);
                 }
             }
             SshAction::SubmitPassword => {

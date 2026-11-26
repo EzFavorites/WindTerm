@@ -33,6 +33,11 @@ mod ssh_ask;
 pub(in crate::ui) use ssh_ask::{
     ask, next, options_for, Ask, Next, Replacement, FIRST_POLICY,
 };
+use crate::ui::dialogs::ssh_forget::ForgetFeedback;
+
+/// 路径解析失败文案的共同前缀。`accept_host_key` 与 `ssh_forget` 共用它，
+/// 保证两处降级文案同口径（差在尾巴上说明这次做不了什么）。
+pub(in crate::ui) const NO_PATH_PREFIX: &str = "找不到 known_hosts 的位置";
 
 /// 连接走到哪一步。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -42,6 +47,10 @@ pub(in crate::ui) enum Step {
     NeedPassword { reason: String },
     /// 主机钥匙与账本里的不一致。**不是**「要不要继续」，是「要不要换掉记录」。
     ReplaceKey { changed: Replacement },
+    /// 「忘记这台主机」的二次确认。安全敏感操作：确认前账本一字未改。
+    ConfirmForget { changed: Replacement },
+    /// `forget()` 之后的结果（成功 / 失败都落在这里，文案由纯函数生成）。
+    ForgetResult { changed: Replacement, feedback: ForgetFeedback },
     Failed { message: String },
 }
 
@@ -209,7 +218,7 @@ impl Connector {
         };
         let Some(path) = self.known_hosts_path() else {
             self.step = Step::Failed {
-                message: "找不到 known_hosts 的位置，无法保存已确认的钥匙".to_string(),
+                message: format!("{NO_PATH_PREFIX}，无法保存已确认的钥匙"),
             };
             return;
         };
@@ -279,7 +288,7 @@ impl Connector {
     ///
     /// 与 `term_ssh` 内部的判定走**同一个**函数（`SshOptions::resolved_known_hosts`），
     /// 否则会出现「校验读 A 文件、换钥写 B 文件」这种极难查的错位。
-    fn known_hosts_path(&self) -> Option<PathBuf> {
+    pub(in crate::ui) fn known_hosts_path(&self) -> Option<PathBuf> {
         let auth = self.auth.clone().unwrap_or(SshAuth::Agent);
         // 这里要的只是**账本的位置**，与跳板链无关：`ProxyJump` 解析失败不该
         // 挡住「换掉这台机器记着的钥匙」（那是主机密钥层的事，与路由无关）。
@@ -299,4 +308,12 @@ pub(in crate::ui) enum SshAction {
     SubmitPassword,
     /// 换掉这台机器记着的钥匙（危险动作，只在 `Step::ReplaceKey` 里出现）。
     ReplaceKey,
+    /// 从冲突对话框进入「忘记这台主机」的二次确认（尚未改账本）。
+    Forget,
+    /// 二次确认里点「Forget this host」：真正调用 `forget()`。
+    ConfirmForget,
+    /// 二次确认里点「Cancel」：退回冲突对话框，不调用 `forget()`。
+    CancelForget,
+    /// 结果页点「Reconnect」：账本已改，重连时重新核对指纹。
+    ReconnectAfterForget,
 }
