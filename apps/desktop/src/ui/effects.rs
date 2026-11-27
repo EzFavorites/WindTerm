@@ -490,7 +490,7 @@ impl TerminalWindow {
                 self.ctx.request_repaint();
             }
             // 2026-11-14：折叠族九条的唯一落地点。
-            Effect::Fold(cmd) => self.apply_fold(cmd),
+            Effect::Fold(cmd) => self.apply_fold(cmd), Effect::Filter(a) => self.apply_filter(a),
         }
     }
 

@@ -76,7 +76,7 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         vim: term_app::vim::VimState::default(),
         // 只读查看：这条夹具只验斑马线，取出厂值（可输入、无冻结锚点）。
         local_mode: false,
-            word_wrap: false,
+        word_wrap: false,
         raw: crate::ui::terminal::bin_spec::RawLog::new(),
         // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
         tmux: term_app::tmux::ControlMode::default(),
@@ -84,13 +84,19 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         triggers: term_app::trigger::Matcher::new(),
         shadow: crate::automation::Shadow::new(),
         was_live: false,
-            just_connected: false,
-            auto_reconnect_at: None,
-            auto_reconnect_attempts: 0,
-            auto_reconnect_blocked: false,
+        just_connected: false,
+        auto_reconnect_at: None,
+        auto_reconnect_attempts: 0,
+        auto_reconnect_blocked: false,
         // 折叠与输入行表出厂为空（空集合 = 渲染一屏不变，夹具不受影响）。
         folds: term_app::folds::Folds::new(),
-        input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
+        filter: term_app::state::FilterState::default(),
+        filter_input: String::new(),
+        filter_history: Vec::new(),
+        filter_diag: None,
+        input_rows: std::cell::RefCell::new(Vec::new()),
+        command_texts: std::cell::RefCell::new(Vec::new()),
+        pending_local_sends: Vec::new(),
         // N：恢复运行态字段（新建标签出厂 None）。
         restore_scroll_top: None,
         restore_history_len: None,

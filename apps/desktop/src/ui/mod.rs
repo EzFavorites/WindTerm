@@ -1080,11 +1080,11 @@ impl TerminalWindow {
         // ④-1：分屏时 Sysmon 由每片 pane 自己画（见 `pane_chrome`），这条全窗
         // 底带只在单窗格时声明。
         if !focus && self.layout.is_single() {
-            egui::TopBottomPanel::bottom("sysmon_bar")
-                .exact_height(shell::SYSMON_BAR_H)
-                .frame(shell::sysmon_bar_frame())
+            egui::TopBottomPanel::bottom("tab_toolbar")
+                .exact_height(self.tab_toolbar_height(self.active))
+                .frame(shell::tab_toolbar_frame())
                 .show_separator_line(false)
-                .show(ctx, |ui| self.draw_sysmon_bar(ui, None));
+                .show(ctx, |ui| self.draw_tab_toolbar(ui, None, self.active));
         }
 
         // P4：拖拽中的落点提示（只在按住时画）+ 松手判定。两件都必须在三条带

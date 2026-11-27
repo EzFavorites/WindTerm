@@ -82,6 +82,8 @@ pub mod clipboard;
 pub mod dock;
 pub mod effect;
 pub mod find;
+// 终端行过滤器：状态在投影层每条会话的 Tab 上，这一层只做纯判定与 reducer。
+pub mod filter;
 // 折叠功能的唯一领域模型，因此**必须在默认编译面**上：`apps/desktop` 的 `Tab` 要
 // 真正读取它（`Folds` + `blocks_from_inputs`），有生产读者就不属于 `planned`。
 // 与之配对的 `FoldRegion` / `StructureError` 原本在 `structure` 里，2026-11-14

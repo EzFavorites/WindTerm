@@ -53,20 +53,26 @@ fn bare_tab() -> Tab {
         vim: term_app::vim::VimState::default(),
         // 只读查看：这条夹具只想验 tmux 控制行，取出厂值（可输入）。
         local_mode: false,
-            word_wrap: false,
+        word_wrap: false,
         raw: RawLog::new(),
         tmux: term_app::tmux::ControlMode::default(),
         tmux_pending: Vec::new(),
         triggers: term_app::trigger::Matcher::new(),
         shadow: crate::automation::Shadow::new(),
         was_live: false,
-            just_connected: false,
-            auto_reconnect_at: None,
-            auto_reconnect_attempts: 0,
-            auto_reconnect_blocked: false,
+        just_connected: false,
+        auto_reconnect_at: None,
+        auto_reconnect_attempts: 0,
+        auto_reconnect_blocked: false,
         // 折叠与输入行表出厂为空（空集合 = 渲染一屏不变，夹具不受影响）。
         folds: term_app::folds::Folds::new(),
-        input_rows: std::cell::RefCell::new(Vec::new()), command_texts: std::cell::RefCell::new(Vec::new()), pending_local_sends: Vec::new(),
+        filter: term_app::state::FilterState::default(),
+        filter_input: String::new(),
+        filter_history: Vec::new(),
+        filter_diag: None,
+        input_rows: std::cell::RefCell::new(Vec::new()),
+        command_texts: std::cell::RefCell::new(Vec::new()),
+        pending_local_sends: Vec::new(),
         restore_scroll_top: None,
         restore_history_len: None,
     }
@@ -117,7 +123,16 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     tx.send(b"in 1700000000 42 0\r\n".to_vec())
         .expect("送第二块");
 
-    assert!(tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()), "有新字节就该请求重绘");
+    assert!(
+        tab.poll(
+            &[],
+            &mut Vec::new(),
+            false,
+            &[],
+            &std::collections::HashMap::new()
+        ),
+        "有新字节就该请求重绘"
+    );
     assert!(tab.tmux.in_notification);
     assert!(tab.tmux.panes.is_empty());
     assert!(tab.tmux_pending.is_empty());
@@ -128,7 +143,16 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     );
     // 手动喂与自动喂是两条独立来源：这里再喂一条只进面板日志的测试行，
     // 不会把 tap 那条重复喂一遍（pending 已空，环不会多出字节）。
-    assert!(!tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new()), "tap 已空，第二帧不该再报新事实");
+    assert!(
+        !tab.poll(
+            &[],
+            &mut Vec::new(),
+            false,
+            &[],
+            &std::collections::HashMap::new()
+        ),
+        "tap 已空，第二帧不该再报新事实"
+    );
     assert_eq!(tab.raw.ring.take(0, 24).len(), 24, "环没有被重复追加");
 }
 
@@ -164,7 +188,10 @@ fn the_guard_reads_the_active_tab_not_a_window_singleton() {
         "第 0 条仍是普通会话，不该被第 1 条串成 active"
     );
     win.set_active_slot(1);
-    assert!(win.active_tab_tmux().unwrap().active, "切到 tmux 标签才 active");
+    assert!(
+        win.active_tab_tmux().unwrap().active,
+        "切到 tmux 标签才 active"
+    );
     win.set_active_slot(99);
     assert!(win.active_tab_tmux().is_none(), "越界降级成 None，不 panic");
 

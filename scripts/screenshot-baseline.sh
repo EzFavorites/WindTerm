@@ -7,6 +7,7 @@
 #   screenshot-wrap.png      同一字节流开启 Word Wrap，长行折到 wrap column
 #   screenshot-rainbow.png   嵌套括号 + 彩虹着色，括号按深度上色
 #   screenshot-find.png      回看 6 行 + Find 栏打开 + 匹配高亮（F2）
+#   screenshot-filter.png    行过滤 + grep 只留命中行（行号 / 时间戳带洞；形态变更需重冻）
 #   screenshot-word.png      回看 6 行 + 双击选中的单个词（F3）
 #   screenshot-block.png     回看 6 行 + 三行同一段列的矩形选区（F4）
 #   screenshot-preview.png   悬停预览窗：锚点外的历史快照与实时视口并存
@@ -336,6 +337,10 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "all" ]; then
   # T/C/M 读数条（原地切换，不再是右带面板）。fixture 模式把
   # 读数钉成视觉基线逐字值——守住三段的右对齐位置 / 颜色。
   add_job 'check screenshot-sysmon.png --demo sysmon'
+  # 行过滤态（`--demo filter`）：grep 只留含 "line" 的行，边栏行号与时间戳
+  # 保持原值（带洞），过滤行与 Sysmon 读数共用同一条细带、不新增面板。
+  # 过滤状态按会话持有，形态变更后**需要重新冻结基线**（screenshot-filter.png）。
+  add_job 'check screenshot-filter.png --demo filter'
   add_job 'check screenshot-dialog.png --demo newsession'
   # margin 边栏（时间戳 / 行号 / 符号三列 + 当前行强调）。
   # 必须单独一张：其余整窗图的字节流既没有 OSC 133 提示符也不折行，

@@ -9,28 +9,33 @@
 //! `docs/design/13-ui-shell.md`；声明顺序决定谁贴最底边（状态栏先声明）。
 
 mod find_bar;
+// Effect::Filter 的落地：从 effects.rs 拆出，守住单文件 500 行门禁。
+mod filter_effects;
 // UI 外壳审查批次：帧首统一前置阶段（锁屏 / 模态键盘 / 快捷键门控 / prefs 版本号）
 // 与全局快捷键的事件门控。放新文件是为了守住 ui/mod.rs 的 500 代码行上限。
-mod pre_update_gate;
-pub(in crate::ui) mod shortcut_gate;
 /// `×` / `⚙` 的**唯一**画法与落位。2026-11-17 之前仓里有五份 `×`、三份 `⚙`，
 /// 同一个窗口右下角能量出三种尺寸——见模块头那张对照表。
 mod glyph;
 mod menu_bar;
+mod pre_update_gate;
+pub(in crate::ui) mod shortcut_gate;
 // 2026-11-08：菜单绘制按「顶栏 / 一棵树 / 一行」三分。
 // `menu_bar` 摆顶级按钮，`menu_items` 遍历菜单树，`menu_style` 画单行。
 mod menu_items;
 mod menu_style;
 mod menu_tools;
+mod pane_tools;
 /// 三个尚未挂接的视觉基线弹层（shell 下拉 / Outline 菜单 / 地址栏下拉）。
 mod popup_lists;
-mod pane_tools;
 mod quick_command_bar;
 mod quick_config_menu;
 mod quick_layout;
 mod quick_mark;
 mod status_bar;
-mod sysmon_bar;
+mod tab_toolbar;
+mod tab_toolbar_filter;
+// 过滤历史浮层：贴过滤行的 Area，独立成文件守住 tab_toolbar_filter.rs 行数门禁。
+mod tab_toolbar_filter_popup;
 mod tab_bar;
 mod tab_menu;
 mod tab_strip;
@@ -38,7 +43,12 @@ mod tool_bar;
 mod tool_bar_icons;
 mod tool_bar_tail;
 
-pub(in crate::ui) use find_bar::{draw_find_bar, FIND_BAR_H};
+// 过滤行沿用 Find 的标签横坐标、关闭叉列、图标格宽与错误红：这些几何/颜色
+// 只有一份定义，两处从这里取，杜绝第二套横坐标或第二个红。
+pub(in crate::ui) use find_bar::{
+    draw_find_bar, CLOSE_R_PAD, CLOSE_SIZE, FIELD_X, ICON_R_PAD, ICON_W, INVALID_COLOR, LABEL_X,
+    FIND_BAR_H,
+};
 // 2026-11-15：`draw_menu_items` 只在 `menu_bar` 里由 `super::menu_items::` 直接
 // 引用（生产二级菜单需要真实 MenuState）；组件夹具改走静态树，这个再导出
 // 已无人使用，去掉以免 `clippy -D warnings` 红。
@@ -50,8 +60,8 @@ pub(in crate::ui) use find_bar::{draw_find_bar, FIND_BAR_H};
 // 2026-11-26：右键菜单 ⋮ 里那三条勾选项（Word Wrap / Line Endings /
 // Wrap Symbols）也要读同一份 live 判据，不能各自写死出厂常量，所以再导出。
 pub(in crate::ui) use menu_items::{action_state, draw_menu_items_static, live_check};
-pub(in crate::ui) use menu_style::popup_bg;
 pub(in crate::ui) use menu_style::menu_popup_width;
+pub(in crate::ui) use menu_style::popup_bg;
 // 右键菜单（terminal/context_rows.rs）复用同一套四栏手绘，视觉才和菜单栏弹层
 // 对齐；这里只放宽可见性，不改任何颜色/几何常量。
 pub(in crate::ui) use menu_style::{
@@ -59,15 +69,17 @@ pub(in crate::ui) use menu_style::{
     MenuRowState, RowLook, CHECK_GUTTER, MENU_ROW_PAD_X, MENU_ROW_PAD_Y, POPUP_INNER_X,
     SHORTCUT_COL,
 };
-pub(in crate::ui) use popup_lists::{draw_address_dropdown, draw_outline_menu, draw_shell_list};
 pub(in crate::ui) use menu_tools::draw_tunnels_popup_demo;
+pub(in crate::ui) use popup_lists::{draw_address_dropdown, draw_outline_menu, draw_shell_list};
 // 真地址栏（`ui/address/rows.rs`）复用参考夹具那一套颜色与图标——单一份
 // 定义，两处画出来才是同一个组件。`draw_address_dropdown` 本身一个字节没动。
 pub(in crate::ui) use popup_lists::{
     action_cyan, address_blue, draw_session_glyph, group_green, paint_right,
 };
-pub(in crate::ui) use sysmon_bar::{sysmon_bar_frame, SYSMON_BAR_H};
 pub(in crate::ui) use quick_command_bar::draw_quick_command_bar;
+pub(in crate::ui) use tab_toolbar::{label_width, tab_toolbar_frame, EDGE_PAD, TAB_TOOLBAR_H};
+pub(in crate::ui) use tab_toolbar_filter::filter_label_button_rect;
+
 // 2026-11-25：点外收起那一击的判据不止快捷栏按钮要用——终端的折叠列点击与
 // xterm 鼠标报告同样得跳过它，所以按原样再导出，判据只有 `click_not_consumed` 一份。
 pub(in crate::ui) use quick_command_bar::click_not_consumed;
@@ -81,12 +93,14 @@ pub(in crate::ui) use menu_bar::menu_bar_height;
 // 2026-11-15：`ACTIVE_LINE` / `LINE_H` / `paint_tab_icon` / `paint_right_tool`
 // 一并放开给 `panels/shell_panel.rs`——底带 Shell 面板的内标签条画的**就是**
 // 这一套（活动标记 / 图标 / ＋、≡），只放宽可见性，颜色与几何一个字节都没动。
-pub(in crate::ui) use tab_bar::{paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H};
+pub(in crate::ui) use tab_bar::{
+    paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
+};
 // 分屏时每片 pane 画**整条**工具栏（不只是面包屑）——图标组 / 抓手 /
 // 右端控件全在 `tool_bar::draw` 里，参数化后单窗格与分屏共用一份实现。
-pub(in crate::ui) use tool_bar::{draw as draw_tool_bar, BarScope};
 pub(in crate::ui) use tab_bar::ELIDE_MODES;
 pub(in crate::ui) use tab_strip::{ToolAction, ToolButton};
+pub(in crate::ui) use tool_bar::{draw as draw_tool_bar, BarScope};
 
 use term_core::theme::DESIGN_TOKENS;
 
@@ -168,8 +182,7 @@ pub(in crate::ui) const PANE_TOOLS_H: f32 = 26.0;
 /// 整条右移。底色与 `dialog` 同色——视觉基线里这条栏与终端区同底色，只靠上下
 /// 各一条 `#444444` 1 点线分界，那两条线由 `find_bar.rs` 自己画。
 pub(in crate::ui) fn find_bar_frame() -> eframe::egui::Frame {
-    eframe::egui::Frame::none()
-        .fill(crate::theme::chrome(term_core::theme::CHROME_SCALE.dialog))
+    eframe::egui::Frame::none().fill(crate::theme::chrome(term_core::theme::CHROME_SCALE.dialog))
 }
 
 /// 状态栏的框。`accent = true` 时整条填那个指向蓝——查找命中时状态栏被染色，
@@ -183,13 +196,19 @@ pub(in crate::ui) fn status_bar_frame(accent: bool) -> eframe::egui::Frame {
         crate::theme::chrome(term_core::theme::CHROME_SCALE.dialog)
     };
     eframe::egui::Frame::none()
-        .inner_margin(eframe::egui::Margin::symmetric(DESIGN_TOKENS.menu_pad_x, 0.0))
+        .inner_margin(eframe::egui::Margin::symmetric(
+            DESIGN_TOKENS.menu_pad_x,
+            0.0,
+        ))
         .fill(fill)
 }
 
 pub(in crate::ui) fn bar_frame() -> eframe::egui::Frame {
     eframe::egui::Frame::none()
-        .inner_margin(eframe::egui::Margin::symmetric(DESIGN_TOKENS.menu_pad_x, 0.0))
+        .inner_margin(eframe::egui::Margin::symmetric(
+            DESIGN_TOKENS.menu_pad_x,
+            0.0,
+        ))
         .fill(crate::theme::chrome(term_core::theme::CHROME_SCALE.dialog))
 }
 
@@ -225,11 +244,7 @@ pub(in crate::ui) fn tool_row_frame() -> eframe::egui::Frame {
 pub(in crate::ui) fn bevel(p: &eframe::egui::Painter, rect: eframe::egui::Rect) {
     use eframe::egui;
     const RADIUS: f32 = 1.5;
-    p.rect_filled(
-        rect,
-        RADIUS,
-        egui::Color32::from_rgb(0x24, 0x24, 0x24),
-    );
+    p.rect_filled(rect, RADIUS, egui::Color32::from_rgb(0x24, 0x24, 0x24));
 
     let inner = rect.shrink(1.0);
     let top = egui::Color32::from_rgb(0x4B, 0x4B, 0x4B);
@@ -248,12 +263,18 @@ pub(in crate::ui) fn bevel(p: &eframe::egui::Painter, rect: eframe::egui::Rect) 
         p.rect_filled(egui::Rect::from_min_max(a, b), 0.0, hi);
     };
     // 左、右两条竖高光，上边一条横高光；底部那条是另一种颜色，画在最后盖住竖条末端。
-    strip(inner.left_top(), egui::pos2(inner.left() + 1.0, inner.bottom()));
+    strip(
+        inner.left_top(),
+        egui::pos2(inner.left() + 1.0, inner.bottom()),
+    );
     strip(
         egui::pos2(inner.right() - 1.0, inner.top()),
         inner.right_bottom(),
     );
-    strip(inner.left_top(), egui::pos2(inner.right(), inner.top() + 1.0));
+    strip(
+        inner.left_top(),
+        egui::pos2(inner.right(), inner.top() + 1.0),
+    );
     p.rect_filled(
         egui::Rect::from_min_max(
             egui::pos2(inner.left(), inner.bottom() - 1.0),

@@ -21,8 +21,8 @@
 
 use crate::ui::*;
 // 造窗夹具要建「窗格身份 + group」配对。
-use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
+use crate::ui::layout::{PaneGroup, PaneId};
 use std::collections::HashMap;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -137,10 +137,7 @@ pub(in crate::ui) fn assert_gone(
     label: &str,
 ) {
     assert!(!pool.send(id, b"x"), "{label}：send 必须返回 false");
-    assert!(
-        pool.screen(id).is_none(),
-        "{label}：screen 必须是 None"
-    );
+    assert!(pool.screen(id).is_none(), "{label}：screen 必须是 None");
     assert!(pool.state(id).is_none(), "{label}：state 必须是 None");
     assert!(
         !pool.list().iter().any(|(listed, _, _)| *listed == id),
@@ -169,7 +166,13 @@ pub(in crate::ui) fn window_with(
     let init_pane = mint_pane_identity();
     let mut pane_groups: HashMap<PaneId, PaneGroup> = HashMap::new();
     if let Some(s) = active {
-        pane_groups.insert(init_pane, PaneGroup { order: vec![s], active: s });
+        pane_groups.insert(
+            init_pane,
+            PaneGroup {
+                order: vec![s],
+                active: s,
+            },
+        );
     }
     TerminalWindow {
         tabs,
@@ -194,7 +197,8 @@ pub(in crate::ui) fn window_with(
         selected_session: 0,
         session_filter: String::new(),
         panel_filters: Default::default(),
-        shell_tabs: Vec::new(), pending_ip_hit: None,
+        shell_tabs: Vec::new(),
+        pending_ip_hit: None,
         shell_active: None,
         shell_filter: String::new(),
         shell_list_open: false,
@@ -283,8 +287,12 @@ pub(in crate::ui) fn window_with(
         palette_input: String::new(),
         goto_input: String::new(),
         center_input: String::new(),
-        lock_password: String::new(), show_lock_password: false,
-        shortcuts: term_app::shortcut_map::KeyBindingMap::new(&[], term_app::shortcut_map::Platform::Macos),
+        lock_password: String::new(),
+        show_lock_password: false,
+        shortcuts: term_app::shortcut_map::KeyBindingMap::new(
+            &[],
+            term_app::shortcut_map::Platform::Macos,
+        ),
         shortcut_capture: None,
         shortcut_new_id: String::new(),
         keyseq: term_app::shortcuts::KeySeqState::new(),
@@ -295,7 +303,8 @@ pub(in crate::ui) fn window_with(
         tmux_log: Vec::new(),
         tmux_input: String::new(),
         tmux_send: String::new(),
-        tmux_pane_name: String::new(), tmux_session_name: String::new(),
+        tmux_pane_name: String::new(),
+        tmux_session_name: String::new(),
         tmux_blocks: Vec::new(),
         pending_select: None,
         connector: None,
@@ -365,7 +374,7 @@ pub(in crate::ui) fn window_with(
         // 首次启动引导默认关着；生命周期用例不碰它（探测要读家目录，
         // 用例里也不该依赖那台机器上有没有 `~/.ssh/config`）。
         onboarding: term_app::onboarding::OnboardingState::new(),
-            profile_choice: overlays::ProfileChoiceState::default(),
+        profile_choice: overlays::ProfileChoiceState::default(),
         // 预览窗默认关着；这些生命周期用例不碰它（打开要读真实文件，
         // 用例里不该依赖那台机器上有哪个文件）。
         preview: Default::default(),
@@ -390,9 +399,17 @@ mod phase0_identity_tests {
 
         let win = window_with(pool, &ctx, vec![t0, t1, t2]);
 
-        assert_eq!(win.open_order.len(), ids.len(), "open_order 必须与 tabs 等长");
+        assert_eq!(
+            win.open_order.len(),
+            ids.len(),
+            "open_order 必须与 tabs 等长"
+        );
         assert_eq!(win.open_order, ids, "open_order 必须与 tabs 同序");
-        assert_eq!(win.active, Some(ids[0]), "active 必须指向首 tab 的 identity");
+        assert_eq!(
+            win.active,
+            Some(ids[0]),
+            "active 必须指向首 tab 的 identity"
+        );
         // 铸造源递增：三条标签身份互不相同。
         assert!(ids[0] != ids[1] && ids[1] != ids[2], "恒在身份必须互异");
     }
@@ -415,8 +432,20 @@ mod a2_save_layout_tests {
         let p0 = mint_pane_identity();
         let p1 = mint_pane_identity();
         let mut groups = HashMap::new();
-        groups.insert(p0, PaneGroup { order: vec![id0], active: id0 });
-        groups.insert(p1, PaneGroup { order: vec![id1], active: id1 });
+        groups.insert(
+            p0,
+            PaneGroup {
+                order: vec![id0],
+                active: id0,
+            },
+        );
+        groups.insert(
+            p1,
+            PaneGroup {
+                order: vec![id1],
+                active: id1,
+            },
+        );
         win.pane_groups = groups;
         win.layout = Layout::Split {
             horizontal: true,
@@ -473,8 +502,20 @@ mod a3_drag_swap_tests {
         let p0 = mint_pane_identity();
         let p1 = mint_pane_identity();
         win.pane_groups.clear();
-        win.pane_groups.insert(p0, PaneGroup { order: vec![id0], active: id0 });
-        win.pane_groups.insert(p1, PaneGroup { order: vec![id1], active: id1 });
+        win.pane_groups.insert(
+            p0,
+            PaneGroup {
+                order: vec![id0],
+                active: id0,
+            },
+        );
+        win.pane_groups.insert(
+            p1,
+            PaneGroup {
+                order: vec![id1],
+                active: id1,
+            },
+        );
         win.layout = Layout::Split {
             horizontal: true,
             ratio: 500,

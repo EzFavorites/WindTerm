@@ -164,6 +164,13 @@ RequestRange → 监管者 → Event::Screen → handle.screen（最后一个获
 
 ## 10. 边界
 
+- 行过滤（`grep` / `grep -v`）与查找共用同一份派生 `ScreenImage`：**过滤状态按会话持有**
+  （`Tab.filter`，与 `Tab.folds` / `Tab.marks` 同款，每条 tab / 分屏 pane 独立、不写 `ViewState`）；
+  **复用 Sysmon 那条 25pt 细带**（左端 `Filter` 按钮在 T/C/M 读数与紧凑过滤行之间切换，
+  过滤行含 `TextEdit` + grep/grep -v + 大小写 + 正则 + 关闭，输入与按钮 id 带 `pane_salt`）；
+  **不新增面板**（不另起 `TopBottomPanel` / 整窗底栏）。过滤在 `crop_view` 与折叠之后由
+  `ScreenImage::drop_rows` 完成（`ensure_view(tab, rows)` 的最后一步），行号带洞但
+  `LineSlice.row` 不变，因此边栏的行号与时间戳不重排；过滤范围是当前事实窗口，不跨回滚扫描。
 - 跨窗口跳转（搜到屏外匹配并滚过去）未实现，且被明确定义为「不属于当前语义」。
 - `Find All` 与结果列表面板**已实现**：Find 栏的 `Find All` 按钮展开一个 `egui::Area`，数据由 `app::find::result_rows` 从同一份 `matches()` 产出，按标签身份发布，分屏时不会互相覆盖；替换面板仍未实现。正则查找已实现（`.*` 按钮 + `validate_regex` 实时校验 + 着色反馈）。
 - 矩形选区不补空格对齐：每行仍按去尾部空白处理，避免把不可见字符塞进剪贴板。

@@ -529,6 +529,44 @@ pub enum FindAction {
     Close,
 }
 
+/// 终端行过滤器的两档语义，对齐 `grep` / `grep -v`。
+///
+/// 住在 `vocab` 而不是 `state`：`FilterAction::SetMode` 直接携带它，而 `vocab`
+/// 是分层最底层（词汇 → 副作用 → 状态 → …），`vocab` 不许反向依赖 `state`。
+/// `state.rs` 用 `pub use crate::vocab::FilterMode` 原样再导出，既有引用点不改名。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum FilterMode {
+    /// 只保留命中行（`grep`）。
+    #[default]
+    KeepMatching,
+    /// 丢掉命中行（`grep -v`）。
+    DropMatching,
+}
+
+/// 终端行过滤器的动作。没有命令 ID——入口是底部细带上的 `Filter` 按钮，
+/// 与 `ToggleSysmonRemote` 同样是投影层的强类型意图，不进菜单树。
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FilterAction {
+    /// 打开过滤栏并复位。
+    Open,
+    /// 细带上的按钮：开 / 关翻转。
+    Toggle,
+    SetQuery(String),
+    /// 把当前输入缓冲提交为生效查询，并记入**本会话**的过滤历史。
+    ///
+    /// 历史属于 UI 层的 `Tab`（不进 `ViewState`、不落盘），所以 reducer 不写它；
+    /// 投影层 `apply_filter_on` 在收到这条动作时读 `Tab.filter_input` 落地。
+    /// Enter / 下拉选中 / 关闭过滤栏才发这条，逐字符的 `SetQuery` 不发。
+    Commit,
+    /// `grep` / `grep -v` 两档。
+    SetMode(FilterMode),
+    ToggleCase,
+    /// `W` 全词开关：命中两端必须是词边界。
+    ToggleWholeWord,
+    ToggleRegex,
+    Close,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ClipboardAction {
     Copy,
@@ -1154,6 +1192,8 @@ pub enum Cmd {
 pub enum Action {
     Shell(ShellAction),
     Find(FindAction),
+    /// 行过滤器意图；状态在每条会话的 `Tab.filter`，reducer 只产 `Effect::Filter`。
+    Filter(FilterAction),
     Clipboard(ClipboardAction),
     /// 选区移动。真正的位移在投影层拿到事实窗口后由 `selection::apply` 算，
     /// 本层只把命令翻译成意图——因为它拿不到「现在画在屏上的那一屏」。

@@ -218,9 +218,20 @@ impl TerminalWindow {
                         reduce(&mut self.view, action, Some(&fixture.screen));
                     }
                     // 默认布局铺满后夹具不再改外壳状态；通道留着给将来的外壳夹具。
+                    // 行过滤是每条会话状态：夹具派发的 Action::Filter 经 reduce
+                    // 变成 Effect::Filter，在这里落到活动 tab，不写 ViewState。
+                    let mut filter_actions: Vec<term_app::vocab::FilterAction> = Vec::new();
                     for action in fixture.shell_actions() {
-                        reduce(&mut self.view, action, Some(&fixture.screen));
+                        for effect in reduce(&mut self.view, action, Some(&fixture.screen)) {
+                            if let term_app::action::Effect::Filter(a) = effect {
+                                filter_actions.push(a);
+                            }
+                        }
                     }
+                    for a in filter_actions {
+                        term_app::filter::reduce(&mut tab.filter, a);
+                    }
+                    tab.filter_input = tab.filter.query.clone();
                     tab.snapshot = fixture.snapshot;
                     tab.screen = Some(fixture.screen);
                     tab.viewport = fixture.viewport;

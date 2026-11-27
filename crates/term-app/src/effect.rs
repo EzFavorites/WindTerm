@@ -10,7 +10,7 @@
 //! 依赖方向定死为 `effect → vocab`，能力模块只许向它**单向**取类型。
 
 use crate::vocab::{
-    Cmd, FoldCmd, HexKnob, LayoutAction, LogAction, MarksKnob, TabAction, XferCmd,
+    Cmd, FilterAction, FoldCmd, HexKnob, LayoutAction, LogAction, MarksKnob, TabAction, XferCmd,
 };
 
 /// `reduce()` 不能碰 PTY / 窗口 / 文件系统，所以副作用以值返回。
@@ -251,4 +251,13 @@ pub enum Effect {
     /// 算的那一段是**纯函数**（`effects::decide_fold`），所以「点了之后折没折对」
     /// 可以在没有窗口、没有会话的测试里逐条验。
     Fold(FoldCmd),
+    /// 终端行过滤器（`grep` / `grep -v`）的一次状态变化。
+    ///
+    /// 过滤状态**不在** `ViewState`：每条会话在 `Tab.filter` 各存一份
+    /// （与 `Tab.folds` / `Tab.marks` 同款）。纯层 reducer 只说「要怎么变」，
+    /// 落地在投影层 `apps/desktop/src/ui/effects.rs::apply_filter`，对**活动
+    /// tab**（分屏每个 pane 传自己那条会话）调 `filter::reduce`。
+    /// 命中集合每帧从 `(状态, 事实窗口)` 现算，不进任何状态；本 Effect 只携带
+    /// 动作本身，不携带命中结果。
+    Filter(FilterAction),
 }

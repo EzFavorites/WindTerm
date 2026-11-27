@@ -8,21 +8,21 @@
 //!
 //! 规矩不变：本函数不能碰 PTY / 窗口 / 文件系统，副作用只以 `Effect` 值返回。
 
-use crate::vocab::Action;
 use crate::center::{self as center_feature};
 use crate::clipboard::{self as clipboard_feature};
 use crate::dock::{self};
 use crate::effect::Effect;
 use crate::find::{self as find_feature};
 use crate::goto::{self as goto_feature};
-use crate::log::{self as log_feature};
 use crate::lock::{self as lock_feature};
+use crate::log::{self as log_feature};
 use crate::margin::{self as margin_feature};
 use crate::palette::{self as palette_feature};
 use crate::shell::{self as shell_feature};
 use crate::state::ViewState;
-use term_core::grid::ScreenImage;
+use crate::vocab::Action;
 use crate::vocab::{CenterAction, CenterPage, Cmd, PaletteAction};
+use term_core::grid::ScreenImage;
 
 /// 纯函数：给定状态、动作与只读事实窗口，返回待执行副作用。
 ///
@@ -48,6 +48,11 @@ pub fn reduce(state: &mut ViewState, action: Action, window: Option<&ScreenImage
                 Vec::new()
             }
         },
+        // 行过滤器：与折叠同款——reduce 不碰任何状态，只把动作原样交回投影层。
+        // 过滤状态是**每条会话**的（`Tab.filter`），纯层不持有它，也不写 `ViewState`；
+        // 投影层 `apply_filter` 对活动 tab（分屏每个 pane 自己那条会话）调
+        // `filter::reduce`。命中集合每帧从 `(状态, 事实窗口)` 现算，不缓存。
+        Action::Filter(a) => vec![Effect::Filter(a)],
         Action::Clipboard(a) => clipboard_feature::reduce(state, a),
         Action::Select(op) => vec![Effect::Select(Cmd::Move(op))],
         Action::SelectSet(op) => vec![Effect::Select(Cmd::Set(op))],

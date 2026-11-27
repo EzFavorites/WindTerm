@@ -94,6 +94,29 @@ pub struct FindState {
     pub current_match: usize,
 }
 
+/// 行过滤的两档语义。原定义住在 `vocab`（`FilterAction::SetMode` 携带它，`vocab`
+/// 是分层最底层），这里原样再导出，既有引用点（`state::FilterMode`）不改名——
+/// 分层单向只许 `state → vocab`，不许反向。
+pub use crate::vocab::FilterMode;
+
+/// 行过滤状态。与 Find 同纪律：**不存命中集合、不存计数**。
+///
+/// 命中与否是 `(query, mode, 正则/大小写, 事实窗口)` 的纯函数值；过滤本身
+/// 发生在渲染前最后一步 `ScreenImage::drop_rows`，所以这里只有用户的选择。
+/// 行号 / 时间戳不重排由 `LineSlice.row` 原样保留来保证，状态层不参与。
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub struct FilterState {
+    pub visible: bool,
+    pub query: String,
+    pub mode: FilterMode,
+    pub case_sensitive: bool,
+    /// `W`（Match Whole Word）：命中两端必须落在词边界上（字母/数字/下划线）。
+    /// 与 Find 的 `W` 同语义；只由 `reduce` 写，编译期交给 `filter::compile`。
+    pub whole_word: bool,
+    pub regex: bool,
+}
+
+
 /// 所有视图开关。纯数据，不含任何 UI 框架类型，可单测。
 ///
 /// 字段集与「读者」一一对应（读者在 `ui/`，括号里注明）：
@@ -106,8 +129,6 @@ pub struct FindState {
 // 快捷命令栏的分组数。必须与 `apps/desktop/src/ui/shell/quick_command_bar.rs::GROUPS`
 // 长度一致（`quick_command_bar.rs` 的测试会断言）；改任意两边都要同步。
 pub const QUICK_GROUP_COUNT: usize = 4;
-
-
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ViewState {
@@ -354,10 +375,9 @@ mod tests {
         // 新版截图默认铺满：左 Explorer/Filer、右会话树/Outline、底 Sender/Shell。
         // 另两个工具面板（Session 列表 / Transfer）视觉基线里没有，仍默认关。
         assert!(s.show_sidebar && s.show_filer);
-        assert!(s.show_pane_explorer
-            && s.show_pane_outline
-            && s.show_pane_sender
-            && s.show_pane_shell);
+        assert!(
+            s.show_pane_explorer && s.show_pane_outline && s.show_pane_sender && s.show_pane_shell
+        );
         assert!(!s.show_pane_session && !s.show_pane_transfer && !s.show_pane_sysmon);
         // 出厂读本机，不主动开第二条连接（远端 exec 要等用户明确点 R）。
         assert!(!s.sysmon_remote);

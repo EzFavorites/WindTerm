@@ -19,7 +19,7 @@
 use crate::ui::layout::{pane_group_name, PaneGroup, PaneId};
 use crate::ui::shell::{
     paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
-    PANE_TOOLS_H, SYSMON_BAR_H, TAB_BAR_H,
+    PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_H,
 };
 use crate::ui::*;
 use term_app::menu::{TabTool, TAB_TOOLS};
@@ -44,7 +44,7 @@ struct LeafRects {
     tab: Option<egui::Rect>,
     tools: Option<egui::Rect>,
     term: egui::Rect,
-    sysmon: Option<egui::Rect>,
+    toolbar: Option<egui::Rect>,
 }
 
 fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
@@ -53,11 +53,14 @@ fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
             tab: None,
             tools: None,
             term: rect,
-            sysmon: None,
+            toolbar: None,
         };
     }
+    // 工具条高度只有一档：`TAB_TOOLBAR_H`（25pt）。过滤激活不再抬高，分屏两片
+    // 因此也不会一个终端高一格、另一个矮一格。
+    let toolbar_h_in = TAB_TOOLBAR_H;
     // 矮窗格保底：三段 chrome 先按可用高度收缩，终端至少留一行高。
-    let chrome = TAB_BAR_H + PANE_TOOLS_H + SYSMON_BAR_H;
+    let chrome = TAB_BAR_H + PANE_TOOLS_H + toolbar_h_in;
     let term_h = (rect.height() - chrome).max(16.0);
     let scale = if rect.height() < chrome + 16.0 {
         (rect.height() - 16.0).max(0.0) / chrome
@@ -66,7 +69,7 @@ fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
     };
     let tab_h = TAB_BAR_H * scale;
     let tools_h = PANE_TOOLS_H * scale;
-    let sysmon_h = SYSMON_BAR_H * scale;
+    let toolbar_h = toolbar_h_in * scale;
     let tab_rect = egui::Rect::from_min_size(rect.min, egui::vec2(rect.width(), tab_h));
     let tools_rect = egui::Rect::from_min_size(
         egui::pos2(rect.left(), rect.min.y + tab_h),
@@ -76,15 +79,15 @@ fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
         egui::pos2(rect.left(), rect.min.y + tab_h + tools_h),
         egui::vec2(rect.width(), term_h),
     );
-    let sysmon_rect = egui::Rect::from_min_size(
-        egui::pos2(rect.left(), rect.max.y - sysmon_h),
-        egui::vec2(rect.width(), sysmon_h),
+    let toolbar_rect = egui::Rect::from_min_size(
+        egui::pos2(rect.left(), rect.max.y - toolbar_h),
+        egui::vec2(rect.width(), toolbar_h),
     );
     LeafRects {
         tab: Some(tab_rect),
         tools: Some(tools_rect),
         term: term_rect,
-        sysmon: Some(sysmon_rect),
+        toolbar: Some(toolbar_rect),
     }
 }
 
@@ -112,9 +115,9 @@ pub(in crate::ui) fn draw_pane_leaf(
         let mut term = ui.new_child(egui::UiBuilder::new().max_rect(parts.term));
         win.draw_terminal_area_for(&mut term, group.active);
     }
-    if let Some(sysmon_rect) = parts.sysmon {
-        let mut sysmon = ui.new_child(egui::UiBuilder::new().max_rect(sysmon_rect));
-        win.draw_sysmon_bar(&mut sysmon, Some(pane.0));
+    if let Some(toolbar_rect) = parts.toolbar {
+        let mut toolbar = ui.new_child(egui::UiBuilder::new().max_rect(toolbar_rect));
+        win.draw_tab_toolbar(&mut toolbar, Some(pane.0), Some(group.active));
     }
     // 父 Ui 必须知道整片被占掉了，否则后续内容会叠上来（与 Split 分支同款）。
     ui.allocate_rect(rect, egui::Sense::hover());
@@ -154,7 +157,10 @@ fn draw_pane_tab_strip(
             };
             // 编号按**本组内**的位置算：分屏时每片窗格的标签条各数各的，
             // 与全窗标签条按全局位置编号不冲突。
-            Some((*sid, format!("{}{}", tab_number_prefix(win.tab_numbers, i), title)))
+            Some((
+                *sid,
+                format!("{}{}", tab_number_prefix(win.tab_numbers, i), title),
+            ))
         })
         .collect();
 
@@ -165,12 +171,12 @@ fn draw_pane_tab_strip(
     let mut x = band.left();
     for (sid, title) in &labels {
         let is_active = *sid == group.active;
-        let g = ui.painter().layout_no_wrap(title.clone(), font.clone(), strong_c);
+        let g = ui
+            .painter()
+            .layout_no_wrap(title.clone(), font.clone(), strong_c);
         let w = TAB_PAD + ICON_W + ICON_GAP + g.size().x + CLOSE_GAP + CLOSE_W + TAB_PAD;
-        let rect = egui::Rect::from_min_size(
-            egui::pos2(x, band.top()),
-            egui::vec2(w, band.height()),
-        );
+        let rect =
+            egui::Rect::from_min_size(egui::pos2(x, band.top()), egui::vec2(w, band.height()));
         let cy = rect.center().y;
         {
             let p = ui.painter();
@@ -183,7 +189,10 @@ fn draw_pane_tab_strip(
             }
             paint_tab_icon(p, egui::pos2(rect.left() + TAB_PAD + ICON_W / 2.0, cy));
             p.galley(
-                egui::pos2(rect.left() + TAB_PAD + ICON_W + ICON_GAP, cy - g.size().y / 2.0),
+                egui::pos2(
+                    rect.left() + TAB_PAD + ICON_W + ICON_GAP,
+                    cy - g.size().y / 2.0,
+                ),
                 g,
                 if is_active { strong_c } else { text_c },
             );
@@ -246,11 +255,7 @@ fn draw_pane_tab_strip(
         } else {
             egui::Sense::hover()
         };
-        let resp = ui.interact(
-            rect,
-            egui::Id::new(("pane_tool", pane.0, *tool)),
-            sense,
-        );
+        let resp = ui.interact(rect, egui::Id::new(("pane_tool", pane.0, *tool)), sense);
         {
             let p = ui.painter();
             if resp.hovered() {
@@ -312,7 +317,12 @@ fn draw_pane_tab_strip(
 ///
 /// 2026-11-15 修正：上一版这里只手写了面包屑文字，导致分屏时「工具栏和地址栏
 /// 都不见了」——那是把 `tool_bar::draw` 的整套绘制漏掉了，不是方案如此。
-fn draw_pane_address_bar(win: &mut TerminalWindow, ui: &mut egui::Ui, pane: PaneId, session: SessionId) {
+fn draw_pane_address_bar(
+    win: &mut TerminalWindow,
+    ui: &mut egui::Ui,
+    pane: PaneId,
+    session: SessionId,
+) {
     crate::ui::shell::draw_tool_bar(
         win,
         ui,
@@ -338,9 +348,23 @@ mod tests {
         let parts = leaf_rects(r, false);
         assert!(parts.tab.is_some(), "tab 条不能丢");
         assert!(parts.tools.is_some(), "工具行 / 地址栏不能丢");
-        assert!(parts.sysmon.is_some(), "Sysmon 细带不能丢");
+        assert!(parts.toolbar.is_some(), "tab 工具条不能丢");
         assert_eq!(parts.term.top(), r.top() + TAB_BAR_H + PANE_TOOLS_H);
-        assert_eq!(parts.sysmon.unwrap().bottom(), r.bottom());
+        assert_eq!(parts.toolbar.unwrap().bottom(), r.bottom());
+    }
+
+    /// 过滤激活也不抬高工具条：分屏两片的终端高度完全一致，恒为 25pt。
+    #[test]
+    fn toolbar_stays_25pt_when_filter_is_active() {
+        let r = leaf_rect();
+        let parts = leaf_rects(r, false);
+        assert_eq!(parts.toolbar.unwrap().height(), TAB_TOOLBAR_H);
+        assert_eq!(parts.toolbar.unwrap().bottom(), r.bottom());
+        assert_eq!(
+            parts.term.height(),
+            r.height() - TAB_BAR_H - PANE_TOOLS_H - TAB_TOOLBAR_H,
+            "终端不再为过滤行让出 18pt"
+        );
     }
 
     /// 专注模式压掉的不只是单窗格那条全窗顶栏——**每一片分屏窗格**也只剩终端。
@@ -351,7 +375,7 @@ mod tests {
         let parts = leaf_rects(r, true);
         assert!(parts.tab.is_none());
         assert!(parts.tools.is_none());
-        assert!(parts.sysmon.is_none());
+        assert!(parts.toolbar.is_none());
         assert_eq!(parts.term, r, "终端吃满整片窗格");
     }
 
@@ -364,7 +388,10 @@ mod tests {
         let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
         win.view.focus_mode = focus;
         let pane = crate::ui::layout::mint_pane_identity();
-        let group = PaneGroup { order: Vec::new(), active: 0 };
+        let group = PaneGroup {
+            order: Vec::new(),
+            active: 0,
+        };
         let mut shapes = 0;
         for _ in 0..2 {
             let input = egui::RawInput {
