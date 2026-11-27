@@ -49,15 +49,15 @@ pub(in crate::ui) fn split_rules(text: &str) -> Vec<String> {
 
 /// 隧道这条连接该用哪种主机密钥策略。
 ///
-/// 以前不分青红皂白用 `Tofu`：会话那边用 `Strict` 先问过用户，可连接对话框
-/// 确认后重连用的是另一条连接；隧道再走一遍 `Tofu` 等于绕开了那次裁决。
-/// 现在只认**账本里已经记着的指纹**：记着就 `Strict` 真校验；没记着就明确
-/// 报错让用户先去会话连接里确认指纹，绝不用 Tofu 偷偷记一把新钥匙。
+/// 账本里**已有**指纹时用 `Strict` 真校验，不浪费既有账本的验证价值；账本为空
+/// 时跟会话首连走同一条 [`ssh_connect::FIRST_POLICY`]（Insecure，内部自动接受）。
+/// 界面已经没有「信任一次」的入口（owner 2026-11-27 裁定，与原版一致），
+/// 若在这里报错，默认会话的隧道就成了一条永远走不通的死路。
 fn tunnel_host_key_policy(config: &SessionConfig) -> Result<term_ssh::HostKeyPolicy, term_ssh::SshError> {
     use term_ssh::SshError;
     if !config.verify_host_key {
         // 会话显式关掉了校验：隧道跟着一致地不查，且绝不写账本。
-        return Ok(term_ssh::HostKeyPolicy::Insecure);
+        return Ok(ssh_connect::FIRST_POLICY);
     }
     let host = config.host.trim();
     let port = if config.port == 0 { term_ssh::DEFAULT_PORT } else { config.port };
@@ -72,9 +72,8 @@ fn tunnel_host_key_policy(config: &SessionConfig) -> Result<term_ssh::HostKeyPol
     if known {
         Ok(term_ssh::HostKeyPolicy::Strict)
     } else {
-        Err(SshError::Config(format!(
-            "主机 {host}:{port} 没有已确认的指纹：先在会话连接里核对并信任一次，再起隧道"
-        )))
+        // 界面没有信任入口：账本为空就按 FIRST_POLICY 内部接受，绝不写账本。
+        Ok(ssh_connect::FIRST_POLICY)
     }
 }
 
@@ -336,12 +335,12 @@ impl TerminalWindow {
                 return;
             }
         };
-        // 沿用会话那次「已信任指纹」的落盘结果：账本里有 → Strict 真校验；
-        // 没有 → 面板上明确提示先去确认指纹，不再用 Tofu 绕开裁决。
+        // 账本里有指纹 → Strict 真校验；账本为空 → FIRST_POLICY 内部自动接受。
+        // 界面没有信任入口，不能让默认会话的隧道在这里堵死。
         // 参数拼不出来（手写的 `ProxyJump` 链有误）时按「规则写错」同一条路走：
         // 面板上留一条 `failed` 记录说明原因，而不是 panic 或悄悄不起。
         let built = tunnel_host_key_policy(config)
-            .map_err(|e| format!("主机密钥未确认，隧道无法建立：{e}"))
+            .map_err(|e| format!("隧道连接参数有误：{e}"))
             .and_then(|policy| {
                 ssh_connect::options_for(config, auth.clone(), policy)
                     .map_err(|e| format!("连接参数有误，隧道无法建立：{e}"))
@@ -531,6 +530,33 @@ mod tests {
             tunnel_host_key_policy(&config).unwrap(),
             term_ssh::HostKeyPolicy::Insecure
         );
+    }
+
+    /// WKEY 回归：账本为空的默认 SSH 会话，两条起隧道的路都不能再被
+    /// 「先去信任一次」这条已经删掉的入口堵死。
+    #[test]
+    fn an_empty_ledger_default_session_starts_both_tunnel_kinds() {
+        use crate::ui::lifecycle_test_support as support;
+        support::with_temp_profile(|| {
+            let ctx = egui::Context::default(); let pool = std::sync::Arc::new(term_session::SessionPool::new());
+            let closes = support::CloseCount::default(); let mut tab = support::fake_tab(&pool, &ctx, 0, &closes);
+            let mut config = SessionConfig::new(term_core::session::Protocol::Ssh);
+            config.name = "wkey".into(); config.host = "wkey-no-ledger.invalid".into();
+            config.verify_host_key = true; config.forwards = vec!["L 15432:127.0.0.1:5432".into()];
+            let auth = term_ssh::AuthMethod::Agent; tab.config = config.clone();
+            tab.auth = Some(auth.clone());
+            let mut win = support::window_with(pool, &ctx, vec![tab]);
+            assert_eq!(tunnel_host_key_policy(&config).unwrap(), ssh_connect::FIRST_POLICY);
+            win.start_session_tunnel(&config, Some(&auth));
+            let mut profile = term_core::tunnel::TunnelProfile::new("named");
+            profile.session = config.name.clone(); profile.listen_port = 15433; profile.kind = term_core::tunnel::TunnelKind::Socks5;
+            win.tunnel_profiles.push(profile.clone());
+            assert!(win.start_profile_tunnel(&profile));
+            for key in [session_tunnel_key(&config.name), profile.key()] {
+                let tunnel = win.tunnels.iter().find(|t| t.key == key).unwrap();
+                assert!(tunnel.error.is_none() && !tunnel.summary().contains("信任"), "{key}: {:?} / {}", tunnel.error, tunnel.summary());
+            }
+        });
     }
 
     #[test]

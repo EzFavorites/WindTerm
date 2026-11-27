@@ -41,6 +41,17 @@ fn filer_uses_sftp(config: &SessionConfig, has_auth: bool) -> bool {
     config.sftp && has_auth
 }
 
+/// SFTP 这条连接与会话首连同一策略：主机 key 内部自动接受，不写 `known_hosts`。
+///
+/// 以前的 `Tofu` 会静默记账本，换钥后又返回 `Changed`，于是「终端能用、文件面板
+/// 报密钥不一致」。界面既不问指纹也不持久化 accepted key，两端必须同一档。
+fn sftp_options(
+    config: &SessionConfig,
+    auth: term_ssh::AuthMethod,
+) -> Result<term_ssh::SshOptions, term_ssh::SshError> {
+    ssh_connect::options_for(config, auth, ssh_connect::FIRST_POLICY)
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum SortBy {
     #[default]
@@ -284,11 +295,9 @@ impl TerminalWindow {
             return;
         };
         self.filer.source = Source::Sftp;
-        // 主机密钥用 `Tofu`：终端那条连接已经裁决过（能连上说明账本里有它），
-        // 这里再问一遍指纹只会让用户困惑「为什么又问」。
         // 参数拼不出来（手写的 `ProxyJump` 链有误）时**不 panic、也不静默**：
         // 面板自己把那句话显示在既有的 `error` 槽里，用户去改会话属性即可。
-        let opts = match ssh_connect::options_for(&config, auth, term_ssh::HostKeyPolicy::Tofu) {
+        let opts = match sftp_options(&config, auth) {
             Ok(opts) => opts,
             Err(e) => {
                 let message = format!("会话的连接参数有误，无法打开 SFTP：{e}");
@@ -706,3 +715,28 @@ mod sync_view;
 #[cfg(test)]
 #[path = "filer_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod host_key_tests {
+    use super::*;
+
+    /// 默认会话（校验开关开着）的 SFTP 与终端首连同档：`Insecure` 在
+    /// `term_ssh::known_hosts::verify` 里直接放行、一个字节都不写账本。
+    #[test]
+    fn default_session_sftp_options_are_insecure_and_leave_the_ledger_alone() {
+        let mut config = SessionConfig::new(Protocol::Ssh);
+        config.host = "wkey-sftp-no-ledger.invalid".into();
+        config.username = "u".into();
+        config.verify_host_key = true;
+        let opts = sftp_options(&config, term_ssh::AuthMethod::Agent).unwrap();
+        assert_eq!(opts.host_key, term_ssh::HostKeyPolicy::Insecure);
+        assert_eq!(opts.host_key, ssh_connect::FIRST_POLICY);
+        let path = opts.resolved_known_hosts().unwrap();
+        let token = term_ssh::host_token(&config.host, opts.port);
+        let recorded = term_ssh::known_hosts_admin::list(&path)
+            .unwrap()
+            .iter()
+            .any(|r| r.hosts.iter().any(|h| h == &token));
+        assert!(!recorded, "SFTP 不该把主机 key 写进账本");
+    }
+}

@@ -18,7 +18,7 @@ use crate::log::{self, SessionLog};
 pub enum ErrorStage {
     /// SSH 连接本身（握手、ProxyJump 参数拼装）。
     Connect,
-    /// 认证 / 主机密钥裁决（含 Tofu 替换写账本失败）。
+    /// 认证（含凭据解析与密钥认证失败）。
     Auth,
     /// SFTP 子系统连接。
     Sftp,

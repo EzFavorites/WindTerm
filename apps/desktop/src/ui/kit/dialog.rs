@@ -53,7 +53,7 @@ impl DialogKeys {
         extra_cancel_key: None,
     };
 
-    /// 只有 Esc = 取消，Enter 什么都不做（SSH 主机密钥确认等安全场景）。
+    /// 只有 Esc = 取消，Enter 什么都不做（同步删除确认等安全场景）。
     pub(in crate::ui) const ESC_ONLY: Self = Self {
         enter_cancels: false,
         enter_confirms: false,
@@ -90,7 +90,7 @@ impl DialogKeys {
 // ── DialogId → 键盘契约的**唯一表** ──────────────────────────────
 //
 // 规则来自各弹窗的语义与金标准：即时生效的没有可取消的草稿；安全确认
-//（主机密钥 / 替换密钥 / 同步删除）绝不接 Enter；带 TextEdit 的弹窗
+//（同步删除确认）绝不接 Enter；带 TextEdit 的弹窗
 // 只接 Esc，Enter 仍走控件自己的 `lost_focus()` 路径，避免打字时误提交。
 impl super::spec::DialogId {
     pub(in crate::ui) fn keys(self) -> DialogKeys {
