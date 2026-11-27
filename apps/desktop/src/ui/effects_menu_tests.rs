@@ -69,7 +69,9 @@ fn tool_script_menu_opens_the_three_script_surfaces() {
 
     win.dispatch("Terminal.NewScript");
     assert!(win.script_editor.is_some(), "New Script 要打开编辑器");
+    assert!(win.modal_dialog_open(), "编辑器打开时是模态");
     win.script_editor = None;
+    assert!(!win.modal_dialog_open(), "编辑器关掉后不该再算模态");
 
     win.dispatch("Terminal.ManageScripts");
     assert!(win.script_manager.is_some(), "Manage Scripts 要打开管理对话框");

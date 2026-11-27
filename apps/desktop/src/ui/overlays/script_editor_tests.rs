@@ -60,7 +60,7 @@ fn file_label_takes_the_last_segment_and_survives_empty_input() {
 
 #[test]
 fn title_uses_the_file_name_when_a_path_is_set() {
-    let mut state = ScriptEditorState::closed();
+    let mut state = ScriptEditorState::new();
     assert_eq!(state.title(Lang::En), "Script Editor");
     state.path = "/tmp/demo.rhai".to_string();
     assert_eq!(state.title(Lang::En), "demo.rhai");
@@ -86,8 +86,9 @@ fn opening_a_missing_file_reports_an_error_but_still_opens_an_empty_buffer() {
     let pool = std::sync::Arc::new(term_session::SessionPool::new());
     let mut window = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
     window.open_script_editor(None, Some("/definitely/not/here.rhai"));
+    assert!(window.script_editor.is_some(), "编辑器应已打开");
+    assert!(window.modal_dialog_open(), "编辑器打开时是模态");
     let state = window.script_editor.as_ref().expect("编辑器应已打开");
-    assert!(state.open);
     assert_eq!(state.doc.text(), "", "读不到文件也不能有内容");
     assert!(state.error.is_some(), "失败原因要说出来");
 }
@@ -137,7 +138,7 @@ fn saving_a_never_saved_buffer_prefills_the_script_library_path() {
     assert!(state.error.is_none(), "预填不该报错：{:?}", state.error);
 }
 
-/// 关窗必须**摘掉 `Option`**，不能只把 `open` 置 false。
+/// 关窗必须**摘掉 `Option`**——`Some` 就是开，`None` 就是关。
 ///
 /// 事故面（P0）：`modal_dialog_open()` 判 `is_some()`，于是「关着但还在」的编辑器
 /// 一直算模态——整屏灰罩不撤，而灰罩用 `Sense::click()` 吃掉全部鼠标交互，
@@ -160,6 +161,11 @@ fn closing_the_editor_drops_its_state_and_releases_the_modal_backdrop() {
         !window.modal_dialog_open(),
         "关闭后不能再算模态，否则灰罩会永久吃掉鼠标交互"
     );
+
+    // 重复关闭必须幂等：既不能把状态带回来，也不能让灰罩重新盖上。
+    window.close_script_editor();
+    assert!(window.script_editor.is_none(), "再关一次仍不该有状态");
+    assert!(!window.modal_dialog_open(), "再关一次仍不该算模态");
 }
 
 #[test]
@@ -172,7 +178,8 @@ fn one_frame_draws_without_panicking_and_keeps_the_window_open() {
     let mut window = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
     window.open_script_editor(None, Some(&path.to_string_lossy()));
     let _ = ctx.run(Default::default(), |ctx| window.draw_script_editor(ctx));
+    assert!(window.script_editor.is_some(), "一帧绘制不该把窗口关掉");
+    assert!(window.modal_dialog_open(), "一帧绘制后仍该算模态");
     let state = window.script_editor.as_ref().expect("画完仍应在");
-    assert!(state.open, "一帧绘制不该把窗口关掉");
     assert!(!state.doc.text().is_empty(), "文件内容应已读入");
 }

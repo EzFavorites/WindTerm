@@ -123,7 +123,7 @@ fn keyboard_whitelist(win: &TerminalWindow) -> bool {
         || win.tunnel_editor.is_some()
         || win.filer.has_modal()
         || win.script_manager.is_some()
-        || win.script_editor.as_ref().is_some_and(|s| s.open)
+        || win.script_editor.is_some()
         || win.onekeys_edit.as_ref().is_some_and(|e| e.new_scheme_modal)
 }
 
@@ -139,5 +139,19 @@ mod tests {
         assert!(!should_eat(true, true));
         assert!(!should_eat(false, false));
         assert!(!should_eat(false, true));
+    }
+
+    /// 脚本编辑器带 `TextEdit`，开着时必须留在白名单里；关掉后不能再占白名单。
+    #[test]
+    fn script_editor_is_whitelisted_only_while_open() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+
+        win.open_script_editor(None, None);
+        assert!(keyboard_whitelist(&win));
+
+        win.close_script_editor();
+        assert!(!keyboard_whitelist(&win));
     }
 }

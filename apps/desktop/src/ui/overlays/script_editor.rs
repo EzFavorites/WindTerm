@@ -45,9 +45,6 @@ const NEW_SCRIPT_TEMPLATE: &str = include_str!("../../../resources/scripts/00-te
 /// 放 `TerminalWindow` 上而不是 `ViewState`：里面有一个线程句柄（`ScriptRun`）
 /// 与一份可编辑缓冲，reducer 不该持有这种东西。
 pub(in crate::ui) struct ScriptEditorState {
-    /// 窗口开着没有（`None` 的 Option 已表达「没有状态」，这个 bool 表达「关着但
-    /// 状态还在」——目前关窗即丢弃状态，保留 bool 与其余对话框一致）。
-    pub open: bool,
     /// 缓冲区（文本 + 行索引 + 脏标记）。
     pub doc: ScriptDoc,
     /// 当前文件路径；空串 = 还没保存过。
@@ -67,9 +64,8 @@ pub(in crate::ui) struct ScriptEditorState {
 }
 
 impl ScriptEditorState {
-    fn closed() -> Self {
+    fn new() -> Self {
         ScriptEditorState {
-            open: false,
             doc: ScriptDoc::default(),
             path: String::new(),
             error: None,
@@ -142,8 +138,7 @@ impl TerminalWindow {
                 Err(message) => (String::new(), Some(message)),
             }
         };
-        let mut state = ScriptEditorState::closed();
-        state.open = true;
+        let mut state = ScriptEditorState::new();
         state.session = session;
         state.path = path;
         state.doc = ScriptDoc::new(text);
@@ -154,8 +149,9 @@ impl TerminalWindow {
 
     /// 关掉编辑器并**丢弃状态**。
     ///
-    /// **必须把 `Option` 摘成 `None`，不能只置 `state.open = false`**：
-    /// `modal_dialog_open()` 判的是「有没有模态」，留一个「关着但还在」的状态
+    /// `script_editor` 的 `Option` 是唯一的开 / 关真相：`Some` 即开，`None` 即关，
+    /// 不再有第二个 bool 能与它矛盾。因此这里必须把 `Option` 摘成 `None`：
+    /// `modal_dialog_open()` 判的是 `is_some()`，留一个「关着但还在」的状态
     /// 会让脚本编辑器永远算作模态——`overlays::modal::draw_backdrop` 的整屏灰罩
     /// 从此不再撤掉，而它用 `Sense::click()` 吃掉全部鼠标交互，界面看起来像死了。
     ///
@@ -184,10 +180,6 @@ impl TerminalWindow {
         let Some(mut state) = self.script_editor.take() else {
             return;
         };
-        if !state.open {
-            self.script_editor = Some(state);
-            return;
-        }
         // `notify` 的话落到窗口的状态栏（`log_note` 是既有的一次性反馈通道）。
         // 函数返回 `Option` 就是为了这一句：`ScriptEditorState` 自己够不到窗口。
         if let Some(note) = state.poll() {
