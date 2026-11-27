@@ -402,6 +402,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Interval:" => "间隔：",
         "Targets:" => "目标：",
         "Current Session" => "当前会话",
+        "Closed Session" => "已关闭会话",
         "Sessions In Current Group" => "当前组内的会话",
         "Sessions In Current Window" => "当前窗口内的会话",
         "Sessions In All Windows" => "所有窗口内的会话",
@@ -490,6 +491,28 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         // 对话框**正文**仍然只有英文（与 SSH 那几个窗口一致）；这里翻译的是
         // 菜单项这类「chrome」，它们和菜单栏里的条目是同一类东西。
         "Run Script" => "运行脚本",
+        // `Tool ▸ Script` 子菜单；面板显隐的「Script」另有条目。
+        "Stop Script" => "停止脚本",
+        "Record Script" => "录制脚本",
+        "New Script" => "新建脚本",
+        "Manage Scripts" => "管理脚本",
+        "Script file:" => "脚本文件：",
+        "This session is read-only (Local mode); scripts will not run" =>
+            "这条会话处于只读查看（Local mode），脚本不会执行",
+        "This tab is stopping; wait for it to finish" => "这个页签正在停止，等它结束再运行",
+        "Pick a script above first" => "先在上面选一个脚本",
+        // 脚本面板工具条（`Record` / 单次授权折叠面板）属于 chrome，正文仍英文。
+        "Record" => "录制",
+        "Stop Recording" => "停止录制",
+        "Nothing recorded (no keystrokes captured)" => "没录到内容（没有捕获到击键）",
+        "Permissions (this run only)" => "权限（仅本次运行）",
+        "Run programs" => "运行程序",
+        "Read clipboard" => "读取剪贴板",
+        "Control window" => "控制窗口",
+        "folder for file access" => "文件访问目录",
+        "Writable" => "可写",
+        "Sub-folders are included; `..` is rejected before comparing." =>
+            "包含子目录；比较前会拒绝 `..`。",
         "New folder" => "新建文件夹",
         "Permissions" => "权限",
         "Delete" => "删除",

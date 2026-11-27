@@ -197,6 +197,13 @@ pub fn reduce(state: &mut ViewState, action: ShellAction) -> Vec<Effect> {
             state.show_onekeys = true;
             vec![]
         }
+        // `Tool ▸ Script` 三条：reducer 不碰任何对话框或会话状态（那些都活在
+        // 投影层），只把意图带出去；落点见 `ui/effects.rs`。
+        ShellAction::RunScript => vec![Effect::RunScript],
+        ShellAction::NewScript => vec![Effect::NewScript],
+        ShellAction::ManageScripts => vec![Effect::ManageScripts],
+        ShellAction::StopScript => vec![Effect::StopScript],
+        ShellAction::RecordScript => vec![Effect::RecordScript],
         // `Terminal.ClearRecentUrls`：一个字段都不写（列表在盘上，缓存副本在
         // 投影层），只把意图带出去。落地是 `ui/address/mod.rs` 里那条早就在的
         // `clear_recent_targets`——地址栏右键的「Clear Recent」走同一个函数。

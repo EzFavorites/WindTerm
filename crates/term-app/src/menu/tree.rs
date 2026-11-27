@@ -932,6 +932,37 @@ pub fn menus() -> Vec<Menu> {
                     label: "Triggers",
                     id: "Terminal.ManageTriggers",
                 },
+                // 脚本工作入口（写 / 跑 / 管）收在 Tool 下，与面板显隐分开：
+                // 后者是 `Window ▸ Panes ▸ Script`，由窗口层管，不在这里重复。
+                Item::Submenu {
+                    label: "Script",
+                    items: vec![
+                        Item::Action {
+                            label: "Run Script",
+                            id: "Terminal.RunScript",
+                        },
+                        Item::Action {
+                            label: "Stop Script",
+                            id: "Terminal.StopScript",
+                        },
+                        Item::Separator,
+                        // 勾读 `Recorder` 当前状态：菜单与面板的 Record 按钮是
+                        // 同一个开关，不存在第二份「正在录吗」的状态。
+                        Item::Check {
+                            label: "Record Script",
+                            id: "Terminal.RecordScript",
+                            checked: CheckState::Live,
+                        },
+                        Item::Action {
+                            label: "New Script",
+                            id: "Terminal.NewScript",
+                        },
+                        Item::Action {
+                            label: "Manage Scripts",
+                            id: "Terminal.ManageScripts",
+                        },
+                    ],
+                },
                 Item::Action {
                     label: "Tunnels",
                     id: "Terminal.ManageTunnels",

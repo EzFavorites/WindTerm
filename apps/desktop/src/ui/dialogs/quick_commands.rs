@@ -273,24 +273,55 @@ impl TerminalWindow {
                                     egui::RichText::new("✦").color(parse_color(&group_color)).strong(),
                                 );
                             });
+                            let script_prefix = crate::script_run::RUN_FILE_PREFIX;
                             ui.horizontal(|ui| {
                                 ui.label("Type:");
-                                // 目前只实现「发送文本」，不摆不能用的假选项。
+                                // 类型不另存一个字段：`send` 是否带 `Script.RunFile:`
+                                // 就是唯一事实源，手改配置也不会出现「类型说脚本、
+                                // 内容却是文本」的两份真相。
+                                let was_script = crate::script_run::run_file_target(&c.send).is_some();
                                 let w = ui.available_width();
                                 egui::ComboBox::from_id_salt("qc_type_combo")
-                                    .selected_text("Send Text")
+                                    .selected_text(if was_script { "Run Script" } else { "Send Text" })
                                     .width(w)
                                     .show_ui(ui, |ui| {
-                                        let _ = ui.selectable_label(true, "Send Text");
+                                        if ui.selectable_label(!was_script, "Send Text").clicked() {
+                                            if let Some(path) = crate::script_run::run_file_target(&c.send) {
+                                                c.send = path.to_string();
+                                            }
+                                        }
+                                        if ui.selectable_label(was_script, "Run Script").clicked()
+                                            && crate::script_run::run_file_target(&c.send).is_none()
+                                        {
+                                            c.send = format!("{script_prefix}{}", c.send);
+                                        }
                                     });
                             });
-                            ui.label("Text:");
+                            // 切换类型后重算：这一帧的标签与输入框就要跟着换。
+                            let is_script = crate::script_run::run_file_target(&c.send).is_some();
                             let w = ui.available_width();
-                            ui.add(
-                                egui::TextEdit::multiline(&mut c.send)
-                                    .desired_rows(13)
-                                    .desired_width(w),
-                            );
+                            if is_script {
+                                // 只让用户填路径；前缀由这里补，避免他手写错一个
+                                // 字符就成了「往终端发一段怪文本」而不是跑脚本。
+                                ui.label("Script file:");
+                                let mut path = crate::script_run::run_file_target(&c.send)
+                                    .unwrap_or_default()
+                                    .to_string();
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut path)
+                                        .id_source("qc_script_path")
+                                        .desired_width(w)
+                                        .hint_text("/path/to/script.rhai"),
+                                );
+                                c.send = format!("{script_prefix}{}", path.trim());
+                            } else {
+                                ui.label("Text:");
+                                ui.add(
+                                    egui::TextEdit::multiline(&mut c.send)
+                                        .desired_rows(13)
+                                        .desired_width(w),
+                                );
+                            }
                         } else {
                             ui.label(egui::RichText::new("No command — press + to add one.").weak());
                         }

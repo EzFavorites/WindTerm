@@ -86,25 +86,25 @@ pub(super) fn tool_row(win: &TerminalWindow, ui: &mut egui::Ui, rect: egui::Rect
     let mut cmd = None;
     let s = win.sender_state();
 
-    if row.icon("sender_run", Glyph::Run, crate::theme::chrome(RUN_GREEN)) {
+    if row.icon("sender_run", Glyph::Run, crate::theme::chrome(RUN_GREEN)).clicked() {
         cmd = Some(Cmd::Run);
     }
     row.gap(ICON_GAP);
     let stop_c = crate::theme::chrome(STOP_GREY);
-    if row.icon("sender_stop", Glyph::Stop, stop_c) {
+    if row.icon("sender_stop", Glyph::Stop, stop_c).clicked() {
         cmd = Some(Cmd::Stop);
     }
     row.gap(ICON_GAP);
     let icon_c = crate::theme::chrome(CHROME_SCALE.icon);
-    if row.icon("sender_add", Glyph::Plus, icon_c) {
+    if row.icon("sender_add", Glyph::Plus, icon_c).clicked() {
         cmd = Some(Cmd::NewTab);
     }
     row.gap(ICON_GAP);
-    if row.icon("sender_del", Glyph::Minus, icon_c) {
+    if row.icon("sender_del", Glyph::Minus, icon_c).clicked() {
         cmd = Some(Cmd::CloseTab);
     }
     row.gap(ICON_GAP);
-    if row.icon("sender_clear", Glyph::Cross, icon_c) {
+    if row.icon("sender_clear", Glyph::Cross, icon_c).clicked() {
         cmd = Some(Cmd::Clear);
     }
     row.gap(SEP_PAD);
@@ -261,8 +261,11 @@ impl<'a> Row<'a> {
             .on_hover_cursor(egui::CursorIcon::PointingHand)
     }
 
-    /// 一颗图标按钮。返回是否被点。
-    pub(super) fn icon(&mut self, id: &'static str, g: Glyph, c: egui::Color32) -> bool {
+    /// 一颗图标按钮。返回 `Response`，调用方取 `.clicked()`，也能挂 tooltip。
+    ///
+    /// 返回 `bool` 时谁都加不上悬停说明——脚本面板那颗 `×` 与 Sender 的
+    /// `×` 同形却不同义，只能靠 tooltip 区分，所以这里给出完整响应。
+    pub(super) fn icon(&mut self, id: &'static str, g: Glyph, c: egui::Color32) -> egui::Response {
         let resp = self.hit(ICON_W, id);
         let k = egui::pos2(self.x - ICON_W / 2.0, self.cy);
         if resp.hovered() {
@@ -270,7 +273,7 @@ impl<'a> Row<'a> {
                 .rect_filled(resp.rect, 0.0, crate::theme::chrome(CHROME_SCALE.hover));
         }
         paint_glyph(&self.p, k, g, c);
-        resp.clicked()
+        resp
     }
 
     /// 一根整行高的竖线。

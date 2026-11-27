@@ -38,8 +38,6 @@ pub(super) enum ScriptCmd {
     NewTab,
     CloseTab,
     OpenConfig,
-    /// 清掉上一次的结果 / 错误（不清缓冲，也不停正在跑的那次）。
-    Clear,
     OpenScripts,
     OpenSessions,
     /// 选中脚本列表的第 `usize` 项。
@@ -69,24 +67,29 @@ pub(super) fn script_row(
     let mut row = Row::new(ui, rect);
     let mut cmd = None;
 
-    if row.icon("script_run", Glyph::Run, crate::theme::chrome(RUN_GREEN)) {
+    if row.icon("script_run", Glyph::Run, crate::theme::chrome(RUN_GREEN)).clicked() {
         cmd = Some(ScriptCmd::Run);
     }
     row.gap(ICON_GAP);
-    if row.icon("script_stop", Glyph::Stop, crate::theme::chrome(STOP_GREY)) {
+    if row.icon("script_stop", Glyph::Stop, crate::theme::chrome(STOP_GREY)).clicked() {
         cmd = Some(ScriptCmd::Stop);
     }
     row.gap(ICON_GAP);
     row.gap(ICON_GAP);
-    if row.icon("script_newtab", Glyph::Plus, crate::theme::chrome(CHROME_SCALE.icon)) {
+    if row.icon("script_newtab", Glyph::Plus, crate::theme::chrome(CHROME_SCALE.icon)).clicked() {
         cmd = Some(ScriptCmd::NewTab);
     }
     row.gap(ICON_GAP);
-    if row.icon("script_closetab", Glyph::Minus, crate::theme::chrome(CHROME_SCALE.icon)) {
+    if row.icon("script_closetab", Glyph::Minus, crate::theme::chrome(CHROME_SCALE.icon)).clicked() {
         cmd = Some(ScriptCmd::CloseTab);
     }
     row.gap(SEP_PAD);
-    if row.icon("script_config", Glyph::Cross, crate::theme::chrome(CHROME_SCALE.icon)) {
+    // 与相邻 Sender 的 `×`（清除）同形却不同义：没有 tooltip 就是个陷阱。
+    if row
+        .icon("script_config", Glyph::Cross, crate::theme::chrome(CHROME_SCALE.icon))
+        .on_hover_text(win.tr("Manage Scripts"))
+        .clicked()
+    {
         cmd = Some(ScriptCmd::OpenConfig);
     }
     row.gap(SEP_PAD);

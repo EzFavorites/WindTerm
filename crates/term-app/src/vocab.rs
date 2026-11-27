@@ -327,6 +327,24 @@ pub enum ShellAction {
     /// （SSH / Account / Sessions 三标签），编辑结果落 `prefs` 并由
     /// `auth_chain` 在连接时读取。
     ManageOneKeys,
+    /// `Terminal.RunScript`：打开「运行脚本」对话框，绑在当前活动会话上。
+    ///
+    /// 与终端右键 `More ▸ Run Script` 同一落点，只是从菜单栏进入；reducer 只抛
+    /// `Effect::RunScript`，选脚本与选会话都在投影层（脚本面板不参与）。
+    RunScript,
+    /// `Terminal.NewScript`：在脚本编辑器里新建一份带模板的 `.rhai`，预填脚本库路径。
+    NewScript,
+    /// `Terminal.ManageScripts`：打开「管理脚本」对话框（登记 / 参数 / 启停）。
+    ///
+    /// 与脚本面板齿轮里的 `OpenConfig` 同一个落点，但从菜单栏也能进——面板默认
+    /// 关着，管理入口不该藏在默认看不见的地方。
+    ManageScripts,
+    /// `Terminal.StopScript`：叫停本窗口所有正在跑的脚本（对话框 / 面板 /
+    /// 编辑器 / 登录脚本），与 `Mode ▸ Local Mode` 共用同一处遍历。
+    StopScript,
+    /// `Terminal.RecordScript`：开始 / 结束脚本录制。勾读 `is_recording()`，
+    /// 生成物落进脚本库；面板里的 Record 按钮与它是同一个开关。
+    RecordScript,
     /// `Terminal.ClearRecentUrls`：清空「最近使用」的目标串（地址栏那串候选）。
     ///
     /// **reducer 什么也不写**：那份列表活在 `Prefs.recent_targets`，缓存副本在

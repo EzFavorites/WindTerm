@@ -255,14 +255,21 @@ impl TerminalWindow {
             state.error = Some("这条会话处于只读查看（Local mode），脚本不会执行".to_string());
             return;
         }
+        let mut ran = false;
         match ScriptRun::start(pool, id, state.doc.text().to_string(), options) {
             Ok(run) => {
                 state.run = Some(run);
                 state.outcome = None;
                 state.error = None;
+                ran = true;
                 self.ctx.request_repaint();
             }
             Err(message) => state.error = Some(message),
+        }
+        // 编辑器也是「跑脚本」的一个入口，MRU 不该只有运行窗口和面板才记。
+        // 未保存的缓冲区没有路径，跳过后由「另存为」后的下一次运行补上。
+        if ran && !who.trim().is_empty() {
+            self.note_recent_script(&who);
         }
     }
 

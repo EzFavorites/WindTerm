@@ -224,6 +224,8 @@ fn a_wired_command_must_read_live_state() {
             "Remote Mode",
             // Mode › Word Wrap：2026-11-24 接线改 Live，勾由 `word_wrap_on` 现读。
             "Word Wrap",
+            // Tool › Script › Record Script：勾读录制器当前槽位，与面板按钮同源。
+            "Record Script",
         ],
         "读运行期状态的勾选行变了：它们必须与已接线命令一一对应"
     );

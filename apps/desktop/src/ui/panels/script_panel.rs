@@ -104,6 +104,7 @@ pub(in crate::ui) struct ScriptPanelState {
     pub grants: Grants,
     /// 这次运行的只读输出标签（脚本日志与返回值走这里，不写真实会话）。
     pub output: Option<crate::script_output::ScriptOutputQueue>,
+    /// 上一次输出标签的身份：下次运行时先关掉它，避免同名只读 tab 越堆越多。
     pub output_session: Option<SessionId>,
 }
 
@@ -230,16 +231,18 @@ impl TerminalWindow {
 
     /// 读文件 → 起线程。失败留在 `error` 里，不弹第二个窗口。
     fn run_script_panel(&mut self) {
+        let lang = self.view.lang;
         // 关闭中的页签只是还没收到旧脚本的 Outcome：在上面再起一条，旧结果一到
         // 页签就被摘掉，新句柄跟着丢，线程还在跑却没人管租约。
         let idx = self.script_panel.active.min(self.script_panel.tabs.len() - 1);
         if self.script_panel.tabs[idx].closing {
             self.script_panel.current_mut().error =
-                Some("这个页签正在停止，等它结束再运行".to_string());
+                Some(t(lang, "This tab is stopping; wait for it to finish").to_string());
             return;
         }
         let Some(id) = self.script_panel.current_mut().session else {
-            self.script_panel.current_mut().error = Some("这个 tab 没有活着的会话".to_string());
+            self.script_panel.current_mut().error =
+                Some(t(lang, "This tab has no live session").to_string());
             return;
         };
         if self
@@ -247,15 +250,28 @@ impl TerminalWindow {
             .iter()
             .any(|t| t.session() == Some(id) && t.local_mode)
         {
-            self.script_panel.current_mut().error =
-                Some("这条会话处于只读查看（Local mode），脚本不会执行".to_string());
+            self.script_panel.current_mut().error = Some(
+                t(lang, "This session is read-only (Local mode); scripts will not run")
+                    .to_string(),
+            );
             return;
         }
         let path = self.script_panel.current_mut().path.trim().to_string();
         if path.is_empty() {
-            self.script_panel.current_mut().error = Some("先在上面选一个脚本".to_string());
+            self.script_panel.current_mut().error =
+                Some(t(lang, "Pick a script above first").to_string());
             return;
         }
+        // 上一次的输出 tab 先收掉：每次运行都新建一条同名只读标签，跑十次
+        // 就在标签栏里堆十份，而旧内容已经没有二次查看的价值。
+        let previous = self.script_panel.current().output_session;
+        if let Some(id) = previous {
+            if let Some(index) = self.tabs.iter().position(|tab| tab.identity == id) {
+                self.close_tab(index);
+            }
+        }
+        self.script_panel.current_mut().output = None;
+        self.script_panel.current_mut().output_session = None;
         let source = match script_run::read_source(&path) {
             Ok(text) => text,
             Err(message) => {
@@ -317,10 +333,6 @@ impl TerminalWindow {
             ScriptCmd::NewTab => self.script_panel.add(),
             ScriptCmd::CloseTab => self.script_panel.close_active(),
             ScriptCmd::OpenConfig => self.open_script_manager(),
-            ScriptCmd::Clear => {
-                self.script_panel.current_mut().outcome = None;
-                self.script_panel.current_mut().error = None;
-            }
             ScriptCmd::OpenScripts => ui.memory_mut(|m| m.toggle_popup(scripts_menu_id())),
             ScriptCmd::OpenSessions => ui.memory_mut(|m| m.toggle_popup(sessions_menu_id())),
             ScriptCmd::PickScript(i) => {
@@ -373,14 +385,19 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
         None => win.tr("— pick a script —"),
     };
     // 会话格显示：显式选中 → 那个标签的名字；没选 → `Current Session`；
-    // 选中的会话已经关了 → 照样显示它选的，但执行会退回活动标签（见上）。
-    let session_label = match win.script_panel.current_mut().target {
+    // 选中的会话已经关了 → 明说「已关闭 → 当前」，不再只写「已关闭」让人以为
+    // 点 Run 什么都不会发生（实际它会按 `effective_session` 退回活动标签）。
+    let session_label = match win.script_panel.current().target {
         None => win.tr("Current Session").to_string(),
-        Some(id) => choices
-            .iter()
-            .position(|(x, _)| *x == id)
-            .map(|i| names[i].clone())
-            .unwrap_or_else(|| win.tr("Closed Session").to_string()),
+        Some(id) => match choices.iter().position(|(x, _)| *x == id) {
+            Some(i) => names[i].clone(),
+            None if win.script_panel.current().session.is_some() => format!(
+                "{} → {}",
+                win.tr("Closed Session"),
+                win.tr("Current Session")
+            ),
+            None => win.tr("Closed Session").to_string(),
+        },
     };
 
     let out = script_row(win, ui, row_rect, script_label, &session_label);
@@ -429,7 +446,7 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
         out.session_anchor,
         &session_items,
         session_sel,
-        win.tr("no open sessions"),
+        win.tr("No open sessions"),
     ) {
         win.apply_script_cmd(ui, ScriptCmd::PickSession(i), &scripts, &choices);
     }
@@ -450,8 +467,22 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
     let toolbar_h = {
         let mut c = ui.new_child(egui::UiBuilder::new().max_rect(body));
         c.horizontal_wrapped(|ui| {
+            // 文案先取成 `&'static str`：下面对 `grants` 是可变借用，不能在
+            // 同一个实参列表里再借 `win` 取词（E0502）。
+            let t_nothing = win.tr("Nothing recorded (no keystrokes captured)");
+            let t_permissions = win.tr("Permissions (this run only)");
+            let t_programs = win.tr("Run programs");
+            let t_clipboard = win.tr("Read clipboard");
+            let t_window = win.tr("Control window");
+            let t_dir = win.tr("folder for file access");
+            let t_writable = win.tr("Writable");
+            let t_subdirs = win.tr("Sub-folders are included; `..` is rejected before comparing.");
             let recording = win.is_recording();
-            let label = if recording { "Stop Recording" } else { "Record" };
+            let label = if recording {
+                win.tr("Stop Recording")
+            } else {
+                win.tr("Record")
+            };
             if ui.button(label).clicked() {
                 match win.toggle_recording() {
                     Ok(Some(path)) => {
@@ -463,26 +494,26 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
                         win.script_panel.current_mut().error = if win.is_recording() {
                             None
                         } else {
-                            Some("Nothing recorded (no keystrokes captured)".to_string())
+                            Some(t_nothing.to_string())
                         };
                     }
                     Err(message) => win.script_panel.current_mut().error = Some(message),
                 }
             }
-            ui.collapsing("Permissions (this run only)", |ui| {
-                ui.checkbox(&mut win.script_panel.current_mut().grants.process, "Run programs");
-                ui.checkbox(&mut win.script_panel.current_mut().grants.clipboard, "Read clipboard");
-                ui.checkbox(&mut win.script_panel.current_mut().grants.ui, "Control window");
+            ui.collapsing(t_permissions, |ui| {
+                ui.checkbox(&mut win.script_panel.current_mut().grants.process, t_programs);
+                ui.checkbox(&mut win.script_panel.current_mut().grants.clipboard, t_clipboard);
+                ui.checkbox(&mut win.script_panel.current_mut().grants.ui, t_window);
                 ui.horizontal(|ui| {
                     ui.add(
                         egui::TextEdit::singleline(&mut win.script_panel.current_mut().grants.dir)
-                            .hint_text("folder for file access")
+                            .hint_text(t_dir)
                             .desired_width(180.0),
                     );
-                    ui.checkbox(&mut win.script_panel.current_mut().grants.write, "write");
+                    ui.checkbox(&mut win.script_panel.current_mut().grants.write, t_writable);
                 });
                 if !win.script_panel.current_mut().grants.dir.trim().is_empty() {
-                    ui.weak("Sub-folders are included; `..` is rejected before comparing.");
+                    ui.weak(t_subdirs);
                 }
             });
         });
@@ -515,7 +546,11 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
     let bg = win.script_runs.background_count();
     if bg > 0 {
         let c = crate::theme::chrome(CHROME_SCALE.hint);
-        let g = p.layout_no_wrap(format!("后台脚本在跑（{bg}）"), crate::ui::type_scale::small(), c);
+        let g = p.layout_no_wrap(
+            format!("Background scripts running ({bg})"),
+            crate::ui::type_scale::small(),
+            c,
+        );
         p.galley(egui::pos2(body.left(), y), g.clone(), c);
         y += g.size().y.max(line_h);
     }
@@ -528,7 +563,7 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
     }
     // 没有活会话、也没在跑：给一句为什么按不动 ▶，而不是一个死键。
     if win.script_panel.current_mut().session.is_none() && win.script_panel.current_mut().run.is_none() {
-        let hint = win.tr("This tab has no live session.");
+        let hint = win.tr("This tab has no live session");
         let c = crate::theme::chrome(CHROME_SCALE.hint);
         let g = p.layout_no_wrap(hint.to_string(), crate::ui::type_scale::small(), c);
         p.galley(

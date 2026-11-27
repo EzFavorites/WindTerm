@@ -469,6 +469,20 @@ impl TerminalWindow {
             // 对话框，不再需要「开设置再翻页」这两条效应。
             // `Terminal.ClearRecentUrls`：与地址栏右键「Clear Recent」同一个函数
             // （清内存副本 + load-modify-save 落盘），不另写一份清理逻辑。
+            // `Tool ▸ Script` 三条：菜单只给入口，面板开关仍归
+            // `Window ▸ Panes ▸ Script`；这里不碰 `ViewState`。
+            Effect::RunScript => self.open_script_dialog_for_active(),
+            Effect::NewScript => self.open_new_script(self.active),
+            Effect::ManageScripts => self.open_script_manager(),
+            // Stop 与 Local Mode 共用同一处遍历；录制勾与面板按钮共用同一个槽位。
+            Effect::StopScript => self.cancel_all_script_runs(),
+            Effect::RecordScript => match self.toggle_recording() {
+                Ok(Some(path)) => {
+                    self.log_note = Some(format!("Script recorded: {}", path.display()));
+                }
+                Ok(None) => {}
+                Err(msg) => self.log_note = Some(msg),
+            },
             Effect::ClearRecentUrls => self.clear_recent_targets(),
             // 三档预设共用这一条带参数的 `Effect`。`from_permille` 是
             // 千分比 → f32 的唯一换算点；`set_window_opacity` 再一并改运行期

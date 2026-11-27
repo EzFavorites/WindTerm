@@ -79,6 +79,8 @@ pub(in crate::ui) fn live_check(win: &TerminalWindow, id: &str) -> bool {
         Some(Action::Shell(ShellAction::ToggleMenuBar)) => win.view.show_menu_bar,
         Some(Action::Shell(ShellAction::ToggleStatusBar)) => win.view.show_status_bar,
         Some(Action::Shell(ShellAction::ToggleQuickBar)) => win.view.show_quick_bar,
+        // `Tool ▸ Script ▸ Record Script` 的勾与面板按钮读同一个 `Recorder` 槽位。
+        Some(Action::Shell(ShellAction::RecordScript)) => win.is_recording(),
         Some(Action::Shell(ShellAction::HexBase(base))) => win.active_hex().base == base,
         Some(Action::Shell(ShellAction::HexColumns(columns))) => {
             win.active_hex().columns == columns

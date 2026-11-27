@@ -142,6 +142,13 @@ mod tests {
         "More commands", "Send `{cmd}` to the current session (no Enter)",
         "Edit commands", "Open the quick command editor",
         "Default group is always shown",
+        // 快捷命令的 Run Script 类型：只填路径，前缀由界面补。
+        "Script file:",
+        // 脚本面板的录制按钮与单次授权折叠面板。
+        "Record", "Stop Recording", "Nothing recorded (no keystrokes captured)",
+        "Permissions (this run only)", "Run programs", "Read clipboard", "Control window",
+        "folder for file access", "Writable",
+        "Sub-folders are included; `..` is rejected before comparing.",
         // ── 2026-11-11 视觉基线右键菜单（其余标签由菜单树 visit() 自动覆盖）──
         "Copy Command", "Clear Scrollback", "Clear All",
         "Session Triggers", "More",

@@ -101,6 +101,13 @@ pub(crate) fn shell_parse(id: &str) -> Option<ShellAction> {
         // 的命令，不是同义路径：那一条停在默认页，这几条各自预选一页。
         "Terminal.ManageTriggers" => ShellAction::ManageTriggers,
         "Terminal.ManageOneKeys" => ShellAction::ManageOneKeys,
+        // `Tool ▸ Script` 三条：脚本工作入口，与面板开关（`Window.TogglePaneScript`）
+        // 刻意分开——面板显隐归 Window 管，这里只管「写 / 跑 / 管」脚本。
+        "Terminal.RunScript" => ShellAction::RunScript,
+        "Terminal.NewScript" => ShellAction::NewScript,
+        "Terminal.ManageScripts" => ShellAction::ManageScripts,
+        "Terminal.StopScript" => ShellAction::StopScript,
+        "Terminal.RecordScript" => ShellAction::RecordScript,
         "Terminal.ClearRecentUrls" => ShellAction::ClearRecentUrls,
         // 显示模式：菜单 `Mode ▸ Hex Edit`。之前它在这张表外面（解析成 None
         // → 画成灰的），因为「点了没有效果」；现在意图有人接了，不再置灰。

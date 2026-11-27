@@ -326,10 +326,13 @@ mod tests {
         // 两条 Toolbar 行仍置灰：本版没有自定义工具栏条目模型，原图里它们本来
         // 就是空态灰字，不摆点了没反应的假控件。
         // → 已接线 218→252、占位 38→4、总数 256 不变（一条菜单都没增删）。
+        // 2026-11-27：`Tool ▸ Script` 新增 Run / Stop / Record / New / Manage
+        // 五条并接线（面板显隐仍只有 `Window.TogglePaneScript` 一条）→ 已接线
+        // 252→257、占位 4 不变、总数 256→261。
         let (implemented, planned) = counts();
-        assert_eq!(implemented, 252, "已接线命令数变化需显式确认");
+        assert_eq!(implemented, 257, "已接线命令数变化需显式确认");
         assert_eq!(planned, 4, "占位命令数变化需显式确认");
-        assert_eq!(inventory().len(), 256);
+        assert_eq!(inventory().len(), 261);
     }
 
 #[cfg(test)]

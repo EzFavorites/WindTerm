@@ -180,6 +180,13 @@ fn every_implemented_command_has_a_reader() {
         // + `Effect::FocusOneKeysPage` → 设置页翻到 `SettingsPage::OneKeys`，
         // 真实现是 `ui/dialogs/settings_live_onekeys.rs`。
         "Terminal.ManageOneKeys",
+        // `Tool ▸ Script` 五条：跑 / 停 / 录 / 写 / 管脚本。面板显隐仍只由
+        // `Window.TogglePaneScript` 负责，不在这里重复一条。
+        "Terminal.RunScript",
+        "Terminal.StopScript",
+        "Terminal.RecordScript",
+        "Terminal.NewScript",
+        "Terminal.ManageScripts",
         "Terminal.ClearRecentUrls",
         "Text.Find",
         "Text.FindNext",

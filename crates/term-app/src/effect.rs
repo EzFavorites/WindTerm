@@ -203,6 +203,18 @@ pub enum Effect {
     /// 与侧边栏右键 `Properties` 走同一条落地路径，避免菜单与右键打开两个
     /// 不同的「配置会话」界面（此前菜单走的是中心面板，是另一个 UI 表面）。
     OpenActiveSessionSettings,
+    /// `Terminal.RunScript`：打开「运行脚本」对话框，绑定当前活动会话。
+    ///
+    /// 与终端右键 `More ▸ Run Script` 共用投影层落点；reducer 不持有会话与路径。
+    RunScript,
+    /// `Terminal.NewScript`：打开编辑器并新建脚本，预填脚本库路径。
+    NewScript,
+    /// `Terminal.ManageScripts`：打开已登记脚本的管理对话框。
+    ManageScripts,
+    /// `Terminal.StopScript`：叫停本窗口所有在跑的脚本，与只读模式共用遍历。
+    StopScript,
+    /// `Terminal.RecordScript`：切换脚本录制（勾读当前状态）。
+    RecordScript,
     /// `Terminal.ClearRecentUrls`：清空地址栏的「最近使用」并落盘。
     ///
     /// 读者是 `apps/desktop/src/ui/address/mod.rs::clear_recent_targets`——同一个

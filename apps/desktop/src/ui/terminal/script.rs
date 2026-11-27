@@ -110,6 +110,48 @@ impl TerminalWindow {
         self.ctx.request_repaint();
     }
 
+    /// `Tool ▸ Script ▸ Run Script` 的落点：绑当前活动标签，与终端右键
+    /// `More ▸ Run Script` 走的是同一个 `open_script_dialog_for`。
+    ///
+    /// 单独成方法，是为了让 `ui/effects.rs` 的落地不出现命令 ID 字符串——
+    /// 那条门禁只允许 ID 活在 `crates/term-app` 的数据层。
+    pub(in crate::ui) fn open_script_dialog_for_active(&mut self) {
+        if let Some(id) = self.active {
+            self.open_script_dialog_for(super::TabSlot::Main(id));
+        }
+    }
+
+    /// 叫停本窗口所有正在跑的脚本：`Tool ▸ Script ▸ Stop Script` 与
+    /// `Mode ▸ Local Mode` 共用这一处。
+    ///
+    /// 脚本拿的是 `SessionPool`，不读 `Tab`，所以只读切换必须把所有表面的句柄
+    /// 一一取消——菜单里的 Stop 是同一个意图，不该写第二份遍历。
+    /// 句柄留着直到 `Outcome` 到达（面板 / 对话框各自 poll 后清理）。
+    pub(in crate::ui) fn cancel_all_script_runs(&self) {
+        let mut any = false;
+        if let Some(run) = self.script.as_ref().and_then(|dlg| dlg.run.as_ref()) {
+            run.cancel();
+            any = true;
+        }
+        for run in &self.logon_runs {
+            run.cancel();
+            any = true;
+        }
+        for tab in &self.script_panel.tabs {
+            if let Some(run) = tab.state.run.as_ref() {
+                run.cancel();
+                any = true;
+            }
+        }
+        if let Some(run) = self.script_editor.as_ref().and_then(|s| s.run.as_ref()) {
+            run.cancel();
+            any = true;
+        }
+        if any {
+            self.ctx.request_repaint();
+        }
+    }
+
     /// ADR-0025：把脚本新开的会话变成标签页。每帧调一次，**与运行窗口
     /// 开没开无关**——脚本线程在窗口关掉之后仍可能接着 `session_open`。
     ///
@@ -157,7 +199,7 @@ impl TerminalWindow {
     ///
     /// `who` 是「谁在跑」的提示里那个名字（用脚本路径）。
     pub(in crate::ui) fn script_run_options(&self, who: &str) -> RunOptions {
-        RunOptions::with_opened(self.script_opened.clone())
+        let mut options = RunOptions::with_opened(self.script_opened.clone())
             .with_window(
                 self.ctx.clone(),
                 self.script_selection.clone(),
@@ -173,7 +215,12 @@ impl TerminalWindow {
                     .collect(),
             )
             .with_app(self.app_queue.clone())
-            .with_registry(self.script_runs.clone(), who)
+            .with_registry(self.script_runs.clone(), who);
+        // 已登记脚本的参数从注册表取。三条运行表面（运行窗口 / 停靠面板 /
+        // 编辑器）都走这一个构造器，所以 `ScriptEntry.args` 不会因为入口不同
+        // 而只对其中一条生效。`who` 为空（编辑器未保存）时自然没有参数。
+        options.args = registered_script_args(who);
+        options
     }
 
     /// 每帧把「界面当前是什么样」抄进脚本能看见的那几个槽：选区、活动会话。
@@ -477,7 +524,7 @@ impl TerminalWindow {
                             .on_hover_text("10 min / 50M operations instead of 30 s / 1M");
                     });
                     if !bound {
-                        ui.weak("This tab has no live session.");
+                        ui.weak(t(lang, "This tab has no live session"));
                     }
                 });
                 ui.add_space(6.0);
@@ -485,7 +532,7 @@ impl TerminalWindow {
                 ui.add(egui::Label::new(egui::RichText::new(&status).monospace()).wrap());
                 if bg_running > 0 {
                     ui.label(
-                        egui::RichText::new(format!("后台脚本在跑（{bg_running}）")).small(),
+                        egui::RichText::new(format!("Background scripts running ({bg_running})")).small(),
                     );
                 }
             },
@@ -572,7 +619,7 @@ impl TerminalWindow {
     /// 开始 / 结束录制。结束返回生成物落地的路径（录制为空时返回 `None`）。
     pub(in crate::ui) fn toggle_recording(&mut self) -> Result<Option<std::path::PathBuf>, String> {
         let recorder = std::sync::Arc::clone(&self.recorder);
-        let mut slot = recorder.lock().map_err(|_| "录制器状态坏了".to_string())?;
+        let mut slot = recorder.lock().map_err(|_| "Recorder state is broken".to_string())?;
         if slot.is_some() {
             let Some(mut rec) = slot.take() else {
                 return Ok(None);
@@ -624,6 +671,7 @@ impl TerminalWindow {
 
     /// 读文件 → 起线程。失败留在 `error` 里，不弹第二个窗口。
     fn start_script(&mut self) {
+        let lang = self.view.lang;
         // 会话与路径先取出来：`script_run_options` 借的是整窗 `self`，之后才能
         // 拿 `dialog` 的可变借用。`who` 用脚本路径——「谁在跑」的提示要能对应到
         // 用户手上那个文件。
@@ -636,10 +684,8 @@ impl TerminalWindow {
             ),
             None => return,
         };
+        // 参数由 `script_run_options` 统一解析，这里不再单独查一遍注册表。
         let mut options = self.script_run_options(&path).with_budget(budget);
-        // 已登记脚本的调用参数取自注册表（`ScriptEntry.args`），与界面里编辑的
-        // 那一份同源；按路径直接跑（面板 / 命令面板 / 按钮栏）都能拿到同一组。
-        options.args = registered_script_args(&path);
         if background {
             options = options.with_background();
         }
@@ -647,7 +693,7 @@ impl TerminalWindow {
             return;
         };
         let Some(id) = session else {
-            dialog.error = Some("这个 tab 没有活着的会话".to_string());
+            dialog.error = Some(t(lang, "This tab has no live session").to_string());
             return;
         };
         // 2026-11-19 只读查看：脚本是「往会话里写字」的一整条通道，只读态下
@@ -661,7 +707,10 @@ impl TerminalWindow {
             .iter()
             .any(|tab| tab.session == Some(id) && tab.local_mode)
         {
-            dialog.error = Some("这条会话处于只读查看（Local mode），脚本不会执行".to_string());
+            dialog.error = Some(
+                t(lang, "This session is read-only (Local mode); scripts will not run")
+                    .to_string(),
+            );
             dialog.outcome = None;
             return;
         }

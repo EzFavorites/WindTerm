@@ -21,24 +21,9 @@ impl TerminalWindow {
             tab.local_mode
         };
         if now_local {
-            if let Some(run) = self.script.as_ref().and_then(|dlg| dlg.run.as_ref()) {
-                run.cancel();
-            }
-            for run in &self.logon_runs {
-                run.cancel();
-            }
-            // 停靠面板与编辑器各有自己的运行句柄，也必须一起停；它们拿的是
-            // SessionPool，不经 Tab::write，不在这里取消就会绕过只读。
-            for tab in &mut self.script_panel.tabs {
-                if let Some(run) = tab.state.run.as_ref() {
-                    run.cancel();
-                }
-            }
-            if let Some(state) = self.script_editor.as_ref() {
-                if let Some(run) = state.run.as_ref() {
-                    run.cancel();
-                }
-            }
+            // 对话框 / 登录脚本 / 停靠面板 / 编辑器四处的句柄全停。与
+            // `Tool ▸ Script ▸ Stop Script` 共用同一处遍历，不写第二份。
+            self.cancel_all_script_runs();
             self.log_note = Some(
                 "Local mode: this session is read-only — no input, no auto-scroll, triggers and \
                  scripts paused."

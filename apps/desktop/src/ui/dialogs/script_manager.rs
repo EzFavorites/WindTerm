@@ -167,7 +167,7 @@ fn draw_fields(win: &mut TerminalWindow, ui: &mut egui::Ui, edit: &mut ScriptMan
     ui.horizontal(|ui| {
         ui.add_sized(
             egui::vec2(FIELD_W - 48.0, ROW_H),
-            egui::TextEdit::singleline(&mut edit.path).hint_text("scripts/demo.rhai"),
+            egui::TextEdit::singleline(&mut edit.path).hint_text("demo.rhai"),
         );
         if ui.button("...").clicked() {
             let current = edit.path.clone();
@@ -185,7 +185,7 @@ fn draw_fields(win: &mut TerminalWindow, ui: &mut egui::Ui, edit: &mut ScriptMan
     if edit.selected.is_some() {
         ui.colored_label(
             egui::Color32::from_rgb(0x88, 0x88, 0x88),
-            "脚本源码保存在 profile/scripts/*.rhai；这里只登记入口。",
+            "Script sources live in profile/scripts/*.rhai; this dialog only registers entries.",
         );
     }
 }
@@ -235,12 +235,32 @@ fn draw_new_modal(ui: &mut egui::Ui, edit: &mut ScriptManagerEdit) {
                                 edit.new_modal = false;
                                 edit.error = None;
                             } else {
-                                edit.error = Some("名字不能为空，且不能与已有脚本重名".to_string());
+                                edit.error = Some(
+                                    "Name must not be empty or duplicate an existing script"
+                                        .to_string(),
+                                );
                             }
                         }
                     });
                 });
         });
+}
+
+/// 相对路径按**脚本库**解析，不按进程 CWD。
+///
+/// 输入框提示的是 `demo.rhai`（脚本库里的文件名），而 `validate` 以前拿它直接
+/// `is_file()`——除非用户恰好从仓库根目录启动，否则必然报「文件不存在」。
+/// 绝对路径原样保留；解析后的路径写回 `ScriptEntry`，登记的参数查找才能按
+/// 面板 / 运行窗口给出的完整路径命中同一条记录。
+fn resolve_script_path(raw: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(raw);
+    if path.is_absolute() {
+        return path.to_path_buf();
+    }
+    match term_runtime::paths::scripts_dir() {
+        Some(dir) => dir.join(path),
+        None => path.to_path_buf(),
+    }
 }
 
 /// 纯验证 + 把界面草稿收敛成 `Vec<ScriptEntry>`。
@@ -253,7 +273,8 @@ fn validate(edit: &mut ScriptManagerEdit) -> Result<Vec<ScriptEntry>, Validation
     for (i, entry) in draft.iter().enumerate() {
         let active = edit.selected == Some(i);
         let name = if active { edit.name.trim() } else { entry.name.trim() }.to_string();
-        let path = if active { edit.path.trim() } else { entry.path.trim() }.to_string();
+        let raw_path = if active { edit.path.trim() } else { entry.path.trim() }.to_string();
+        let resolved = resolve_script_path(&raw_path);
         let description = if active { edit.description.trim() } else { entry.description.trim() }.to_string();
         let args = if active {
             split_args(&edit.args)
@@ -262,24 +283,38 @@ fn validate(edit: &mut ScriptManagerEdit) -> Result<Vec<ScriptEntry>, Validation
         };
         let enabled = if active { edit.enabled } else { entry.enabled };
         if name.is_empty() {
-            return Err(ValidationError(format!("第 {} 条脚本的名字不能为空", i + 1)));
+            return Err(ValidationError(format!(
+                "Script #{}: name must not be empty",
+                i + 1
+            )));
         }
         if !names.insert(name.clone()) {
-            return Err(ValidationError(format!("脚本名重复：{name}")));
+            return Err(ValidationError(format!("Duplicate script name: {name}")));
         }
-        if !path.is_empty() {
-            if !path.ends_with(".rhai") {
-                return Err(ValidationError(format!("{name} 的脚本文件必须是 .rhai")));
+        if !raw_path.is_empty() {
+            if !raw_path.ends_with(".rhai") {
+                return Err(ValidationError(format!(
+                    "{name}: script file must be .rhai"
+                )));
             }
-            if !std::path::Path::new(&path).is_file() {
-                return Err(ValidationError(format!("{name} 的脚本文件不存在：{path}")));
+            if !resolved.is_file() {
+                return Err(ValidationError(format!(
+                    "{name}: script file not found: {raw_path}"
+                )));
             }
-            let source = std::fs::read_to_string(&path)
-                .map_err(|e| ValidationError(format!("读不了 {path}：{e}")))?;
+            let source = std::fs::read_to_string(&resolved)
+                .map_err(|e| ValidationError(format!("Cannot read {raw_path}: {e}")))?;
             term_core::script_caps::parse_header(&source)
-                .map_err(|e| ValidationError(format!("{name} 的授权头写错了：{e}")))?;
+                .map_err(|e| ValidationError(format!("{name}: bad capability header: {e}")))?;
         }
-        out.push(ScriptEntry { name, path, args, description, enabled });
+        // 写回解析后的完整路径：面板 / 运行窗口给的是库里的绝对路径，
+        // `args_from_prefs` 按路径查表，存相对路径就永远命中不了。
+        let stored_path = if raw_path.is_empty() {
+            String::new()
+        } else {
+            resolved.to_string_lossy().into_owned()
+        };
+        out.push(ScriptEntry { name, path: stored_path, args, description, enabled });
     }
     Ok(out)
 }
@@ -303,7 +338,7 @@ mod tests {
             selected: Some(1),
             ..Default::default()
         };
-        assert!(validate(&mut edit).unwrap_err().0.contains("重复"));
+        assert!(validate(&mut edit).unwrap_err().0.contains("Duplicate"));
         edit.name = "b".into();
         edit.path = "demo.txt".into();
         assert!(validate(&mut edit).unwrap_err().0.contains(".rhai"));
