@@ -191,6 +191,10 @@ mod tests {
         // ── Sender ▸ Selected Sessions 的多选下拉（`tools_sender_menu.rs`）──
         // 未展开时那一格的空态词，以及一个都没勾就按 `▶` 时的那句提示。
         "None", "No target session is selected",
+        // ── 会话树右键「Logon Script…」（`panels/sidebar_view.rs` / `sidebar_logon_script.rs`）──
+        // 菜单行、对话框标题、字段标签、弱提示、提交失败与页脚按钮。
+        "Logon Script…", "Logon script:", "Takes effect on the next connect",
+        "Session not found", "Ok",
     ];
 
     /// 有没有可翻译的字母内容。纯数字 / 纯符号标签走 `zh()` 的原样返回。

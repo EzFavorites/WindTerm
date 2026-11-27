@@ -572,6 +572,12 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Unlock" => "解锁",
         "Create vault & unlock" => "创建保险库并解锁",
         "Cancel" => "取消",
+        // ── 会话树右键「Logon Script…」：菜单 / 对话框 / 提示 ──
+        "Logon Script…" => "登录脚本…",
+        "Logon script:" => "登录脚本：",
+        "Takes effect on the next connect" => "下次连接时生效",
+        "Session not found" => "找不到该会话",
+        "Ok" => "确定",
         // ── 零散 ──
         "Not wired (placeholder)" => "未接线（占位）",
         "Not available in the current log state" => "当前日志状态下不可用",

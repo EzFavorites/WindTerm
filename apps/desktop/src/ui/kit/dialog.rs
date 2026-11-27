@@ -106,7 +106,7 @@ impl super::spec::DialogId {
             // Log Settings 的 Enter=Save 由调用点做焦点守卫（有 TextEdit 时不抢）。
             D::SessionLogging => DialogKeys::DRAFT,
             D::NewSession | D::QuickCommands | D::OneKeys | D::Triggers
-            | D::ScriptManager | D::XferPrompt => DialogKeys {
+            | D::ScriptManager | D::LogonScript | D::XferPrompt => DialogKeys {
                 // TextEdit 密集：Enter 留给输入框，只消费 Esc。
                 lifecycle: DialogLifecycle::Draft,
                 ..DialogKeys::ESC_ONLY
@@ -172,6 +172,7 @@ mod tests {
             D::QuickCommands,
             D::OneKeys,
             D::Triggers,
+            D::LogonScript,
             D::XferPrompt,
         ] {
             assert!(!id.keys().enter_confirms, "{}", id.key());

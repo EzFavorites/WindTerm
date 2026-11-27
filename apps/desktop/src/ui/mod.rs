@@ -474,6 +474,9 @@ pub struct TerminalWindow {
     /// 所以不进 `ViewState`。
     script: Option<terminal::ScriptDialog>,
     script_manager: Option<crate::ui::dialogs::script_manager::ScriptManagerEdit>,
+    /// 会话树右键「Logon Script…」的草稿（`None` = 没打开）。
+    /// 写回只动 `sessions` 里的存储配置，下次连接才生效。
+    logon_script_editor: Option<crate::ui::panels::sidebar_logon_script::State>,
     /// 「脚本」停靠面板（齿轮菜单勾选打开的那块）。与 `script` 共用执行线程
     /// （`script_run::ScriptRun`），但它是**常驻**的：选脚本、点运行、看日志都在
     /// 面板里，不另开窗口。`ViewState` 只管「显不显示」（`show_pane_script`）。
@@ -814,6 +817,7 @@ impl TerminalWindow {
             || self.tunnel_editor.is_some()
             || self.xfer_prompt.is_some()
             || self.script.is_some()
+            || self.logon_script_editor.is_some()
             || self.script_ask.is_some()
             // `Option` 就是唯一的开 / 关真相：`Some` 即开，`None` 即关。
             || self.script_editor.is_some()
@@ -1138,6 +1142,8 @@ impl TerminalWindow {
         if self.view.show_triggers { self.draw_triggers_dialog(ctx); }
         if self.view.show_onekeys { self.draw_onekeys_dialog(ctx); }
         self.draw_script_manager(ctx);
+        // 会话树右键「Logon Script…」：默认没有状态，一行都不画。
+        self.draw_logon_script_editor(ctx);
         if self.view.show_about {
             self.draw_about_dialog(ctx);
         }

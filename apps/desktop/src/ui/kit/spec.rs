@@ -66,6 +66,8 @@ pub(in crate::ui) enum DialogId {
     ScriptEditor,
     /// 脚本注册表管理页（左列表 + 右字段 + 页脚 Ok/Cancel）。
     ScriptRun, ScriptManager,
+    /// 会话树右键「Logon Script…」的单字段编辑框。
+    LogonScript,
     /// XFER 路径提示（原先只有裸字符串 id，现纳入规格表统一管键盘）。
     XferPrompt,
     FilerPrompt,
@@ -81,7 +83,7 @@ impl DialogId {
         DialogId::Shortcuts, DialogId::SessionLogging, DialogId::SshConnecting,
         DialogId::SshPassword, DialogId::SshFailed, DialogId::OneKeys,
         DialogId::Triggers, DialogId::Onboarding, DialogId::ProfileChoice, DialogId::Preview, DialogId::ScriptEditor,
-        DialogId::ScriptRun, DialogId::ScriptManager, DialogId::XferPrompt, DialogId::FilerPrompt, DialogId::FilerSyncScan, DialogId::FilerSyncRun, DialogId::FilerSyncReview,
+        DialogId::ScriptRun, DialogId::ScriptManager, DialogId::LogonScript, DialogId::XferPrompt, DialogId::FilerPrompt, DialogId::FilerSyncScan, DialogId::FilerSyncRun, DialogId::FilerSyncReview,
     ];
 
     /// egui 的稳定 id。
@@ -106,6 +108,7 @@ impl DialogId {
             Self::Preview => "preview",
             Self::ScriptEditor => "script_editor",
             Self::ScriptRun => "script_run", Self::ScriptManager => "script_manager",
+            Self::LogonScript => "logon_script",
             Self::XferPrompt => "xfer_prompt",
             Self::FilerPrompt => "filer_prompt",
             Self::FilerSyncScan => "filer_sync_scan",
@@ -139,6 +142,8 @@ impl DialogId {
             // 原来的 122 只装得下「一行路径 + 三个按钮 + 状态」——那时候窗口只
             // 会按路径跑，用户得自己记住脚本库目录在哪。清单占 108。
             Self::ScriptRun => egui::vec2(480.0, 240.0), Self::ScriptManager => egui::vec2(702.0, 655.0),
+            // 一行路径 + 一条「下次连接生效」提示 + Cancel/Ok。
+            Self::LogonScript => egui::vec2(420.0, 168.0),
             Self::XferPrompt => egui::vec2(460.0, 168.0),
             Self::FilerPrompt => egui::vec2(320.0, 96.0),
             // 三个阶段共用一套尺寸：窗口在同一位置接力，用户看不出换窗。

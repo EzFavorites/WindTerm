@@ -380,6 +380,8 @@ impl TerminalWindow {
                 filer
             },
             script: None, script_manager: None,
+            // 会话树右键的 Logon Script 编辑框：出厂关着。
+            logon_script_editor: None,
             // 脚本停靠面板：常驻状态（路径 / 在跑的线程 / 结果 / 错误）。
             script_panel: crate::ui::panels::ScriptPanel::default(),
             // 脚本新开会话的交接队列（ADR-0025 阶段 5）：出厂空队列，脚本线程往里

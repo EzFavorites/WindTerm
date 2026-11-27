@@ -76,6 +76,7 @@ impl TerminalWindow {
         let mut edit_idx: Option<usize> = None;
         let mut delete_idx: Option<usize> = None;
         let mut duplicate_idx: Option<usize> = None;
+        let mut logon_script_idx: Option<usize> = None;
         let mut new_group: Option<String> = None;
         let mut move_to: Option<(usize, String)> = None;
         let mut import_idx = None;
@@ -95,6 +96,7 @@ impl TerminalWindow {
         let lbl_shell_sessions = tr("Shell Sessions");
         let lbl_windterm_sessions = tr("WindTerm Sessions");
         let lbl_properties = tr("Properties");
+        let lbl_logon_script = tr("Logon Script…");
         let lbl_new_group = tr("New Group");
         let lbl_empty = tr("No session available");
 
@@ -231,6 +233,12 @@ impl TerminalWindow {
                             edit_idx = Some(i);
                             ui.close_menu();
                         }
+                        // 会话表单那条同名字段刻意不在 1:1 表单里（基线不能动），
+                        // 所以登录脚本从这里进专用小编辑框。右键的 `i` 就是存储会话。
+                        if ui.button(lbl_logon_script).clicked() {
+                            logon_script_idx = Some(i);
+                            ui.close_menu();
+                        }
                         ui.separator();
                         if ui.button(lbl_new_group).clicked() {
                             new_group = Some(format!("Group {}", next_group_no));
@@ -255,6 +263,10 @@ impl TerminalWindow {
         if let Some(i) = edit_idx {
             // 属性表单：反向填进去，保存时覆盖 `i`（而不是新增一条）。
             self.open_session_properties(i);
+        }
+        if let Some(i) = logon_script_idx {
+            // 只编辑存储会话的 logon_script；下次连接才生效。
+            self.open_logon_script_editor(i);
         }
         if let Some(i) = duplicate_idx {
             // SessionPane::duplicate: copy the entry, re-add the
