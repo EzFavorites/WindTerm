@@ -74,6 +74,9 @@ impl PtySession {
 
         let mut cmd = match &plan {
             SpawnPlan::LocalShell => CommandBuilder::new_default_prog(),
+            // 显式 shell 路径：整串作为一个程序名交给 OS（含空格的 Windows
+            // 路径也不在这里拆）；本地 shell 仍然跑在这条 PTY 上。
+            SpawnPlan::ShellProgram(path) => CommandBuilder::new(path),
             SpawnPlan::External(argv) => {
                 if argv.is_empty() {
                     return Err(SpawnError::Program("没有可执行的程序（argv 为空）".to_string()));
@@ -232,6 +235,7 @@ fn pump(mut reader: Box<dyn Read + Send>, sender: Sender<Vec<u8>>) {
 fn describe(plan: &SpawnPlan) -> String {
     match plan {
         SpawnPlan::LocalShell => "$SHELL".to_string(),
+        SpawnPlan::ShellProgram(path) => path.clone(),
         SpawnPlan::External(argv) => argv.first().cloned().unwrap_or_default(),
     }
 }
@@ -240,7 +244,84 @@ fn describe(plan: &SpawnPlan) -> String {
 pub const DEAD_SESSION_GRACE: Duration = Duration::from_secs(30);
 #[cfg(test)]
 mod tests {
-    use super::exit_code_of;
+    use super::*;
+
+    #[test]
+    fn shell_command_becomes_an_explicit_program_plan() {
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.shell_command = "/bin/sh".to_string();
+        assert!(
+            matches!(cfg.spawn_plan().expect("Shell 计划总能构造"), SpawnPlan::ShellProgram(p) if p == "/bin/sh")
+        );
+        // 两侧空白按「没填路径」的同一口径裁掉，但内核仍是显式路径。
+        cfg.shell_command = "  /bin/zsh  ".to_string();
+        assert!(
+            matches!(cfg.spawn_plan().expect("Shell 计划总能构造"), SpawnPlan::ShellProgram(p) if p == "/bin/zsh")
+        );
+    }
+
+    #[test]
+    fn a_blank_shell_command_keeps_the_system_shell_plan() {
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        assert!(matches!(cfg.spawn_plan().expect("Shell 计划总能构造"), SpawnPlan::LocalShell));
+        cfg.shell_command = "   ".to_string();
+        assert!(matches!(cfg.spawn_plan().expect("Shell 计划总能构造"), SpawnPlan::LocalShell));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_explicit_shell_program_starts_that_program_not_the_login_shell() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::SystemTime;
+
+        // 探针脚本比 `$0` 更硬：只有真的按 shell_command 里的路径 exec，才会
+        // 打出这个一次性标记和脚本自身的 `$0`；落到登录 shell 上则什么都没有。
+        let marker = "WINDTERM_EXPLICIT_SHELL_PROGRAM_7F3A";
+        let nanos = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .expect("系统时钟不早于 epoch")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "windterm-shell-program-{}-{nanos}.sh",
+            std::process::id()
+        ));
+        std::fs::write(
+            &path,
+            format!("#!/bin/sh\nprintf '%s:%s\\n' {marker} \"$0\"\n"),
+        )
+        .expect("探针脚本写盘");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+            .expect("探针脚本可执行");
+
+        let mut cfg = SessionConfig::new(Protocol::Shell);
+        cfg.shell_command = path.to_string_lossy().to_string();
+        let mut session = PtySession::spawn(cfg, 80, 24).expect("显式 shell 计划能起 PTY");
+        let mut text = String::new();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            text.push_str(&String::from_utf8_lossy(&session.drain()));
+            if text.contains(marker) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        session.kill();
+        let _ = std::fs::remove_file(&path);
+
+        assert!(text.contains(marker), "没有跑显式脚本，实际输出：{text:?}");
+        assert!(
+            text.contains(&path.to_string_lossy().to_string()),
+            "$0 不是 shell_command 里的路径：{text:?}"
+        );
+    }
+
+    #[test]
+    fn a_default_shell_session_still_spawns_after_the_plan_change() {
+        let mut session = PtySession::spawn(SessionConfig::new(Protocol::Shell), 80, 24)
+            .expect("无 shell_command 的会话照旧能起");
+        assert!(session.poll().is_none(), "刚起来的本地 shell 不该立刻退出");
+        session.kill();
+    }
 
     #[test]
     fn a_clean_exit_has_no_code_in_the_text() {

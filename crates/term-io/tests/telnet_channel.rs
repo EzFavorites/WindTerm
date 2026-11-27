@@ -456,6 +456,7 @@ fn spawn_plan_still_builds_the_system_telnet_argv() {
             ]
         ),
         SpawnPlan::LocalShell => panic!("Telnet 不该变成 LocalShell"),
+        SpawnPlan::ShellProgram(_) => panic!("Telnet 不该变成 ShellProgram"),
     }
 }
 

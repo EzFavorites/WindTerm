@@ -41,11 +41,12 @@ pub struct ExternalProc {
 
 impl LocalPty {
     fn open(config: SessionConfig, cols: usize, rows: usize, plan: SpawnPlan) -> Result<Self, SpawnError> {
+        let description = match &plan {
+            SpawnPlan::ShellProgram(path) => format!("{path} (local pty)"),
+            _ => "$SHELL (local pty)".to_string(),
+        };
         let inner = PtySession::spawn_with(config, cols, rows, plan)?;
-        Ok(Self {
-            inner,
-            description: "$SHELL (local pty)".to_string(),
-        })
+        Ok(Self { inner, description })
     }
 }
 
@@ -54,6 +55,7 @@ impl ExternalProc {
         let description = match &plan {
             SpawnPlan::External(argv) => argv.join(" "),
             SpawnPlan::LocalShell => "$SHELL".to_string(),
+            SpawnPlan::ShellProgram(path) => path.clone(),
         };
         let inner = PtySession::spawn_with(config, cols, rows, plan)?;
         Ok(Self { inner, description })
@@ -134,7 +136,10 @@ pub fn open_channel(
         return Ok(Box::new(ch));
     }
     match plan {
-        SpawnPlan::LocalShell => Ok(Box::new(LocalPty::open(config, cols, rows, plan)?)),
+        // 显式 shell 程序仍是本地 PTY，只是启动的命令不同。
+        SpawnPlan::LocalShell | SpawnPlan::ShellProgram(_) => {
+            Ok(Box::new(LocalPty::open(config, cols, rows, plan)?))
+        }
         SpawnPlan::External(_) => Ok(Box::new(ExternalProc::open(config, cols, rows, plan)?)),
     }
 }

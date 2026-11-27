@@ -91,6 +91,25 @@ mod tests {
     }
 
     #[test]
+    fn first_start_rows_have_real_spawn_plans() {
+        // 从探测结果到 spawn 计划整条纯函数链钉死：每条默认会话都带着
+        // 自己的路径，不能再出现「选了别条却仍起 $SHELL」的假控件。
+        let (_, sessions) = startup_defaults(
+            None,
+            || vec![detected("sh", "/bin/sh"), detected("bash", "/bin/bash")],
+            || "alice".to_string(),
+        );
+        for cfg in &sessions {
+            match cfg.spawn_plan().expect("Shell 计划总能构造") {
+                term_core::session::SpawnPlan::ShellProgram(path) => {
+                    assert_eq!(path, cfg.shell_command);
+                }
+                _ => panic!("默认会话必须带显式启动路径"),
+            }
+        }
+    }
+
+    #[test]
     fn first_start_never_fabricates_an_ssh_entry() {
         let (_, sessions) = startup_defaults(
             None,

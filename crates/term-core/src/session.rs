@@ -834,7 +834,20 @@ impl SessionConfig {
     /// The command line this session would run, or the reason it cannot run.
     pub fn spawn_plan(&self) -> Result<SpawnPlan, ConfigError> {
         match self.protocol {
-            Protocol::Shell => Ok(SpawnPlan::LocalShell),
+            Protocol::Shell => {
+                // 显式启动路径真参与 spawn：探测出来的每条 shell 会话把路径写在
+                // `shell_command` 里，这里据此产出带路径的计划。空白按「没填」
+                // 处理，老会话（字段为空）继续走系统默认 shell，行为零回归。
+                // 只把整串当作**一个程序路径**，不在此拆参数：参数口径归
+                // `shell_arguments` / `shell_exec_command`，Windows 路径里的
+                // 空格也不能被当成 argv 分隔符。
+                let program = self.shell_command.trim();
+                if program.is_empty() {
+                    Ok(SpawnPlan::LocalShell)
+                } else {
+                    Ok(SpawnPlan::ShellProgram(program.to_string()))
+                }
+            }
             Protocol::Ssh => {
                 if self.host.trim().is_empty() {
                     return Err(ConfigError::MissingHost(self.protocol));
@@ -961,6 +974,12 @@ impl SessionConfig {
 pub enum SpawnPlan {
     /// Run the user's login shell in a locally allocated pseudo-terminal.
     LocalShell,
+    /// Run an **explicit** shell program in a local pseudo-terminal.
+    ///
+    /// The path comes from `SessionConfig::shell_command` on a `Shell` session;
+    /// it is one program path, never a command line to split into argv.
+    /// Fallback for a blank `shell_command` stays [`SpawnPlan::LocalShell`].
+    ShellProgram(String),
     /// Run an external client (ssh/telnet/nc/cu) inside a pseudo-terminal.
     External(Vec<String>),
 }
@@ -1183,7 +1202,9 @@ mod tests {
             s.username = user.to_string();
             match s.spawn_plan().expect("填了主机就能出计划") {
                 SpawnPlan::External(argv) => argv,
-                SpawnPlan::LocalShell => panic!("SSH 不该出本地 shell 计划"),
+                SpawnPlan::LocalShell | SpawnPlan::ShellProgram(_) => {
+                    panic!("SSH 不该出本地 shell 计划")
+                }
             }
         };
         let alice = with("alice");
