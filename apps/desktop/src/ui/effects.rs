@@ -299,8 +299,13 @@ impl TerminalWindow {
         //
         // 在这里拦而不是在快速命令栏那一层：那一层只产出 `Action`（`ui/` 里也不许
         // 出现命令 ID 字面量），而这里是「一串要发出去的文字」的唯一漏斗。
+        //
+        // 走**后台**路径：与命令面板 / 映射键 / 触发器共用同一个漏斗。兼容终端
+        // 没有前台/后台之分，这是本项目自己定的自动化安全规则——按钮是「顺手
+        // 点一下」，不该占住会话的前台脚本名额；只有对话框 / 面板 / 编辑器里
+        // 显式按下 Run 才算前台。
         if let Some(path) = crate::script_run::run_file_target(text) {
-            self.open_script_for_path(path);
+            self.open_script_for_path_background(path);
             return;
         }
         if let Some(tab) = self.tabs.get(self.active_slot()) {

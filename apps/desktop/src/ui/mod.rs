@@ -16,7 +16,7 @@
 //! **划分原则**：固定框架 / 可停靠 / 临时覆盖 / 模态，四类生命周期不同，
 //! 混在一起就是 此前那个 1,586 行的 `mod.rs`。
 
-mod clipboard_policy; mod comp; mod ip_probe;
+mod clipboard_policy; mod comp; pub(in crate::ui) mod script_run_config; mod ip_probe;
 mod construct;
 mod startup_defaults;
 mod dialogs; mod dispatch; mod lifecycle_events;
@@ -481,6 +481,10 @@ pub struct TerminalWindow {
     /// （`script_run::ScriptRun`），但它是**常驻**的：选脚本、点运行、看日志都在
     /// 面板里，不另开窗口。`ViewState` 只管「显不显示」（`show_pane_script`）。
     script_panel: panels::ScriptPanel,
+    /// 三条交互 Run 共用的一次性运行配置（手勾授权 + 预算档）。
+    /// 只活在内存里，不进 ViewState / prefs：一次授权就是一次运行的授权。
+    /// 兼容终端没有这一层，是我们为自动化安全加的，见 `script_run_config` 模块头。
+    run_config: script_run_config::RunConfig,
     /// ADR-0025 阶段 5：脚本新开的会话从**这里**回到窗口。
     ///
     /// 脚本线程没法直接往 `tabs` 里塞东西（那是 UI 线程的 `Vec<Tab>`），所以它

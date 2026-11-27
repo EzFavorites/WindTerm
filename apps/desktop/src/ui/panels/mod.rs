@@ -31,6 +31,7 @@ mod shell_panel;
 /// `ScriptDialog`（一次性运行窗口）是同一套引擎，只是常驻在底带当面板。
 mod list_popup;
 mod script_panel;
+mod script_panel_path;
 mod script_panel_row;
 mod script_panel_tabs;
 pub(in crate::ui) use script_panel_tabs::ScriptPanel;

@@ -44,19 +44,22 @@ pub(in crate::ui) fn draw(win: &mut TerminalWindow, ui: &mut egui::Ui, body: egu
                 Err(message) => win.script_panel.current_mut().error = Some(message),
             }
         }
+        // 勾选写进窗口上的共享 RunConfig（内存态）：运行对话框 / 编辑器下一次
+        // Run 立刻拿到同一组授权。兼容终端没有「按次授权」这个概念，这是本项目
+        // 自己加的安全开关；面板只负责画，不再独占一份别人读不到的状态。
         ui.collapsing(t_permissions, |ui| {
-            ui.checkbox(&mut win.script_panel.current_mut().grants.process, t_programs);
-            ui.checkbox(&mut win.script_panel.current_mut().grants.clipboard, t_clipboard);
-            ui.checkbox(&mut win.script_panel.current_mut().grants.ui, t_window);
+            ui.checkbox(&mut win.run_config.grants.process, t_programs);
+            ui.checkbox(&mut win.run_config.grants.clipboard, t_clipboard);
+            ui.checkbox(&mut win.run_config.grants.ui, t_window);
             ui.horizontal(|ui| {
                 ui.add(
-                    egui::TextEdit::singleline(&mut win.script_panel.current_mut().grants.dir)
+                    egui::TextEdit::singleline(&mut win.run_config.grants.dir)
                         .hint_text(t_dir)
                         .desired_width(180.0),
                 );
-                ui.checkbox(&mut win.script_panel.current_mut().grants.write, t_writable);
+                ui.checkbox(&mut win.run_config.grants.write, t_writable);
             });
-            if !win.script_panel.current_mut().grants.dir.trim().is_empty() {
+            if !win.run_config.grants.dir.trim().is_empty() {
                 ui.weak(t_subdirs);
             }
         });

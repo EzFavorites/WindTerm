@@ -35,51 +35,11 @@ const BODY_GAP: f32 = 3.0;
 /// 失败 / 本地错误的文字色。与 Sender 的提示同一支红。
 const ERROR_RED: u32 = 0xE06060;
 
-/// 面板上勾出来的额外授权（ADR-0027 的**第三个来源**）。
-///
-/// 三个来源取并集：脚本头 `// @cap`、命令行 `--allow`、**这里手勾**。手勾这一档
-/// 的意义是「脚本我没改，但这次我确实想让它碰文件」——写进脚本头就等于把授权
-/// 永久留在文件里，下次别人跑也带着，那是最容易被忘掉的一条后门。
-///
-/// 只放行**本次运行**：字段跟面板状态同寿命，不落盘、不进 prefs。
-#[derive(Default)]
-pub(in crate::ui) struct Grants {
-    pub process: bool,
-    pub clipboard: bool,
-    pub ui: bool,
-    /// 文件根目录（空 = 不放行文件）。手打而不是选目录：面板窄，选目录要另开
-    /// 一个模态框，而这里填的多半是 `/tmp` 这种一眼能打完的路径。
-    pub dir: String,
-    /// 给了目录之后，是只读还是可写。**独立一档**：能读不代表能写（纪律 2）。
-    pub write: bool,
-}
-
-impl Grants {
-    /// 拼成 `--allow` 那一套语法（`fs=read:/a`、`fs=write:/a`、`process,ui`）。
-    ///
-    /// 拼出来再交给 `parse_allow` 解析，而不是直接构造 `Capabilities`：解析器
-    /// 是**唯一**的事实源，两条路各拼一份迟早对不上（比如这里忘了规范化路径）。
-    fn spec(&self) -> String {
-        let mut items: Vec<String> = Vec::new();
-        if self.process {
-            items.push("process".to_string());
-        }
-        if self.clipboard {
-            items.push("clipboard".to_string());
-        }
-        if self.ui {
-            items.push("ui".to_string());
-        }
-        let dir = self.dir.trim();
-        if !dir.is_empty() {
-            let mode = if self.write { "write" } else { "read" };
-            items.push(format!("fs={mode}:{dir}"));
-        }
-        items.join(",")
-    }
-}
-
 /// 脚本面板体持有的全部跨帧状态。
+///
+/// 手勾授权不再在这里：它搬到 `ui/script_run_config.rs` 的 `RunConfig`，与运行
+/// 对话框的 `Long-running` / 编辑器共用一份。兼容终端没有「按次授权」这一层，
+/// 是我们自己的自动化安全设计；面板只负责把勾选画出来。
 ///
 /// 放 `TerminalWindow` 上而不是 `ViewState`：里面有一个线程句柄（`ScriptRun`），
 /// reducer 不该持有这种东西；`ViewState` 只装「显不显示」那个 bool。
@@ -100,8 +60,6 @@ pub(in crate::ui) struct ScriptPanelState {
     pub target: Option<SessionId>,
     /// 本帧实际执行的会话（每帧由 `target` 与活动标签算出来，不是输入）。
     pub session: Option<SessionId>,
-    /// 面板上勾出来的额外授权（与 `path` 一样是跨帧输入缓冲）。
-    pub grants: Grants,
     /// 这次运行的只读输出标签（脚本日志与返回值走这里，不写真实会话）。
     pub output: Option<crate::script_output::ScriptOutputQueue>,
     /// 上一次输出标签的身份：下次运行时先关掉它，避免同名只读 tab 越堆越多。
@@ -280,8 +238,14 @@ impl TerminalWindow {
                 return;
             }
         };
-        let allow = self.script_panel.current_mut().grants.spec();
-        let options = self.script_run_options(&path).with_allow(allow);
+        // 手勾授权 / 预算档经窗口上的共享 RunConfig 取：与运行对话框的
+        // `Long-running` 和编辑器是同一份。兼容终端没有这两层，是我们自己的
+        // 安全设计；共享构造器 `script_run_options()` 故意不碰它们。
+        let allow = self.run_config.allow();
+        let options = self
+            .script_run_options(&path)
+            .with_allow(allow)
+            .with_budget(self.run_config.budget());
         match ScriptRun::start(self.pool.clone(), id, source, options) {
             Ok(run) => {
                 let tab_no = self.script_panel.next_no;
@@ -380,10 +344,13 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
 
     let scripts = list_scripts();
     let names = session_labels(&choices.iter().map(|(_, n)| n.clone()).collect::<Vec<_>>());
-    let script_label = match scripts.iter().find(|(full, _)| full == &win.script_panel.current_mut().path) {
-        Some((_, name)) => name.as_str(),
-        None => win.tr("— pick a script —"),
-    };
+    // 未展开那一格：库里的给展示名，库外的给 basename，只有**没选**才给占位。
+    // 取 basename 复用脚本库那一份逻辑，见 `script_panel_path::label`。
+    let script_label = super::script_panel_path::label(
+        &win.script_panel.current().path,
+        &scripts,
+        win.tr("— pick a script —"),
+    );
     // 会话格显示：显式选中 → 那个标签的名字；没选 → `Current Session`；
     // 选中的会话已经关了 → 明说「已关闭 → 当前」，不再只写「已关闭」让人以为
     // 点 Run 什么都不会发生（实际它会按 `effective_session` 退回活动标签）。
@@ -400,7 +367,7 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
         },
     };
 
-    let out = script_row(win, ui, row_rect, script_label, &session_label);
+    let out = script_row(win, ui, row_rect, &script_label, &session_label);
     if let Some(cmd) = out.cmd {
         win.apply_script_cmd(ui, cmd, &scripts, &choices);
     }
@@ -453,16 +420,20 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
 
     // ── 结果区（多页时给底部数字页签条留位置）──
     let strip_h = if win.script_panel.tabs.len() > 1 { TAB_STRIP_H } else { 0.0 };
-    let body = egui::Rect::from_min_max(
+    let mut body = egui::Rect::from_min_max(
         egui::pos2(full.left(), row_rect.bottom() + BODY_GAP),
         egui::pos2(
             full.right(),
             ((full.top() + view_h).max(row_rect.bottom() + BODY_GAP + 40.0)) - strip_h,
         ),
     );
+    // 自由路径输入 + Browse：本项目自己加的入口（兼容终端只能从库里挑）。
+    // 先把它的高度扣掉，下面的录制条与结果正文才不会盖在输入框上。
+    let path_h = super::script_panel_path::draw(win, ui, body);
+    body = egui::Rect::from_min_max(egui::pos2(body.left(), body.top() + path_h), body.max);
     // 录制器 + 单次授权条：控件与文案在 `script_panel_strip` 里，这里只留高度。
     let toolbar_h = super::script_panel_strip::draw(win, ui, body);
-    let body = egui::Rect::from_min_max(
+    body = egui::Rect::from_min_max(
         egui::pos2(body.left(), body.top() + toolbar_h),
         body.max,
     );
@@ -530,27 +501,6 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_permission_checkboxes_turn_into_an_allow_spec() {
-        // 面板手勾的每一项都要能在 `--allow` 语法里找到对应写法，否则「勾了没用」。
-        let mut g = Grants::default();
-        assert_eq!(g.spec(), "", "什么都没勾就什么都不放行");
-
-        g.process = true;
-        g.ui = true;
-        assert_eq!(g.spec(), "process,ui");
-
-        g.dir = "  /tmp  ".to_string();
-        assert_eq!(g.spec(), "process,ui,fs=read:/tmp", "只读是缺省档");
-
-        g.write = true;
-        assert_eq!(g.spec(), "process,ui,fs=write:/tmp");
-
-        // 拼出来的字符串必须真的能被解析器吃下去（两条路各拼一份是这类 bug 的温床）。
-        let parsed = term_core::script_caps::parse_allow(&g.spec()).expect("应当能解析");
-        assert_eq!(parsed.len(), 3);
-    }
 
     #[test]
     fn the_status_line_tells_apart_idle_running_done_and_failed() {

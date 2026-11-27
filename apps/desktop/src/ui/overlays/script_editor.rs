@@ -230,7 +230,16 @@ impl TerminalWindow {
             .as_ref()
             .map(|state| state.path.clone())
             .unwrap_or_default();
-        let options = self.script_run_options(&who);
+        // 编辑器自己不画授权 / 预算控件，但跑起来必须和运行对话框 / 面板拿到
+        // 同一份：两项都从窗口上的共享 RunConfig 显式贴上去。共享构造器还被
+        // 登录脚本与触发器后台运行用着，那里不继承这两项。兼容终端没有这套
+        // 「按次授权 + 预算档」，是本项目额外加的自动化安全设计。
+        let allow = self.run_config.allow();
+        let budget = self.run_config.budget();
+        let options = self
+            .script_run_options(&who)
+            .with_allow(allow)
+            .with_budget(budget);
         let lang = self.view.lang;
         let id = self.script_editor.as_ref().and_then(|s| s.session);
         let read_only = id.is_some_and(|id| {
@@ -410,6 +419,17 @@ fn draw_editor(
         if let Some((line, column)) = failed_at {
             state.jump = state.doc.byte_offset(line, column);
         }
+    }
+    // 能力被拒时给一条可操作的提示：本地错误（读 / 起线程）与脚本返回的
+    // Failure 都算失败态，两种都指到 `// @cap` 与面板的 Permissions。
+    // 只在失败时画一行：无错误的编辑器基线一帧都不多画，`dialog_script_editor.png`
+    // 逐字节不变。这两层都是本项目的自动化安全设计，兼容终端没有能力授予。
+    if state.error.is_some() || matches!(state.outcome, Some(Outcome::Failed { .. })) {
+        ui.label(
+            egui::RichText::new(t(lang, "Permission denied? Declare it with // @cap in the script, or enable it under Script panel ▸ Permissions (this run only)."))
+                .small()
+                .color(dim),
+        );
     }
 
     draw_body(ui, state);

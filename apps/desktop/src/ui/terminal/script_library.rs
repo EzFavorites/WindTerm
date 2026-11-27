@@ -65,7 +65,7 @@ fn collect<I: IntoIterator<Item = std::path::PathBuf>>(paths: I) -> Vec<(String,
 /// 清单只有 220 点宽，完整路径一定被裁掉，而**被裁掉的正好是文件名**——那才是
 /// 用户认得出的部分。路径本身仍然有用（同名的 `deploy.rhai` 可能有两个），
 /// 所以放进 `on_hover_text`，需要时停在那一行上就能看见。
-fn display_name(path: &str) -> String {
+pub(in crate::ui) fn display_name(path: &str) -> String {
     std::path::Path::new(path)
         .file_name()
         .and_then(|n| n.to_str())

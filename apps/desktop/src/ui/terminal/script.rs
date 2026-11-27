@@ -40,9 +40,9 @@ pub(in crate::ui) struct ScriptDialog {
     pub error: Option<String>,
     /// 脚本对着哪个会话跑（打开窗口那一刻定下来）。
     pub session: Option<SessionId>,
-    /// 预算档位：`false` = 交互档（30s / 100 万次操作），`true` = 批量档
-    /// （10min / 5000 万次）。默认交互档——界面上的一次运行不该有能力跑十分钟。
-    pub batch: bool,
+    /// 预算档位与手勾授权都在 `TerminalWindow.run_config` 上（三扇窗共享）。
+    /// 兼容终端没有「本次授权 / 批量档」这两层，是我们为自动化安全加的；
+    /// 这里不再留一份镜像，否则对话框里勾的与面板 / 编辑器拿到的会各说一套。
     /// 触发器经命令 ID 拉起的脚本走后台：同一会话的前台名额不受它影响。
     pub background: bool,
 }
@@ -69,15 +69,6 @@ impl ScriptDialog {
             background,
             ..Self::default()
         }
-    }
-
-    /// 这一跑用哪一档预算。
-    pub(in crate::ui) fn budget(&self) -> term_script::ScriptBudget {
-        term_script::ScriptBudget::of(if self.batch {
-            term_script::BudgetKind::Batch
-        } else {
-            term_script::BudgetKind::Interactive
-        })
     }
 
     /// 状态行要显示什么。四种状态各自不同——「在跑」不能长成「跑完了」。
@@ -450,6 +441,10 @@ impl TerminalWindow {
         let recent = self.script_recent.clone();
         // 后台脚本不占会话名额，不会把 Run 灰掉，所以要在窗口里明说有人在跑。
         let bg_running = self.script_runs.background_count();
+        // 「长跑」勾选与面板的授权勾选共用窗口上那一份 RunConfig：三扇窗看到
+        // 的是同一档预算、同一组能力（兼容终端没有这一层，是我们加的安全开关）。
+        // 先取出来再借 `self.script`，免得两处可变借撞在一起。
+        let mut batch = self.run_config.batch;
         let Some(dialog) = self.script.as_mut() else {
             return;
         };
@@ -457,9 +452,10 @@ impl TerminalWindow {
         // 没绑上会话时按钮要灰：脚本没有地方跑，点了也只能报错。
         let bound = dialog.session.is_some();
         let running = dialog.run.is_some();
+        let denied = dialog.error.is_some()
+            || matches!(dialog.outcome, Some(Outcome::Failed { .. }));
         let mut action = ScriptAction::None;
         let mut path = std::mem::take(&mut dialog.path);
-        let mut batch = dialog.batch;
         let status = dialog.status();
 
         DialogWindow::new(DialogId::ScriptRun, "Run script").show(
@@ -519,9 +515,11 @@ impl TerminalWindow {
                         ui.spinner();
                     }
                     // 档位：交互档够用就不要给「能跑十分钟」的选项摆在第一屏。
+                    // 文案统一走 `t(lang, …)`；英文原文与原基线逐字相同，中文界面
+                    // 不再露英文。勾选写回共享 RunConfig，面板 / 编辑器立刻见到。
                     ui.add_enabled_ui(!running, |ui| {
-                        ui.checkbox(&mut batch, "Long-running")
-                            .on_hover_text("10 min / 50M operations instead of 30 s / 1M");
+                        ui.checkbox(&mut batch, t(lang, "Long-running"))
+                            .on_hover_text(t(lang, "10 min / 50M operations instead of 30 s / 1M"));
                     });
                     if !bound {
                         ui.weak(t(lang, "This tab has no live session"));
@@ -530,6 +528,16 @@ impl TerminalWindow {
                 ui.add_space(6.0);
                 // 结果用 monospace：脚本返回值可能是多行的，比例字体对不齐。
                 ui.add(egui::Label::new(egui::RichText::new(&status).monospace()).wrap());
+                // 能力被拒时给一条可操作的提示。只在失败态出现：Ready / Running /
+                // Done 三态一行都不画，基线里那张「刚打开」的图因此逐字节不变。
+                // `// @cap` 是脚本头里的永久声明，面板的 Permissions 是本次手勾——
+                // 两者都是本项目的设计，兼容终端没有能力授予这一层。
+                if denied {
+                    ui.label(
+                        egui::RichText::new(t(lang, "Permission denied? Declare it with // @cap in the script, or enable it under Script panel ▸ Permissions (this run only)."))
+                            .small(),
+                    );
+                }
                 if bg_running > 0 {
                     ui.label(
                         egui::RichText::new(format!("Background scripts running ({bg_running})")).small(),
@@ -539,7 +547,7 @@ impl TerminalWindow {
         );
 
         dialog.path = path;
-        dialog.batch = batch;
+        self.run_config.batch = batch;
         match action {
             ScriptAction::None => {}
             ScriptAction::Close => self.script = None,
@@ -659,6 +667,21 @@ impl TerminalWindow {
     }
 
     fn open_script(&mut self, path: &str, background: bool) {
+        // SecureCRT 没有前台 / 后台，也没有「拒绝排队」这套说法——这两条都是
+        // 本项目额外的自动化安全设计。上一次按路径起跑的句柄还留在 `self.script`
+        // 里时，直接换掉整个 `ScriptDialog` 会把 `ScriptRun` 一起丢掉：租约提前
+        // 放行，而线程还在对同一条 PTY 说话。这里显式拒绝（不排队、不顶替），
+        // 把原因留给已经开着的那扇窗；等它跑完再按一次即可。
+        if let Some(dialog) = self.script.as_mut() {
+            if dialog.run.is_some() {
+                dialog.error = Some(
+                    t(self.view.lang, "A script is already running; wait for it to finish")
+                        .to_string(),
+                );
+                self.ctx.request_repaint();
+                return;
+            }
+        }
         let session = self.tabs.get(self.active_slot()).and_then(|t| t.session);
         self.script = Some(if background {
             ScriptDialog::opened_background(session, path)
@@ -672,20 +695,27 @@ impl TerminalWindow {
     /// 读文件 → 起线程。失败留在 `error` 里，不弹第二个窗口。
     fn start_script(&mut self) {
         let lang = self.view.lang;
+        // 手勾授权与预算档只在这三处**显式 Run** 的调用点贴上：共享构造器
+        // `script_run_options()` 还被登录脚本与触发器的后台运行用着，那两条
+        // 什么也不该继承。兼容终端没有这套能力授予，是我们自己的安全设计。
+        let allow = self.run_config.allow();
+        let budget = self.run_config.budget();
         // 会话与路径先取出来：`script_run_options` 借的是整窗 `self`，之后才能
         // 拿 `dialog` 的可变借用。`who` 用脚本路径——「谁在跑」的提示要能对应到
         // 用户手上那个文件。
-        let (session, path, budget, background) = match self.script.as_ref() {
+        let (session, path, background) = match self.script.as_ref() {
             Some(dialog) => (
                 dialog.session,
                 dialog.path.trim().to_string(),
-                dialog.budget(),
                 dialog.background,
             ),
             None => return,
         };
         // 参数由 `script_run_options` 统一解析，这里不再单独查一遍注册表。
-        let mut options = self.script_run_options(&path).with_budget(budget);
+        let mut options = self
+            .script_run_options(&path)
+            .with_allow(allow)
+            .with_budget(budget);
         if background {
             options = options.with_background();
         }

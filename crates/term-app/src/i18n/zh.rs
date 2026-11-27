@@ -513,6 +513,21 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Writable" => "可写",
         "Sub-folders are included; `..` is rejected before comparing." =>
             "包含子目录；比较前会拒绝 `..`。",
+        // 三处 Run 共用的预算档 / 拒绝排队提示 / 能力被拒时的可操作指引。
+        // 这些开关是本项目为自动化安全加的，兼容终端没有对应概念。
+        "Long-running" => "长跑模式",
+        "10 min / 50M operations instead of 30 s / 1M" =>
+            "10 分钟 / 5000 万次操作，而不是 30 秒 / 100 万次",
+        "A script is already running; wait for it to finish" =>
+            "已有脚本在跑；等它结束再试",
+        "Permission denied? Declare it with // @cap in the script, or enable it under Script panel ▸ Permissions (this run only)." =>
+            "权限被拒？在脚本里用 `// @cap` 声明，或在 Script 面板的「权限（仅本次运行）」里勾选。",
+        // 脚本面板的自由路径行（本项目自己加的入口）。
+        "Path:" => "路径：",
+        "Browse…" => "浏览…",
+        "/path/to/script.rhai (relative = script library)" =>
+            "/path/to/script.rhai（相对路径按脚本库目录展开）",
+        "— pick a script —" => "— 选择脚本 —",
         "New folder" => "新建文件夹",
         "Permissions" => "权限",
         "Delete" => "删除",

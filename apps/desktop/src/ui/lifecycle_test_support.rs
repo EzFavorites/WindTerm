@@ -321,6 +321,7 @@ pub(in crate::ui) fn window_with(
         script_manager: None,
         logon_script_editor: None,
         script_panel: crate::ui::panels::ScriptPanel::default(),
+        run_config: Default::default(),
         script_opened: Default::default(),
         script_activated: Default::default(),
         script_asks: Default::default(),

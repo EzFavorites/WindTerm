@@ -15,9 +15,10 @@
 //!
 //! 那边留着的是纯函数判据（`next_active_tab`），不需要窗口、也碰不到命令 ID。
 
-use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
+use crate::ui::lifecycle_test_support::{fake_tab, window_with, with_temp_profile, CloseCount};
 use crate::ui::TerminalWindow;
 use eframe::egui;
+use term_app::action::Action;
 
 /// 一条标签的真窗口（菜单命令要活动标签才走得通）。
 fn one_tab_window(ctx: &egui::Context) -> TerminalWindow {
@@ -128,4 +129,80 @@ fn tool_script_menu_stop_cancels_and_record_toggles() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     pool.close(session);
+}
+
+/// 四条按路径拉起的入口跑完之后，断言它留下的是**后台**运行窗口。
+///
+/// 后台名额由 `ScriptRun` 句柄持有，所以只要窗口还握着 `run`，`background_count`
+/// 就稳定是 1；随后等结果回到 `outcome`、句柄被 `poll_script` 摘掉，再关窗收尾，
+/// 免得把租约与线程一起丢出用例。兼容终端没有前 / 后台之分，这是本项目为
+/// 自动化安全加的规矩：路径驱动的顺手执行一律不占会话的前台名额。
+fn assert_background_run_then_reset(win: &mut TerminalWindow, entry: &str) {
+    assert!(
+        win.script
+            .as_ref()
+            .is_some_and(|dlg| dlg.background && dlg.run.is_some()),
+        "{entry} 必须留下一扇后台运行窗，并真的起了线程"
+    );
+    assert_eq!(
+        win.script_runs.background_count(),
+        1,
+        "{entry} 占的是后台名额，不是会话的前台名额"
+    );
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        win.poll_script();
+        if win
+            .script
+            .as_ref()
+            .is_none_or(|dlg| dlg.run.is_none())
+        {
+            break;
+        }
+        assert!(std::time::Instant::now() < deadline, "{entry} 10 秒没结果");
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    win.script = None;
+    assert_eq!(win.script_runs.background_count(), 0, "句柄丢了名额要还回来");
+}
+
+/// 命令面板 / 映射键 / 快捷命令按钮 / 触发器四条路径驱动入口都走后台。
+///
+/// 四条入口在投影层汇成两个漏斗：菜单 ID 串走 `dispatch`（映射键、触发器
+/// `RunCommand` 的路径），强类型 `Action::RunScript` 走 `dispatch_action`（命令
+/// 面板），快捷命令按钮从 `send_command` 的文本里认出同一个前缀。旧实现里
+/// `send_command` 调的是前台 `open_script_for_path`，是唯一漏网的一条——这条
+/// 判据把四条都钉在同一档，防止哪天又有人把它改回前台。
+#[test]
+fn every_path_driven_script_entry_dispatches_in_the_background() {
+    with_temp_profile(|| {
+        let ctx = egui::Context::default();
+        let mut win = one_tab_window(&ctx);
+        let dir = std::env::temp_dir().join(format!("desk-bg-dispatch-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("bg.rhai");
+        let _ = std::fs::write(&path, "1 + 1");
+        let spec = format!("Script.RunFile:{}", path.to_string_lossy());
+        let abs = path.to_string_lossy().into_owned();
+
+        // 命令面板：`RunScript` 是强类型 Action，走 `dispatch_action`。
+        win.dispatch_action(Action::RunScript(abs.clone()));
+        assert_background_run_then_reset(&mut win, "palette");
+
+        // 映射键：快捷键表给出的是命令 ID 串，走 `dispatch`。
+        win.dispatch(&spec);
+        assert_background_run_then_reset(&mut win, "mapped key");
+
+        // 快捷命令按钮：一串要发出去的文字，由 `send_command` 认前缀。
+        win.send_command(&spec);
+        assert_background_run_then_reset(&mut win, "quick command");
+
+        // 触发器：`RunCommand` 落成的 `AppAction::Dispatch` 最终同样汇到
+        // `dispatch(id)`；这里按它的入口再走一遍，确认也留在后台。
+        win.dispatch(&spec);
+        assert_background_run_then_reset(&mut win, "trigger");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    });
 }

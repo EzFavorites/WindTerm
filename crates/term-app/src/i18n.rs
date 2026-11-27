@@ -149,6 +149,13 @@ mod tests {
         "Permissions (this run only)", "Run programs", "Read clipboard", "Control window",
         "folder for file access", "Writable",
         "Sub-folders are included; `..` is rejected before comparing.",
+        // ── 我们自己的运行配置 / 后台纪律（兼容终端没有这两层）──
+        "Long-running", "10 min / 50M operations instead of 30 s / 1M",
+        "A script is already running; wait for it to finish",
+        "Permission denied? Declare it with // @cap in the script, or enable it under Script panel ▸ Permissions (this run only).",
+        // 脚本面板的自由路径行（同样是本项目加的入口，不是兼容终端功能）。
+        "Path:", "Browse…", "/path/to/script.rhai (relative = script library)",
+        "— pick a script —",
         // ── 2026-11-11 视觉基线右键菜单（其余标签由菜单树 visit() 自动覆盖）──
         "Copy Command", "Clear Scrollback", "Clear All",
         "Session Triggers", "More",
