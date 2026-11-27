@@ -25,7 +25,15 @@ impl TerminalWindow {
             return;
         };
         let tab = &mut self.tabs[slot];
+        let commit = action == term_app::vocab::FilterAction::Commit;
         term_app::filter::reduce(&mut tab.filter, action);
+        if commit {
+            // 只有明确的提交动作才写历史；逐字符的 SetQuery 不写。
+            // 查询取当前输入缓冲（Enter / 选中 / 关闭时它就是要生效的那条）。
+            let q = tab.filter_input.clone();
+            super::tab_toolbar_filter::push_filter_history(&mut tab.filter_history, &q);
+            tab.filter.query = q;
+        }
         tab.filter_input = tab.filter.query.clone();
         self.ctx.request_repaint();
     }

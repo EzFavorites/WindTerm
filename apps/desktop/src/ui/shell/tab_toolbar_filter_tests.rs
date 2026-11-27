@@ -3,6 +3,7 @@
     use super::super::find_bar::CLOSE_GAP;
     use super::super::tab_toolbar::{filter_button_rect, quick_button_rect};
     use super::super::TAB_TOOLBAR_H;
+    use term_app::vocab::FilterAction;
 
     /// 过滤行与 Sysmon 读数共用同一条细带、不产生第二个 `TopBottomPanel` 声明。
     #[test]
@@ -146,18 +147,31 @@
         );
     }
 
-    /// 非法正则时指示框转 `INVALID_COLOR`，与 `.*` 图标同红。
+    /// 聚焦指示框合法时取主题焦点色 `CHROME_SCALE.focus`（Find 蓝），非法时转红；
+    /// 顶部横线 / 竖线仍用 `border` 灰，不跟着变蓝。
     #[test]
-    fn focus_frame_turns_red_on_invalid_regex() {
-        let line_c = egui::Color32::from_rgb(0x44, 0x44, 0x44);
-        assert_eq!(filter_focus_frame_color(true, line_c), INVALID_COLOR);
-        assert_eq!(filter_focus_frame_color(false, line_c), line_c);
+    fn focus_frame_uses_focus_token_and_red_only_on_invalid_regex() {
+        assert_eq!(filter_focus_frame_color(true), INVALID_COLOR);
+        assert_eq!(
+            filter_focus_frame_color(false),
+            crate::theme::chrome(CHROME_SCALE.focus),
+            "合法时用焦点色令牌，不写字面色值"
+        );
         let self_src = include_str!("tab_toolbar_filter.rs");
-        assert!(self_src.contains("filter_focus_frame_color(invalid, line_c)"));
+        assert!(self_src.contains("filter_focus_frame_color(invalid)"));
+        assert!(self_src.contains("crate::theme::chrome(CHROME_SCALE.focus)"));
         assert!(self_src.contains("let invalid = !regex_error.is_empty()"));
         assert!(
             self_src.contains("let icon_c = if invalid { INVALID_COLOR }"),
             "与 .* 图标同红"
+        );
+        assert!(
+            self_src.contains("let line_c = crate::theme::chrome(CHROME_SCALE.border)"),
+            "横线/竖线仍是 border 灰"
+        );
+        assert!(
+            !self_src.contains("1E90FF") && !self_src.contains("0x1e90ff"),
+            "ui 里不许硬编码蓝色"
         );
     }
 
@@ -215,7 +229,7 @@
         assert!(label_input > bar.left() + LABEL_X + 38.0);
         assert!(label_input < geom.edit.left());
         assert!(geom.edit.left() < input_icons && input_icons < geom.icons[0].left());
-        assert!(geom.icons[2].right() < icons_count && icons_count < count.left());
+        assert!(geom.icons[3].right() < icons_count && icons_count < count.left());
         assert!(count.right() < count_close && count_close < geom.close.left());
 
         let y_top = bar.top() + ROW_INSET_Y;
@@ -248,7 +262,7 @@
         let geom = filter_row_geom(bar, 46.0, 38.0, MODE_W);
         assert_eq!(ICON_H, 19.0);
         assert_eq!(geom.icons[0].height(), ICON_H);
-        assert_eq!(geom.icons[2].width(), MODE_W);
+        assert_eq!(geom.icons[3].width(), MODE_W);
         for r in geom.icons {
             assert_eq!(r.top(), bar.center().y - ICON_H / 2.0);
             assert_eq!(r.bottom(), bar.center().y + ICON_H / 2.0);
@@ -293,7 +307,7 @@
         assert_eq!(sysmon.height(), natural.height());
     }
 
-    /// 宽条三格全在、互不重叠、计数贴着 `×` 左侧；窄条先丢计数，`×` 永在。
+    /// 宽条四格全在、互不重叠、计数贴着 `×` 左侧；窄条先丢计数，`×` 永在。
     #[test]
     fn wide_and_narrow_layouts_never_overlap() {
         let geom = filter_row_geom(wide_bar(), 46.0, 38.0, MODE_W);
@@ -302,7 +316,8 @@
         assert!(count.right() <= geom.close.left());
         assert!(geom.icons[0].right() <= geom.icons[1].left());
         assert!(geom.icons[1].right() <= geom.icons[2].left());
-        assert!(geom.icons[2].right() + ICON_R_PAD <= count.left());
+        assert!(geom.icons[2].right() <= geom.icons[3].left());
+        assert!(geom.icons[3].right() + ICON_R_PAD <= count.left());
         assert!(geom.icons[0].left() >= geom.edit.left() + 0.01);
 
         let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(190.0, TAB_TOOLBAR_H));
@@ -312,5 +327,122 @@
         assert!(small.edit.right() <= small.close.left());
         // 变宽的 Invert 格也不能越过标签去贴住 `Filter:`。
         assert!(small.icons[0].left() >= small.edit.left() + ICON_LEFT_INSET - 0.01);
-        assert!(small.icons[2].right() <= small.close.left() + 0.01);
+        assert!(small.icons[3].right() <= small.close.left() + 0.01);
+    }
+
+    /// 历史提交：最近在前、去重、封顶 16；空串与内部 NUL 前缀子命令不记。
+    #[test]
+    fn filter_history_dedupes_caps_and_skips_empty_or_ui_commands() {
+        let mut h = Vec::new();
+        push_filter_history(&mut h, "ERR");
+        push_filter_history(&mut h, "warn");
+        push_filter_history(&mut h, "ERR");
+        assert_eq!(h, vec!["ERR", "warn"], "重复提到最前，旧的仍在");
+        push_filter_history(&mut h, "");
+        push_filter_history(&mut h, "\0fltm");
+        assert_eq!(h, vec!["ERR", "warn"], "空串与 UI 子命令不进历史");
+        for i in 0..20 {
+            push_filter_history(&mut h, &format!("q{i}"));
+        }
+        assert_eq!(h.len(), FILTER_HISTORY_CAP, "上限 16");
+        assert_eq!(h[0], "q19", "最近在前");
+        assert_eq!(h[15], "q4", "最旧的被挤掉");
+        assert!(h.iter().all(|q| !q.is_empty() && !q.starts_with('\0')));
+    }
+
+    /// ↑↓ 循环：空选时 ↑ 到末条 / ↓ 到首条，到头回绕，越界下标先夹紧。
+    #[test]
+    fn history_arrow_keys_cycle_wrap() {
+        assert_eq!(cycle_filter_history(None, 0, 1), None, "空历史不选中");
+        assert_eq!(cycle_filter_history(None, 3, -1), Some(2));
+        assert_eq!(cycle_filter_history(None, 3, 1), Some(0));
+        assert_eq!(cycle_filter_history(Some(0), 3, -1), Some(2));
+        assert_eq!(cycle_filter_history(Some(2), 3, 1), Some(0));
+        assert_eq!(cycle_filter_history(Some(9), 3, 1), Some(0));
+    }
+
+    /// 历史浮层是 `Area` 覆盖层：贴输入区上方，不新增面板、不切终端高度。
+    #[test]
+    fn history_menu_is_an_area_overlay_not_a_second_panel() {
+        let popup = include_str!("tab_toolbar_filter_popup.rs");
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        assert!(popup.contains("egui::Area::new(id)"));
+        assert!(popup.contains("fade_in(false)"));
+        assert!(popup.contains("fixed_pos"));
+        assert!(popup.contains("pivot(egui::Align2::LEFT_BOTTOM)"), "贴上方");
+        assert!(!popup.contains("TopBottomPanel::"), "不切终端高度");
+        assert!(!self_src.contains("TopBottomPanel::"), "过滤行不新增面板");
+        assert!(popup.contains("CHROME_SCALE.tab"), "当前项用 tab 底色");
+        assert!(self_src.contains("history_popup("), "浮层从过滤行调出");
+    }
+
+    /// `▾` 贴在输入区右端、图标组之前；无边框手绘、命中区 == 绘制区。
+    #[test]
+    fn history_button_hugs_input_right_edge_before_icons() {
+        let geom = filter_row_geom(wide_bar(), 46.0, 38.0, MODE_W);
+        let btn = filter_history_button_rect(geom.edit);
+        assert_eq!(btn.height(), geom.edit.height());
+        assert_eq!(btn.right(), geom.edit.right());
+        assert!(btn.left() > geom.edit.left());
+        assert!(btn.right() < geom.icons[0].left(), "图标组之前");
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        assert!(self_src.contains("ui.painter().rect_filled(hist_btn"), "hover 底色");
+        assert!(self_src.contains("CursorIcon::PointingHand"), "指向光标");
+        assert!(self_src.contains("egui::Shape::convex_polygon"), "手绘三角，无系统边框");
+    }
+
+    /// 两个 tab 的历史互不串味，也不写 `ViewState` / 不落进领域状态。
+    #[test]
+    fn two_tabs_keep_separate_filter_history() {
+        use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = CloseCount::default();
+        let first = fake_tab(&pool, &ctx, 0, &closes);
+        let second = fake_tab(&pool, &ctx, 1, &closes);
+        let mut win = window_with(pool, &ctx, vec![first, second]);
+        let (id_a, id_b) = (win.tabs[0].identity, win.tabs[1].identity);
+        let view_before = win.view.clone();
+
+        win.apply_filter_on(id_a, FilterAction::SetQuery("alpha".into()));
+        win.apply_filter_on(id_a, FilterAction::Commit);
+        win.apply_filter_on(id_b, FilterAction::SetQuery("beta".into()));
+        win.apply_filter_on(id_b, FilterAction::Commit);
+
+        assert_eq!(win.tabs[0].filter_history, vec!["alpha".to_string()]);
+        assert_eq!(win.tabs[1].filter_history, vec!["beta".to_string()]);
+        assert_eq!(win.view, view_before, "历史不写 ViewState");
+
+        let tab_src = include_str!("../tab.rs");
+        let state_src = include_str!("../../../../../crates/term-app/src/state.rs");
+        assert!(tab_src.contains("pub(in crate::ui) filter_history: Vec<String>"));
+        assert!(!state_src.contains("filter_history"), "不进 FilterState/ViewState");
+    }
+
+    /// `W` 全词格紧挨 `.*` / `Aa`，反转箭头仍在最后；四格 + ▾ 在窄窗也不重叠。
+    #[test]
+    fn whole_word_cell_and_history_button_fit_without_overlap() {
+        let geom = filter_row_geom(wide_bar(), 46.0, 38.0, MODE_W);
+        assert_eq!(ICON_CELLS, 4, "四格：.* / Aa / W / 反转");
+        for i in 0..ICON_CELLS - 1 {
+            assert!(geom.icons[i].right() <= geom.icons[i + 1].left());
+        }
+        assert_eq!(geom.icons[2].width(), ICON_W, "W 与 .* / Aa 同宽");
+        assert_eq!(geom.icons[2].height(), ICON_H, "19pt 高");
+        assert!(filter_history_button_rect(geom.edit).right() < geom.icons[0].left());
+
+        let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(190.0, TAB_TOOLBAR_H));
+        let small = filter_row_geom(narrow, 46.0, 38.0, MODE_W);
+        for i in 0..ICON_CELLS - 1 {
+            assert!(small.icons[i].right() <= small.icons[i + 1].left() + 0.01);
+        }
+        let btn = filter_history_button_rect(small.edit);
+        assert!(btn.left() >= small.edit.left(), "窄窗 ▾ 不越到标签区");
+        assert!(btn.right() <= small.icons[0].left() + 0.01);
+
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        assert!(self_src.contains("FilterUiCommand::ToggleWholeWord"), "NUL 子命令 'w'");
+        assert!(self_src.contains("t(lang, \"Match Whole Word\")"), "复用 i18n key");
+        assert!(self_src.contains("hit(\"tab_toolbar_filter_whole_word\")"));
+        assert!(self_src.contains("geom.icons[3]"), "反转仍在最后");
     }

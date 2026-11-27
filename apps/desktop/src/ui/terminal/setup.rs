@@ -188,6 +188,7 @@ pub(in crate::ui) fn tab_from(
             // 行过滤器出厂关着、查询为空：每条会话一份，不落盘。
             filter: term_app::filter::FilterState::default(),
             filter_input: String::new(),
+            filter_history: Vec::new(),
             filter_diag: None,
             input_rows: std::cell::RefCell::new(Vec::new()),
             command_texts: std::cell::RefCell::new(Vec::new()),

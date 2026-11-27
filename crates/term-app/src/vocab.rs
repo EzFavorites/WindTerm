@@ -552,9 +552,17 @@ pub enum FilterAction {
     /// 细带上的按钮：开 / 关翻转。
     Toggle,
     SetQuery(String),
+    /// 把当前输入缓冲提交为生效查询，并记入**本会话**的过滤历史。
+    ///
+    /// 历史属于 UI 层的 `Tab`（不进 `ViewState`、不落盘），所以 reducer 不写它；
+    /// 投影层 `apply_filter_on` 在收到这条动作时读 `Tab.filter_input` 落地。
+    /// Enter / 下拉选中 / 关闭过滤栏才发这条，逐字符的 `SetQuery` 不发。
+    Commit,
     /// `grep` / `grep -v` 两档。
     SetMode(FilterMode),
     ToggleCase,
+    /// `W` 全词开关：命中两端必须是词边界。
+    ToggleWholeWord,
     ToggleRegex,
     Close,
 }

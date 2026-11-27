@@ -34,6 +34,8 @@ mod quick_mark;
 mod status_bar;
 mod tab_toolbar;
 mod tab_toolbar_filter;
+// 过滤历史浮层：贴过滤行的 Area，独立成文件守住 tab_toolbar_filter.rs 行数门禁。
+mod tab_toolbar_filter_popup;
 mod tab_bar;
 mod tab_menu;
 mod tab_strip;

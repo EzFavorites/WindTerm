@@ -23,6 +23,7 @@ const UI_CMD_PREFIX: &str = "\u{0}flt";
 pub enum FilterUiCommand {
     ToggleMode,
     ToggleCase,
+    ToggleWholeWord,
     ToggleRegex,
 }
 
@@ -31,6 +32,7 @@ impl FilterUiCommand {
         match self {
             Self::ToggleMode => 'm',
             Self::ToggleCase => 'c',
+            Self::ToggleWholeWord => 'w',
             Self::ToggleRegex => 'r',
         }
     }
@@ -48,6 +50,7 @@ fn decode_ui_command(payload: &str) -> Option<FilterUiCommand> {
     match payload.strip_prefix(UI_CMD_PREFIX)? {
         "m" => Some(FilterUiCommand::ToggleMode),
         "c" => Some(FilterUiCommand::ToggleCase),
+        "w" => Some(FilterUiCommand::ToggleWholeWord),
         "r" => Some(FilterUiCommand::ToggleRegex),
         _ => None,
     }
@@ -68,7 +71,21 @@ pub fn compile(state: &FilterState) -> Result<Option<LinePolicy>, PatternError> 
     } else {
         Syntax::Literal
     };
-    let pattern = Pattern::compile(&state.query, syntax, state.case_sensitive)?;
+    // `W` 全词：两侧都要是词边界（与 Find 的 `is_word_char` = 字母/数字/下划线
+    // 同一判据；regex crate 的 `\b` 是它的 Unicode 超集）。字面模式必须先
+    // `escape` 再包 `\b`，否则 Literal 会把 `\b` 一起转义成普通反斜杠+b；
+    // 正则模式包一层非捕获组，保住 `a|b` 这类 alternation 的边界语义。
+    // 开关打开后一律走 Regex 编译；非法正则仍由 `Pattern::compile` 报错。
+    let (source, syntax) = if state.whole_word {
+        let s = match syntax {
+            Syntax::Literal => format!(r"\b{}\b", regex::escape(&state.query)),
+            Syntax::Regex => format!(r"\b(?:{})\b", state.query),
+        };
+        (s, Syntax::Regex)
+    } else {
+        (state.query.clone(), syntax)
+    };
+    let pattern = Pattern::compile(&source, syntax, state.case_sensitive)?;
     let policy = match state.mode {
         FilterMode::KeepMatching => LinePolicy::KeepIf(pattern),
         FilterMode::DropMatching => LinePolicy::DropIf(pattern),
@@ -152,6 +169,7 @@ pub fn reduce(state: &mut FilterState, action: FilterAction) {
             state.query.clear();
             state.mode = FilterMode::KeepMatching;
             state.case_sensitive = false;
+            state.whole_word = false;
             state.regex = false;
         }
         FilterAction::Toggle => {
@@ -169,11 +187,16 @@ pub fn reduce(state: &mut FilterState, action: FilterAction) {
                 };
             }
             Some(FilterUiCommand::ToggleCase) => state.case_sensitive = !state.case_sensitive,
+            Some(FilterUiCommand::ToggleWholeWord) => state.whole_word = !state.whole_word,
             Some(FilterUiCommand::ToggleRegex) => state.regex = !state.regex,
             None => state.query = q,
         },
+        // 提交只把生效查询同步交给投影层：历史住在 UI 的 `Tab.filter_history`，
+        // 每条会话一份，不进 `FilterState` / `ViewState`、不落盘，reducer 不碰。
+        FilterAction::Commit => {}
         FilterAction::SetMode(mode) => state.mode = mode,
         FilterAction::ToggleCase => state.case_sensitive = !state.case_sensitive,
+        FilterAction::ToggleWholeWord => state.whole_word = !state.whole_word,
         FilterAction::ToggleRegex => state.regex = !state.regex,
     }
 }

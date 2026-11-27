@@ -110,6 +110,9 @@ pub struct FilterState {
     pub query: String,
     pub mode: FilterMode,
     pub case_sensitive: bool,
+    /// `W`（Match Whole Word）：命中两端必须落在词边界上（字母/数字/下划线）。
+    /// 与 Find 的 `W` 同语义；只由 `reduce` 写，编译期交给 `filter::compile`。
+    pub whole_word: bool,
     pub regex: bool,
 }
 

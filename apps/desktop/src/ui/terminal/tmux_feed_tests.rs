@@ -68,6 +68,7 @@ fn bare_tab() -> Tab {
         folds: term_app::folds::Folds::new(),
         filter: term_app::state::FilterState::default(),
         filter_input: String::new(),
+        filter_history: Vec::new(),
         filter_diag: None,
         input_rows: std::cell::RefCell::new(Vec::new()),
         command_texts: std::cell::RefCell::new(Vec::new()),

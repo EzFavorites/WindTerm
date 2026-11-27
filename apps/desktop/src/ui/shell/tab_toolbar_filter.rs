@@ -3,7 +3,7 @@
 //! # 不是贴上去的第二块面板
 //!
 //! 过滤激活时工具条高度不变（`TAB_TOOLBAR_H` = 25pt），终端区也不少几行。
-//! `Filter:` 下划线标签、内联文本、三个图标格、计数与 `×` 全部在同一条细带里
+//! `Filter:` 下划线标签、内联文本、四个图标格与 `▾`、计数与 `×` 都在同一条细带里
 //! 垂直居中；整条只有一条与 Find 同口径的**顶部横线**，输入框没有常驻外壳。
 //! 功能区之间用 1px 竖线分隔（与上边线同色、`ROW_INSET_Y` 收在条内），细淡不抢
 //! 内容，也不给每个图标格描框。收起态（只剩 Sysmon）不画这些线。
@@ -23,9 +23,11 @@
 //!
 //! # 状态与行为没动
 //!
-//! 依旧只有 `Tab.filter` / `Tab.filter_input` 持有状态；计数仍读 `filter_diag`
+//! 依旧只有 `Tab.filter` / `Tab.filter_input` 持有查询状态；计数仍读 `filter_diag`
 //! （与 `drop_rows` 同源）；绘制期只攒 `FilterAction`，最后 `apply_filter_on`
-//! 落到本会话。所有控件 id 带 `pane_salt`，分屏每片 pane 独立。
+//! 落到本会话。历史是同属会话的 `Tab.filter_history`，只在 `Commit` 时写；
+//! 浮层的开/选中放 egui 临时态（带 `pane_salt`），不进 `ViewState`、不落盘。
+//! 所有控件 id 带 `pane_salt`，分屏每片 pane 独立。
 
 use crate::ui::*;
 use eframe::egui;
@@ -37,8 +39,8 @@ use crate::ui::shell::{
     LABEL_X, TAB_TOOLBAR_H,
 };
 
-/// 内联图标格：`.*` / `Aa` / 两向箭头反转开关，共三格。
-const ICON_CELLS: usize = 3;
+/// 内联图标格：`.*` / `Aa` / `W` / 两向箭头反转开关，共四格。
+const ICON_CELLS: usize = 4;
 /// 图标格上下各留 3pt，25pt 条里可用高度 19pt（不是 Find 框内的 23.5pt）。
 const ROW_INSET_Y: f32 = 3.0;
 /// 图标格高：与输入文字、计数同处一条 25pt 中线。
@@ -57,6 +59,47 @@ const LABEL_FONT_PT: f32 = 9.0;
 const LABEL_GAP: f32 = 3.0;
 /// 输入文字左侧留白（与 Find 的 `field.left() + 6` 同档）。
 const EDIT_PAD_L: f32 = 6.0;
+/// 每条会话保留的最近过滤查询数上限。
+pub(in crate::ui) const FILTER_HISTORY_CAP: usize = 16;
+/// `▾` 按钮宽：贴输入区右端、图标格之前；命中区就是绘制区。
+const HIST_BTN_W: f32 = 14.0;
+
+/// 提交一条查询到本会话历史：最近在前、去重、封顶 [`FILTER_HISTORY_CAP`]。
+/// 空串与内部 NUL 前缀子命令不记——它们不是查询，记下来只会污染下拉。
+pub(in crate::ui) fn push_filter_history(history: &mut Vec<String>, query: &str) {
+    if query.is_empty() || query.starts_with('\0') {
+        return;
+    }
+    history.retain(|q| q != query);
+    history.insert(0, query.to_owned());
+    history.truncate(FILTER_HISTORY_CAP);
+}
+
+/// ↑↓ 循环：`None` 时 ↑ 取最后一条、↓ 取第一条；有选中则取模回绕。
+pub(in crate::ui) fn cycle_filter_history(
+    selected: Option<usize>,
+    total: usize,
+    delta: i32,
+) -> Option<usize> {
+    if total == 0 {
+        return None;
+    }
+    let n = total as i32;
+    let next = match selected {
+        None if delta < 0 => n - 1,
+        None => 0,
+        Some(i) => ((i.min(total - 1) as i32) + delta).rem_euclid(n),
+    };
+    Some(next as usize)
+}
+
+/// `▾` 历史按钮的命中/绘制矩形：贴输入区右端，与图标格之间仍留原空隙。
+pub(in crate::ui) fn filter_history_button_rect(edit: egui::Rect) -> egui::Rect {
+    egui::Rect::from_min_size(
+        egui::pos2(edit.right() - HIST_BTN_W, edit.top()),
+        egui::vec2(HIST_BTN_W, edit.height()),
+    )
+}
 
 /// 过滤行的纯几何（不依赖 `&egui::Ui`）。`count_w` / `label_w` / `mode_w` 由调用方
 /// 量好文字宽传进来，这样「谁放不下、输入区剩多宽」可以直接断言。
@@ -64,7 +107,7 @@ const EDIT_PAD_L: f32 = 6.0;
 pub(in crate::ui) struct FilterRowGeom {
     /// 无边框的内联输入区（x 范围 + 25pt 条内的纵向位置）。
     pub edit: egui::Rect,
-    /// 三格内联图标：`.*` / `Aa` / 纯画笔两向箭头（反转开关）。
+    /// 四格内联图标：`.*` / `Aa` / `W` / 纯画笔两向箭头（反转开关）。
     pub icons: [egui::Rect; ICON_CELLS],
     /// `kept / hidden`；窄到放不下时返回 `None`（关闭 `×` 永远在）。
     pub count: Option<egui::Rect>,
@@ -108,10 +151,13 @@ pub(in crate::ui) fn filter_row_geom(
         .max(inline_left + MIN_INLINE_W)
         .min(cap);
 
-    let widths = [ICON_W, ICON_W, mode_w];
-    // 正常宽度下 scale == 1：三格都保持原尺寸。只有窄到装不下时才等比收一点，
-    // 保证图标组不会越过内联区左沿去贴住 `Filter:` 标签。
-    let avail = (right - inline_left - ICON_LEFT_INSET - ICON_R_PAD).max(0.0);
+    let widths = [ICON_W, ICON_W, ICON_W, mode_w];
+    // 正常宽度下 scale == 1：四格都保持原尺寸。只有窄到装不下时才等比收一点，
+    // 保证图标组不会越过内联区左沿去贴住 `Filter:` 标签（四格 + ▾ 都不重叠）。
+    // 窄窗先给 `▾` + 间隙留位，再保住 MIN_INLINE_W 的文字区；不够时四格等比
+    // 收缩（极端窄宽到 0，也不越过输入区去压标签 / 按钮）。
+    let reserved = HIST_BTN_W + 2.0 + MIN_INLINE_W;
+    let avail = (right - inline_left - ICON_LEFT_INSET - ICON_R_PAD - reserved).max(0.0);
     let scale = (avail / widths.iter().sum::<f32>()).min(1.0);
     let mut x = right - ICON_R_PAD - widths.iter().sum::<f32>() * scale;
     let mut icons = [egui::Rect::ZERO; ICON_CELLS];
@@ -158,8 +204,8 @@ pub(in crate::ui) fn filter_top_line(bar: egui::Rect) -> [egui::Pos2; 2] {
 pub(in crate::ui) fn filter_separators(geom: &FilterRowGeom) -> [Option<f32>; 4] {
     let mid = |a: f32, b: f32| (a + b) / 2.0;
     let after_icons = geom.count.map_or_else(
-        || mid(geom.icons[2].right(), geom.close.left()),
-        |c| mid(geom.icons[2].right(), c.left()),
+        || mid(geom.icons[3].right(), geom.close.left()),
+        |c| mid(geom.icons[3].right(), c.left()),
     );
     [
         Some(geom.edit.left() - LABEL_GAP / 2.0),
@@ -205,15 +251,14 @@ pub(in crate::ui) fn filter_focus_frame_rect(
     )
 }
 
-/// 指示框的 1px 颜色：非法正则时转 `INVALID_COLOR`，与 `.*` 图标同红。
-pub(in crate::ui) fn filter_focus_frame_color(
-    invalid: bool,
-    line_c: egui::Color32,
-) -> egui::Color32 {
+/// 指示框的 1px 颜色：合法时取主题焦点色 `CHROME_SCALE.focus`（Find 蓝），
+/// 非法正则时转 `INVALID_COLOR`，与 `.*` 图标同红——红线优先于蓝。
+/// 顶部横线 / 竖线仍用 `border` 灰，不跟着这里变蓝。
+pub(in crate::ui) fn filter_focus_frame_color(invalid: bool) -> egui::Color32 {
     if invalid {
         INVALID_COLOR
     } else {
-        line_c
+        crate::theme::chrome(CHROME_SCALE.focus)
     }
 }
 
@@ -239,9 +284,9 @@ impl TerminalWindow {
         // 状态与每帧诊断同源：`ensure_view` 在 `drop_rows` 之前用同一次编译算好
         // 并存到 `tab.filter_diag`，这里只读——反算会把隐藏行数成可见，再编译一遍
         // 则一帧两次正则。
-        let (mode, case_sensitive, regex) = {
+        let (mode, case_sensitive, regex, whole_word) = {
             let f = &self.tabs[slot].filter;
-            (f.mode, f.case_sensitive, f.regex)
+            (f.mode, f.case_sensitive, f.regex, f.whole_word)
         };
         let (kept, hidden, regex_error) = match self.tabs[slot].filter_diag.as_ref() {
             Some(d) => (
@@ -284,6 +329,41 @@ impl TerminalWindow {
             Some(s) => egui::Id::new((name, s)),
             None => egui::Id::new(name),
         };
+
+        // ── 历史：查询只在本会话 `Tab`；浮层开/选中放 egui 临时态，带 pane_salt ──
+        let edit_id = ui.make_persistent_id(("tab_toolbar_filter_query", pane_salt));
+        let popup_id = hit("tab_toolbar_filter_history");
+        let sel_id = popup_id.with("selection");
+        let history = self.tabs[slot].filter_history.clone();
+        let mut popup_open = ui.memory(|m| m.is_popup_open(popup_id));
+        let input_focused = ui.memory(|m| m.has_focus(edit_id));
+        let mut selected = ui.data(|d| d.get_temp::<usize>(sel_id));
+        // ↑↓ 只把候选文本同步进输入缓冲，**不改 `filter.query`**：选「先同步、
+        // Enter 才提交」，所以逐字符的 SetQuery 不会把 "e"/"er"/"err" 灌进历史。
+        let (up, down) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+            )
+        });
+        if input_focused && (up || down) && !history.is_empty() {
+            selected = cycle_filter_history(selected, history.len(), if up { -1 } else { 1 });
+            if let Some(i) = selected {
+                self.tabs[slot].filter_input = history[i].clone();
+            }
+            if !popup_open {
+                ui.memory_mut(|m| m.open_popup(popup_id));
+                popup_open = true;
+            }
+        }
+        ui.data_mut(|d| {
+            if let Some(i) = selected {
+                d.insert_temp(sel_id, i);
+            } else {
+                d.remove_temp::<usize>(sel_id);
+            }
+        });
+        let synced = self.tabs[slot].filter_input.clone();
 
         ui.scope_builder(
             egui::UiBuilder::new()
@@ -333,17 +413,19 @@ impl TerminalWindow {
             let edit_rect = filter_focus_frame_rect(bar, geom.edit, text_h);
             let mut focused = false;
             let edited = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
-                let mut buf = self.tabs[slot].filter_input.clone();
+                let mut buf = synced.clone();
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut buf)
-                        .id_source(("tab_toolbar_filter_query", pane_salt))
+                        .id(edit_id)
                         .frame(false)
                         .margin(egui::Margin::ZERO)
-                        .desired_width(geom.edit.width())
+                        // 右端给 `▾` 留位：文字不钻到按钮底下，按钮仍压在输入区内。
+                        .desired_width((geom.edit.width() - HIST_BTN_W - 2.0).max(1.0))
                         .hint_text(t(lang, "Filter hint")),
                 );
                 focused = resp.has_focus();
-                let changed = resp.changed();
+                // ↑↓ 同步进来的文本不算「用户改字」，不派 SetQuery、更不记历史。
+                let changed = resp.changed() && buf != synced;
                 self.tabs[slot].filter_input = buf;
                 changed
             });
@@ -353,19 +435,73 @@ impl TerminalWindow {
                 ui.painter().rect_stroke(
                     edit_rect.shrink(0.5),
                     0.0,
-                    egui::Stroke::new(1.0, filter_focus_frame_color(invalid, line_c)),
+                    egui::Stroke::new(1.0, filter_focus_frame_color(invalid)),
                 );
             }
-            if edited.inner {
+            let (enter, escape) = ui.input(|i| {
+                (
+                    i.key_pressed(egui::Key::Enter),
+                    i.key_pressed(egui::Key::Escape),
+                )
+            });
+            // Esc 关浮层时连本帧的 SetQuery 一起丢，候选文本绝不落到生效查询。
+            if edited.inner && !(escape && popup_open) {
                 let q = self.tabs[slot].filter_input.clone();
                 pending.push(term_app::vocab::FilterAction::SetQuery(q));
             }
-            if edited.inner && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            if enter && focused {
+                pending.push(term_app::vocab::FilterAction::Commit);
+                if popup_open {
+                    ui.memory_mut(|m| m.close_popup());
+                    popup_open = false;
+                }
+            }
+            if escape && popup_open {
+                // Esc 只关浮层：未提交的候选退回已生效查询，历史不动。
+                ui.memory_mut(|m| m.close_popup());
+                self.tabs[slot].filter_input = self.tabs[slot].filter.query.clone();
+                ui.data_mut(|d| d.remove_temp::<usize>(sel_id));
+                popup_open = false;
+            } else if escape && edited.inner {
+                // 浮层没开时保留原行为：Esc 关掉过滤栏（关栏同样记一条历史）。
+                pending.push(term_app::vocab::FilterAction::Commit);
                 pending.push(term_app::vocab::FilterAction::Close);
             }
         }
 
-        // 三格内联图标：与 Find 的 `.*` / `Aa` 同构（激活铺 tab、悬停铺 hover）。
+        // `▾` 历史入口：贴输入区右端、图标组之前。无系统边框，命中区 == 绘制区，
+        // hover 铺底色 + 指向光标；三角直接用 painter 画，与 Find 手绘按钮同源。
+        let hist_btn = filter_history_button_rect(geom.edit);
+        let hist_resp = ui.interact(
+            hist_btn,
+            hit("tab_toolbar_filter_history_btn"),
+            egui::Sense::click(),
+        );
+        if hist_resp.hovered() {
+            ui.painter().rect_filled(hist_btn, 0.0, hover_bg);
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let hc = hist_btn.center();
+        ui.painter().add(egui::Shape::convex_polygon(
+            vec![
+                hc + egui::vec2(-3.5, -1.6),
+                hc + egui::vec2(3.5, -1.6),
+                hc + egui::vec2(0.0, 2.2),
+            ],
+            text_c,
+            egui::Stroke::NONE,
+        ));
+        if hist_resp
+            .on_hover_text("Filter history — ↑↓ browse · Enter apply · Esc close")
+            .clicked()
+        {
+            ui.memory_mut(|m| m.toggle_popup(popup_id));
+            popup_open = !popup_open;
+            // 点完按钮把焦点还给输入，↑↓ 可以接着翻历史。
+            ui.memory_mut(|m| m.request_focus(edit_id));
+        }
+
+        // 四格内联图标：与 Find 的 `.*` / `Aa` / `W` 同构（激活铺 tab、悬停铺 hover）。
         // `.*` 语法错时图标与反转格一起转红，悬停给出错误——同 Find。
         let r = geom.icons[0];
         let resp = ui.interact(r, hit("tab_toolbar_filter_regex"), egui::Sense::click());
@@ -405,12 +541,32 @@ impl TerminalWindow {
             pending.push(term_app::vocab::FilterAction::ToggleCase);
         }
 
-        // 反转开关：和 `.*` / `Aa` 同一个 icon_rect、同一套底色与墨色，只有
-        // 这一格是「关 → 不铺底，开 → 铺 tab」，与 Find 栏开关的口径完全相同。
+        // `W` 全词：Find 同款一格（`ICON_W` 宽、19pt 高、active/hover/错误红），
+        // 紧挨 `.*` / `Aa`。开关走 NUL 前缀 `SetQuery` 子命令 'w'，不新增命令 ID。
+        let r = geom.icons[2];
+        let resp = ui.interact(r, hit("tab_toolbar_filter_whole_word"), egui::Sense::click());
+        if whole_word {
+            ui.painter().rect_filled(r, 0.0, active_bg);
+        } else if resp.hovered() {
+            ui.painter().rect_filled(r, 0.0, hover_bg);
+        }
+        let wc = if invalid { INVALID_COLOR } else { text_c };
+        let g = ui
+            .painter()
+            .layout_no_wrap("W".to_owned(), font.clone(), wc);
+        ui.painter().galley(r.center() - g.size() / 2.0, g, wc);
+        if resp.on_hover_text(t(lang, "Match Whole Word")).clicked() {
+            pending.push(term_app::filter::ui_command(
+                term_app::filter::FilterUiCommand::ToggleWholeWord,
+            ));
+        }
+
+        // 反转开关：和 `.*` / `Aa` / `W` 同一个 icon_rect、同一套底色与墨色，
+        // 只有这一格是「关 → 不铺底，开 → 铺 tab」，与 Find 栏开关口径相同。
         // 默认 KeepMatching（不激活）；点一下变 DropMatching（grep -v，隐藏命中行）。
         // 图标用纯 painter 两向箭头：无系统按钮边框，命中区就是这格绘制区。
         let drop = mode == FilterMode::DropMatching;
-        let r = geom.icons[2];
+        let r = geom.icons[3];
         let resp = ui.interact(r, hit("tab_toolbar_filter_mode"), egui::Sense::click());
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -458,7 +614,28 @@ impl TerminalWindow {
         }
         glyph::paint_cross(ui.painter(), geom.close.center(), text_c);
         if resp.on_hover_text(t(lang, "Close")).clicked() {
+            // 关栏也把当前输入记一条历史，再清掉生效查询。
+            pending.push(term_app::vocab::FilterAction::Commit);
             pending.push(term_app::vocab::FilterAction::Close);
+        }
+
+        // 历史浮层：`egui::Area` 覆盖在过滤行上方，不新增面板、不切终端高度。
+        if popup_open {
+            if let Some(i) = super::tab_toolbar_filter_popup::history_popup(
+                ui,
+                popup_id,
+                geom.edit,
+                hist_btn,
+                &history,
+                selected,
+            ) {
+                let q = history[i].clone();
+                self.tabs[slot].filter_input = q.clone();
+                pending.push(term_app::vocab::FilterAction::SetQuery(q));
+                pending.push(term_app::vocab::FilterAction::Commit);
+                ui.memory_mut(|m| m.close_popup());
+                ui.data_mut(|d| d.insert_temp(sel_id, i));
+            }
         }
 
         for action in pending {
