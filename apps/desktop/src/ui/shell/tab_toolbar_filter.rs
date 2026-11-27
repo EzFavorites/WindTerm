@@ -4,7 +4,9 @@
 //!
 //! 过滤激活时工具条高度不变（`TAB_TOOLBAR_H` = 25pt），终端区也不少几行。
 //! `Filter:` 下划线标签、内联文本、三个图标格、计数与 `×` 全部在同一条细带里
-//! 垂直居中；**没有 23.5pt 整框、没有整框描边调用**，最多一条很淡的底部分隔线。
+//! 垂直居中；整条只有一条与 Find 同口径的**顶部横线**，输入框没有常驻外壳。
+//! 只有输入控件拿到焦点时才画一枚贴合内联输入区的 1px 指示框（正则非法转红），
+//! 失焦即消失，回到与背景同色的内联文本。
 //!
 //! 视觉语言仍与 Find 同源：标签画法、图标格（`.*` / `Aa` / `Invert`）的
 //! active / hover / 错误红、右端与 Find 同列的无边框 `×`（`glyph::paint_cross`）。
@@ -147,6 +149,44 @@ pub(in crate::ui) fn filter_label_button_rect(bar: egui::Rect) -> egui::Rect {
     )
 }
 
+/// 过滤激活态那条**顶部横线**的两个端点：`bar.top() + 0.5`，横贯整条。
+///
+/// 与 Find 栏上边线同口径（同一条 `bar.top() + 0.5`、同一个
+/// `CHROME_SCALE.border`）；Sysmon 收起态不调用这里，那里没有这条线。
+pub(in crate::ui) fn filter_top_line(bar: egui::Rect) -> [egui::Pos2; 2] {
+    [
+        egui::pos2(bar.left(), bar.top() + 0.5),
+        egui::pos2(bar.right(), bar.top() + 0.5),
+    ]
+}
+
+/// 输入聚焦时的指示框：宽度**贴合内联输入区**，高度是文字行高且封顶 25pt，
+/// 所以不会变成 Find 那种 23.5pt 的大盒子，也不会越过本条细带。
+pub(in crate::ui) fn filter_focus_frame_rect(
+    bar: egui::Rect,
+    edit: egui::Rect,
+    text_h: f32,
+) -> egui::Rect {
+    let h = text_h.min(bar.height());
+    let cy = bar.center().y;
+    egui::Rect::from_min_max(
+        egui::pos2(edit.left(), cy - h / 2.0),
+        egui::pos2(edit.right(), cy + h / 2.0),
+    )
+}
+
+/// 指示框的 1px 颜色：非法正则时转 `INVALID_COLOR`，与 `.*` 图标同红。
+pub(in crate::ui) fn filter_focus_frame_color(
+    invalid: bool,
+    line_c: egui::Color32,
+) -> egui::Color32 {
+    if invalid {
+        INVALID_COLOR
+    } else {
+        line_c
+    }
+}
+
 impl TerminalWindow {
     /// 内联过滤行：`Filter:` 下划线标签 + 无框输入 + 三格图标 + 计数 + `×`。
     ///
@@ -225,14 +265,8 @@ impl TerminalWindow {
                 .max_rect(bar),
             |ui| {
                 let p = ui.painter();
-                // 只有一条很淡的底部分隔线：不再画 23.5pt 高的整框描边。
-                p.line_segment(
-                    [
-                        egui::pos2(bar.left(), bar.bottom() - 0.5),
-                        egui::pos2(bar.right(), bar.bottom() - 0.5),
-                    ],
-                    egui::Stroke::new(1.0, line_c),
-                );
+                // 与 Find 栏同口径的 1px 顶部横线，横贯整条；输入框没有常驻外壳。
+                p.line_segment(filter_top_line(bar), egui::Stroke::new(1.0, line_c));
 
                 // `Filter:` 与 Find 的 `Find:` 同款：galley + 首字下划线，x=11，
                 // 在 25pt 条里垂直居中。
@@ -254,15 +288,12 @@ impl TerminalWindow {
         );
 
         // 输入必须先画：`ui.painter()` / `ui.scope_builder()` 不能同时借同一 ui。
-        // 无框内联文本；把 row_height 精确居中，margin 清零，避免自带 padding
+        // 无框内联文本；把文字行高精确居中，margin 清零，避免自带 padding
         // 把字顶到细带上沿。缓冲克隆进 child，取回后写回本会话，再统一派发 `SetQuery`。
         if geom.edit.width() > 0.0 {
             let text_h = ui.text_style_height(&egui::TextStyle::Body);
-            let edit_top = bar.center().y - text_h / 2.0;
-            let edit_rect = egui::Rect::from_min_max(
-                egui::pos2(geom.edit.left(), edit_top),
-                egui::pos2(geom.edit.right(), edit_top + text_h),
-            );
+            let edit_rect = filter_focus_frame_rect(bar, geom.edit, text_h);
+            let mut focused = false;
             let edited = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                 let mut buf = self.tabs[slot].filter_input.clone();
                 let resp = ui.add(
@@ -273,10 +304,20 @@ impl TerminalWindow {
                         .desired_width(geom.edit.width())
                         .hint_text(t(lang, "Filter hint")),
                 );
+                focused = resp.has_focus();
                 let changed = resp.changed();
                 self.tabs[slot].filter_input = buf;
                 changed
             });
+            // 激活指示框只在输入控件拿到焦点时出现：1px、贴合内联输入区、封顶 25pt；
+            // 失焦后这里不落笔，回到无外壳的内联文本。正则非法时与 `.*` 同红。
+            if focused {
+                ui.painter().rect_stroke(
+                    edit_rect.shrink(0.5),
+                    0.0,
+                    egui::Stroke::new(1.0, filter_focus_frame_color(invalid, line_c)),
+                );
+            }
             if edited.inner {
                 let q = self.tabs[slot].filter_input.clone();
                 pending.push(term_app::vocab::FilterAction::SetQuery(q));
@@ -442,7 +483,7 @@ mod filter_row_tests {
         );
     }
 
-    /// 工具条高度恒定：没有 43pt 档，过滤行不画整框描边。
+    /// 工具条高度恒定：没有 43pt 档；输入框无常驻外壳，只有聚焦指示框用描边。
     #[test]
     fn filter_row_is_inline_in_the_25pt_band() {
         let src = include_str!("tab_toolbar.rs");
@@ -455,19 +496,97 @@ mod filter_row_tests {
             src.contains("pub(in crate::ui) fn tab_toolbar_height"),
             "高度入口保留，但恒为 25"
         );
-        // 拼出被禁用的调用名，避免这句断言自己把名字写进源码里。
+        // 拼出被调用名，避免这句断言自己把名字写进源码里。
         let whole_frame_call = ["rect_", "stroke"].concat();
+        let before_focus = self_src.split("if focused {").next().unwrap();
         assert!(
-            !self_src.contains(whole_frame_call.as_str()),
-            "内联文本不许画整框描边（底部分隔线用 line_segment）"
+            !before_focus.contains(whole_frame_call.as_str()),
+            "输入框无常驻描边/外壳；指示框只在聚焦分支落笔"
         );
-        assert!(
-            self_src.contains("bar.bottom() - 0.5"),
-            "只留一条底部分隔线"
-        );
+        // 拼出被禁用的字面量，避免这句断言自己把名字写进源码里。
+        let bottom_line = ["bar.bottom()", " - 0.5"].concat();
+        assert!(!self_src.contains(bottom_line.as_str()), "底部分隔线已去掉");
+        assert!(self_src.contains("filter_top_line(bar)"), "顶部横线在过滤激活态画");
         assert!(
             src.contains(") -> f32 {\n        TAB_TOOLBAR_H\n    }"),
             "tab_toolbar_height 只返回一个高度"
+        );
+    }
+
+    /// 过滤激活态那条 1px 顶部横线：与 Find 栏同坐标、同色口径，横贯整条；
+    /// Sysmon 收起态不画它。
+    #[test]
+    fn filter_row_has_find_style_top_line() {
+        let bar = wide_bar();
+        let [a, b] = filter_top_line(bar);
+        assert_eq!(a.y, bar.top() + 0.5);
+        assert_eq!(b.y, a.y);
+        assert_eq!(a.x, bar.left());
+        assert_eq!(b.x, bar.right());
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        let toolbar_src = include_str!("tab_toolbar.rs");
+        assert!(self_src.contains("filter_top_line(bar)"), "过滤行画顶部横线");
+        assert!(self_src.contains("CHROME_SCALE.border"), "与 Find 上边线同色口径");
+        assert!(
+            !toolbar_src.contains("filter_top_line"),
+            "Sysmon 收起态不新增这条线"
+        );
+    }
+
+    /// 无常驻输入框外壳：底部分隔线与常驻描边都不存在；聚焦指示框宽度贴合
+    /// 内联输入区，高度封顶 25pt，不会变成 23.5pt 大盒子。
+    #[test]
+    fn filter_edit_has_no_permanent_shell() {
+        let bar = wide_bar();
+        let geom = filter_row_geom(bar, 46.0, 38.0, MODE_W);
+        let frame = filter_focus_frame_rect(bar, geom.edit, 16.0);
+        assert_eq!(frame.left(), geom.edit.left());
+        assert_eq!(frame.right(), geom.edit.right());
+        assert_eq!(frame.width(), geom.edit.width());
+        assert!(frame.height() < TAB_TOOLBAR_H, "不是 23.5pt 大盒子");
+        assert!(frame.top() >= bar.top() && frame.bottom() <= bar.bottom());
+        let clamped = filter_focus_frame_rect(bar, geom.edit, 100.0);
+        assert_eq!(clamped.height(), TAB_TOOLBAR_H, "高度封顶在 25pt 条内");
+        assert!(clamped.top() >= bar.top() && clamped.bottom() <= bar.bottom());
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        let bottom_line = ["bar.bottom()", " - 0.5"].concat();
+        assert!(!self_src.contains(bottom_line.as_str()), "无常驻底部分隔线");
+        assert!(self_src.contains(".frame(false)"), "TextEdit 自身无框");
+    }
+
+    /// 指示框只在聚焦时画：焦点来自 TextEdit 响应，失焦分支不落笔。
+    #[test]
+    fn focus_frame_is_drawn_only_when_focused() {
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        let gate = self_src
+            .split("if focused {")
+            .nth(1)
+            .expect("有一处聚焦分支")
+            .split('}')
+            .next()
+            .unwrap();
+        assert!(gate.contains("rect_stroke"), "聚焦分支才画指示框");
+        let before = self_src.split("if focused {").next().unwrap();
+        let whole_frame_call = ["rect_", "stroke"].concat();
+        assert!(!before.contains(whole_frame_call.as_str()), "未聚焦不画框");
+        assert!(
+            self_src.contains("focused = resp.has_focus()"),
+            "聚焦取自 TextEdit 响应"
+        );
+    }
+
+    /// 非法正则时指示框转 `INVALID_COLOR`，与 `.*` 图标同红。
+    #[test]
+    fn focus_frame_turns_red_on_invalid_regex() {
+        let line_c = egui::Color32::from_rgb(0x44, 0x44, 0x44);
+        assert_eq!(filter_focus_frame_color(true, line_c), INVALID_COLOR);
+        assert_eq!(filter_focus_frame_color(false, line_c), line_c);
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        assert!(self_src.contains("filter_focus_frame_color(invalid, line_c)"));
+        assert!(self_src.contains("let invalid = !regex_error.is_empty()"));
+        assert!(
+            self_src.contains("let icon_c = if invalid { INVALID_COLOR }"),
+            "与 .* 图标同红"
         );
     }
 
