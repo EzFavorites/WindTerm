@@ -381,13 +381,24 @@ impl HumanChannel for StdinHuman {
                 buttons,
                 ..
             } => {
-                // 进程级没有按钮，用「回车 = 默认按钮 / y = 是 / n = 否」顶上，
-                // 语义与界面里的按钮一致。只有 OK 的形态回车就完了。
+                // 进程级没有按钮：用户输入具体按钮标签就能精确选中（三按钮组的
+                // abort/retry/ignore 也能各自映射到 CRT ID）；仍兼容 y/N 简写。
+                let hint = if buttons == &term_script::MessageButton::Ok {
+                    String::new()
+                } else {
+                    format!(" [{}]", buttons.labels().join("/"))
+                };
+                let answer = self.read_line(&format!("{title} {text}{hint}"), false)?;
+                if let Some(label) = buttons
+                    .labels()
+                    .iter()
+                    .find(|label| label.eq_ignore_ascii_case(answer.trim()))
+                {
+                    return Ok(Answer::Text((*label).to_string()));
+                }
                 if buttons == &term_script::MessageButton::Ok {
-                    self.read_line(&format!("{title} {text}"), false)?;
                     return Ok(Answer::Ack);
                 }
-                let answer = self.read_line(&format!("{title} {text} [y/N]"), false)?;
                 Ok(Answer::Bool(matches!(
                     answer.trim().to_ascii_lowercase().as_str(),
                     "y" | "yes"

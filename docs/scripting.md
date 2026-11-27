@@ -96,6 +96,14 @@ CRT 手册抄下来的脚本大多能直接跑；注意入口必须写成函数�
 | `crt.Screen.WaitForStrings([...], secs)` / `crt.Screen.MatchIndex` | `crt().screen.wait_for_strings([...], secs)` | 返回最先命中模式在数组里的 **1 起下标**（真实 CRT 的 0 表示超时，本门面超时显式报错）；全局 `wait_any` 的 `hit["index"]` 同为 1 起 |
 | `crt.Screen.ReadString(p, secs)` | `crt().screen.read_string(p, secs)` | 命中返回分隔符**之前**的文本；超时返回**空串**（与 CRT 一致），不抛错；命中串被消费掉 |
 
+`crt().dialog.message_box(text, title, flags)` 支持全部六个 Win32/CRT 按钮组
+（`MB_OK` / `MB_OKCANCEL` / `MB_ABORTRETRYIGNORE` / `MB_YESNOCANCEL` / `MB_YESNO` /
+`MB_RETRYCANCEL`），返回各自的 CRT ID（`IDOK=1`、`IDCANCEL=2`、`IDABORT=3`、
+`IDRETRY=4`、`IDIGNORE=5`、`IDYES=6`、`IDNO=7`）。对应的全局 `ask` 写法是
+`ask(#{kind:"message", buttons:"abort_retry_ignore"})`，按钮名还可以写
+`retry_cancel` / `yes_no_cancel` 等。窗口与无窗口宿主都会回传**具体按了哪个按钮**，
+所以三按钮组能区分三个 ID。
+
 全局没有 `send` / `wait_for_string` 这类裸函数：要么用全局动词 `write` /
 `read_until`，要么走 `crt().screen.*` 门面。
 

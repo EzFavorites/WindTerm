@@ -1525,9 +1525,11 @@ fn message_from_map(spec: &Map) -> Result<Ask, Box<EvalAltResult>> {
         "ok_cancel" | "okcancel" => MessageButton::OkCancel,
         "yes_no" | "yesno" => MessageButton::YesNo,
         "yes_no_cancel" | "yesnocancel" => MessageButton::YesNoCancel,
+        "abort_retry_ignore" | "abortretryignore" => MessageButton::AbortRetryIgnore,
+        "retry_cancel" | "retrycancel" => MessageButton::RetryCancel,
         other => {
             return Err(string_to_rhai(format!(
-                "message 的 buttons {other:?} 不认识（可用：ok / ok_cancel / yes_no / yes_no_cancel）"
+                "message 的 buttons {other:?} 不认识（可用：ok / ok_cancel / yes_no / yes_no_cancel / abort_retry_ignore / retry_cancel）"
             )))
         }
     };

@@ -572,11 +572,24 @@ impl HumanChannel for FakeSessions {
                     },
                 }
             }
-            Ask::Message { buttons, .. } => match buttons {
-                MessageButton::Ok => Answer::Ack,
-                _ if affirmative(&text) => Answer::Bool(true),
-                _ => Answer::Bool(false),
-            },
+            Ask::Message { buttons, .. } => {
+                // 消息框的返回值是「按了哪个按钮」：先按标签精确认领，这样三按钮组
+                // 的 abort/retry/ignore 也能映射到各自的 CRT ID；认不出再退回
+                // 是/否，兼容既有只给 "y"/"n" 的用例。
+                if let Some(label) = buttons
+                    .labels()
+                    .iter()
+                    .find(|label| label.eq_ignore_ascii_case(text.trim()))
+                {
+                    Answer::Text((*label).to_string())
+                } else if buttons == &MessageButton::Ok {
+                    Answer::Ack
+                } else if affirmative(&text) {
+                    Answer::Bool(true)
+                } else {
+                    Answer::Bool(false)
+                }
+            }
         })
     }
 

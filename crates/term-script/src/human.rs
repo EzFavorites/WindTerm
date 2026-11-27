@@ -41,6 +41,10 @@ pub enum MessageButton {
     OkCancel,
     YesNo,
     YesNoCancel,
+    /// CRT 的 `MB_ABORTRETRYIGNORE`：三按钮，返回 IDABORT / IDRETRY / IDIGNORE。
+    AbortRetryIgnore,
+    /// CRT 的 `MB_RETRYCANCEL`：两按钮，返回 IDRETRY / IDCANCEL。
+    RetryCancel,
 }
 
 impl MessageButton {
@@ -51,6 +55,8 @@ impl MessageButton {
             MessageButton::OkCancel => &["ok", "cancel"],
             MessageButton::YesNo => &["yes", "no"],
             MessageButton::YesNoCancel => &["yes", "no", "cancel"],
+            MessageButton::AbortRetryIgnore => &["abort", "retry", "ignore"],
+            MessageButton::RetryCancel => &["retry", "cancel"],
         }
     }
 
@@ -229,6 +235,8 @@ mod tests {
             MessageButton::OkCancel,
             MessageButton::YesNo,
             MessageButton::YesNoCancel,
+            MessageButton::AbortRetryIgnore,
+            MessageButton::RetryCancel,
         ] {
             for label in buttons.labels() {
                 assert!(buttons.contains(label), "{buttons:?} 应含 {label}");
@@ -236,6 +244,8 @@ mod tests {
             assert!(!buttons.contains("maybe"), "{buttons:?} 不该含 maybe");
         }
         assert_eq!(MessageButton::YesNoCancel.labels().len(), 3);
+        assert_eq!(MessageButton::AbortRetryIgnore.labels().len(), 3);
+        assert_eq!(MessageButton::RetryCancel.labels().len(), 2);
     }
 
     #[test]

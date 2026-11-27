@@ -593,6 +593,10 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Takes effect on the next connect" => "下次连接时生效",
         "Session not found" => "找不到该会话",
         "Ok" => "确定",
+        // 消息框按钮原文（`MessageButton::labels()`，大小写与标签一致）。
+        "abort" => "中止",
+        "retry" => "重试",
+        "ignore" => "忽略",
         // ── 零散 ──
         "Not wired (placeholder)" => "未接线（占位）",
         "Not available in the current log state" => "当前日志状态下不可用",

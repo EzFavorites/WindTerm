@@ -858,10 +858,10 @@ fn read_string_value(
     }
 }
 
-/// `MB_*` 输入的按钮组（低 4 位）：六个 Win32/CRT 组全部认识。
+/// `MB_*` 输入的按钮组（低 4 位）：六个 Win32/CRT 组全部认识并支持。
 ///
-/// 宿主的人机端口只实现了其中四组；另两组保留在这里是为了让脚本拿到
-/// **明确的「不支持」**，而不是被悄悄换成另一组按钮。
+/// 宿主的人机端口已经补齐 abort/retry/ignore 与 retry/cancel 两组，
+/// 每组都按 `Answer::Text(标签)` 回传具体按钮，由 `button_id` 映射到 CRT ID。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ButtonGroup {
     Ok,
@@ -884,14 +884,15 @@ impl ButtonGroup {
         }
     }
 
-    /// 宿主端口能画出来的按钮组；另两组显式 `None`。
+    /// 六组按钮宿主都能画出来；返回 `None` 只可能是新增了未登记的组。
     fn message_button(self) -> Option<MessageButton> {
         match self {
             Self::Ok => Some(MessageButton::Ok),
             Self::OkCancel => Some(MessageButton::OkCancel),
             Self::YesNoCancel => Some(MessageButton::YesNoCancel),
             Self::YesNo => Some(MessageButton::YesNo),
-            Self::AbortRetryIgnore | Self::RetryCancel => None,
+            Self::AbortRetryIgnore => Some(MessageButton::AbortRetryIgnore),
+            Self::RetryCancel => Some(MessageButton::RetryCancel),
         }
     }
 
@@ -1512,23 +1513,36 @@ mod tests {
         assert_eq!(ask("MB_YESNO()", "yes"), 6, "MB_YESNO → IDYES");
         assert_eq!(ask("MB_YESNO()", "no"), 7, "→ IDNO");
         assert_eq!(ask("MB_YESNOCANCEL()", "yes"), 6, "MB_YESNOCANCEL → IDYES");
-        // 假宿主把非肯定回答统一压成 Bool(false)，所以 "no" / "cancel" 在这一组
-        // 走同一条路；逐标签的映射单独在下面的 helper 测试里验。
-        assert_eq!(ask("MB_YESNOCANCEL()", "cancel"), 2, "→ IDCANCEL");
+        assert_eq!(ask("MB_YESNOCANCEL()", "no"), 7, "→ IDNO");
+        assert_eq!(ask("MB_YESNOCANCEL()", "cancel"), 2, "→ IDCANCEL（不再是 IDNO）");
+        // 以前两组「宿主不支持」现在也通了：三个按钮各自映射到独立 CRT ID。
+        assert_eq!(ask("MB_ABORTRETRYIGNORE()", "abort"), 3, "→ IDABORT");
+        assert_eq!(ask("MB_ABORTRETRYIGNORE()", "retry"), 4, "→ IDRETRY");
+        assert_eq!(ask("MB_ABORTRETRYIGNORE()", "ignore"), 5, "→ IDIGNORE");
+        assert_eq!(ask("MB_RETRYCANCEL()", "retry"), 4, "→ IDRETRY");
+        assert_eq!(ask("MB_RETRYCANCEL()", "cancel"), 2, "→ IDCANCEL");
     }
 
     #[test]
-    fn unsupported_button_groups_fail_explicitly_instead_of_falling_back() {
-        let (engine, _ws, fake) = facade();
-        for flag in ["MB_ABORTRETRYIGNORE()", "MB_RETRYCANCEL()"] {
-            fake.answer("yes");
-            let err = run(
-                &engine,
-                &format!(r#"crt().Dialog.MessageBox("q", "t", {flag})"#),
-            )
-            .unwrap_err();
-            let text = err.to_string();
-            assert!(text.contains("不支持"), "显式说明宿主不支持：{text}");
+    fn every_mb_group_has_a_host_button_set() {
+        for group in [
+            ButtonGroup::Ok,
+            ButtonGroup::OkCancel,
+            ButtonGroup::YesNo,
+            ButtonGroup::YesNoCancel,
+            ButtonGroup::AbortRetryIgnore,
+            ButtonGroup::RetryCancel,
+        ] {
+            assert!(
+                group.message_button().is_some(),
+                "{} 没有宿主按钮组",
+                group.name()
+            );
+            if let Some(buttons) = group.message_button() {
+                for label in buttons.labels() {
+                    assert!(group.id(label).is_some(), "{} 应含 {label}", group.name());
+                }
+            }
         }
     }
 

@@ -132,24 +132,12 @@ impl AskModal {
                 Ask::Message { buttons, .. } => buttons
                     .labels()
                     .iter()
-                    .map(|label| {
-                        // `MessageButton` 给的标签是英文原文（OK / Cancel / Yes / No），
-                        // 按它反推回结构化的答案——与 `contains` 同一套判定，
-                        // 所以「点的哪个按钮」不会因为翻译而错位。
-                        let answer = if label.eq_ignore_ascii_case("yes") {
-                            Answer::Bool(true)
-                        } else if label.eq_ignore_ascii_case("no")
-                            || label.eq_ignore_ascii_case("cancel")
-                        {
-                            // 「否」与「取消」在这里是同一个答案（都是「不是」）：
-                            // 脚本侧对 `Message` 只关心「是/不是」，取消的语义
-                            // 与「否」一致——它不会因为用户按了哪个而改变分支。
-                            Answer::Bool(false)
-                        } else {
-                            Answer::Ack
-                        };
-                        (t(lang, label).to_string(), answer)
-                    })
+                    // 消息框返回的是「按了哪个按钮」的原文标签：`Ask::Message`
+                    // 的契约就是 `Answer::Text(label)`。早期这里把 no/cancel
+                    // 都压成 Bool(false)，三按钮组里根本分不出 IDNO 与 IDCANCEL，
+                    // 也让 abort/retry/ignore 无从映射。显示文字仍走 `t()`，
+                    // 结构化答案取未翻译的标签，点哪个按钮都不会因语言错位。
+                    .map(|label| (t(lang, label).to_string(), Answer::Text((*label).to_string())))
                     .collect(),
                 Ask::Confirm { .. } => vec![
                     (t(lang, "Yes").to_string(), Answer::Bool(true)),

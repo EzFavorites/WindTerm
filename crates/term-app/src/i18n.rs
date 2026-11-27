@@ -202,6 +202,8 @@ mod tests {
         // 菜单行、对话框标题、字段标签、弱提示、提交失败与页脚按钮。
         "Logon Script…", "Logon script:", "Takes effect on the next connect",
         "Session not found", "Ok",
+        // 消息框新增两组按钮的标签（`MessageButton::labels()`）。
+        "abort", "retry", "ignore",
     ];
 
     /// 有没有可翻译的字母内容。纯数字 / 纯符号标签走 `zh()` 的原样返回。
