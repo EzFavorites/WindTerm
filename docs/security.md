@@ -15,10 +15,12 @@
 
 ## 主机密钥
 
-- 首次连接采用 TOFU：把服务端指纹记入 `known_hosts`。
-- 指纹变化时**阻断连接**，同时显示新旧指纹。不会把它当成「未知主机」自动
-  信任——那等于接受中间人。
-- 已知主机列表可以逐条「忘记」，之后重新走 TOFU。
+- 按 owner 2026-11-27 裁定与原版 1:1：主机 key 在客户端内部处理，自动接受
+  新的；连接链路只有一个用户名/密码弹窗，没有 UNKNOWN / CHANGED 确认窗。
+- 界面不持久化 accepted host key，也不提供「信任 / 换钥 / 忘记」交互；因此
+  原版里 CHANGED 状态不可达，本版同样不可达。
+- `term_ssh` 库仍保留 `HostKeyPolicy::{Strict,Tofu,Insecure}` 三档与
+  `known_hosts_admin` 的 trust / forget / list API，供脚本与无窗口路径使用。
 
 ## 数据落盘
 

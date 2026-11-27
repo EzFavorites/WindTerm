@@ -5,15 +5,16 @@
 //! | 文件 | 是什么 | 能不能单测 |
 //! |---|---|---|
 //! | 本文件 | `ask ` / `next ` / `options_for ` | 纯函数，能 |
-//! | `ssh_connect.rs` | 后台线程 + 一步状态机 + 三个对话框 | 靠端到端与肉眼 |
+//! | `ssh_connect.rs` | 后台线程 + 一步状态机 | 靠端到端与肉眼 |
 //!
 //! 拆成两个文件是 4j 的规模要求（`ui/**.rs` ≤ 450 行），不是分层——子模块挂在
 //! `ssh_connect` 下，`Connector` 直接用 `super::` 取用，路径也没变：
 //! `ssh_connect.rs` 把这里的东西原样再导出一遍，所以 `crate::ui::dialogs::
 //! ::ssh_connect::options_for` 这类既有引用一处都不用改。
 //!
-//! 为什么这一半值钱：`next ` 决定「钥匙变了」是给按钮还是给一句错误。那种判断
-//! 一旦退化成「在对话框里现场 match」，就再也没法用断言钉住它了。
+//! 为什么这一半值钱：`next ` 决定失败之后是再问一次密码还是给一句错误。
+//! 主机 key 不再有交互分支（见 [`FIRST_POLICY`]），这条判断因此只剩两种出口，
+//! 用断言钉住比在对话框里现场 match 可靠得多。
 
 use crate::ui::*;
 use std::path::{Path, PathBuf};
@@ -58,20 +59,17 @@ pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
     }
 }
 
-/// 用户确认过的指纹，与随后这一次连接拿到的指纹是否同一把。
-/// 纯判据：只比字符串（寄存器/账本给出的都是 `SHA256:...`），给单测钉住
-/// 「换了钥匙指纹一定不同」这条 TOCTOU 防线。
-pub(in crate::ui) fn pin_matches(confirmed: &str, presented: &str) -> bool {
-    !confirmed.trim().is_empty()
-        && confirmed.trim().eq_ignore_ascii_case(presented.trim())
-}
-
-/// 首连用 `Strict`：图形界面应该**先问再信**。
+/// 每一次连接都用 `Insecure`：主机 key 在客户端内部处理，自动接受新的。
 ///
-/// 与 `term_ssh` 的库默认值（`Tofu`）不同，这是刻意的：库的默认要对脚本友好
-/// （CLI 里没人回答对话框），而这里有对话框可以问。用户点了「信任」之后
-/// 才用 `Tofu` 重连一次，把钥匙记进 `known_hosts`——于是下一次静默通过。
-pub(in crate::ui) const FIRST_POLICY: HostKeyPolicy = HostKeyPolicy::Strict;
+/// 这是 2026-11-27 owner 明确裁定、与原版 1:1 对齐的行为：原版连接链路只有
+/// 一个用户名/密码弹窗，从不持久化 accepted host key，也不弹 UNKNOWN /
+/// CHANGED 确认窗（CHANGED 状态在原版不可达）。所以这里**不是安全疏漏**，
+/// 而是刻意复刻原版——界面根本不提供「信任 / 换钥 / 忘记」这类交互。
+///
+/// `term_ssh` 库里的 `HostKeyPolicy::{Strict,Tofu,Insecure}` 三档与
+/// `known_hosts_admin` API 原样保留，供脚本与无窗口路径使用；UI 只是不再
+/// 把它们接到弹窗上。
+pub(in crate::ui) const FIRST_POLICY: HostKeyPolicy = HostKeyPolicy::Insecure;
 /// 这个会话现在缺什么。
 ///
 /// `Connect` 只携带**首选**凭据。回退链不进这个枚举——它由 `options_for`
@@ -87,32 +85,14 @@ pub(in crate::ui) enum Ask {
     Unsupported(String),
 }
 
-/// 「换掉记着的钥匙」需要的一切。
-///
-/// 为什么把这一坨单独成结构而不是塞进 `Step` 的字段里：换钥要用到**服务器这次
-/// 给的公钥**，而它唯一的来源是错误值（`HostKeyProblem::Changed.presented`）。
-/// 从「拿到错误」到「用户真的点替换」之间隔着至少一帧，所以必须先把它存下来。
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::ui) struct Replacement {
-    pub host: String,
-    pub port: u16,
-    /// `known_hosts` 里那条旧记录的行号（1 起），窗口里要报给用户。
-    pub line: usize,
-    /// 服务器这次给的公钥（openssh 单行）。换钥就是把它写进账本。
-    pub key_line: String,
-    /// 上面那把钥匙的指纹，给人核对。
-    pub fingerprint: String,
-}
-
 /// 连接失败之后下一步问用户什么。
+///
+/// 只有两种出口：密码错了再问一次，其余（包括任何主机 key 错误）显示错误
+/// 并停住。原版不弹主机 key 确认窗，这里也不留任何交互分支。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum Next {
-    /// 没见过这台主机：把指纹摆出来让用户决定。
-    AskHostKey { fingerprint: String },
     /// 密码不对：重新问一次，并带上原因。
     AskPassword { reason: String },
-    /// 钥匙变了：**不提供「继续」**，只允许「明确替换旧记录」或放弃。
-    OfferReplace { changed: Replacement },
     /// 别的情况：显示错误，到此为止。
     ShowError { message: String },
 }
@@ -243,34 +223,11 @@ fn expand_tilde(raw: &str, home: Option<&Path>) -> PathBuf {
 }
 
 /// 失败之后问什么。
+///
+/// 主机 key 错误也落到 [`Next::ShowError`]：界面没有「信任 / 替换 / 忘记」
+/// 窗口，不能因为库返回了 `HostKeyProblem` 就又造一个出来。
 pub(in crate::ui) fn next(err: &SshError, password_auth: bool) -> Next {
     match err {
-        // 只有「未知主机」值得问：钥匙变了是危险信号，问「要不要继续」等于
-        // 把中间人攻击变成一个默认按钮——那一步必须停住。
-        SshError::HostKey(term_ssh::HostKeyProblem::Unknown { fingerprint, .. }) => {
-            Next::AskHostKey {
-                fingerprint: fingerprint.clone(),
-            }
-        }
-        // 「停住」不等于「什么也不给」：SSH 自己的答案是让人去跑
-        // `ssh-keygen -R`。这里给的是一个**独立窗口**，正文写清风险、按钮
-        // 写的是「替换已记录的钥匙」而不是「继续连接」——动作是可审计的改账本，
-        // 不是一次默认放行。
-        SshError::HostKey(term_ssh::HostKeyProblem::Changed {
-            host,
-            port,
-            line,
-            presented,
-            presented_fingerprint,
-        }) => Next::OfferReplace {
-            changed: Replacement {
-                host: host.clone(),
-                port: *port,
-                line: *line,
-                key_line: presented.clone(),
-                fingerprint: presented_fingerprint.clone(),
-            },
-        },
         SshError::Auth(_) if password_auth => Next::AskPassword {
             reason: err.to_string(),
         },
@@ -576,21 +533,16 @@ mod tests {
     }
 
     #[test]
-    fn an_unknown_host_asks_and_a_changed_key_only_offers_a_replacement() {
+    fn host_key_errors_have_no_interactive_branch() {
+        // 原版 1:1：host key 内部自动接受，界面从不弹确认窗。即使库出于别的
+        // 路径返回 HostKeyProblem，也只能显示错误，不能造一个「信任」窗口出来。
         let unknown = SshError::HostKey(term_ssh::HostKeyProblem::Unknown {
             host: "h".to_string(),
             port: 22,
             fingerprint: "SHA256:abc".to_string(),
         });
-        assert_eq!(
-            next(&unknown, false),
-            Next::AskHostKey {
-                fingerprint: "SHA256:abc".to_string()
-            }
-        );
+        assert!(matches!(next(&unknown, false), Next::ShowError { .. }));
 
-        // 钥匙变了：**不给「继续」**。问「要不要继续」就等于给中间人一个按钮。
-        // 给的是「换掉记录」——那是改账本，不是放行这一次连接。
         let changed = SshError::HostKey(term_ssh::HostKeyProblem::Changed {
             host: "h".to_string(),
             port: 22,
@@ -598,19 +550,8 @@ mod tests {
             presented: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAInew".to_string(),
             presented_fingerprint: "SHA256:new".to_string(),
         });
-        match next(&changed, false) {
-            Next::OfferReplace { changed } => {
-                // 换钥窗口要报三件事：哪台机器、旧记录在第几行、这次给的是哪把。
-                assert_eq!(changed.host, "h");
-                assert_eq!(changed.port, 22);
-                assert_eq!(changed.line, 3);
-                assert_eq!(changed.fingerprint, "SHA256:new");
-                // 关键：要写进账本的是**服务器这次给的**那把钥匙，
-                // 不是账本里的旧钥匙（写旧钥匙等于什么都没换）。
-                assert!(changed.key_line.contains("AAAAC3NzaC1lZDI1NTE5AAAAInew"));
-            }
-            other => panic!("{other:?}"),
-        }
+        assert!(matches!(next(&changed, false), Next::ShowError { .. }));
+        assert_eq!(FIRST_POLICY, HostKeyPolicy::Insecure);
     }
 
     #[test]

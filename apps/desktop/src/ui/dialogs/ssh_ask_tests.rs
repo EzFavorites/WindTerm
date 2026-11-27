@@ -290,15 +290,6 @@ fn no_fallback_chain_keeps_the_single_primary() {
     assert_eq!(chain, vec![primary], "空 auth_chain → 只有首选");
 }
 
-/// 指纹确认后 pin 的钥匙必须与随后那次连接给出的完全一致（TOCTOU）。
-#[test]
-fn a_confirmed_fingerprint_only_matches_the_same_key() {
-    assert!(pin_matches(" SHA256:abc ", "sha256:abc"));
-    assert!(!pin_matches("SHA256:abc", "SHA256:def"));
-    assert!(!pin_matches("", "SHA256:abc"));
-    assert!(!pin_matches("SHA256:abc", ""));
-}
-
 /// 运行时寄存的凭据只活一次：取出即清空，锁屏时整批清掉。
 #[test]
 fn a_stashed_credential_is_taken_once_and_cleared_on_lock() {

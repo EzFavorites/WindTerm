@@ -90,9 +90,6 @@ mod ssh;
 // 所以纯逻辑模块对 ui/ 内可见；绘制 / 状态仍在 ssh.rs、ssh_connect.rs。
 pub(in crate::ui) mod ssh_ask;
 pub(in crate::ui) mod ssh_connect;
-// ：known_hosts forget 的生产入口（Tofu 冲突对话框上的按钮 + 二次确认 +
-// 纯判据）。绘制从 `ssh.rs` 搬来，那个文件已贴 500 代码行上限。
-pub(in crate::ui) mod ssh_forget;
 pub(in crate::ui) mod vault;
 /// ：文件传输的路径输入弹层（发要文件、收要目录）。
 pub(in crate::ui) mod xfer;

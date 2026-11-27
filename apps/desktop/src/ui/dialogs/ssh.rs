@@ -1,14 +1,16 @@
-//! 原生 SSH 的四个对话框与收线（把 `Connector` 的结果落到 tab 上）。
+//! 原生 SSH 的三个对话框与收线（把 `Connector` 的结果落到 tab 上）。
 //!
 //! 从 `ssh_connect.rs` 拆出（4j：那个文件只留纯逻辑与 `Connector` 状态机，
 //! 「谁画谁」仍然各归各的文件）。这里全部是 `TerminalWindow` 的方法：
-//! 开始连接 / 每帧收结果 / 四个窗口（Connecting / Unknown host / Password / Failed）。
+//! 开始连接 / 每帧收结果 / 三个窗口（Connecting / Password / Failed）。
+//!
+//! 与原版 1:1：连接链路只有用户名/密码这一个凭据弹窗；主机 key 在客户端
+//! 内部自动接受，没有 UNKNOWN / CHANGED 确认窗，也没有账本维护弹窗。
 
 use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};
 use crate::ui::dialogs::ssh_connect::{
     ask, next, options_for, Ask, Connector, Next, PendingOpen, SshAction, Step, FIRST_POLICY,
 };
-use crate::ui::dialogs::ssh_forget;
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use crate::ui::*;
 use term_core::onekey::OneKey;
@@ -196,19 +198,10 @@ impl TerminalWindow {
                     .as_ref()
                     .is_some_and(|a| matches!(a, SshAuth::Password { .. }));
                 match next(&e, password_auth) {
-                    Next::AskHostKey { fingerprint } => {
-                        connector.rx = None;
-                        connector.step = Step::NeedHostKey { fingerprint };
-                    }
                     Next::AskPassword { reason } => {
                         connector.rx = None;
                         connector.step = Step::NeedPassword { reason };
                         self.ssh_password.clear();
-                    }
-                    Next::OfferReplace { changed } => {
-                        // 停住，不重连：账本还是旧的，什么也没写。
-                        connector.rx = None;
-                        connector.step = Step::ReplaceKey { changed };
                     }
                     Next::ShowError { message } => {
                         connector.rx = None;
@@ -424,12 +417,7 @@ impl TerminalWindow {
                 };
                 Some(format!("Connecting to {target}…"))
             }
-            Step::NeedHostKey { .. } => Some("Waiting for host key confirmation".to_string()),
             Step::NeedPassword { .. } => Some("Waiting for a password".to_string()),
-            Step::ReplaceKey { .. } => Some("Host key changed — replace the stored key?".to_string()),
-            Step::ConfirmForget { .. } | Step::ForgetResult { .. } => {
-                Some("Forget this host — confirm removing the recorded key?".to_string())
-            }
             Step::Failed { .. } => Some("Connection failed".to_string()),
         }
     }
@@ -440,17 +428,11 @@ impl TerminalWindow {
         };
         let title = format!("{} — {}", connector.config.name, connector.config.host);
         let mut action = SshAction::None;
-        // Esc 一律走「取消连接」；主机密钥 / 替换密钥两步**不接 Enter**，
-        // 避免误点安全确认。密码框的 Enter 仍走它自己的 `lost_focus()` 路径。
+        // Esc 一律走「取消连接」；密码框的 Enter 仍走它自己的 `lost_focus()` 路径。
         let step_id = match &connector.step {
             Step::Connecting => DialogId::SshConnecting,
-            Step::NeedHostKey { .. } => DialogId::SshHostkey,
             Step::NeedPassword { .. } => DialogId::SshPassword,
             Step::Failed { .. } => DialogId::SshFailed,
-            // 忘记这台主机的两步复用同一弹窗与键盘契约（Esc 取消 / Enter 不确认）。
-            Step::ReplaceKey { .. }
-            | Step::ConfirmForget { .. }
-            | Step::ForgetResult { .. } => DialogId::SshReplaceKey,
         };
         if step_id.keys().poll(ctx).cancel {
             action = SshAction::Cancel;
@@ -469,34 +451,6 @@ impl TerminalWindow {
                         if action_button(ui, "Cancel") {
                             action = SshAction::Cancel;
                         }
-                    });
-            }
-            Step::NeedHostKey { fingerprint } => {
-                DialogWindow::new(DialogId::SshHostkey, &title)
-                    .without_title_bar()
-                    .show(ctx, |ui| {
-                        ui.heading("Unknown host");
-                        ui.label(format!(
-                            "This is the first time connecting to {}. Confirm the fingerprint \
-                             matches what the server administrator gave you:",
-                            connector.config.host
-                        ));
-                        ui.add_space(4.0);
-                        ui.monospace(fingerprint.clone());
-                        ui.add_space(6.0);
-                        ui.label(
-                            "Choosing Trust writes this key into ~/.ssh/known_hosts. \
-                             If it ever changes afterwards, the connection is refused.",
-                        );
-                        ui.add_space(8.0);
-                        ui.horizontal(|ui| {
-                            if action_button(ui, "Cancel") {
-                                action = SshAction::Cancel;
-                            }
-                            if ui.button("Trust and connect").clicked() {
-                                action = SshAction::Trust;
-                            }
-                        });
                     });
             }
             Step::NeedPassword { reason } => {
@@ -552,11 +506,6 @@ impl TerminalWindow {
                         }
                     });
             }
-            // 冲突 / 二次确认 / 结果三步共用一套窗口；绘制与纯判据都在
-            // `ssh_forget`（本文件已贴 500 代码行上限，不再往里堆）。
-            Step::ReplaceKey { .. } | Step::ConfirmForget { .. } | Step::ForgetResult { .. } => {
-                ssh_forget::draw(connector, &title, ctx, &mut action);
-            }
         }
 
         // 先收集、后执行：绘制期间已经借了 `self.connector` 与 `self.ssh_password`。
@@ -565,41 +514,6 @@ impl TerminalWindow {
             SshAction::Cancel => {
                 self.connector = None;
                 self.ssh_password.clear();
-            }
-            SshAction::Trust => {
-                let ctx = self.ctx.clone();
-                if let Some(c) = self.connector.as_mut() {
-                    c.accept_host_key(&ctx);
-                }
-            }
-            SshAction::ReplaceKey => {
-                // 危险动作：改账本 + 用 Strict 重连。失败会落到 `Step::Failed`，
-                // 所以这里不需要再报一次错。
-                let ctx = self.ctx.clone();
-                if let Some(c) = self.connector.as_mut() {
-                    c.replace_host_key(&ctx);
-                }
-            }
-            SshAction::Forget => {
-                if let Some(c) = self.connector.as_mut() {
-                    c.begin_forget();
-                }
-            }
-            SshAction::CancelForget => {
-                if let Some(c) = self.connector.as_mut() {
-                    c.forget_decision(false);
-                }
-            }
-            SshAction::ConfirmForget => {
-                if let Some(c) = self.connector.as_mut() {
-                    c.forget_decision(true);
-                }
-            }
-            SshAction::ReconnectAfterForget => {
-                let ctx = self.ctx.clone();
-                if let Some(c) = self.connector.as_mut() {
-                    c.reconnect_after_forget(&ctx);
-                }
             }
             SshAction::SubmitPassword => {
                 let password = std::mem::take(&mut self.ssh_password);

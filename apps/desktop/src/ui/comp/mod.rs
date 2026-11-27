@@ -46,18 +46,14 @@ pub(in crate::ui) enum CompId {
     AddressBarDropdown,
     /// Session Settings ▸ Logging 配置页（2026-11-08 视觉基线，Shell / Logging 态）。
     SessionLog,
-    /// 内置 SSH 客户端的五个状态：连接中 / 未知主机 / 要密码 / 失败 / 钥匙变了。
+    /// 内置 SSH 客户端的三个状态：连接中 / 要密码 / 失败。
     ///
-    /// 这五个窗口平时**没法手动复现**（要么真去连一台机器，要么改 known_hosts），
-    /// 而它们又最容易在换皮肤时被改坏——出图是唯一能低成本盯住它们的办法。
+    /// 这三个窗口平时**没法手动复现**（要真去连一台机器），而它们又最容易在
+    /// 换皮肤时被改坏——出图是唯一能低成本盯住它们的办法。主机 key 按 owner
+    /// 裁定（与原版 1:1）内部自动接受，没有对应的确认窗口。
     SshConnecting,
-    SshHostKey,
     SshPassword,
     SshFailed,
-    /// 「钥匙变了」的换钥窗口（2026-11-08 新增）。
-    ///
-    /// 它排在四个 SSH 状态后面：五个窗口同一类，都是「平时没法手动复现」的。
-    SshReplaceKey,
     /// 文件面板的写操作弹层（新建目录 / 改名 / 权限 / 删除）。
     ///
     /// 单独登记的理由：它只能从**文件列表的右键菜单**打开，而右键菜单进不了
@@ -280,42 +276,19 @@ impl TerminalWindow {
                 self.draw_new_session_dialog(ctx);
             }
             comp::CompId::SshConnecting
-            | comp::CompId::SshHostKey
             | comp::CompId::SshPassword
-            | comp::CompId::SshFailed
-            | comp::CompId::SshReplaceKey => {
+            | comp::CompId::SshFailed => {
                 // 合成一台不会变的「假主机」：出图要的是窗口长什么样，
-                // 不是某台机器的真实指纹。
+                // 不是某台机器的真实地址。
                 let mut config = SessionConfig::new(Protocol::Ssh);
                 config.name = "prod-web".to_string();
                 config.host = "10.0.0.7".to_string();
                 config.username = "deploy".to_string();
                 self.connector = Some(match comp {
                     comp::CompId::SshConnecting => Connector::new(config, Step::Connecting),
-                    comp::CompId::SshHostKey => Connector::new(
-                        config,
-                        Step::NeedHostKey {
-                            fingerprint: "SHA256:q3C1l9t6Xh0Lp8yVmRw2sKf4nZb7JdAe5UoPgHiTk1M"
-                                .to_string(),
-                        },
-                    ),
                     comp::CompId::SshPassword => Connector::waiting_password_with(
                         config,
                         "这个会话没有保存密码（我们也不存明文）".to_string(),
-                    ),
-                    comp::CompId::SshReplaceKey => Connector::new(
-                        config,
-                        Step::ReplaceKey {
-                            changed: dialogs::ssh_connect::Replacement {
-                                host: "10.0.0.7".to_string(),
-                                port: 22,
-                                line: 12,
-                                key_line: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAINEWkeyNEWkeyNEWkeyNEWkeyNEWkey"
-                                    .to_string(),
-                                fingerprint: "SHA256:NEW9xQ0r7Tb2VmKp4Ls8Jd3Hf6Gz1Ny5UwAeCgIoPkQ"
-                                    .to_string(),
-                            },
-                        },
                     ),
                     _ => Connector::failed(
                         config,

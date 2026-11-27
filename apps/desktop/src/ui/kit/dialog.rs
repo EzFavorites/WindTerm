@@ -111,8 +111,8 @@ impl super::spec::DialogId {
                 lifecycle: DialogLifecycle::Draft,
                 ..DialogKeys::ESC_ONLY
             },
-            D::ProfileChoice | D::SshConnecting | D::SshHostkey | D::SshReplaceKey | D::FilerSyncScan
-            | D::FilerSyncReview | D::Onboarding => DialogKeys::ESC_ONLY,
+            D::ProfileChoice | D::SshConnecting | D::FilerSyncScan | D::FilerSyncReview
+            | D::Onboarding => DialogKeys::ESC_ONLY,
         }
     }
 }
@@ -155,14 +155,9 @@ mod tests {
 
     #[test]
     fn safety_dialogs_never_confirm_on_enter() {
-        // 主机密钥 / 替换密钥 / 同步删除：Enter 一律不是确认，避免误触。
+        // 同步删除这两步：Enter 一律不是确认，避免误触。
         use crate::ui::kit::spec::DialogId as D;
-        for id in [
-            D::SshHostkey,
-            D::SshReplaceKey,
-            D::FilerSyncReview,
-            D::FilerSyncRun,
-        ] {
+        for id in [D::FilerSyncReview, D::FilerSyncRun] {
             assert!(!id.keys().enter_confirms, "{}", id.key());
         }
     }

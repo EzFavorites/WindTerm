@@ -26,10 +26,8 @@ impl CompId {
         CompId::AddressBarDropdown,
         CompId::SessionLog,
         CompId::SshConnecting,
-        CompId::SshHostKey,
         CompId::SshPassword,
         CompId::SshFailed,
-        CompId::SshReplaceKey,
         CompId::FilerPrompt,
         CompId::ScriptRun,
         CompId::ScriptEditor,
@@ -173,10 +171,8 @@ impl CompId {
             CompId::AddressBarDropdown => "menu_address_bar",
             CompId::SessionLog => "dialog_session_logging",
             CompId::SshConnecting => "dialog_ssh_connecting",
-            CompId::SshHostKey => "dialog_ssh_hostkey",
             CompId::SshPassword => "dialog_ssh_password",
             CompId::SshFailed => "dialog_ssh_failed",
-            CompId::SshReplaceKey => "dialog_ssh_replace_key",
             CompId::FilerPrompt => "dialog_filer_prompt",
             CompId::ScriptRun => "dialog_script_run",
             // 窗口首次冻结：编辑器只能从运行窗口的 `Edit`
@@ -231,7 +227,6 @@ impl CompId {
             | CompId::Shortcuts
             | CompId::SessionLog
             | CompId::SshConnecting
-            | CompId::SshHostKey
             | CompId::SshPassword
             | CompId::SshFailed
             | CompId::Palette
@@ -273,9 +268,6 @@ impl CompId {
             | CompId::MenuView
             | CompId::MenuWindow
             |             CompId::MenuHelp => true,
-            // ：换钥窗口出图核对过（高度按实测内容收回过一次，见
-            // `REPLACE_RECT` 的注释），随首次出图一起纳入逐字节比对。
-            CompId::SshReplaceKey => true,
             CompId::FilerPrompt => true,
             CompId::ScriptRun => true,
             CompId::ScriptEditor => true,
