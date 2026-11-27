@@ -252,10 +252,6 @@ pub struct Tab {
     /// 事件 reset），跨 chunk 的尾巴 / 冷却表 / 一次性事件都留在这里。规则本身
     /// 来自 `Prefs`（经窗口缓存成 `TerminalWindow.triggers`），不进 per-tab 状态。
     pub(in crate::ui) triggers: Matcher,
-    /// 触发器双轨的影子求值器。默认只 eval 不 dispatch（零副作用），
-    /// `WINDTERM_AUTOMATION_V2` 在场时新轨的 Effect 才会经 dispatcher 执行。
-    /// 规则在 `poll` 首帧由旧规则转换装入，与会话同生命周期。
-    pub(in crate::ui) shadow: crate::automation::Shadow,
     /// 上一帧会话是否存活。仅用于在 `poll` 里检测 Connect / Disconnect 跳变——
     /// 跳变时 reset 求值器，保证「重连后 Connect 再次触发、断开后 Disconnect 再次触发」。
     pub(in crate::ui) was_live: bool,

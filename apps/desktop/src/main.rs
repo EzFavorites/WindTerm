@@ -15,9 +15,6 @@
 
 // ADR-0014 / 0016：core / pty / persist / session 在 term-core 与 term-runtime，
 // 动作层在 term-app，本 crate 只保留投影层（ui / fonts / clipboard / theme 适配）。
-// 触发器双轨：新内核的影子求值与副作用计划。默认走旧轨，
-// WINDTERM_AUTOMATION_V2 在场才切新轨，可回退。纯组装层，不读墙钟。
-mod automation;
 mod bridge;
 mod cli;
 mod clipboard;

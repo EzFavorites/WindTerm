@@ -175,8 +175,6 @@ pub(in crate::ui) fn tab_from(
             // 触发器求值器随标签建立，空状态开始；存活会话在 `poll` 首帧
             // 经 Connect 跳变 reset（这里先置 false，让首帧识别成「刚连接」）。
             triggers: term_app::trigger::Matcher::new(),
-            // 影子求值器出厂空态（signature 哨兵在 Shadow::new 内）。
-            shadow: crate::automation::Shadow::new(),
             was_live: false,
             just_connected: false,
             auto_reconnect_at: None,

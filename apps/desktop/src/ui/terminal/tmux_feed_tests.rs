@@ -58,7 +58,6 @@ fn bare_tab() -> Tab {
         tmux: term_app::tmux::ControlMode::default(),
         tmux_pending: Vec::new(),
         triggers: term_app::trigger::Matcher::new(),
-        shadow: crate::automation::Shadow::new(),
         was_live: false,
         just_connected: false,
         auto_reconnect_at: None,

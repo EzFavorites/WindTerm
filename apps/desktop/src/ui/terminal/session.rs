@@ -150,15 +150,6 @@ impl Tab {
         let held_top = self
             .local_mode
             .then(|| self.snapshot.history as i64 - self.viewport.scroll());
-        // 规则清单可能随设置页保存而变化。用 id+enabled+pattern 的粗略
-        // 指纹判断是否需要重转，避免每帧重新编译正则（教训）。影子轨在
-        // 首帧装入，之后只在指纹变化时 reload。
-        let fingerprint = crate::automation::sources::rules_fingerprint(rules);
-        if self.shadow.signature() != fingerprint {
-            let converted = crate::automation::sources::convert_rules(rules);
-            self.shadow.reload(&converted);
-            self.shadow.set_signature(fingerprint);
-        }
         // 先把 tee 里的字节搬进环，**与显示模式无关、与本帧有没有新事实无关**。
         //
         // 为什么只在这一处搬、不在绘制里搬：`pane.rs` 只画可见标签，后台标签
@@ -206,13 +197,6 @@ impl Tab {
                     hits.extend(self.triggers.on_prompt(now));
                 }
                 hits.extend(self.triggers.due(now));
-                // 影子轨用同一批文本求值。先记旧轨命中的规则 id（hit 随后被
-                // apply_trigger 消费），再把信号喂给新内核；不执行新轨的动作。
-                let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
-                let now_millis = crate::automation::now_ms();
-                self.shadow.note_output(now_millis);
-                let sig = crate::automation::sources::output_signal("", &text, now_millis);
-                self.shadow_check(sig, &v1);
                 for hit in hits {
                     self.apply_trigger(hit, run_commands, note);
                 }
@@ -260,12 +244,8 @@ impl Tab {
             self.auto_reconnect_at = None;
             self.auto_reconnect_attempts = 0;
             self.triggers.reset();
-            self.shadow.reset();
             self.onekey_expects_fired.clear();
             let hits = self.triggers.event(rules, TriggerOn::Connect, now);
-            let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
-            let sig = crate::automation::sources::connected_signal("", crate::automation::now_ms());
-            self.shadow_check(sig, &v1);
             for hit in hits {
                 self.apply_trigger(hit, run_commands, note);
             }
@@ -274,9 +254,6 @@ impl Tab {
             // 密码就再也取不到——凭据不再活完整场会话。重连会重新问保险库。
             crate::ui::dialogs::vault::clear_session_secrets(&self.config.name);
             let hits = self.triggers.event(rules, TriggerOn::Disconnect, now);
-            let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
-            let sig = crate::automation::sources::disconnected_signal("", crate::automation::now_ms());
-            self.shadow_check(sig, &v1);
             for hit in hits {
                 self.apply_trigger(hit, run_commands, note);
             }
@@ -303,11 +280,6 @@ impl Tab {
                 // Idle 只在「距上次输出至少 idle_secs 秒、且本段空闲还没报过」时命中；
                 // `feed` 一旦有输出就把 `idle_fired` 清空，下一段空闲重新开始计。
                 let hits = self.triggers.event(rules, TriggerOn::Idle, now);
-                let v1: Vec<String> = hits.iter().map(|h| h.rule_id.clone()).collect();
-                let at = crate::automation::now_ms();
-                let quiet = crate::automation::quiet_since(self.shadow.last_output(), at);
-                let sig = crate::automation::sources::idle_signal("", quiet, at);
-                self.shadow_check(sig, &v1);
                 for hit in hits {
                     self.apply_trigger(hit, run_commands, note);
                 }
@@ -384,27 +356,6 @@ impl Tab {
             self.preview_screen = Some(window);
         }
         true
-    }
-
-    /// 把一条信号喂给新内核求值，只做影子比对 / 诊断，**不执行任何动作**。
-    ///
-    /// 影子轨与旧轨并行：`v1` 是旧 `Matcher` 本轮命中的规则 id（由调用方填），
-    /// `v2` 是新内核产出的。不一致时累计计数（诊断用，不进持久化、不影响画面）。
-    /// 这一步永远运行——即使新轨开关在场，也不从影子轨执行副作用。
-    fn shadow_check(&mut self, signal: term_core::automation::Signal<'_>, v1: &[String]) {
-        let session_name = self
-            .session
-            .and_then(|id| self.pool.name(id))
-            .unwrap_or_default();
-        let target = crate::automation::target_for(&session_name);
-        let effects = self.shadow.eval(&signal, &target);
-        let report = crate::automation::ShadowReport {
-            v2_rules: crate::automation::effect_rule_ids(&effects),
-            v1_rules: v1.to_vec(),
-        };
-        if !report.agrees() {
-            self.shadow.note_disagreement();
-        }
     }
 
     /// 把一次命中的动作落到会话上。
