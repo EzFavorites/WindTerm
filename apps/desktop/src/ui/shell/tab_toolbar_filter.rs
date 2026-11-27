@@ -1,17 +1,20 @@
-//! 过滤行：与 Find 栏**同一套视觉语言**（用户 2026-11-27 裁定）。
+//! 过滤行：**融进 tab tool 的同一条 25pt 细带**（用户 2026-11-27 裁定）。
 //!
-//! # 为什么重写
+//! # 不是贴上去的第二块面板
 //!
-//! 旧版是一排 egui 默认横排文字按钮，与 Find 栏那种「标签 + 手绘边框输入框 +
-//! 框内图标格 + 框外计数 + 无边框 `×`」完全两套语言。现在整行按
-//! `find_bar.rs` 的布局顺序与常量画：横坐标、纵向几何、错误反馈都与 Find 同源，
-//! 连关闭 `×` 都走 `glyph::paint_cross`，不出现第二套叉。
+//! 过滤激活时工具条高度不变（`TAB_TOOLBAR_H` = 25pt），终端区也不少几行。
+//! `Filter:` 下划线标签、内联文本、三个图标格、计数与 `×` 全部在同一条细带里
+//! 垂直居中；**没有 23.5pt 整框、没有整框描边调用**，最多一条很淡的底部分隔线。
+//!
+//! 视觉语言仍与 Find 同源：标签画法、图标格（`.*` / `Aa` / `Invert`）的
+//! active / hover / 错误红、右端与 Find 同列的无边框 `×`（`glyph::paint_cross`）。
+//! 只是纵向几何压进 25pt：图标格高 `ICON_H` = 19，上下各留 3pt。
 //!
 //! # 几何只有一份
 //!
-//! [`CLOSE_R_PAD`] / [`CLOSE_SIZE`] / [`FIELD_H`] / [`FIELD_TOP`] / [`ICON_W`] /
+//! [`CLOSE_R_PAD`] / [`CLOSE_SIZE`] / [`ICON_W`] / [`ICON_R_PAD`] /
 //! [`INVALID_COLOR`] 都从 `find_bar` 再导出（见 `shell/mod.rs`）。纯函数
-//! [`filter_row_geom`] 不收 `&Ui`，所以「字段多高、`×` 在哪一列、窄条怎么让位」
+//! [`filter_row_geom`] 不收 `&Ui`，所以「格子多高、`×` 在哪一列、窄条怎么让位」
 //! 能直接单测，不用起窗口。
 //!
 //! # 状态与行为没动
@@ -26,42 +29,57 @@ use term_app::filter::FilterMode;
 use term_core::theme::CHROME_SCALE;
 
 use crate::ui::shell::{
-    glyph, label_width, CLOSE_R_PAD, CLOSE_SIZE, FIELD_H, FIELD_TOP, FIELD_X, ICON_R_PAD, ICON_W,
-    INVALID_COLOR, LABEL_X, TAB_TOOLBAR_H,
+    glyph, label_width, CLOSE_R_PAD, CLOSE_SIZE, FIELD_X, ICON_R_PAD, ICON_W, INVALID_COLOR,
+    LABEL_X, TAB_TOOLBAR_H,
 };
 
-/// 框内图标格：`.*` / `Aa` / grep 两态，共三格。
+/// 内联图标格：`.*` / `Aa` / `Invert` 反转开关，共三格。
 const ICON_CELLS: usize = 3;
+/// 图标格上下各留 3pt，25pt 条里可用高度 19pt（不是 Find 框内的 23.5pt）。
+const ROW_INSET_Y: f32 = 3.0;
+/// 图标格高：与输入文字、计数同处一条 25pt 中线。
+pub(in crate::ui) const ICON_H: f32 = TAB_TOOLBAR_H - 2.0 * ROW_INSET_Y;
 /// 计数文字与关闭 `×` 之间的空隙。
 const COUNT_CLOSE_GAP: f32 = 8.0;
-/// 输入框右沿到计数文字的空隙（与 Find 的 `FIELD_TO_NAV` 同档）。
-const FIELD_COUNT_GAP: f32 = 7.5;
-/// 窄条下再挤也要留下这么宽的输入框，否则查询根本敲不进去。
-const MIN_FIELD_W: f32 = 96.0;
-/// `Filter:` 比 `Find:` 多两个字符：略收字号，x=11 起也能停在 x≈52 的框左沿之前。
+/// 内联区右沿到计数文字的空隙（与 Find 的 `FIELD_TO_NAV` 同档）。
+const INLINE_COUNT_GAP: f32 = 7.5;
+/// 窄条下再挤也要留下这么宽的内联区，否则查询根本敲不进去。
+const MIN_INLINE_W: f32 = 96.0;
+/// 图标组左沿离内联区左沿的最小空隙：标签 / 输入 / 图标不许挤在一起。
+const ICON_LEFT_INSET: f32 = 4.0;
+/// `Filter:` 比 `Find:` 多两个字符：略收字号，x=11 起也能停在 x≈52 之前。
 const LABEL_FONT_PT: f32 = 9.0;
-/// 标签墨迹右沿到输入框左沿的最小间隙。
+/// 标签墨迹右沿到输入文字左沿的最小间隙。
 const LABEL_GAP: f32 = 3.0;
+/// 输入文字左侧留白（与 Find 的 `field.left() + 6` 同档）。
+const EDIT_PAD_L: f32 = 6.0;
 
 /// 过滤行的纯几何（不依赖 `&egui::Ui`）。`count_w` / `label_w` / `mode_w` 由调用方
-/// 量好文字宽传进来，这样「谁放不下、字段剩多宽」可以直接断言。
+/// 量好文字宽传进来，这样「谁放不下、输入区剩多宽」可以直接断言。
 #[derive(Clone, Copy, Debug)]
 pub(in crate::ui) struct FilterRowGeom {
-    /// 手绘边框的输入框（Find 同高 23.5pt）。
-    pub field: egui::Rect,
-    /// `TextEdit` 的实际落位：左留 6pt，右让开图标组。
+    /// 无边框的内联输入区（x 范围 + 25pt 条内的纵向位置）。
     pub edit: egui::Rect,
-    /// 框内三格：`.*` / `Aa` / grep 两态。
+    /// 三格内联图标：`.*` / `Aa` / `Invert` 反转开关。
     pub icons: [egui::Rect; ICON_CELLS],
-    /// 框外的 `kept / hidden`；窄到放不下时返回 `None`（关闭 `×` 永远在）。
+    /// `kept / hidden`；窄到放不下时返回 `None`（关闭 `×` 永远在）。
     pub count: Option<egui::Rect>,
     /// 整条右端的无边框 `×`，与 Find 栏同一列。
     pub close: egui::Rect,
 }
 
-/// 按 Find 栏的纵向几何排过滤行。
+/// `Invert` 格宽：文字实测宽 + `Aa` 格同样的左右内边距（`ICON_W - Aa 字宽`）。
 ///
-/// 从右往左定关闭 `×` → 计数 → 输入框 → 框内图标组；`×` 的横坐标与 Find 栏的
+/// 不写死一个数：字体一变两格一起变。它比 `Aa` 格宽是因为 "Invert" /
+/// "反转" 本身比 "Aa" 长，不是因为多画了一块突兀的大按钮——底色、上下边距、
+/// 垂直居中都和相邻两格完全一样。
+pub(in crate::ui) fn invert_cell_width(label_w: f32, aa_w: f32) -> f32 {
+    label_w + (ICON_W - aa_w)
+}
+
+/// 把过滤行排进 25pt 细带。
+///
+/// 从右往左定关闭 `×` → 计数 → 内联输入区 → 三枚图标；`×` 的横坐标与 Find 栏的
 /// `all_r.right() + CLOSE_GAP + CLOSE_SIZE/2` 化简后完全相同（都落在离右沿
 /// `CLOSE_R_PAD + CLOSE_SIZE/2` 处）。计数放不下就跳过，`×` 永不跳过。
 pub(in crate::ui) fn filter_row_geom(
@@ -70,48 +88,48 @@ pub(in crate::ui) fn filter_row_geom(
     label_w: f32,
     mode_w: f32,
 ) -> FilterRowGeom {
-    let top = bar.top() + 1.0; // 让开那条 1 点上边线（Find 同款）
-    let field_top = top + FIELD_TOP;
+    let cy = bar.center().y;
     let close = egui::Rect::from_center_size(
         egui::pos2(
             bar.right() - CLOSE_R_PAD - CLOSE_SIZE / 2.0,
-            bar.center().y,
+            cy,
         ),
         egui::vec2(CLOSE_SIZE, CLOSE_SIZE),
     );
+    let y_top = cy - ICON_H / 2.0;
+    let y_bottom = cy + ICON_H / 2.0;
+
     let count_right = close.left() - COUNT_CLOSE_GAP;
-    let field_left = (bar.left() + FIELD_X).max(bar.left() + LABEL_X + label_w + LABEL_GAP);
-    let count = (count_right - count_w >= field_left + MIN_FIELD_W).then(|| {
+    let inline_left = (bar.left() + FIELD_X).max(bar.left() + LABEL_X + label_w + LABEL_GAP);
+    let count = (count_right - count_w >= inline_left + MIN_INLINE_W).then(|| {
         egui::Rect::from_min_max(
-            egui::pos2(count_right - count_w, field_top),
-            egui::pos2(count_right, field_top + FIELD_H),
+            egui::pos2(count_right - count_w, y_top),
+            egui::pos2(count_right, y_bottom),
         )
     });
     let cap = close.left() - COUNT_CLOSE_GAP;
-    let right = count.map_or(cap, |r| r.left() - FIELD_COUNT_GAP);
-    // MIN_FIELD_W 是下限而不是上限：极窄时宁可字段短一点，也不许压到 `×`。
-    let field_right = right.max(field_left + MIN_FIELD_W).min(cap);
-    let field = egui::Rect::from_min_max(
-        egui::pos2(field_left, field_top),
-        egui::pos2(field_right, field_top + FIELD_H),
-    );
+    let right = count
+        .map_or(cap, |r| r.left() - INLINE_COUNT_GAP)
+        .max(inline_left + MIN_INLINE_W)
+        .min(cap);
 
     let widths = [ICON_W, ICON_W, mode_w];
-    let mut x = field.right() - ICON_R_PAD - widths.iter().sum::<f32>();
+    // 正常宽度下 scale == 1：三格都保持原尺寸。只有窄到装不下时才等比收一点，
+    // 保证图标组不会越过内联区左沿去贴住 `Filter:` 标签。
+    let avail = (right - inline_left - ICON_LEFT_INSET - ICON_R_PAD).max(0.0);
+    let scale = (avail / widths.iter().sum::<f32>()).min(1.0);
+    let mut x = right - ICON_R_PAD - widths.iter().sum::<f32>() * scale;
     let mut icons = [egui::Rect::ZERO; ICON_CELLS];
     for (r, w) in icons.iter_mut().zip(widths) {
-        *r = egui::Rect::from_min_size(
-            egui::pos2(x, field.top() + 2.0),
-            egui::vec2(w, FIELD_H - 4.0),
-        );
+        let w = w * scale;
+        *r = egui::Rect::from_min_size(egui::pos2(x, y_top), egui::vec2(w, ICON_H));
         x += w;
     }
     let edit = egui::Rect::from_min_max(
-        egui::pos2(field.left() + 6.0, field.top()),
-        egui::pos2(icons[0].left() - 4.0, field.bottom()),
+        egui::pos2(inline_left, y_top),
+        egui::pos2(icons[0].left() - 4.0, y_bottom),
     );
     FilterRowGeom {
-        field,
         edit,
         icons,
         count,
@@ -119,8 +137,7 @@ pub(in crate::ui) fn filter_row_geom(
     }
 }
 
-/// 激活态左端 `Filter:` 的命中矩形：24pt 条里的 25pt 快速按钮化作 Find 式标签，
-/// 高度仍钉在 [`TAB_TOOLBAR_H`]，右沿停在输入框左沿 `FIELD_X` 之前。
+/// 左端 `Filter:` 的命中矩形：整条固定 25pt，右沿停在输入文字左沿 `FIELD_X` 之前。
 pub(in crate::ui) fn filter_label_button_rect(bar: egui::Rect) -> egui::Rect {
     let h = TAB_TOOLBAR_H.min(bar.height());
     let cy = bar.center().y;
@@ -131,10 +148,10 @@ pub(in crate::ui) fn filter_label_button_rect(bar: egui::Rect) -> egui::Rect {
 }
 
 impl TerminalWindow {
-    /// Find 式过滤行：`Filter:` 标签 + 手绘边框输入框 + 框内三格 + 计数 + `×`。
+    /// 内联过滤行：`Filter:` 下划线标签 + 无框输入 + 三格图标 + 计数 + `×`。
     ///
-    /// 整条在 [`TAB_TOOLBAR_FILTER_H`]（= Find 栏 43pt）内绘制；`ui.max_rect()`
-    /// 就是本帧真实高度。面板不新增，T/C/M 与 R 芯片由调用方在过滤态跳过。
+    /// 整条始终是 [`TAB_TOOLBAR_H`]（25pt）；`ui.max_rect()` 就是本帧真实高度。
+    /// 面板不新增，T/C/M 与 R 芯片由调用方在过滤态跳过。
     pub(in crate::ui) fn draw_filter_row(
         &mut self,
         ui: &mut egui::Ui,
@@ -146,6 +163,7 @@ impl TerminalWindow {
         let Some(session) = session else { return };
         let Some(slot) = slot else { return };
         let lang = self.view.lang;
+        // Button 解析到 Body 12pt：与 Sysmon 的 T/C/M 读数同一档字号。
         let font = egui::TextStyle::Button.resolve(ui.style());
 
         // 状态与每帧诊断同源：`ensure_view` 在 `drop_rows` 之前用同一次编译算好
@@ -170,12 +188,14 @@ impl TerminalWindow {
 
         let mut pending: Vec<term_app::vocab::FilterAction> = Vec::new();
         let count_text = format!("{kept} / {hidden}");
-        let mode_label = match mode {
-            FilterMode::KeepMatching => t(lang, "grep"),
-            FilterMode::DropMatching => t(lang, "grep -v"),
-        };
+        // 一枚反转开关：两态共用同一个标签，只有底色 / 字色区分开/关。
+        // `grep` / `grep -v` 是它的语义，不再作为按钮文案出现在过滤行里。
+        let mode_label = t(lang, "Invert");
+        let mode_tip = t(lang, "Invert filter (grep -v): hide matching lines");
         let label = t(lang, "Filter:");
         let label_font = crate::ui::type_scale::font(LABEL_FONT_PT);
+        // 计数用状态栏次要读数那一档小字，不抢 25pt 条里的主体。
+        let count_font = crate::ui::type_scale::small();
 
         let line_c = crate::theme::chrome(CHROME_SCALE.border);
         let text_c = crate::theme::chrome(CHROME_SCALE.text);
@@ -183,13 +203,15 @@ impl TerminalWindow {
         let active_bg = crate::theme::chrome(CHROME_SCALE.tab);
         let hover_bg = crate::theme::chrome(CHROME_SCALE.hover);
         let invalid = !regex_error.is_empty();
-        let border_c = if invalid { INVALID_COLOR } else { line_c };
 
         let label_galley = ui
             .painter()
             .layout_no_wrap(label.to_owned(), label_font, text_c);
-        let count_w = label_width(ui, &count_text, &font);
-        let mode_w = label_width(ui, t(lang, "grep -v"), &font) + 10.0;
+        let count_w = label_width(ui, &count_text, &count_font);
+        let mode_w = invert_cell_width(
+            label_width(ui, mode_label, &font),
+            label_width(ui, "Aa", &font),
+        );
         let geom = filter_row_geom(bar, count_w, label_galley.size().x, mode_w);
 
         let hit = |name: &'static str| match pane_salt {
@@ -203,16 +225,18 @@ impl TerminalWindow {
                 .max_rect(bar),
             |ui| {
                 let p = ui.painter();
-                // 上下各一条 1 点分界线——Find 栏靠这两条线与邻居分开。
-                for y in [bar.top() + 0.5, bar.bottom() - 0.5] {
-                    p.line_segment(
-                        [egui::pos2(bar.left(), y), egui::pos2(bar.right(), y)],
-                        egui::Stroke::new(1.0, line_c),
-                    );
-                }
+                // 只有一条很淡的底部分隔线：不再画 23.5pt 高的整框描边。
+                p.line_segment(
+                    [
+                        egui::pos2(bar.left(), bar.bottom() - 0.5),
+                        egui::pos2(bar.right(), bar.bottom() - 0.5),
+                    ],
+                    egui::Stroke::new(1.0, line_c),
+                );
 
-                // `Filter:` 与 Find 的 `Find:` 同款：galley + 首字下划线，x=11。
-                let ly = geom.field.center().y - label_galley.size().y / 2.0;
+                // `Filter:` 与 Find 的 `Find:` 同款：galley + 首字下划线，x=11，
+                // 在 25pt 条里垂直居中。
+                let ly = bar.center().y - label_galley.size().y / 2.0;
                 p.galley(
                     egui::pos2(bar.left() + LABEL_X, ly),
                     label_galley.clone(),
@@ -226,25 +250,26 @@ impl TerminalWindow {
                         egui::Stroke::new(1.0, text_c),
                     );
                 }
-
-                // 输入框只画边框；`shrink(0.5)` 与 Find 同款，1 点描边不被抗锯齿摊成两行。
-                p.rect_stroke(
-                    geom.field.shrink(0.5),
-                    0.0,
-                    egui::Stroke::new(1.0, border_c),
-                );
             },
         );
 
-        // 输入框必须先画：`ui.painter()` / `ui.scope_builder()` 不能同时借同一 ui。
-        // 缓冲克隆进 child，取回后写回本会话，再统一派发 `SetQuery`。
+        // 输入必须先画：`ui.painter()` / `ui.scope_builder()` 不能同时借同一 ui。
+        // 无框内联文本；把 row_height 精确居中，margin 清零，避免自带 padding
+        // 把字顶到细带上沿。缓冲克隆进 child，取回后写回本会话，再统一派发 `SetQuery`。
         if geom.edit.width() > 0.0 {
-            let edited = ui.scope_builder(egui::UiBuilder::new().max_rect(geom.edit), |ui| {
+            let text_h = ui.text_style_height(&egui::TextStyle::Body);
+            let edit_top = bar.center().y - text_h / 2.0;
+            let edit_rect = egui::Rect::from_min_max(
+                egui::pos2(geom.edit.left(), edit_top),
+                egui::pos2(geom.edit.right(), edit_top + text_h),
+            );
+            let edited = ui.scope_builder(egui::UiBuilder::new().max_rect(edit_rect), |ui| {
                 let mut buf = self.tabs[slot].filter_input.clone();
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut buf)
                         .id_source(("tab_toolbar_filter_query", pane_salt))
                         .frame(false)
+                        .margin(egui::Margin::ZERO)
                         .desired_width(geom.edit.width())
                         .hint_text(t(lang, "Filter hint")),
                 );
@@ -261,8 +286,8 @@ impl TerminalWindow {
             }
         }
 
-        // 框内三格：与 Find 的 `.*` / `Aa` 同构（激活铺 tab、悬停铺 hover）。
-        // `.*` 语法错时图标与输入框边框同时转红，悬停给出错误——同 Find。
+        // 三格内联图标：与 Find 的 `.*` / `Aa` 同构（激活铺 tab、悬停铺 hover）。
+        // `.*` 语法错时图标与反转格一起转红，悬停给出错误——同 Find。
         let r = geom.icons[0];
         let resp = ui.interact(r, hit("tab_toolbar_filter_regex"), egui::Sense::click());
         if regex {
@@ -301,7 +326,9 @@ impl TerminalWindow {
             pending.push(term_app::vocab::FilterAction::ToggleCase);
         }
 
-        // grep / grep -v 两态格：默认 grep 不铺底，切到 grep -v 才铺 tab。
+        // 反转开关：和 `.*` / `Aa` 同一个 icon_rect、同一套底色与字色，只有
+        // 这一格是「关 → 不铺底，开 → 铺 tab」，与 Find 栏开关的口径完全相同。
+        // 默认 KeepMatching（不激活）；点一下变 DropMatching（grep -v，隐藏命中行）。
         let drop = mode == FilterMode::DropMatching;
         let r = geom.icons[2];
         let resp = ui.interact(r, hit("tab_toolbar_filter_mode"), egui::Sense::click());
@@ -310,23 +337,29 @@ impl TerminalWindow {
         } else if resp.hovered() {
             ui.painter().rect_filled(r, 0.0, hover_bg);
         }
-        let mode_c = if drop { strong_c } else { text_c };
+        // 非法正则时跟 `.*` 一起转红，连激活态也不拿 strong 色盖掉错误。
+        let mode_c = if invalid {
+            INVALID_COLOR
+        } else if drop {
+            strong_c
+        } else {
+            text_c
+        };
         let g = ui
             .painter()
             .layout_no_wrap(mode_label.to_owned(), font.clone(), mode_c);
         ui.painter().galley(r.center() - g.size() / 2.0, g, mode_c);
-        let mode_tip = format!("{} / {} — click to toggle", t(lang, "grep"), t(lang, "grep -v"));
         if resp.on_hover_text(mode_tip).clicked() {
             pending.push(term_app::filter::ui_command(
                 term_app::filter::FilterUiCommand::ToggleMode,
             ));
         }
 
-        // 框外计数：像 Find 的 `N / M`，这里是 `kept / hidden`。不存、不算，只读诊断。
+        // 框外计数：状态栏次要读数同款小字与颜色，只读诊断不缓存。
         if let Some(r) = geom.count {
             let g = ui
                 .painter()
-                .layout_no_wrap(count_text.clone(), font.clone(), text_c);
+                .layout_no_wrap(count_text.clone(), count_font, text_c);
             ui.painter().galley(r.center() - g.size() / 2.0, g, text_c);
             ui.interact(r, hit("tab_toolbar_filter_count"), egui::Sense::hover())
                 .on_hover_text("kept / hidden");
@@ -360,7 +393,7 @@ mod filter_row_tests {
     use super::*;
     use super::super::find_bar::CLOSE_GAP;
     use super::super::tab_toolbar::{filter_button_rect, quick_button_rect};
-    use super::super::{FIND_BAR_H, TAB_TOOLBAR_FILTER_H};
+    use super::super::TAB_TOOLBAR_H;
 
     /// 过滤行与 Sysmon 读数共用同一条细带、不产生第二个 `TopBottomPanel` 声明。
     #[test]
@@ -381,7 +414,16 @@ mod filter_row_tests {
         assert!(src.contains("readout_segments"), "Sysmon 读数仍在同一条带");
         assert!(src.contains("draw_filter_row"), "过滤行画在工具条上");
         assert!(self_src.contains("egui::TextEdit::singleline"), "过滤行有 TextEdit");
-        assert!(self_src.contains("FilterUiCommand::ToggleMode"), "grep / grep -v 切换");
+        assert!(self_src.contains("FilterUiCommand::ToggleMode"), "Invert 切换模式");
+        assert!(self_src.contains("t(lang, \"Invert\")"), "按钮文案是 Invert / 反转");
+        assert!(
+            self_src.contains("t(lang, \"Invert filter (grep -v): hide matching lines\")"),
+            "悬停写明 grep -v 语义"
+        );
+        assert!(
+            !self_src.contains("t(lang, \"grep\")") && !self_src.contains("t(lang, \"grep -v\")"),
+            "过滤行不再显示 grep / grep -v 文案"
+        );
         assert!(self_src.contains("FilterAction::ToggleCase"), "大小写");
         assert!(self_src.contains("FilterAction::ToggleRegex"), "正则");
         assert!(self_src.contains("FilterAction::Close"), "关闭");
@@ -400,20 +442,68 @@ mod filter_row_tests {
         );
     }
 
-    fn wide_bar() -> egui::Rect {
-        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, TAB_TOOLBAR_FILTER_H))
+    /// 工具条高度恒定：没有 43pt 档，过滤行不画整框描边。
+    #[test]
+    fn filter_row_is_inline_in_the_25pt_band() {
+        let src = include_str!("tab_toolbar.rs");
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        let pane_src = include_str!("../layout/pane_chrome.rs");
+        assert_eq!(TAB_TOOLBAR_H, 25.0);
+        assert!(!src.contains("TAB_TOOLBAR_FILTER_H"), "不再有 43pt 高度常量");
+        assert!(!pane_src.contains("TAB_TOOLBAR_FILTER_H"), "pane 不再按 43pt 切段");
+        assert!(
+            src.contains("pub(in crate::ui) fn tab_toolbar_height"),
+            "高度入口保留，但恒为 25"
+        );
+        // 拼出被禁用的调用名，避免这句断言自己把名字写进源码里。
+        let whole_frame_call = ["rect_", "stroke"].concat();
+        assert!(
+            !self_src.contains(whole_frame_call.as_str()),
+            "内联文本不许画整框描边（底部分隔线用 line_segment）"
+        );
+        assert!(
+            self_src.contains("bar.bottom() - 0.5"),
+            "只留一条底部分隔线"
+        );
+        assert!(
+            src.contains(") -> f32 {\n        TAB_TOOLBAR_H\n    }"),
+            "tab_toolbar_height 只返回一个高度"
+        );
     }
 
-    /// Find 栏输入框高 23.5，过滤行必须逐点相同，且整条高度就是 `FIND_BAR_H`。
+    fn wide_bar() -> egui::Rect {
+        egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, TAB_TOOLBAR_H))
+    }
+
+    /// `Invert` / `反转` 格的实测宽代表值：等宽 12pt 下 6 字符 ≈ 43.2，
+    /// 加上与 `Aa` 相同的内边距 `ICON_W - 14.4` ≈ 55.8，取 56。
+    const MODE_W: f32 = 56.0;
+
+    /// 和 `Aa` 一格用同样的内边距：文字一样宽时格宽就一样，不会凭空多一块大按钮。
     #[test]
-    fn filter_field_is_find_bar_height() {
-        assert_eq!(TAB_TOOLBAR_FILTER_H, FIND_BAR_H);
-        assert_eq!(FIELD_H, 23.5);
-        let geom = filter_row_geom(wide_bar(), 46.0, 38.0, 52.0);
-        assert_eq!(geom.field.height(), FIELD_H);
-        assert_eq!(geom.field.top(), 1.0 + FIELD_TOP);
-        assert_eq!(geom.icons[0].height(), FIELD_H - 4.0);
-        assert_eq!(geom.icons[0].width(), ICON_W);
+    fn invert_cell_uses_the_same_padding_as_aa() {
+        assert!((invert_cell_width(14.4, 14.4) - ICON_W).abs() < 0.001);
+        assert!((invert_cell_width(43.2, 14.4) - (43.2 + ICON_W - 14.4)).abs() < 0.001);
+        // 比 Aa 宽仅仅因为字更长，仍在同一量级。
+        assert!(invert_cell_width(43.2, 14.4) < ICON_W * 2.2);
+    }
+
+    /// 25pt 条里的三格与输入 / 计数同处一条中线，格高压到 19pt。
+    #[test]
+    fn all_cells_share_the_25pt_centerline() {
+        let bar = wide_bar();
+        let geom = filter_row_geom(bar, 46.0, 38.0, MODE_W);
+        assert_eq!(ICON_H, 19.0);
+        assert_eq!(geom.icons[0].height(), ICON_H);
+        assert_eq!(geom.icons[2].width(), MODE_W);
+        for r in geom.icons {
+            assert_eq!(r.top(), bar.center().y - ICON_H / 2.0);
+            assert_eq!(r.bottom(), bar.center().y + ICON_H / 2.0);
+            assert_eq!(r.center().y, bar.center().y);
+        }
+        assert_eq!(geom.edit.center().y, bar.center().y);
+        assert_eq!(geom.close.center().y, bar.center().y);
+        assert_eq!(geom.count.unwrap().center().y, bar.center().y);
     }
 
     /// 过滤行的 `×` 与 Find 栏的 `×` 落在同一列（横坐标化简后是同一个式子），
@@ -421,7 +511,7 @@ mod filter_row_tests {
     #[test]
     fn close_sits_in_find_bar_column() {
         let bar = wide_bar();
-        let geom = filter_row_geom(bar, 46.0, 38.0, 52.0);
+        let geom = filter_row_geom(bar, 46.0, 38.0, MODE_W);
         // Find: close_cx = all_r.right() + CLOSE_GAP + CLOSE_SIZE/2
         //       all_r.right() = bar.right() - CLOSE_R_PAD - CLOSE_SIZE - CLOSE_GAP
         let find_close_cx = bar.right()
@@ -435,9 +525,9 @@ mod filter_row_tests {
         assert_eq!(geom.close.center().y, bar.center().y);
     }
 
-    /// 43pt 条里的快速按钮仍是 25pt，与 Sysmon 按钮同高（同一个 `quick_button_rect`）。
+    /// 左端标签命中区仍是 25pt，右沿停在输入文字起点之前。
     #[test]
-    fn filter_button_stays_25pt_in_43pt_bar() {
+    fn filter_button_stays_25pt_in_the_25pt_bar() {
         let bar = wide_bar();
         let r = filter_label_button_rect(bar);
         assert_eq!(r.height(), TAB_TOOLBAR_H);
@@ -453,19 +543,22 @@ mod filter_row_tests {
     /// 宽条三格全在、互不重叠、计数贴着 `×` 左侧；窄条先丢计数，`×` 永在。
     #[test]
     fn wide_and_narrow_layouts_never_overlap() {
-        let geom = filter_row_geom(wide_bar(), 46.0, 38.0, 52.0);
+        let geom = filter_row_geom(wide_bar(), 46.0, 38.0, MODE_W);
         let count = geom.count.expect("宽条要放得下计数");
-        assert!(geom.field.right() <= count.left());
+        assert!(geom.edit.right() <= count.left());
         assert!(count.right() <= geom.close.left());
         assert!(geom.icons[0].right() <= geom.icons[1].left());
         assert!(geom.icons[1].right() <= geom.icons[2].left());
-        assert!(geom.icons[2].right() <= geom.field.right() + 0.01);
+        assert!(geom.icons[2].right() + ICON_R_PAD <= count.left());
+        assert!(geom.icons[0].left() >= geom.edit.left() + 0.01);
 
-        let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(190.0, TAB_TOOLBAR_FILTER_H));
-        let small = filter_row_geom(narrow, 46.0, 38.0, 52.0);
+        let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(190.0, TAB_TOOLBAR_H));
+        let small = filter_row_geom(narrow, 46.0, 38.0, MODE_W);
         assert!(small.count.is_none(), "窄条先丢计数");
         assert!(small.close.right() <= narrow.right());
-        assert!(small.field.right() <= small.close.left());
-        assert!(small.field.width() > 0.0);
+        assert!(small.edit.right() <= small.close.left());
+        // 变宽的 Invert 格也不能越过标签去贴住 `Filter:`。
+        assert!(small.icons[0].left() >= small.edit.left() + ICON_LEFT_INSET - 0.01);
+        assert!(small.icons[2].right() <= small.close.left() + 0.01);
     }
 }

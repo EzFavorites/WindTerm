@@ -98,6 +98,8 @@ mod tests {
         "Default", "Red", "Orange", "Yellow", "Green", "Teal", "Cyan", "Blue",
         "Purple", "Magenta", "Grey", "White",
         "Activate this pane", "Find:", "Search", "Match Case",
+        // 行过滤栏右端的反转开关（默认关；grep -v 语义写在悬停里）。
+        "Invert", "Invert filter (grep -v): hide matching lines",
         // 2026-11-08 右键菜单（终端 / 文件面板）
         "Run Script", "New folder", "Permissions", "Delete",
         "Find Previous (Shift+Enter)", "Find Next (Enter)", "Clear Screen",
@@ -264,6 +266,21 @@ mod tests {
     fn english_is_always_the_original() {
         // 英文模式下取词一律原样返回，绝不去查表。
         assert_eq!(t(Lang::En, "New Session"), "New Session");
+    }
+
+    #[test]
+    fn invert_toggle_has_both_labels() {
+        // 过滤栏那一格：英文 `Invert`，中文 `反转`；悬停把 grep -v 语义写明。
+        assert_eq!(t(Lang::En, "Invert"), "Invert");
+        assert_eq!(t(Lang::Zh, "Invert"), "反转");
+        assert_eq!(
+            t(Lang::En, "Invert filter (grep -v): hide matching lines"),
+            "Invert filter (grep -v): hide matching lines"
+        );
+        assert_eq!(
+            t(Lang::Zh, "Invert filter (grep -v): hide matching lines"),
+            "反转过滤（grep -v）：隐藏命中行"
+        );
     }
 
     #[test]

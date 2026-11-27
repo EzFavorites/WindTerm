@@ -19,7 +19,7 @@
 use crate::ui::layout::{pane_group_name, PaneGroup, PaneId};
 use crate::ui::shell::{
     paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
-    PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_FILTER_H, TAB_TOOLBAR_H,
+    PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_H,
 };
 use crate::ui::*;
 use term_app::menu::{TabTool, TAB_TOOLS};
@@ -47,7 +47,7 @@ struct LeafRects {
     toolbar: Option<egui::Rect>,
 }
 
-fn leaf_rects(rect: egui::Rect, focus: bool, toolbar_h_in: f32) -> LeafRects {
+fn leaf_rects(rect: egui::Rect, focus: bool) -> LeafRects {
     if focus {
         return LeafRects {
             tab: None,
@@ -56,9 +56,9 @@ fn leaf_rects(rect: egui::Rect, focus: bool, toolbar_h_in: f32) -> LeafRects {
             toolbar: None,
         };
     }
-    // 工具条高度只允许两档：收起 [`TAB_TOOLBAR_H`]、过滤激活 [`TAB_TOOLBAR_FILTER_H`]。
-    // 夹在这里，调用方多传一个别的值也不会把这条工具条画成第三种高度。
-    let toolbar_h_in = toolbar_h_in.clamp(TAB_TOOLBAR_H, TAB_TOOLBAR_FILTER_H);
+    // 工具条高度只有一档：`TAB_TOOLBAR_H`（25pt）。过滤激活不再抬高，分屏两片
+    // 因此也不会一个终端高一格、另一个矮一格。
+    let toolbar_h_in = TAB_TOOLBAR_H;
     // 矮窗格保底：三段 chrome 先按可用高度收缩，终端至少留一行高。
     let chrome = TAB_BAR_H + PANE_TOOLS_H + toolbar_h_in;
     let term_h = (rect.height() - chrome).max(16.0);
@@ -102,11 +102,7 @@ pub(in crate::ui) fn draw_pane_leaf(
     group: &PaneGroup,
     rect: egui::Rect,
 ) {
-    let parts = leaf_rects(
-        rect,
-        win.view.focus_mode,
-        win.tab_toolbar_height(Some(group.active)),
-    );
+    let parts = leaf_rects(rect, win.view.focus_mode);
     if let Some(tab_rect) = parts.tab {
         let mut top = ui.new_child(egui::UiBuilder::new().max_rect(tab_rect));
         draw_pane_tab_strip(win, &mut top, pane, group);
@@ -349,7 +345,7 @@ mod tests {
     #[test]
     fn non_focus_leaf_keeps_all_three_chrome_segments() {
         let r = leaf_rect();
-        let parts = leaf_rects(r, false, TAB_TOOLBAR_H);
+        let parts = leaf_rects(r, false);
         assert!(parts.tab.is_some(), "tab 条不能丢");
         assert!(parts.tools.is_some(), "工具行 / 地址栏不能丢");
         assert!(parts.toolbar.is_some(), "tab 工具条不能丢");
@@ -357,26 +353,18 @@ mod tests {
         assert_eq!(parts.toolbar.unwrap().bottom(), r.bottom());
     }
 
-    /// 分屏每片按**自己那条会话**的工具条高度切段：过滤激活的那片终端更矮，
-    /// 收起的那片一个像素都不变。
+    /// 过滤激活也不抬高工具条：分屏两片的终端高度完全一致，恒为 25pt。
     #[test]
-    fn split_leaf_sizes_its_terminal_by_its_own_toolbar_height() {
+    fn toolbar_stays_25pt_when_filter_is_active() {
         let r = leaf_rect();
-        let plain = leaf_rects(r, false, TAB_TOOLBAR_H);
-        let filtered = leaf_rects(r, false, TAB_TOOLBAR_FILTER_H);
+        let parts = leaf_rects(r, false);
+        assert_eq!(parts.toolbar.unwrap().height(), TAB_TOOLBAR_H);
+        assert_eq!(parts.toolbar.unwrap().bottom(), r.bottom());
         assert_eq!(
-            plain.term.width(),
-            filtered.term.width(),
-            "宽度不受影响"
+            parts.term.height(),
+            r.height() - TAB_BAR_H - PANE_TOOLS_H - TAB_TOOLBAR_H,
+            "终端不再为过滤行让出 18pt"
         );
-        assert!(
-            filtered.term.height() + TAB_TOOLBAR_FILTER_H
-                == plain.term.height() + TAB_TOOLBAR_H,
-            "过滤态吃掉的正是多出来的 18pt"
-        );
-        assert_eq!(plain.toolbar.unwrap().height(), TAB_TOOLBAR_H);
-        assert_eq!(filtered.toolbar.unwrap().height(), TAB_TOOLBAR_FILTER_H);
-        assert_eq!(filtered.toolbar.unwrap().bottom(), r.bottom());
     }
 
     /// 专注模式压掉的不只是单窗格那条全窗顶栏——**每一片分屏窗格**也只剩终端。
@@ -384,7 +372,7 @@ mod tests {
     #[test]
     fn focus_leaf_hides_every_chrome_segment() {
         let r = leaf_rect();
-        let parts = leaf_rects(r, true, TAB_TOOLBAR_H);
+        let parts = leaf_rects(r, true);
         assert!(parts.tab.is_none());
         assert!(parts.tools.is_none());
         assert!(parts.toolbar.is_none());

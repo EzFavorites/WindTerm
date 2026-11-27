@@ -41,11 +41,11 @@ mod tool_bar;
 mod tool_bar_icons;
 mod tool_bar_tail;
 
-// 过滤行按用户裁定改成 Find 栏同款视觉：这几项几何与错误色只有一份定义，
-// 两处（Find / Filter）都从这里取，杜绝第二套横坐标或第二个红。
+// 过滤行沿用 Find 的标签横坐标、关闭叉列、图标格宽与错误红：这些几何/颜色
+// 只有一份定义，两处从这里取，杜绝第二套横坐标或第二个红。
 pub(in crate::ui) use find_bar::{
-    draw_find_bar, CLOSE_R_PAD, CLOSE_SIZE, FIELD_H, FIELD_TOP, FIELD_X, ICON_R_PAD, ICON_W,
-    INVALID_COLOR, LABEL_X, FIND_BAR_H,
+    draw_find_bar, CLOSE_R_PAD, CLOSE_SIZE, FIELD_X, ICON_R_PAD, ICON_W, INVALID_COLOR, LABEL_X,
+    FIND_BAR_H,
 };
 // 2026-11-15：`draw_menu_items` 只在 `menu_bar` 里由 `super::menu_items::` 直接
 // 引用（生产二级菜单需要真实 MenuState）；组件夹具改走静态树，这个再导出
@@ -75,9 +75,7 @@ pub(in crate::ui) use popup_lists::{
     action_cyan, address_blue, draw_session_glyph, group_green, paint_right,
 };
 pub(in crate::ui) use quick_command_bar::draw_quick_command_bar;
-pub(in crate::ui) use tab_toolbar::{
-    label_width, tab_toolbar_frame, EDGE_PAD, TAB_TOOLBAR_FILTER_H, TAB_TOOLBAR_H,
-};
+pub(in crate::ui) use tab_toolbar::{label_width, tab_toolbar_frame, EDGE_PAD, TAB_TOOLBAR_H};
 pub(in crate::ui) use tab_toolbar_filter::filter_label_button_rect;
 
 // 2026-11-25：点外收起那一击的判据不止快捷栏按钮要用——终端的折叠列点击与

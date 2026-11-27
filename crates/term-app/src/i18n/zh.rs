@@ -494,6 +494,9 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Permissions" => "权限",
         "Delete" => "删除",
         "Find:" => "查找：",
+        // 行过滤栏右端的反转开关（与 Find 栏图标格同款绘制）。
+        "Invert" => "反转",
+        "Invert filter (grep -v): hide matching lines" => "反转过滤（grep -v）：隐藏命中行",
         "Find Previous (Shift+Enter)" => "上一个（Shift+Enter）",
         "Find Next (Enter)" => "下一个（Enter）",
         "Clear Screen" => "清屏",

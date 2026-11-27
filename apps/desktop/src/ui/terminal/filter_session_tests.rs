@@ -73,6 +73,32 @@ fn two_tabs_filter_independently_without_touching_view_state() {
     );
 }
 
+/// 反转开关默认未激活；点击那一格派发的 UI 命令把**本会话**切到 DropMatching。
+#[test]
+fn invert_starts_off_and_click_command_drops_matches() {
+    let ctx = egui::Context::default();
+    let mut win = two_tab_window(&ctx);
+    let id = win.tabs[0].identity;
+    assert_eq!(
+        win.tabs[0].filter.mode,
+        FilterMode::KeepMatching,
+        "Invert 默认未激活"
+    );
+
+    win.apply_filter_on(id, FilterAction::Open);
+    win.apply_filter_on(
+        id,
+        term_app::filter::ui_command(term_app::filter::FilterUiCommand::ToggleMode),
+    );
+    assert_eq!(
+        win.tabs[0].filter.mode,
+        FilterMode::DropMatching,
+        "点击后为 DropMatching（grep -v）"
+    );
+    // 分屏另一片不受影响。
+    assert_eq!(win.tabs[1].filter.mode, FilterMode::KeepMatching);
+}
+
 /// `apply_filter`（`Effect::Filter` 落地）作用于**活动 tab**，不是全局。
 #[test]
 fn effect_filter_applies_to_active_tab_only() {

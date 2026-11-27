@@ -13,20 +13,13 @@
 //! 切换。过滤状态**按会话持有**（`Tab.filter`），不是全局、不在面板里、也不在
 //! `ViewState`；`Filter` 按钮与过滤行都只操作本工具条归属的那一条 tab。
 //!
-//! # 高度按状态取
+//! # 高度恒定
 //!
-//! 收起态用 [`TAB_TOOLBAR_H`]（视觉基线 25pt，一个像素都不许动：12 张整窗基线画的
-//! 就是这个高度）；过滤激活时抬到 [`TAB_TOOLBAR_FILTER_H`]——它现在就是 Find 栏的
-//! [`super::FIND_BAR_H`]（43pt），过滤行直接套 Find 的纵向几何（`TextEdit` 23.5pt
-//! 高、上下各留 10pt），25pt 装不下。
-//! **仍然是同一条工具条、同一行**：不是新增面板，也不是把过滤行挤到第二行。
-//!
-//! 左端 `Filter`/`Filter:` 快速开关恒为 25pt 高（与 Sysmon 按钮同高），在 43pt 条里
-//! 垂直居中；激活后它本身就是 Find 式的下划线标签，点击即关，输入框从 x≈52 起。
-//!
-//! 抬高的代价是终端少几行：`layout/pane_chrome.rs` 与 `ui/mod.rs` 都按这个高度切段，
-//! `Tab::resize` 因此真的收到更矮的终端（有意为之）。行号不重排仍然成立——那是
-//! `LineSlice.row` 原样保留的事，与高度无关。
+//! 这条工具条**永远是 [`TAB_TOOLBAR_H`]（25pt）**，过滤激活也不抬高。用户
+//! 2026-11-27 裁定「过滤行融入 tab，不要贴一块 Find 栏上来」：没有 43pt 档、
+//! 没有整框 `TextEdit`，`Filter:` 标签 / 内联输入 / 三个图标 / 计数 / `×` 都在
+//! 同一条 25pt 细带里垂直居中。终端区高度因此与过滤开关无关（原来的 18pt
+//! 差值已撤销），行号与时间戳仍按 `LineSlice.row` 原样保留。
 //!
 //! # 位置
 //!
@@ -44,17 +37,8 @@ use term_core::session::{Protocol, SessionConfig};
 use term_core::theme::CHROME_SCALE;
 use term_session::sysmon::{fmt_bytes, fmt_uptime};
 
-/// 细带高度（视觉基线 2× 图约 50px → 25pt）。
+/// 细带高度（视觉基线 2× 图约 50px → 25pt）。过滤激活也用这一个高度。
 pub(in crate::ui) const TAB_TOOLBAR_H: f32 = 25.0;
-
-/// 过滤激活态高度：**就是 Find 栏高度**（43pt）。
-///
-/// 用户 2026-11-27 裁定「参照 Find 栏重新设计」，纵向几何因此不再另算：Find 栏的
-/// `TextEdit` 是 23.5pt 高、上下各留 10pt，整条 43pt；过滤行直接用同一组常量
-/// （[`super::FIELD_TOP`] / [`super::FIELD_H`]）。左端 25pt 的快速开关垂直居中即可，
-/// 不再为此削掉 1pt。收起态仍是 [`TAB_TOOLBAR_H`]，视觉基线不动。
-pub(in crate::ui) const TAB_TOOLBAR_FILTER_H: f32 = super::FIND_BAR_H;
-
 
 /// 读数条设计宽度（视觉基线逐像素：条带 531px @2x ≈ 265pt）。
 const READOUT_W: f32 = 265.0;
@@ -283,24 +267,13 @@ impl TerminalWindow {
         );
     }
 
-    /// 本条工具条的高度：过滤激活抬到 [`TAB_TOOLBAR_FILTER_H`]，否则
-    /// [`TAB_TOOLBAR_H`]。高度只跟**这一条会话**的过滤状态走——分屏时每片 pane 各取
-    /// 各的，互不牵连。
+    /// 本条工具条的高度：过滤激活也不变，恒为 [`TAB_TOOLBAR_H`]（25pt）。
+    /// 保留这个方法是为了让调用方不必知道「高度恒定」这件事；分屏每片都得到同一个值。
     pub(in crate::ui) fn tab_toolbar_height(
         &self,
-        target_session: Option<term_core::session_runtime::SessionId>,
+        _target_session: Option<term_core::session_runtime::SessionId>,
     ) -> f32 {
-        let session = target_session.or(self.active);
-        let visible = session.is_some_and(|sid| {
-            self.tabs
-                .iter()
-                .any(|t| t.identity == sid && t.filter.visible)
-        });
-        if visible {
-            TAB_TOOLBAR_FILTER_H
-        } else {
-            TAB_TOOLBAR_H
-        }
+        TAB_TOOLBAR_H
     }
 
     /// 左端 `Filter` 按钮的自然宽（文字 + 左右留白），供过滤行布局共用。
@@ -315,9 +288,8 @@ impl TerminalWindow {
     /// pane 传自己那条会话，左端 `Filter` 按钮与过滤行只操作它；单窗格传当前活动
     /// 会话。
     ///
-    /// 过滤行与 Sysmon 读数**共用同一条** `TopBottomPanel`（不新增第二条）；高度按
-    /// 归属会话的过滤状态取（[`tab_toolbar_height`]），`ui.max_rect()` 就是本帧真实
-    /// 高度，所以这里不另传高度参数。
+    /// 过滤行与 Sysmon 读数**共用同一条** `TopBottomPanel`（不新增第二条）；高度恒为
+    /// [`TAB_TOOLBAR_H`]（`tab_toolbar_height`），`ui.max_rect()` 就是本帧真实高度。
     ///
     /// `target_session`：本细带归属的会话。**行过滤按会话生效**——分屏时每个 pane
     /// 传自己那条会话，左端 `Filter` 按钮与过滤行只操作它；单窗格传当前活动会话。

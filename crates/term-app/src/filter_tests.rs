@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::state::FilterState;
+use std::collections::HashSet;
 use term_core::grid::{Cell, LineSlice, ScreenImage};
 
 fn window(texts: &[&str]) -> ScreenImage {
@@ -152,6 +153,28 @@ fn reduce_resets_on_open_and_closes_cleanly() {
     assert!(!s.regex);
     reduce(&mut s, FilterAction::Close);
     assert!(!s.visible);
+}
+
+/// 反转开关的出厂态是「关」：只显示命中行；点一下才切到 `grep -v`。
+#[test]
+fn invert_starts_inactive_and_one_click_drops_matches() {
+    let mut s = FilterState::default();
+    s.visible = true;
+    s.query = "ERR".to_string();
+    assert_eq!(s.mode, FilterMode::KeepMatching, "Invert 默认未激活");
+
+    let w = window(&["ERR a", "b", "ERR c", "d"]);
+    assert_eq!(counts(&s, &w), (2, 2), "默认保留命中行");
+
+    reduce(&mut s, ui_command(FilterUiCommand::ToggleMode));
+    assert_eq!(s.mode, FilterMode::DropMatching, "点击后为 DropMatching");
+    assert_eq!(counts(&s, &w), (2, 2));
+    // 隐藏的那一半换了边：默认隐藏非命中行，反转后隐藏命中行。
+    assert_eq!(hidden_rows(&s, &w), HashSet::from([-10_i64, -8]));
+
+    reduce(&mut s, ui_command(FilterUiCommand::ToggleMode));
+    assert_eq!(s.mode, FilterMode::KeepMatching, "再点一次取消反转");
+    assert_eq!(s.query, "ERR", "切换不改查询");
 }
 
 #[test]
