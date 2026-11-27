@@ -1760,7 +1760,7 @@ mod tests {
     }
 
     #[test]
-    fn caret_style_round_trips_without_touching_other_fields() {        // W6：Caret 页的「改选即落盘」是 load-modify-save，只能动这一个字段。
+    fn caret_style_round_trips_without_touching_other_fields() {        // Caret 页的「改选即落盘」是 load-modify-save，只能动这一个字段。
         // 语言、抑制位、启动策略、历史容量都得原样留着。
         let path = tmp();
         let prefs = Prefs {

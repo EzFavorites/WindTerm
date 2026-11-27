@@ -4,7 +4,7 @@
 //! 「谁画谁」仍然各归各的文件）。这里全部是 `TerminalWindow` 的方法：
 //! 开始连接 / 每帧收结果 / 三个窗口（Connecting / Password / Failed）。
 //!
-//! 与原版 1:1：连接链路只有用户名/密码这一个凭据弹窗；主机 key 在客户端
+//! 与对齐目标（参考版本）一致：连接链路只有用户名/密码这一个凭据弹窗；主机 key 在客户端
 //! 内部自动接受，没有 UNKNOWN / CHANGED 确认窗，也没有账本维护弹窗。
 
 use crate::ui::kit::field::{choice_row_styled, ChoiceKind, UnderlineStyle};

@@ -33,8 +33,8 @@ pub(in crate::ui) use ssh_ask::{ask, next, options_for, Ask, Next, FIRST_POLICY}
 
 /// 连接走到哪一步。
 ///
-/// 只有三步：连接中、要密码（原版唯一的凭据弹窗）、失败。主机 key 相关的
-/// 确认 / 换钥 / 忘记步骤按 owner 裁定（与原版 1:1）全部移除。
+/// 只有三步：连接中、要密码（对齐目标里唯一的凭据弹窗）、失败。主机 key 相关的
+/// 确认 / 换钥 / 忘记步骤按 owner 裁定（与参考版本一致）全部移除。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum Step {
     Connecting,
@@ -166,7 +166,7 @@ impl Connector {
             }
         };
         self.auth = Some(vault::stash_auth(&real, &self.config.name));
-        // 与原版 1:1：host key 在客户端内部自动接受，没有确认窗、不写账本，
+        // 与参考版本一致：host key 在客户端内部自动接受，没有确认窗、不写账本，
         // 因此也不需要「确认后重连」这一步。
         let policy = FIRST_POLICY;
         // 参数拼不出来（目前唯一的来源是手写的 `ProxyJump` 链）就停在失败窗口里，

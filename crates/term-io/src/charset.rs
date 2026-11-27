@@ -10,20 +10,24 @@
 //!   逐字节相同，默认路径零拷贝、零回归。
 //! - **增量解码**：其余 ASCII 兼容编码用 `encoding_rs` 的流式 `Decoder`。
 //!   `last = false` 让不完整的多字节序列留在 decoder 里，下一批字节到达时
-//!   接着解。encoding_rs 的 `Decoder` 没有公开的 pending 查询（公开的
-//!   `has_pending_state()` 只在 `Encoder` 上），所以这里另记一个**保守**标记：
-//!   多字节编码的批次以高位字节收尾时，认为 decoder 可能压着半个序列；
-//!   宁可多解一次，也不能在真有 pending 时走 ASCII 直传而丢字节。
+//!   接着解；会话结束时调用 [`CharsetDecoder::finish`] 以 `last = true` 再解
+//!   一次，把压着的残序列按替换字符收尾，不让它静默消失。
 //!
-//! ASCII 兼容编码的 `0x00..=0x7F` 是不变量：ESC、CSI、OSC 等控制字节原样
-//! 穿过，不会被转码拆坏。纯 ASCII 的一批字节（且没有可疑 pending）直接借用
-//! 原缓冲，不进 decoder——这是绝大多数 shell 输出走的路。
+//! # ASCII 快路径只对单字节编码有效
 //!
-//! # 为什么 UTF-16 明确不支持
+//! 单字节编码（ISO-8859-* / KOI8-R）的 `0x00..=0x7F` 是不变量：纯 ASCII 批次
+//! 直接借用原缓冲，不进 decoder。
+//! **多字节编码一律进 decoder**：`pending` 只是 [`CharsetDecoder::has_pending`]
+//! 的保守提示，不能当不变量——GB18030 四字节序列的第二 / 第四字节是 ASCII
+//! 数字，一批以它们收尾时 `pending` 会被误清；此时若还走 ASCII 快路径，后续
+//! 纯 ASCII chunk 会绕过仍压着半个序列的 decoder，同一字节流拆不拆 chunk
+//! 就会解出不同结果。正确性优先于这批 ASCII 的一次分配。
 //!
-//! VT 是 vte 0.15，按 UTF-8 解释可打印字节；UTF-16 的 NUL 字节和 BOM 会
-//! 被当成控制字符 / 乱码落到网格上。UTF-16 不在会话表单候选里（见
-//! `session_form_body::CHARSETS`），这里也只做直传兜底，不假装支持。
+//! # BOM 不改写显式标签
+//!
+//! decoder 用 `new_decoder_without_bom_handling()` 构造：会话表单选了哪个编码
+//! 就是哪个，流入的 BOM 字节按该编码解，不让数据里的 BOM 成为表单之外的
+//! 第二个配置源。
 
 use std::borrow::Cow;
 
@@ -42,9 +46,47 @@ enum State {
         decoder: Decoder,
         /// 单字节编码（ISO-8859-* / KOI8-R）永远没有半个多字节。
         multibyte: bool,
-        /// 保守的「可能压着未完成序列」标记，见模块文档。
+        /// 保守的「可能压着未完成序列」标记，只供 `has_pending()` 参考。
         pending: bool,
+        /// `finish()` 已以 `last=true` 收尾；encoding_rs 的 decoder 用完不能
+        /// 再用，此后只做直传兜底，绝不把会话带进 panic。
+        finished: bool,
     },
+}
+
+/// 把一段字节交给 encoding_rs；`last=true` 时同时冲刷 decoder 里压着的残序列。
+///
+/// 每次最多向 encoding_rs 要 64 KiB 输出缓冲：缓冲不足（`OutputFull`）时靠外层
+/// 循环续喂剩余输入，绝不把没解完的字节丢掉（大块输出不截断）。
+fn decode_into(decoder: &mut Decoder, mut rest: &[u8], last: bool) -> Vec<u8> {
+    const MAX_STEP: usize = 64 * 1024;
+    let mut out = Vec::new();
+    loop {
+        let cap = decoder
+            .max_utf8_buffer_length(rest.len())
+            .unwrap_or_else(|| rest.len().saturating_mul(3).saturating_add(16))
+            .min(MAX_STEP)
+            .max(16);
+        let start = out.len();
+        out.resize(start + cap, 0);
+        let (result, read, written, _) = decoder.decode_to_utf8(rest, &mut out[start..], last);
+        out.truncate(start + written);
+        // `read` 由 encoding_rs 保证不超过 `rest.len()`；这里仍用 `get` 兜住
+        // 异常，避免生产路径出现切片 panic（4p 基线只许减不许增）。
+        rest = match rest.get(read..) {
+            Some(tail) => tail,
+            None => &[],
+        };
+        if matches!(result, CoderResult::InputEmpty) || rest.is_empty() {
+            break;
+        }
+        // 缓冲不够时继续喂剩余输入；两个计数都不动说明上游没进展，退出
+        // 而不是在监管线程里死循环。
+        if read == 0 && written == 0 {
+            break;
+        }
+    }
+    out
 }
 
 impl CharsetDecoder {
@@ -61,59 +103,65 @@ impl CharsetDecoder {
         };
         Self {
             state: State::Incremental {
-                decoder: enc.new_decoder(),
+                // 显式标签说了算：BOM sniff 会把数据里的字节当成编码声明，
+                // 那是会话表单之外的第二个配置源。
+                decoder: enc.new_decoder_without_bom_handling(),
                 multibyte: !enc.is_single_byte(),
                 pending: false,
+                finished: false,
             },
         }
     }
 
-    /// 解码一批输出。返回值生命周期跟随输入：直传路径借用，不分配。
+    /// 解码一批输出。返回值生命周期跟随输入：只有单字节编码的纯 ASCII
+    /// 批次借用，其余路径分配。
     pub fn feed<'a>(&mut self, bytes: &'a [u8]) -> Cow<'a, [u8]> {
-        let (decoder, multibyte, pending) = match &mut self.state {
+        let (decoder, multibyte, pending, finished) = match &mut self.state {
             State::Passthrough => return Cow::Borrowed(bytes),
             State::Incremental {
                 decoder,
                 multibyte,
                 pending,
-            } => (decoder, *multibyte, pending),
+                finished,
+            } => (decoder, *multibyte, pending, finished),
         };
-        // ASCII 不变量：ASCII 兼容编码的 0x00..=0x7F 逐字节不变，而且不改变
-        // decoder 状态。只有「上一批可能压着半个多字节」时才必须走 decoder。
-        if !*pending && bytes.iter().all(|b| *b < 0x80) {
+        // 收尾之后不该再收到字节；真收到了就直传，不碰已 finished 的 decoder。
+        if *finished {
             return Cow::Borrowed(bytes);
         }
-        let mut out: Vec<u8> = Vec::new();
-        let mut rest = bytes;
-        loop {
-            let cap = decoder
-                .max_utf8_buffer_length(rest.len())
-                .unwrap_or_else(|| rest.len().saturating_mul(3).saturating_add(16));
-            let start = out.len();
-            out.resize(start + cap, 0);
-            let (result, read, written, _) = decoder.decode_to_utf8(rest, &mut out[start..], false);
-            out.truncate(start + written);
-            // `read` 由 encoding_rs 保证不超过 `rest.len()`；这里仍用 `get`
-            // 兜住异常，避免生产路径出现切片 panic（4p 基线只许减不许增）。
-            rest = match rest.get(read..) {
-                Some(tail) => tail,
-                None => &[],
-            };
-            if matches!(result, CoderResult::InputEmpty) || rest.is_empty() {
-                break;
-            }
-            // 缓冲不够时继续喂剩余输入；两个计数都不动说明上游没进展，退出
-            // 而不是在监管线程里死循环。
-            if read == 0 && written == 0 {
-                break;
-            }
+        // 单字节编码的 ASCII 不变量：0x00..=0x7F 逐字节不变且不改变 decoder
+        // 状态。多字节编码的 pending 不可靠（见模块文档），一律进 decoder。
+        if !multibyte && !*pending && bytes.iter().all(|b| *b < 0x80) {
+            return Cow::Borrowed(bytes);
         }
+        let out = decode_into(decoder, bytes, false);
         if !bytes.is_empty() {
-            // 多字节编码以高位字节收尾 => 可能还有半个序列没走完。保守即可，
-            // 多解一遍 ASCII 不会改变字节，只会多一次分配。
+            // 仅供 `has_pending()` 参考的保守标记；解码正确性不再依赖它。
             *pending = multibyte && bytes[bytes.len() - 1] >= 0x80;
         }
         Cow::Owned(out)
+    }
+
+    /// 会话结束（EOF）收尾：以 `last=true` 再解一次，把 decoder 里压着的
+    /// 未完结多字节序列按替换字符吐出。不调用它，最后一个残序列会静默丢失。
+    /// 幂等：重复调用返回空。
+    pub fn finish(&mut self) -> Vec<u8> {
+        match &mut self.state {
+            State::Passthrough => Vec::new(),
+            State::Incremental {
+                decoder,
+                pending,
+                finished,
+                ..
+            } => {
+                if *finished {
+                    return Vec::new();
+                }
+                *finished = true;
+                *pending = false;
+                decode_into(decoder, &[], true)
+            }
+        }
     }
 
     /// 上一批字节之后，是否可能还有跨 chunk 的未完成多字节序列。
@@ -146,6 +194,16 @@ mod tests {
             std::str::from_utf8(&decoded).unwrap_or("?")
         );
         assert_eq!(&*decoded, "中文".as_bytes());
+
+        // 大块输出：单次 decode 的缓冲上限 64 KiB，超出会返回 OutputFull；
+        // 外层循环必须续喂剩余输入，一个字节都不许截断。
+        let big = "中文".repeat(40_000);
+        let raw = gbk(&big);
+        assert!(raw.len() > 128 * 1024, "用例本身要大到触发 OutputFull");
+        let mut d = CharsetDecoder::new("GBK");
+        let decoded = d.feed(&raw);
+        assert_eq!(decoded.len(), big.len(), "大块输出被截断");
+        assert_eq!(&*decoded, big.as_bytes());
     }
 
     #[test]
@@ -169,6 +227,39 @@ mod tests {
         // 后续纯 ASCII Chunk 仍要原样穿过，pending 随之清掉。
         assert_eq!(&*d.feed(b"\r\n"), b"\r\n");
         assert!(!d.has_pending());
+
+        // GB18030 四字节序列的第二字节是 ASCII 数字：以它收尾时 pending 会被
+        // 误清。取消多字节快路径之后，夹在中间的纯 ASCII chunk 仍须进 decoder，
+        // 「拆开喂」与「整块喂」必须逐字节一致。
+        let raw = encoding_rs::GB18030.encode("𐀀").0.into_owned();
+        assert_eq!(raw.as_slice(), &[0x90, 0x30, 0x81, 0x30]);
+        let mut stream = Vec::new();
+        stream.extend_from_slice(&raw[..2]);
+        stream.extend_from_slice(b"HELLO");
+        stream.extend_from_slice(&raw[2..3]); // 只剩 lead byte 0x81：EOF 处是残序列
+        let whole = {
+            let mut d = CharsetDecoder::new("GB18030");
+            let mut out = d.feed(&stream).into_owned();
+            out.extend_from_slice(&d.finish());
+            out
+        };
+        let mut split = Vec::new();
+        let mut d = CharsetDecoder::new("GB18030");
+        for chunk in [&stream[..2], &stream[2..7], &stream[7..]] {
+            split.extend_from_slice(&d.feed(chunk));
+        }
+        split.extend_from_slice(&d.finish());
+        assert_eq!(split, whole, "拆 chunk 改变了 GB18030 的解码结果");
+        // 与审查里的参考输出逐字节一致：EF BF BD（坏 0x90）+ '0' + HELLO
+        // + EF BF BD（EOF 处未完结的 0x81）。旧快路径会漏掉第一个替换字符。
+        let want = [
+            b"\xEF\xBF\xBD".as_slice(),
+            b"0",
+            b"HELLO",
+            b"\xEF\xBF\xBD",
+        ]
+        .concat();
+        assert_eq!(split, want, "畸形流的替换字符位置不对");
     }
 
     #[test]
@@ -180,30 +271,56 @@ mod tests {
         assert!(matches!(out, Cow::Borrowed(_)), "UTF-8 必须零拷贝直传");
         assert_eq!(&*out, &bytes);
         assert!(!d.has_pending());
+        assert!(d.finish().is_empty());
     }
 
     #[test]
     fn escape_sequences_survive_gbk_decoding_verbatim() {
         let raw = gbk("中文");
-        let mut bytes = b"\x1b[31m".to_vec();
-        bytes.extend_from_slice(&raw);
-        bytes.extend_from_slice(b"\x1b[0m\r\n");
-        let mut d = CharsetDecoder::new("GBK");
-        let out = d.feed(&bytes);
         let want = [
             b"\x1b[31m".as_slice(),
             "中文".as_bytes(),
             b"\x1b[0m\r\n",
         ]
         .concat();
+
+        let mut bytes = b"\x1b[31m".to_vec();
+        bytes.extend_from_slice(&raw);
+        bytes.extend_from_slice(b"\x1b[0m\r\n");
+        let mut d = CharsetDecoder::new("GBK");
+        let out = d.feed(&bytes);
         assert_eq!(&*out, want.as_slice());
+
+        // 控制序列自己也会跨 chunk：多字节编码取消 ASCII 快路径后，
+        // "\x1b[" 与 "31m" 分两批到达仍逐字节穿过 decoder。
+        let zh = gbk("中文");
+        let mut d = CharsetDecoder::new("GBK");
+        let mut all = Vec::new();
+        for chunk in [
+            b"\x1b[".as_slice(),
+            b"31m",
+            zh.as_slice(),
+            b"\x1b[0m",
+            b"\r\n",
+        ] {
+            all.extend_from_slice(&d.feed(chunk));
+        }
+        assert_eq!(all, want);
     }
 
     #[test]
-    fn ascii_only_chunks_are_borrowed_even_in_gbk_mode() {
+    fn ascii_fast_path_is_single_byte_only() {
+        // 单字节编码保留零拷贝快路径。
+        let mut d = CharsetDecoder::new("ISO-8859-1");
+        let out = d.feed(b"Password: \x1b[0m");
+        assert!(matches!(out, Cow::Borrowed(_)), "单字节 ASCII 不该触发分配");
+        assert_eq!(&*out, b"Password: \x1b[0m");
+
+        // 多字节编码取消快路径：字节结果仍逐字节相同，但必须走 decoder，
+        // 否则 GB18030 的 ASCII 数字会把 decoder 的 pending 状态绕过。
         let mut d = CharsetDecoder::new("GBK");
         let out = d.feed(b"Password: \x1b[0m");
-        assert!(matches!(out, Cow::Borrowed(_)), "ASCII 不该触发分配");
+        assert!(matches!(out, Cow::Owned(_)), "多字节编码不能走 ASCII 快路径");
         assert_eq!(&*out, b"Password: \x1b[0m");
     }
 
@@ -216,6 +333,7 @@ mod tests {
             assert!(matches!(out, Cow::Borrowed(_)), "标签 {label} 意外转码");
             assert_eq!(&*out, bytes);
             assert!(!d.has_pending(), "标签 {label} 不该有 pending");
+            assert!(d.finish().is_empty());
         }
     }
 
@@ -232,12 +350,47 @@ mod tests {
                 .expect("UI 候选必须是已知标签");
             assert!(enc.is_ascii_compatible(), "候选 {label} 不是 ASCII 兼容编码");
         }
-        // 单字节 / 多字节候选各抽一个真实解码结果。
-        let latin = encoding_rs::WINDOWS_1252.encode("café").0;
-        let mut d = CharsetDecoder::new("ISO-8859-1");
-        assert_eq!(&*d.feed(&latin), "café".as_bytes());
-        let big5 = encoding_rs::BIG5.encode("中文").0;
-        let mut d = CharsetDecoder::new("Big5");
-        assert_eq!(&*d.feed(&big5), "中文".as_bytes());
+        // 候选逐项真解码，不再只验标签能被解析。
+        let samples = [
+            ("GBK", "中文"),
+            ("GB2312", "中文"),
+            ("ISO-8859-1", "café"),
+            ("ISO-8859-15", "café"),
+            ("KOI8-R", "Привет"),
+            ("EUC-KR", "안녕"),
+            ("EUC-JP", "こんにちは"),
+            ("Shift_JIS", "こんにちは"),
+            ("Big5", "中文"),
+        ];
+        for (label, text) in samples {
+            let enc = Encoding::for_label_no_replacement(label.as_bytes()).expect("已知标签");
+            let raw = enc.encode(text).0;
+            let mut d = CharsetDecoder::new(label);
+            assert_eq!(&*d.feed(&raw), text.as_bytes(), "候选 {label} 没真解码");
+        }
+        // BOM 不能改写显式标签：GBK 会话里喂 UTF-16BE BOM（两字节，且 GBK
+        // 会把它们当两个独立无效字节吃掉，不破坏后面汉字的双字节对齐），
+        // 中文仍要按显式标签解出来。
+        let mut payload = vec![0xFE, 0xFF];
+        payload.extend_from_slice(&gbk("中文"));
+        let mut d = CharsetDecoder::new("GBK");
+        let decoded_bytes = d.feed(&payload);
+        let decoded = String::from_utf8_lossy(&decoded_bytes);
+        assert!(decoded.contains("中文"), "BOM 改写了显式标签：{decoded:?}");
+        // 对照：encoding_rs 的默认 decoder 会因为 FE FF 切成 UTF-16BE，
+        // 同一份字节流里就解不出「中文」——这条保证测试真能抓住回归。
+        let mut sniff_decoder = encoding_rs::GBK.new_decoder();
+        let cap = sniff_decoder
+            .max_utf8_buffer_length(payload.len())
+            .unwrap_or(payload.len() * 3 + 16);
+        let mut sniff_out = vec![0u8; cap];
+        let (_, _, written, _) = sniff_decoder.decode_to_utf8(&payload, &mut sniff_out, false);
+        let sniffed = String::from_utf8_lossy(&sniff_out[..written]);
+        assert!(!sniffed.contains("中文"), "对照组意外没走 BOM sniff");
+        // EOF 收尾：孤立 lead byte 以替换字符结束，不静默丢弃。
+        let mut d = CharsetDecoder::new("GBK");
+        assert!(d.feed(&gbk("中")[..1]).is_empty());
+        assert_eq!(d.finish(), "\u{FFFD}".as_bytes());
+        assert!(d.finish().is_empty(), "finish 必须幂等");
     }
 }

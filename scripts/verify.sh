@@ -149,7 +149,7 @@ else
   ok "apps/desktop/tests/golden/*.json 与当前 VT 行为一致（${golden_n} 个用例）"
 fi
 
-step "4. B1：term-core 内不得出现 egui / eframe / epaint / winit"
+step "4. 架构硬边界：term-core 内不得出现 egui / eframe / epaint / winit"
 # 2026-11-14 架构审查：原词表只有 `egui|eframe`，而 UI 依赖可以不经
 # 这两个名字溜进来 —— `epaint` 是 egui 独立发布的绘制 crate，`winit` 是窗口
 # 后端，任何一个被 core 直接 `use` 都同样是「纯语义层认识 UI」。补上这两个，
@@ -1153,7 +1153,7 @@ else
   bad "截图基准缺失：整窗 ${n_shots:-0} 张（应 ≥6）、组件 ${n_comp:-0} 张（应 ≥2）"
 fi
 
-step "8c. 视觉回归（可选，VERIFY_SCREENSHOT=1）：整窗十一张（含中文）+ 组件若干"
+step "8c. 视觉回归（可选，VERIFY_SCREENSHOT=1）：整窗十五张（含中文）+ 组件若干"
 # 一次跑完 `--all`：整窗图守「面板/弹窗在窗口里的位置与占位」，组件图守
 # 「这个组件自己长什么样」。原先分成两个开关，是因为整窗基线还停在皮肤接管
 # 之前（一开就红）；2026-11-06 基线全量重采集之后这个理由不存在了。

@@ -40,6 +40,32 @@ require_sha256_tool() {
 }
 require_sha256_tool
 
+# 平台工具同样是强制项，必须在**任何产物写进 OUT 之前**一次过检。
+# 否则 WiX / hdiutil 缺失会在 ZIP / 便携包落盘之后才报错，留下没有 .sha256
+# 的半成品发布包（与上面校验和工具的口径一致）。
+require_platform_tools() {
+  case "$TARGET" in
+    *-apple-darwin)
+      command -v hdiutil >/dev/null || { echo "macOS .dmg 打包需要 hdiutil（不在 PATH）" >&2; exit 1; }
+      ;;
+    *-linux-*)
+      command -v dpkg-deb >/dev/null || { echo "Linux .deb 打包需要 dpkg-deb（不在 PATH）" >&2; exit 1; }
+      if ! command -v zip >/dev/null && ! command -v 7z >/dev/null; then
+        echo "Linux 便携包需要 zip 或 7z（两者都不在 PATH）" >&2
+        exit 1
+      fi
+      ;;
+    *-windows-*)
+      command -v wix >/dev/null || { echo "Windows .msi 打包需要 WiX v5（wix 不在 PATH）" >&2; exit 1; }
+      if ! command -v zip >/dev/null && ! command -v 7z >/dev/null; then
+        echo "Windows 便携包需要 zip 或 7z（两者都不在 PATH）" >&2
+        exit 1
+      fi
+      ;;
+  esac
+}
+require_platform_tools
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NAME="WindTerm"
 
@@ -154,14 +180,11 @@ PLIST
     cp "$ROOT/LICENSE" "$DMG_STAGE/LICENSE"
     cp "$ROOT/README.md" "$DMG_STAGE/README.md"
     ARTIFACT="$NAME-$VERSION-$PLATFORM.dmg"
-    command -v hdiutil >/dev/null || { echo "macOS 打包需要 hdiutil" >&2; exit 1; }
     hdiutil create -volname "$NAME" -srcfolder "$DMG_STAGE" -ov -format UDZO "$OUT/$ARTIFACT" >/dev/null
     ARTIFACTS+=("$ARTIFACT")
     ;;
 
   *-linux-gnu)
-    command -v dpkg-deb >/dev/null || { echo "Linux .deb 打包需要 dpkg-deb" >&2; exit 1; }
-
     # 便携包：解压即用，不写 /usr。
     PORT="$STAGE/portable"
     mkdir -p "$PORT"
@@ -224,7 +247,7 @@ CONTROL
     ARTIFACTS+=("$ZIP_ART")
 
     # MSI：WiX v5，版本号只取数字部分（MSI 不接受 betaN 这类后缀）。
-    command -v wix >/dev/null || { echo "Windows .msi 打包需要 WiX v5（wix 不在 PATH）" >&2; exit 1; }
+    # wix / zip 的预检已在 require_platform_tools 里前移到任何产物落盘之前。
     MSI_STAGE="$STAGE/msi"
     mkdir -p "$MSI_STAGE"
     cp "$BIN" "$MSI_STAGE/$NAME.exe"

@@ -375,7 +375,7 @@ impl TerminalWindow {
             log_note: None,
             // 同一份 prefs 也带着 Logging 配置页的五个字段（老文件缺项回落视觉基线默认值）。
             log_settings: dialogs::LogSettingsData::from_prefs(Some(&prefs)),
-            // W8：Filer 的隐藏项开关初值取同一份 prefs（与 `caret_style` 同一条
+            // Filer 的隐藏项开关初值取同一份 prefs（与 `caret_style` 同一条
             // 写法：prefs 只在构造时读一次，之后由设置页写回并同步这份副本）。
             filer: {
                 let mut filer = crate::ui::panels::Filer::default();

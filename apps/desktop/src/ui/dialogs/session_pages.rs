@@ -269,7 +269,7 @@ fn serial_page(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             });
         ui.end_row();
         // `Flow Control:` 比标签列可容纳的宽度略宽，`form_row` 会把它截成
-        // `Flow Contro…`（T00 差异）。这里按同一右缘单独画：放不下时只把
+        // `Flow Contro…`（对齐目标要求完整显示）。这里按同一右缘单独画：放不下时只把
         // 这一条标签的字号等比缩一点，整条显示，既不压到控件也不改其它行。
         let (rect, _) = ui.allocate_exact_size(
             egui::vec2(super::session_form_body::LABEL_W, ROW_H),

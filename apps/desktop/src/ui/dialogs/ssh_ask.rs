@@ -61,10 +61,11 @@ pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
 
 /// 每一次连接都用 `Insecure`：主机 key 在客户端内部处理，自动接受新的。
 ///
-/// 这是 2026-11-27 owner 明确裁定、与原版 1:1 对齐的行为：原版连接链路只有
-/// 一个用户名/密码弹窗，从不持久化 accepted host key，也不弹 UNKNOWN /
-/// CHANGED 确认窗（CHANGED 状态在原版不可达）。所以这里**不是安全疏漏**，
-/// 而是刻意复刻原版——界面根本不提供「信任 / 换钥 / 忘记」这类交互。
+/// 这是 2026-11-27 owner 明确裁定、与对齐目标（参考版本）一致的行为：
+/// 参考版本的连接链路只有一个用户名/密码弹窗，从不持久化 accepted host key，
+/// 也不弹 UNKNOWN / CHANGED 确认窗（CHANGED 状态在参考版本不可达）。
+/// 所以这里**不是安全疏漏**，而是有意与参考版本保持一致——界面根本不提供
+/// 「信任 / 换钥 / 忘记」这类交互。
 ///
 /// `term_ssh` 库里的 `HostKeyPolicy::{Strict,Tofu,Insecure}` 三档与
 /// `known_hosts_admin` API 原样保留，供脚本与无窗口路径使用；UI 只是不再
@@ -88,7 +89,7 @@ pub(in crate::ui) enum Ask {
 /// 连接失败之后下一步问用户什么。
 ///
 /// 只有两种出口：密码错了再问一次，其余（包括任何主机 key 错误）显示错误
-/// 并停住。原版不弹主机 key 确认窗，这里也不留任何交互分支。
+/// 并停住。对齐目标（参考版本）不弹主机 key 确认窗，这里也不留任何交互分支。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum Next {
     /// 密码不对：重新问一次，并带上原因。
@@ -534,7 +535,7 @@ mod tests {
 
     #[test]
     fn host_key_errors_have_no_interactive_branch() {
-        // 原版 1:1：host key 内部自动接受，界面从不弹确认窗。即使库出于别的
+        // 与对齐目标一致：host key 内部自动接受，界面从不弹确认窗。即使库出于别的
         // 路径返回 HostKeyProblem，也只能显示错误，不能造一个「信任」窗口出来。
         let unknown = SshError::HostKey(term_ssh::HostKeyProblem::Unknown {
             host: "h".to_string(),

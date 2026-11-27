@@ -1387,6 +1387,19 @@ fn run(
             }
         }
     }
+    // charset 的 EOF 收尾：会话结束时 decoder 里可能还压着半个多字节序列
+    // （例如最后一个 GBK lead byte）。以 `last=true` 再解一次，让它按替换字符
+    // 落到 VT；不调用这一步残序列会静默丢失。这里的字节只补进 VT——日志 / raw
+    // 旁路 / hex tap 从头到尾拿的都是未转码的原始字节，不需要补写。
+    let tail = decoder.finish();
+    if !tail.is_empty() {
+        vt.stamp_row(now_secs());
+        vt.process(&tail);
+        // 退出那一轮的最终屏可能已经发布；EOF 收尾改变了网格，必须再发一份，
+        // 否则字节进了 VT 而界面永远看不到。
+        version += 1;
+        mailbox.publish(vt.snapshot(version));
+    }
     // 会话结束（进程退出 / 通道关闭 / 句柄被 drop）也要收尾：日志文件里得有一行
     // 结束标记，否则「日志停在半行」到底是崩溃还是正常结束就分不出来。
     if let Some(mut l) = log.take() {
@@ -1822,23 +1835,77 @@ mod tests {
         // 表单里选了 GBK 却没有接线时，这就是「点了没效果」的假控件。
         let mut cfg = SessionConfig::new(Protocol::Shell);
         cfg.charset = "GBK".to_string();
-        let (mut h, probe) = start_scripted_with(cfg);
-        probe.feed(&gbk("中文"));
+        let (mut h, probe) = start_scripted_with(cfg.clone());
+        let raw = gbk("中文");
+        probe.feed(&raw);
         wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
         println!("GBK session screen text: {:?}", h.snapshot.screen_text());
+
+        // charset 只改送进 VT 的那一份：hex tap 必须拿到未转码的原始字节。
+        let (mut h, probe) = start_scripted_with(cfg.clone());
+        let (tap_tx, tap_rx) = channel();
+        h.attach_tap(tap_tx);
+        probe.feed(&raw);
+        assert_eq!(
+            tap_rx.recv_timeout(Duration::from_secs(2)).expect("tap 应收到字节"),
+            raw,
+            "hex tap 必须拿到原始字节，而不是转码后的 UTF-8"
+        );
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
+
+        // raw 旁路同样拿原始字节，且屏幕保持冻结。
+        let (h, probe) = start_scripted_with(cfg.clone());
+        let (raw_tx, raw_rx) = channel();
+        h.attach_raw(raw_tx);
+        probe.feed(&raw);
+        assert_eq!(
+            raw_rx.recv_timeout(Duration::from_secs(2)).expect("旁路应收到字节"),
+            raw,
+            "raw 旁路必须拿到原始字节"
+        );
+        assert!(!h.snapshot.screen_text().contains("中文"));
+
+        // 日志（原始字节模式）也必须记下未转码的 GBK 字节。
+        let dir = std::env::temp_dir().join(format!("zterm-sup-charset-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (mut h, probe) = start_scripted_with(cfg);
+        let opts = term_core::log_opts::LogOptions {
+            log_type: term_core::log_opts::LogType::All,
+            ..Default::default()
+        };
+        h.start_log(dir.clone(), "charset session", opts);
+        wait_until(&mut h, |h| h.log.is_recording());
+        let path = h.log.path.clone().expect("开始后应有路径");
+        probe.feed(&raw);
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
+        h.stop_log();
+        wait_until(&mut h, |h| !h.log.is_recording());
+        let bytes = std::fs::read(&path).expect("读日志");
+        assert!(
+            bytes.windows(raw.len()).any(|w| w == raw.as_slice()),
+            "日志必须保留原始 GBK 字节：{bytes:02X?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn a_gbk_hanzi_split_across_two_drains_is_restored_on_screen() {
         let mut cfg = SessionConfig::new(Protocol::Shell);
         cfg.charset = "GBK".to_string();
-        let (mut h, probe) = start_scripted_with(cfg);
+        let (mut h, probe) = start_scripted_with(cfg.clone());
         let raw = gbk("中文");
         // 间隔大于 IDLE_WAIT(20ms)，确保监管者分两次 drain 到这类字节。
         probe.feed(&raw[..2]);
         std::thread::sleep(Duration::from_millis(40));
         probe.feed(&raw[2..]);
         wait_until(&mut h, |h| h.snapshot.screen_text().contains("中文"));
+
+        // EOF 收尾：会话结束时只剩一个 lead byte，finish() 必须以替换字符
+        // 收尾并补发最终屏，不能让残序列静默消失。
+        let (mut h, probe) = start_scripted_with(cfg);
+        probe.feed(&gbk("中")[..1]);
+        probe.eof();
+        wait_until(&mut h, |h| h.snapshot.screen_text().contains('\u{FFFD}'));
     }
 
     #[test]
