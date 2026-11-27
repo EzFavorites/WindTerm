@@ -190,10 +190,12 @@ pub trait Sessions: Send + Sync {
         ))
     }
 
-    /// 会话在集合里的 **1 起**序号（`session_index` / `GetTab` 的坐标）。
+    /// 会话在集合**自己**的登记序里的 **1 起**序号。
     ///
-    /// 默认 `None` = 这个集合没有稳定顺序。脚本据此报「查不到」，而不是
-    /// 拿到一个随便的下标。
+    /// 注意这不是标签栏坐标：`ScriptWorkspace` 的 `GetTab(i)` / `Tab.Index()`
+    /// / `GetTabCount()` / `session_index()` 统一按名字排序（见
+    /// `ScriptWorkspace::session_list`），不调用本方法。留着它是为了宿主侧的
+    /// 其它用途；默认 `None` = 没有稳定顺序。
     fn index(&self, _id: SessionId) -> Option<usize> {
         None
     }

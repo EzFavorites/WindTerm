@@ -12,7 +12,7 @@
 //! | CRT | 门面转发到 | 为什么不能直译 |
 //! |---|---|---|
 //! | `Screen.Get/Get2` | `region` / `region_lines` | 坐标 1 起 vs 0 起 |
-//! | `MessageBox` 的整数返回值 | 字符串结果 → 整数（`MB_*` 常量） | 老代码 `if r = 6` 可改成常量而无歧义 |
+//! | `MessageBox` 的整数返回值 | 按钮标签 → CRT 返回 ID（`ID*` 常量） | 老代码 `if r = 6` 可改成 `IDYES()`；输入标志是 `MB_*`，二者不混用 |
 //! | `Log(enabled, append, raw)` | `log_start(dir, #{append, raw})` | 目录与模板我们分开传 |
 //! | `Session.Connect(cmd)` | `session_connect(name)` | 我们「会话是一等对象」→ 开新会话并绑定 |
 //!
@@ -28,7 +28,7 @@
 //! CRT 的 VBScript / Python 我们不支持，Rhai 是既定决策
 //! （`docs/design/07-scripting-and-automation.md`）。门面提供的是**形状**，不是解释器。
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 
 use rhai::{Array, Dynamic, Engine, EvalAltResult, Map, Position};
@@ -41,17 +41,17 @@ use crate::workspace::ScriptWorkspace;
 /// 门面里 WaitForString / ReadString 省略超时参数时用的秒数（与引擎的缺省一致）。
 const DEFAULT_WAIT_SECS: f64 = 30.0;
 
-/// `crt()` 的 session / screen / tab 句柄共享这两个槽：`Screen.Synchronous`
-/// 与 `LogFileName` 在 CRT 里是对象属性，而门面每次取属性都造一个新句柄，
-/// 所以状态必须放在句柄外面共享。
-type SharedSync = Arc<AtomicBool>;
+/// `crt()` 的句柄共享这个槽：`LogFileName` 在 CRT 里是对象属性，而门面每次
+/// 取属性都造一个新句柄，所以状态必须放在句柄外面共享。
 type SharedTemplate = Arc<Mutex<Option<String>>>;
+
+// `Screen.Synchronous` 不做第二份状态：它直接读写工作区里的那一位原子，
+// 与全局 `set_synchronous(on)` 是同一个真源（见 `ScriptWorkspace::synchronous`）。
 
 /// `crt` 对象本体（`version()` / `arguments()` / `get_tab(…)` / `sleep` / `quit`）。
 #[derive(Clone)]
 pub struct Crt {
     ws: ScriptWorkspace,
-    synchronous: SharedSync,
     log_template: SharedTemplate,
 }
 
@@ -59,7 +59,6 @@ pub struct Crt {
 #[derive(Clone)]
 pub struct CrtScreen {
     ws: ScriptWorkspace,
-    synchronous: SharedSync,
 }
 
 /// `crt.Session`。
@@ -92,7 +91,6 @@ pub struct CrtWindow {
 pub struct CrtTab {
     ws: ScriptWorkspace,
     name: String,
-    synchronous: SharedSync,
     log_template: SharedTemplate,
 }
 
@@ -142,13 +140,10 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     // ── 入口 `crt()` ──────────────────────────────────────────────────
     {
         let ws_for_crt = ws.clone();
-        let synchronous: SharedSync = Arc::new(AtomicBool::new(false));
         let log_template: SharedTemplate = Arc::new(Mutex::new(None));
-        let sync_for_crt = Arc::clone(&synchronous);
         let tpl_for_crt = Arc::clone(&log_template);
         engine.register_fn("crt", move || Crt {
             ws: ws_for_crt.clone(),
-            synchronous: Arc::clone(&sync_for_crt),
             log_template: Arc::clone(&tpl_for_crt),
         });
     }
@@ -274,7 +269,6 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     {
         let screen = |crt: &mut Crt| CrtScreen {
             ws: crt.ws.clone(),
-            synchronous: Arc::clone(&crt.synchronous),
         };
         engine.register_get("screen", screen);
         engine.register_get("Screen", screen);
@@ -314,7 +308,6 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     {
         let screen = |tab: &mut CrtTab| CrtScreen {
             ws: tab.ws.clone(),
-            synchronous: Arc::clone(&tab.synchronous),
         };
         engine.register_get("screen", screen);
         engine.register_get("Screen", screen);
@@ -344,6 +337,9 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         };
         engine.register_fn("index", index);
         engine.register_fn("Index", index);
+        // CRT 里 `Tab.Index` 是属性；方法写法只是兼容旧脚本。
+        engine.register_get("index", index);
+        engine.register_get("Index", index);
     }
     {
         let activate = |tab: &mut CrtTab| -> Result<(), Box<EvalAltResult>> {
@@ -381,7 +377,7 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
             engine.register_fn(name, wait_1);
         }
     }
-    // CRT 的 ReadString：命中返回文本、超时返回 0（整数），而不是抛错。
+    // CRT 的 ReadString：命中返回文本、超时返回**空串**，而不是抛错。
     {
         let read = |screen: &mut CrtScreen, text: &str, secs: f64| -> Result<Dynamic, Box<EvalAltResult>> {
             read_string_value(&screen.ws, text, secs)
@@ -446,20 +442,19 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     }
     {
         // `Screen.Synchronous = true` 是 CRT 的属性写法；旧的方法写法保留。
-        engine.register_get("synchronous", |screen: &mut CrtScreen| -> bool {
-            screen.synchronous.load(Ordering::Relaxed)
-        });
-        engine.register_get("Synchronous", |screen: &mut CrtScreen| -> bool {
-            screen.synchronous.load(Ordering::Relaxed)
-        });
-        engine.register_set("synchronous", |screen: &mut CrtScreen, on: bool| {
-            set_synchronous(screen, on);
-        });
-        engine.register_set("Synchronous", |screen: &mut CrtScreen, on: bool| {
-            set_synchronous(screen, on);
-        });
+        // 读写都落在工作区那一位原子上，与全局 `set_synchronous(on)` 同源。
+        let get = |screen: &mut CrtScreen| -> bool {
+            screen.ws.synchronous().load(Ordering::Relaxed)
+        };
+        engine.register_get("synchronous", get);
+        engine.register_get("Synchronous", get);
+        let set = |screen: &mut CrtScreen, on: bool| {
+            screen.ws.set_synchronous(on);
+        };
+        engine.register_set("synchronous", set);
+        engine.register_set("Synchronous", set);
         let method = |screen: &mut CrtScreen, on: bool| -> Result<(), Box<EvalAltResult>> {
-            set_synchronous(screen, on);
+            screen.ws.set_synchronous(on);
             Ok(())
         };
         engine.register_fn("synchronous", method);
@@ -471,6 +466,8 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         };
         engine.register_fn("current_row", row);
         engine.register_fn("CurrentRow", row);
+        engine.register_get("current_row", row);
+        engine.register_get("CurrentRow", row);
     }
     {
         let column = |screen: &mut CrtScreen| -> Result<i64, Box<EvalAltResult>> {
@@ -478,6 +475,8 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         };
         engine.register_fn("current_column", column);
         engine.register_fn("CurrentColumn", column);
+        engine.register_get("current_column", column);
+        engine.register_get("CurrentColumn", column);
     }
     {
         let rows = |screen: &mut CrtScreen| -> Result<i64, Box<EvalAltResult>> {
@@ -485,6 +484,8 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         };
         engine.register_fn("rows", rows);
         engine.register_fn("Rows", rows);
+        engine.register_get("rows", rows);
+        engine.register_get("Rows", rows);
     }
     {
         let cols = |screen: &mut CrtScreen| -> Result<i64, Box<EvalAltResult>> {
@@ -492,6 +493,8 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         };
         engine.register_fn("columns", cols);
         engine.register_fn("Columns", cols);
+        engine.register_get("columns", cols);
+        engine.register_get("Columns", cols);
     }
     {
         let send_keys = |screen: &mut CrtScreen, expr: &str| -> Result<(), Box<EvalAltResult>> {
@@ -522,10 +525,11 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     }
     {
         // 专用断连路径：CRT 的 `Session.Disconnect` 不是 `session_close`——后者
-        // 明确拒绝关当前绑定（静默换目标最贵）。先把绑定让给清单里的另一条
-        // （没有就把 newly opened 本地 shell 接棒），再关旧会话，并**显式返回新绑定名**。
+        // 明确拒绝关当前绑定（静默换目标最贵）。工作区先选好接棒者（没有就
+        // 新开本地 shell），关掉旧会话后只改**这个句柄**的绑定，并显式返回
+        // 新绑定名；钉死的标签不会把别的标签一起改绑。
         let disconnect = |session: &mut CrtSession| -> Result<Dynamic, Box<EvalAltResult>> {
-            Ok(Dynamic::from(disconnect_current(&session.ws)?))
+            Ok(Dynamic::from(session.ws.disconnect_here().map_err(fail)?))
         };
         engine.register_fn("disconnect", disconnect);
         engine.register_fn("Disconnect", disconnect);
@@ -635,7 +639,7 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
                     default_button: Some("ok".to_string()),
                 })
                 .map_err(fail)?;
-            Ok(button_id(answer))
+            button_id(answer, ButtonGroup::Ok)
         };
         engine.register_fn("message_box", simple);
         engine.register_fn("MessageBox", simple);
@@ -644,7 +648,12 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         let flagged = |dialog: &mut CrtDialog, text: &str, title: &str, flags: i64| -> Result<i64, Box<EvalAltResult>> {
             // CRT 把按钮组、图标、默认按钮组合成一个整数（按位或）；
             // group_from_id 只取低 4 位，其余位在这里分别解释。
-            let buttons = group_from_id(flags).ok_or_else(|| fail(format!("不认识的按钮组编号 {flags}（可用 MB_OK / MB_OKCANCEL / MB_YESNO / MB_YESNOCANCEL）")))?;
+            let group = group_from_id(flags).ok_or_else(|| fail(format!("不认识的按钮组编号 {flags}（可用 MB_OK / MB_OKCANCEL / MB_ABORTRETRYIGNORE / MB_YESNOCANCEL / MB_YESNO / MB_RETRYCANCEL）")))?;
+            // 宿主的人机端口只实现了四组按钮；另两组必须显式报错，不能默默
+            // 换成另一组（那会把 IDABORT/IDRETRY 变成 IDOK）。
+            let buttons = group.message_button().ok_or_else(|| {
+                fail(format!("当前宿主不支持 {} 按钮组（需要宿主的人机端口补齐这组按钮）", group.name()))
+            })?;
             let icon = icon_from_id(flags).ok_or_else(|| fail(format!("不认识的图标编号 {flags}（可用 ICON_*）")))?;
             let default_button = default_button_from_id(flags, buttons);
             let answer = dialog
@@ -657,7 +666,7 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
                     default_button,
                 })
                 .map_err(fail)?;
-            Ok(button_id(answer))
+            button_id(answer, group)
         };
         engine.register_fn("message_box", flagged);
         engine.register_fn("MessageBox", flagged);
@@ -684,9 +693,8 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         engine.register_fn("prompt", prompt);
         engine.register_fn("Prompt", prompt);
     }
-    engine.register_fn(
-        "file_open_dialog",
-        |dialog: &mut CrtDialog, title: &str, filter: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+    {
+        let open = |dialog: &mut CrtDialog, title: &str, filter: &str| -> Result<Dynamic, Box<EvalAltResult>> {
             let picked = dialog
                 .ws
                 .pick_file(&PickFile::Open {
@@ -698,11 +706,12 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
             Ok(Dynamic::from(
                 picked.map(|p| p.display().to_string()).unwrap_or_default(),
             ))
-        },
-    );
-    engine.register_fn(
-        "file_save_dialog",
-        |dialog: &mut CrtDialog, title: &str, filter: &str| -> Result<Dynamic, Box<EvalAltResult>> {
+        };
+        engine.register_fn("file_open_dialog", open);
+        engine.register_fn("FileOpenDialog", open);
+    }
+    {
+        let save = |dialog: &mut CrtDialog, title: &str, filter: &str| -> Result<Dynamic, Box<EvalAltResult>> {
             let picked = dialog
                 .ws
                 .pick_file(&PickFile::Save {
@@ -714,8 +723,10 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
             Ok(Dynamic::from(
                 picked.map(|p| p.display().to_string()).unwrap_or_default(),
             ))
-        },
-    );
+        };
+        engine.register_fn("file_save_dialog", save);
+        engine.register_fn("FileSaveDialog", save);
+    }
 
     // ── CrtClipboard：`Text` 属性（读）+ `Set` 方法（写） ──────────────
     //
@@ -760,15 +771,20 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
     // 按钮在低 4 位，图标在 0x70，默认按钮在 0x300；三者可按位或组合成一个
     // 整数传给 `MessageBox(text, title, flags)`。
     for (name, value) in [
-        ("MB_OK", 1_i64),
-        ("MB_OKCANCEL", 2),
-        ("MB_YESNO", 6),
-        ("MB_YESNOCANCEL", 7),
-        ("BUTTON_OK", 1),
-        ("BUTTON_CANCEL", 2),
-        ("BUTTON_OKCANCEL", 2),
-        ("BUTTON_YESNO", 6),
-        ("BUTTON_YESNOCANCEL", 7),
+        // 输入标志：Win32/CRT 的按钮组编号，**不是**返回值。
+        ("MB_OK", 0_i64),
+        ("MB_OKCANCEL", 1),
+        ("MB_ABORTRETRYIGNORE", 2),
+        ("MB_YESNOCANCEL", 3),
+        ("MB_YESNO", 4),
+        ("MB_RETRYCANCEL", 5),
+        // BUTTON_* 是老脚本里输入标志的别名，跟着 MB_* 一起改。
+        ("BUTTON_OK", 0),
+        ("BUTTON_OKCANCEL", 1),
+        ("BUTTON_YESNO", 4),
+        ("BUTTON_YESNOCANCEL", 3),
+        ("BUTTON_CANCEL", 2), // 历史遗留的 IDCANCEL；当输入标志用时同样显式报错。
+        // 图标位（MB_ICON*）与默认按钮位（MB_DEFBUTTON*）。
         ("ICON_NONE", 0),
         ("ICON_STOP", 16),
         ("ICON_CRITICAL", 16),
@@ -780,8 +796,12 @@ pub fn register(engine: &mut Engine, ws: ScriptWorkspace) {
         ("DEFBUTTON1", 0),
         ("DEFBUTTON2", 256),
         ("DEFBUTTON3", 512),
+        // 返回 ID：MessageBox 的返回值，**不是**输入标志。
         ("IDOK", 1),
         ("IDCANCEL", 2),
+        ("IDABORT", 3),
+        ("IDRETRY", 4),
+        ("IDIGNORE", 5),
         ("IDYES", 6),
         ("IDNO", 7),
     ] {
@@ -807,28 +827,8 @@ fn make_tab(crt: &Crt, info: SessionInfo) -> Result<CrtTab, Box<EvalAltResult>> 
     Ok(CrtTab {
         ws: crt.ws.scoped_to(info.id).map_err(fail)?,
         name: info.name,
-        synchronous: Arc::clone(&crt.synchronous),
         log_template: Arc::clone(&crt.log_template),
     })
-}
-
-/// `Session.Disconnect` 的专用路径：先把当前绑定让开，再关旧会话。
-/// 返回**新绑定名**让脚本显式知道后续动词作用在哪一条。
-fn disconnect_current(ws: &ScriptWorkspace) -> Result<String, Box<EvalAltResult>> {
-    let old = ws.current_name().map_err(fail)?;
-    let next = ws.session_list().into_iter().find(|row| row.name != old);
-    let new_name = match next {
-        Some(row) => {
-            ws.session_use(&row.name).map_err(fail)?;
-            row.name
-        }
-        None => {
-            // 最后一条会话：开一条本地 shell 接棒，脚本仍有作用对象。
-            ws.session_open(None, 80, 24).map_err(fail)?.name
-        }
-    };
-    ws.session_close(&old).map_err(fail)?;
-    Ok(new_name)
 }
 
 /// CRT `WaitForString`：命中 true / 超时 false。只吞 `Timeout`，其它错误照旧抛。
@@ -844,7 +844,8 @@ fn wait_for_bool(
     }
 }
 
-/// CRT `ReadString`：命中返回文本 / 超时返回 0。核心 `read_until` 的严格抛错不变。
+/// CRT `ReadString`：命中返回文本 / 超时返回**空串**。核心 `read_until` 的
+/// 严格抛错不变；与 `WaitForString` 的布尔假值不要混成同一个返回值。
 fn read_string_value(
     ws: &ScriptWorkspace,
     text: &str,
@@ -852,24 +853,99 @@ fn read_string_value(
 ) -> Result<Dynamic, Box<EvalAltResult>> {
     match ws.read_until(text, secs, None) {
         Ok(text) => Ok(Dynamic::from(text)),
-        Err(PrimitiveError::Timeout) => Ok(Dynamic::from(0_i64)),
+        Err(PrimitiveError::Timeout) => Ok(Dynamic::from("")),
         Err(other) => Err(fail(other)),
     }
 }
 
-fn set_synchronous(screen: &CrtScreen, on: bool) {
-    screen.synchronous.store(on, Ordering::Relaxed);
-    let _ = screen.ws.set_synchronous(on);
+/// `MB_*` 输入的按钮组（低 4 位）：六个 Win32/CRT 组全部认识。
+///
+/// 宿主的人机端口只实现了其中四组；另两组保留在这里是为了让脚本拿到
+/// **明确的「不支持」**，而不是被悄悄换成另一组按钮。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ButtonGroup {
+    Ok,
+    OkCancel,
+    AbortRetryIgnore,
+    YesNoCancel,
+    YesNo,
+    RetryCancel,
+}
+
+impl ButtonGroup {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Ok => "MB_OK",
+            Self::OkCancel => "MB_OKCANCEL",
+            Self::AbortRetryIgnore => "MB_ABORTRETRYIGNORE",
+            Self::YesNoCancel => "MB_YESNOCANCEL",
+            Self::YesNo => "MB_YESNO",
+            Self::RetryCancel => "MB_RETRYCANCEL",
+        }
+    }
+
+    /// 宿主端口能画出来的按钮组；另两组显式 `None`。
+    fn message_button(self) -> Option<MessageButton> {
+        match self {
+            Self::Ok => Some(MessageButton::Ok),
+            Self::OkCancel => Some(MessageButton::OkCancel),
+            Self::YesNoCancel => Some(MessageButton::YesNoCancel),
+            Self::YesNo => Some(MessageButton::YesNo),
+            Self::AbortRetryIgnore | Self::RetryCancel => None,
+        }
+    }
+
+    /// 宿主用 `Answer::Bool` 作答时（假宿主与部分 CLI 会这样），肯定/否定
+    /// 分别落到这组的第一个/最后一个按钮上。
+    fn affirmative(self) -> &'static str {
+        match self {
+            Self::Ok | Self::OkCancel => "ok",
+            Self::YesNo | Self::YesNoCancel => "yes",
+            Self::AbortRetryIgnore => "abort",
+            Self::RetryCancel => "retry",
+        }
+    }
+
+    fn negative(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::OkCancel | Self::YesNoCancel | Self::RetryCancel => "cancel",
+            Self::YesNo => "no",
+            Self::AbortRetryIgnore => "ignore",
+        }
+    }
+
+    /// 按钮标签 → CRT 返回 ID。
+    fn id(self, label: &str) -> Option<i64> {
+        match (self, label) {
+            (Self::Ok, "ok") => Some(1), // IDOK
+            (Self::OkCancel, "ok") => Some(1),
+            (Self::OkCancel, "cancel") => Some(2), // IDCANCEL
+            (Self::YesNo, "yes") => Some(6),       // IDYES
+            (Self::YesNo, "no") => Some(7),        // IDNO
+            (Self::YesNoCancel, "yes") => Some(6),
+            (Self::YesNoCancel, "no") => Some(7),
+            (Self::YesNoCancel, "cancel") => Some(2),
+            (Self::AbortRetryIgnore, "abort") => Some(3), // IDABORT
+            (Self::AbortRetryIgnore, "retry") => Some(4),  // IDRETRY
+            (Self::AbortRetryIgnore, "ignore") => Some(5), // IDIGNORE
+            (Self::RetryCancel, "retry") => Some(4),
+            (Self::RetryCancel, "cancel") => Some(2),
+            _ => None,
+        }
+    }
 }
 
 /// 只取低 4 位的按钮组；图标位与默认按钮位由另两个函数解释。这样
 /// `MB_YESNO | ICON_QUESTION | DEFBUTTON2` 这样的组合号也能被接受。
-fn group_from_id(id: i64) -> Option<MessageButton> {
+fn group_from_id(id: i64) -> Option<ButtonGroup> {
     match id & 0x0F {
-        1 => Some(MessageButton::Ok),
-        2 => Some(MessageButton::OkCancel),
-        6 => Some(MessageButton::YesNo),
-        7 => Some(MessageButton::YesNoCancel),
+        0 => Some(ButtonGroup::Ok),
+        1 => Some(ButtonGroup::OkCancel),
+        2 => Some(ButtonGroup::AbortRetryIgnore),
+        3 => Some(ButtonGroup::YesNoCancel),
+        4 => Some(ButtonGroup::YesNo),
+        5 => Some(ButtonGroup::RetryCancel),
         _ => None,
     }
 }
@@ -895,21 +971,27 @@ fn default_button_from_id(id: i64, buttons: MessageButton) -> Option<String> {
     buttons.labels().get(which).map(|label| (*label).to_string())
 }
 
-/// 按钮标签 → CRT 的整数 ID。
-fn button_id(answer: crate::human::Answer) -> i64 {
+/// 按钮答案 → CRT 的整数 ID。答非所问一律显式报错，**不猜 IDOK**。
+fn button_id(
+    answer: crate::human::Answer,
+    group: ButtonGroup,
+) -> Result<i64, Box<EvalAltResult>> {
     let label = match answer {
         crate::human::Answer::Text(text) => text,
-        crate::human::Answer::Bool(true) => "yes".to_string(),
-        crate::human::Answer::Bool(false) => "no".to_string(),
-        _ => "ok".to_string(),
+        crate::human::Answer::Bool(true) => group.affirmative().to_string(),
+        crate::human::Answer::Bool(false) => group.negative().to_string(),
+        crate::human::Answer::Ack => "ok".to_string(),
+        crate::human::Answer::Choice(_) => {
+            return Err(fail("消息框收到了 Choice 序号，不是按钮答案"));
+        }
     };
-    match label.as_str() {
-        "ok" => 1,
-        "cancel" => 2,
-        "yes" => 6,
-        "no" => 7,
-        _ => 1,
-    }
+    group.id(&label).ok_or_else(|| {
+        fail(format!(
+            "宿主对 {} 消息框回了 {:?}，这一组按钮里没有这个答案（不猜 IDOK）",
+            group.name(),
+            label
+        ))
+    })
 }
 
 /// 把 `PrimitiveError` 透出成脚本错误（门面内部用）。
@@ -1054,6 +1136,167 @@ mod tests {
     }
 
     #[test]
+    fn get_script_tab_stays_pinned_to_the_launch_session() {
+        let (engine, ws, fake) = facade();
+        ws.session_use("two").expect("全局改绑");
+        assert_eq!(
+            run(&engine, "crt().GetScriptTab().Name")
+                .expect("启动标签")
+                .to_string(),
+            "one",
+            "GetScriptTab 不随 session_use 改绑"
+        );
+        let _ = run(&engine, r#"crt().GetScriptTab().Screen.Send("launch\n")"#)
+            .expect("发到启动标签");
+        assert_eq!(
+            String::from_utf8_lossy(&fake.manip(1).expect("会话 1").written()),
+            "launch\n"
+        );
+        assert!(fake.manip(2).expect("会话 2").written().is_empty());
+    }
+
+    #[test]
+    fn scoped_disconnect_does_not_touch_another_tabs_binding() {
+        let (engine, ws, fake) = facade();
+        let next = run(
+            &engine,
+            r#"let t = crt().GetTab(2); t.Session.Disconnect()"#,
+        )
+        .expect("钉死的 Disconnect");
+        assert_eq!(next.to_string(), "one", "显式返回接棒的绑定名");
+        assert_eq!(ws.current_name().expect("全局绑定"), "one", "另一条标签不被改绑");
+        assert!(fake.manip(1).is_some(), "one 仍活着");
+        assert!(fake.manip(2).is_none(), "钉住的 two 被关掉");
+    }
+
+    #[test]
+    fn scoped_connect_in_tab_rebinds_only_that_tab() {
+        let (engine, ws, fake) = facade();
+        let _ = run(
+            &engine,
+            r#"let t = crt().GetTab(2); t.Session.ConnectInTab("fresh"); t.Screen.Send("scoped\n")"#,
+        )
+        .expect("钉死的 ConnectInTab");
+        assert_eq!(ws.current_name().expect("全局绑定"), "one", "one 的绑定不动");
+        assert!(fake.manip(2).is_some(), "two 没有被关掉");
+        let fresh_id = *fake.ids().last().expect("新开的会话");
+        assert!(fake.manip(fresh_id).is_some(), "新会话在册");
+        assert_eq!(
+            String::from_utf8_lossy(&fake.manip(1).expect("one").written()),
+            "",
+            "发命令不能落到 one"
+        );
+        assert_eq!(
+            String::from_utf8_lossy(
+                &fake
+                    .manip(fresh_id)
+                    .expect("新会话")
+                    .written()
+            ),
+            "scoped\n",
+            "写跟随 scope 改绑到新会话"
+        );
+    }
+
+    #[test]
+    fn synchronous_is_one_atomic_shared_by_property_and_global_verb() {
+        let (engine, ws, _fake) = facade();
+        let _ = run(&engine, "set_synchronous(true)").expect("全局动词写");
+        assert!(ws.synchronous().load(Ordering::Relaxed), "全局写落到唯一真源");
+        let on = run(&engine, "crt().Screen.Synchronous").expect("属性读");
+        assert!(on.as_bool().expect("布尔"), "属性读同一位");
+
+        let _ = run(&engine, "let c = crt(); c.Screen.Synchronous = false;").expect("属性写");
+        assert!(!ws.synchronous().load(Ordering::Relaxed), "属性写也落到同一位");
+        let off = run(&engine, "set_synchronous(false)").expect("全局动词读回");
+        assert!(!off.as_bool().expect("布尔"));
+    }
+
+    #[test]
+    fn get_tab_index_and_count_share_one_tab_bar_order() {
+        let fake = FakeSessions::new();
+        // 故意让登记序（id 1, 2）与标签栏的名字序相反。
+        fake.mount(1, "zulu");
+        fake.mount(2, "alpha");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let current = sessions.attach(1).expect("会话 1");
+        let ws = ScriptWorkspace::new(fake.env(), current, Duration::from_secs(2));
+        let mut engine = Engine::new();
+        register(&mut engine, ws);
+        assert_eq!(
+            run(&engine, "crt().GetTabCount()")
+                .expect("数量")
+                .as_int()
+                .expect("整数"),
+            2
+        );
+        assert_eq!(
+            run(&engine, "crt().GetTab(1).Name").expect("第一标签").to_string(),
+            "alpha",
+            "GetTab 按名字序，不按 id 序"
+        );
+        assert_eq!(
+            run(&engine, "crt().GetTab(2).Name").expect("第二标签").to_string(),
+            "zulu"
+        );
+        assert_eq!(
+            run(&engine, "crt().GetTab(1).Index()")
+                .expect("Index 方法")
+                .as_int()
+                .expect("整数"),
+            1,
+            "GetTab(n).Index() == n"
+        );
+        assert_eq!(
+            run(&engine, "crt().GetTab(2).Index")
+                .expect("Index 属性")
+                .as_int()
+                .expect("整数"),
+            2
+        );
+    }
+
+    #[test]
+    fn screen_and_tab_properties_work_without_parentheses() {
+        let (engine, _ws, fake) = facade();
+        let manip = fake.manip(1).expect("会话");
+        manip.set_cursor(2, 3);
+        manip.resize(90, 30);
+        let property = |script: &str| -> i64 {
+            run(&engine, script)
+                .expect("属性")
+                .as_int()
+                .expect("整数")
+        };
+        assert_eq!(property("crt().Screen.CurrentRow"), 3, "行 1 起");
+        assert_eq!(property("crt().Screen.CurrentColumn"), 4, "列 1 起");
+        assert_eq!(property("crt().Screen.Rows"), 30);
+        assert_eq!(property("crt().Screen.Columns"), 90);
+        assert_eq!(property("crt().GetTab(1).Index"), 1);
+        // 方法形式仍在（兼容老脚本）。
+        assert_eq!(property("crt().Screen.CurrentRow()"), 3);
+    }
+
+    #[test]
+    fn pascal_case_file_dialogs_are_registered() {
+        let (engine, _ws, fake) = facade();
+        fake.pick(Some("/tmp/open.txt"));
+        fake.pick(Some("/tmp/save.txt"));
+        assert_eq!(
+            run(&engine, r#"crt().Dialog.FileOpenDialog("t", "*")"#)
+                .expect("打开")
+                .to_string(),
+            "/tmp/open.txt"
+        );
+        assert_eq!(
+            run(&engine, r#"crt().Dialog.FileSaveDialog("t", "*")"#)
+                .expect("保存")
+                .to_string(),
+            "/tmp/save.txt"
+        );
+    }
+
+    #[test]
     fn arguments_are_zero_based_and_out_of_range_is_empty() {
         let fake = FakeSessions::new();
         fake.mount(1, "one");
@@ -1088,11 +1331,19 @@ mod tests {
     fn message_box_maps_button_labels_back_to_crt_ids() {
         let (engine, _ws, fake) = facade();
         fake.answer("yes");
-        let id = run(&engine, r#"crt().dialog.message_box("continue?", "t", 6)"#).expect("问");
+        let id = run(
+            &engine,
+            r#"crt().dialog.message_box("continue?", "t", MB_YESNO())"#,
+        )
+        .expect("问");
         assert_eq!(id.as_int().expect("整数"), 6, "yes → IDYES=6");
-        // 常量本身也可用。
+        // 输入标志（4）与返回 ID（6）是两个不同的数，常量必须分得清。
         assert_eq!(
             run(&engine, "MB_YESNO()").expect("常量").as_int().expect("整数"),
+            4
+        );
+        assert_eq!(
+            run(&engine, "IDYES()").expect("返回 ID").as_int().expect("整数"),
             6
         );
     }
@@ -1102,10 +1353,19 @@ mod tests {
         let (engine, _ws, _fake) = facade();
         let hit = run(&engine, r#"crt().Screen.WaitForString("never", 0.01)"#)
             .expect("CRT 超时返回 false，不抛错");
-        assert_eq!(hit.as_bool().expect("布尔"), false);
+        assert_eq!(hit.as_bool().expect("布尔"), false, "WaitForString → bool");
         let value = run(&engine, r#"crt().Screen.ReadString("never", 0.01)"#)
-            .expect("CRT 超时返回 0，不抛错");
-        assert_eq!(value.as_int().expect("整数"), 0);
+            .expect("CRT 超时返回空串，不抛错");
+        assert_eq!(value.to_string(), "", "ReadString → 空串，不是整数 0");
+    }
+
+    #[test]
+    fn read_string_timeout_is_an_empty_string_not_a_number() {
+        let (engine, _ws, _fake) = facade();
+        let value = run(&engine, r#"crt().Screen.ReadString("never", 0.01)"#)
+            .expect("超时不抛错");
+        assert!(value.is_string(), "空串是字符串，不能是数字 0");
+        assert_eq!(value.as_string().expect("字符串"), "");
     }
 
     #[test]
@@ -1191,6 +1451,120 @@ mod tests {
     }
 
     #[test]
+    fn message_box_input_flags_use_win32_values_and_return_ids_are_separate() {
+        let (engine, _ws, _fake) = facade();
+        let value = |name: &str| {
+            run(&engine, &format!("{name}()"))
+                .expect("常量")
+                .as_int()
+                .expect("整数")
+        };
+        // 输入标志：0..5，不是老代码里误用的返回 ID 1/2/6/7。
+        assert_eq!(value("MB_OK"), 0);
+        assert_eq!(value("MB_OKCANCEL"), 1);
+        assert_eq!(value("MB_ABORTRETRYIGNORE"), 2);
+        assert_eq!(value("MB_YESNOCANCEL"), 3);
+        assert_eq!(value("MB_YESNO"), 4);
+        assert_eq!(value("MB_RETRYCANCEL"), 5);
+        // 图标位与默认按钮位。
+        assert_eq!(value("ICON_STOP"), 16);
+        assert_eq!(value("ICON_QUESTION"), 32);
+        assert_eq!(value("ICON_EXCLAMATION"), 48);
+        assert_eq!(value("ICON_INFORMATION"), 64);
+        assert_eq!(value("DEFBUTTON1"), 0);
+        assert_eq!(value("DEFBUTTON2"), 256);
+        assert_eq!(value("DEFBUTTON3"), 512);
+        // 返回 ID：1..7。
+        assert_eq!(value("IDOK"), 1);
+        assert_eq!(value("IDCANCEL"), 2);
+        assert_eq!(value("IDABORT"), 3);
+        assert_eq!(value("IDRETRY"), 4);
+        assert_eq!(value("IDIGNORE"), 5);
+        assert_eq!(value("IDYES"), 6);
+        assert_eq!(value("IDNO"), 7);
+    }
+
+    #[test]
+    fn each_supported_button_group_maps_answers_to_crt_ids() {
+        let (engine, _ws, fake) = facade();
+        let ask = |flags: &str, answer: &str| -> i64 {
+            fake.answer(answer);
+            run(
+                &engine,
+                &format!(r#"crt().Dialog.MessageBox("q", "t", {flags})"#),
+            )
+            .expect("问")
+            .as_int()
+            .expect("整数")
+        };
+        fake.answer("ok");
+        assert_eq!(
+            run(&engine, r#"crt().Dialog.MessageBox("hi", "t")"#)
+                .expect("两参形态")
+                .as_int()
+                .expect("整数"),
+            1,
+            "两参消息框只有一个 IDOK"
+        );
+        assert_eq!(ask("MB_OK()", "ok"), 1, "MB_OK → IDOK");
+        assert_eq!(ask("MB_OKCANCEL()", "ok"), 1, "MB_OKCANCEL → IDOK");
+        assert_eq!(ask("MB_OKCANCEL()", "cancel"), 2, "→ IDCANCEL");
+        assert_eq!(ask("MB_YESNO()", "yes"), 6, "MB_YESNO → IDYES");
+        assert_eq!(ask("MB_YESNO()", "no"), 7, "→ IDNO");
+        assert_eq!(ask("MB_YESNOCANCEL()", "yes"), 6, "MB_YESNOCANCEL → IDYES");
+        // 假宿主把非肯定回答统一压成 Bool(false)，所以 "no" / "cancel" 在这一组
+        // 走同一条路；逐标签的映射单独在下面的 helper 测试里验。
+        assert_eq!(ask("MB_YESNOCANCEL()", "cancel"), 2, "→ IDCANCEL");
+    }
+
+    #[test]
+    fn unsupported_button_groups_fail_explicitly_instead_of_falling_back() {
+        let (engine, _ws, fake) = facade();
+        for flag in ["MB_ABORTRETRYIGNORE()", "MB_RETRYCANCEL()"] {
+            fake.answer("yes");
+            let err = run(
+                &engine,
+                &format!(r#"crt().Dialog.MessageBox("q", "t", {flag})"#),
+            )
+            .unwrap_err();
+            let text = err.to_string();
+            assert!(text.contains("不支持"), "显式说明宿主不支持：{text}");
+        }
+    }
+
+    #[test]
+    fn an_unexpected_message_box_answer_is_not_mapped_to_idok() {
+        use crate::human::Answer;
+        assert!(
+            button_id(Answer::Text("maybe".to_string()), ButtonGroup::YesNo).is_err(),
+            "不在按钮组里的答案必须报错"
+        );
+        assert!(
+            button_id(Answer::Ack, ButtonGroup::YesNo).is_err(),
+            "Ack 不是 YesNo 组的答案"
+        );
+        assert!(
+            button_id(Answer::Choice(1), ButtonGroup::OkCancel).is_err(),
+            "Choice 不是按钮答案"
+        );
+        assert_eq!(
+            button_id(
+                Answer::Text("abort".to_string()),
+                ButtonGroup::AbortRetryIgnore
+            )
+            .expect("组本身可译"),
+            3,
+            "IDABORT 仍是 3"
+        );
+        assert_eq!(
+            button_id(Answer::Text("no".to_string()), ButtonGroup::YesNoCancel)
+                .expect("三按钮组的 no"),
+            7,
+            "MB_YESNOCANCEL 的 no → IDNO"
+        );
+    }
+
+    #[test]
     fn the_facade_members_are_registered_under_their_crt_names() {
         // 这不是「函数存在」的检查，而是「名字拼写与手册一致」的检查：
         // 少一个名字，照着文档改写的脚本就会在那一行报 Function not found。
@@ -1235,6 +1609,8 @@ mod tests {
             "prompt(",
             "file_open_dialog(",
             "file_save_dialog(",
+            "FileOpenDialog(",
+            "FileSaveDialog(",
             "text",
             "set(",
             "show(",
@@ -1281,9 +1657,25 @@ mod tests {
             "Show(",
             "Hide(",
             "Activate(",
+            // 属性形状（同时保留方法形式）。
+            "Index",
+            "CurrentRow",
+            "CurrentColumn",
+            "Rows",
+            "Columns",
+            // 输入标志与返回 ID 是两套常量。
+            "MB_YESNO(",
+            "MB_ABORTRETRYIGNORE(",
+            "MB_RETRYCANCEL(",
             "BUTTON_YESNO(",
             "ICON_QUESTION(",
             "DEFBUTTON2(",
+            "IDOK(",
+            "IDABORT(",
+            "IDRETRY(",
+            "IDIGNORE(",
+            "IDYES(",
+            "IDNO(",
         ] {
             assert!(
                 sigs.iter().any(|sig| sig.contains(expected)),

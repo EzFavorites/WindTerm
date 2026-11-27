@@ -135,7 +135,8 @@ struct Inner {
     /// 单次阻塞的上限（沙箱墙钟预算）——新包进来的会话也要继承它。
     max_wait: Duration,
     tabs: Mutex<Tabs>,
-    /// 同步写开关（`set_synchronous`）。整个工作区一份。
+    /// 同步写开关（`set_synchronous`）。整个工作区一份，是**唯一真源**：
+    /// 门面的 `Screen.Synchronous` 属性与全局 `set_synchronous` 都读写这一位。
     synchronous: AtomicBool,
     /// `LogFileName` 设置的模板（`crt` 门面用）：下一次 `log_start` 生效。
     log_template: Mutex<Option<LogOptions>>,
@@ -153,9 +154,13 @@ pub struct ScriptWorkspace {
     ///
     /// 为什么需要它：`crt.GetTab(2).Screen.Send(…)` 必须打到 2 号标签上，
     /// 而「改全局绑定再改回来」既不是原子的、也会让并发克隆看到中间的绑定。
-    /// 钉死的句柄只是一个多了字段的克隆，共享同一批游标（`inner` 是同一个
-    /// `Arc`），因此 `Session` 状态不会分裂。
-    scoped: Option<SessionId>,
+    ///
+    /// 用 `Arc<Mutex<…>>` 而不是朴素的 `Option`：门面的 getter 每次都造一个新
+    /// 句柄（`tab.session` / `tab.screen`），`Connect` 这类改绑动词必须能把新
+    /// 绑定写回**标签对象本身**，否则 `let t = GetTab(2); t.Session.Connect(…)`
+    /// 之后 `t` 仍指着旧会话。所有克隆共享这一格，游标仍在 `inner` 里按会话
+    /// 独立，因此状态不会分裂。
+    scoped: Arc<Mutex<Option<SessionId>>>,
 }
 
 impl ScriptWorkspace {
@@ -175,7 +180,7 @@ impl ScriptWorkspace {
                 log_template: Mutex::new(None),
                 script_session: id,
             }),
-            scoped: None,
+            scoped: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -191,7 +196,8 @@ impl ScriptWorkspace {
         self.wrap_session(id)?;
         Ok(Self {
             inner: Arc::clone(&self.inner),
-            scoped: Some(id),
+            // 新开一格：钉住 2 号不能顺手把 `crt()` 本体也钉住。
+            scoped: Arc::new(Mutex::new(Some(id))),
         })
     }
 
@@ -224,7 +230,32 @@ impl ScriptWorkspace {
 
     /// 这个句柄实际作用的会话 id（钉死优先，否则全局绑定）。
     fn bound_id(&self) -> SessionId {
-        self.scoped.unwrap_or_else(|| self.tabs().current)
+        self.scope().unwrap_or_else(|| self.tabs().current)
+    }
+
+    fn scope(&self) -> MutexGuard<'_, Option<SessionId>> {
+        match self.scoped.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        }
+    }
+
+    /// 「开新会话 / 切绑」动词的统一落点：钉死的句柄只改自己的 scope，
+    /// 绝不碰全局 `tabs.current`（那是别的标签的绑定）。
+    fn rebind_here(&self, id: SessionId) {
+        let mut scope = self.scope();
+        if scope.is_some() {
+            *scope = Some(id);
+        } else {
+            // 先放 scope 锁再拿 tabs 锁：两把锁的顺序在整个文件里保持一致。
+            drop(scope);
+            self.tabs().current = id;
+        }
+    }
+
+    /// 同步写开关的唯一真源（门面属性与全局 `set_synchronous` 共用同一位）。
+    pub fn synchronous(&self) -> &AtomicBool {
+        &self.inner.synchronous
     }
 
     /// 单会话工作区：集合退化成 [`FixedSessions`]、其余端口全部显式降级。
@@ -306,6 +337,15 @@ impl ScriptWorkspace {
     /// 会话发命令。不改绑的话那条命令会发给**原来**的会话——错误命令已经发
     /// 出去了才可能被发现。
     pub fn session_open_request(&self, request: OpenRequest) -> Result<SessionInfo, SessionError> {
+        let info = self.open_request_unbound(request)?;
+        // 钉死的句柄只改自己的 scope；普通句柄照旧改全局绑定。
+        self.rebind_here(info.id);
+        self.describe(info.id)
+    }
+
+    /// 开会话、包游标、入表，但**不动任何绑定**（`open_request_unbound`）。
+    /// `Disconnect` 需要先把接棒者准备好，再决定改哪一层绑定。
+    fn open_request_unbound(&self, request: OpenRequest) -> Result<SessionInfo, SessionError> {
         let info = self.inner.env.sessions.open(&request)?;
         let Some(session) = self.inner.env.sessions.attach(info.id) else {
             // 集合刚说开成功、转头又不认识它：这是实现自相矛盾。不能把 info
@@ -321,12 +361,8 @@ impl ScriptWorkspace {
             self.inner.max_wait,
             Some(self.inner.env.cancel.clone()),
         );
-        {
-            let mut tabs = self.tabs();
-            tabs.map.insert(info.id, wrapped);
-            tabs.current = info.id;
-        }
-        self.describe(info.id)
+        self.tabs().map.insert(info.id, wrapped);
+        Ok(info)
     }
 
     /// 旧形态：`session_open(command[, cols, rows])`。
@@ -364,7 +400,7 @@ impl ScriptWorkspace {
         // **锁的作用域要小心**：`describe` 自己也要拿这把锁，所以任何
         // `self.tabs()` 的守卫都必须在调它之前释放（`std::sync::Mutex` 不可重入）。
         self.wrap_session(id)?;
-        self.tabs().current = id;
+        self.rebind_here(id);
         self.describe(id)
     }
 
@@ -372,9 +408,11 @@ impl ScriptWorkspace {
     ///
     /// 关**当前绑定**是错误（[`PrimitiveError::CloseCurrentSession`]）而不是
     /// 「关掉再自动改绑」：自动改绑等于让后面那些 `write` 悄悄写到另一条会话里。
+    /// 钉死的句柄有两层「当前」：自己的 scope 与全局 `tabs.current`；两者都
+    /// 不许被静默关掉（后者会让别的标签看到一条已经不存在的绑定）。
     pub fn session_close(&self, name: &str) -> Result<(), SessionError> {
         let id = self.resolve(name)?;
-        if self.tabs().current == id {
+        if self.bound_id() == id || self.tabs().current == id {
             return Err(PrimitiveError::CloseCurrentSession(name.to_string()).into());
         }
         // 先放锁再调集合：关会话要等监管线程收尾，攥着工作区锁会挡住
@@ -382,6 +420,50 @@ impl ScriptWorkspace {
         self.inner.env.sessions.close(name)?;
         self.tabs().map.remove(&id);
         Ok(())
+    }
+
+    /// CRT `Session.Disconnect`：关掉这个句柄绑定的会话，并显式把接棒者交给
+    /// 调用方。与 `session_close` 不同，这里允许关当前绑定——因为已经先选好
+    /// 了接棒者，后续 `write` 不会悄悄写到别的会话里。
+    ///
+    /// 钉死的句柄只改自己的 scope；全局 `tabs.current` 只在它恰好指向被关
+    /// 的那条时才跟着挪（否则会留下一条指向已关会话的绑定）。**别的标签的
+    /// 绑定不动**，这正是 scoped 动词与直接改全局的区别。
+    pub fn disconnect_here(&self) -> Result<String, SessionError> {
+        let old_id = self.bound_id();
+        let old_name = self
+            .inner
+            .env
+            .sessions
+            .name(old_id)
+            .ok_or(PrimitiveError::NoBinding)?;
+        let next = self
+            .session_list()
+            .into_iter()
+            .find(|row| row.id != old_id);
+        let (next_id, next_name) = match next {
+            Some(row) => (row.id, row.name),
+            None => {
+                // 最后一条：开一条本地 shell 接棒，脚本仍有作用对象。
+                let info = self.open_request_unbound(OpenRequest::LocalShell {
+                    cols: 80,
+                    rows: 24,
+                })?;
+                (info.id, info.name)
+            }
+        };
+        // 先关再改绑：集合关不掉时就别把 scope 挪走，失败要原子。
+        // 先放锁再调集合：关会话要等监管线程收尾。
+        self.inner.env.sessions.close(&old_name)?;
+        self.tabs().map.remove(&old_id);
+        self.rebind_here(next_id);
+        {
+            let mut tabs = self.tabs();
+            if tabs.current == old_id {
+                tabs.current = next_id;
+            }
+        }
+        Ok(next_name)
     }
 
     /// `session_clone(name)`：复制一条会话（副本会成为当前绑定）。
@@ -403,8 +485,8 @@ impl ScriptWorkspace {
         {
             let mut tabs = self.tabs();
             tabs.map.insert(info.id, wrapped);
-            tabs.current = info.id;
         }
+        self.rebind_here(info.id);
         self.describe(info.id)
     }
 
@@ -415,25 +497,32 @@ impl ScriptWorkspace {
         Ok(())
     }
 
-    /// `session_at(i)`：集合里第 `i` 条（**1 起**，与标签栏顺序一致）。
+    /// `session_at(i)`：标签栏第 `i` 条（**1 起**）。
+    ///
+    /// 标签栏顺序只有一个定义：[`Self::session_list`] 的名字序。`GetTab(i)`、
+    /// `Tab.Index()`、`GetTabCount()`、`session_index()` 全部走它——否则
+    /// 「第 2 个标签」在两个动词里指的是两条不同的会话。
     pub fn session_at(&self, index: usize) -> Result<SessionInfo, SessionError> {
         if index == 0 {
             return Err(PrimitiveError::BadArgument("session_at 的序号从 1 起").into());
         }
-        let rows = self.inner.env.sessions.list();
+        let rows = self.session_list();
         rows.get(index - 1).cloned().ok_or_else(|| {
             SessionsError::NotFound(format!("第 {index} 条会话（当前只有 {} 条）", rows.len()))
                 .into()
         })
     }
 
-    /// `session_index()`：当前绑定在集合里的 1 起序号。
+    /// `session_index()`：当前绑定在标签栏里的 1 起序号（与 `session_at` 同一序）。
+    ///
+    /// 不再问集合的 `Sessions::index`：那个序号是宿主自己的登记顺序，可能和
+    /// 标签栏看到的名字序不同，混用会让 `GetTab(n).Index() != n`。
     pub fn session_index(&self) -> Result<usize, SessionError> {
         let id = self.bound_id();
-        self.inner
-            .env
-            .sessions
-            .index(id)
+        self.session_list()
+            .iter()
+            .position(|row| row.id == id)
+            .map(|i| i + 1)
             .ok_or_else(|| SessionsError::Unsupported("当前宿主没有会话顺序".to_string()).into())
     }
 
@@ -1209,6 +1298,29 @@ mod tests {
         ws.session_use("two").expect("能切到 two");
         ws.session_close("one").expect("关非当前绑定应当成功");
         assert_eq!(fake.ids(), vec![2], "集合那边也要真的移除");
+    }
+
+    #[test]
+    fn disconnect_here_repairs_the_global_binding_only_if_it_pointed_at_the_closed_tab() {
+        let (ws, fake) = two_tabs();
+        // 钉在 one 上，而 one 也正好是全局绑定：关掉它之后全局不能悬空。
+        let scoped = ws.scoped_to(1).expect("钉到 one");
+        let name = scoped.disconnect_here().expect("断连");
+        assert_eq!(name, "two");
+        assert_eq!(scoped.current_name().expect("scope 跟着接棒者"), "two");
+        assert_eq!(ws.current_name().expect("全局跟着挪"), "two");
+        assert!(fake.manip(1).is_none(), "旧会话真的关了");
+    }
+
+    #[test]
+    fn disconnect_here_leaves_an_unrelated_global_binding_alone() {
+        let (ws, fake) = two_tabs();
+        // 钉在 two 上，全局仍是 one：two 被关掉不该把 one 的绑定挪走。
+        let scoped = ws.scoped_to(2).expect("钉到 two");
+        let name = scoped.disconnect_here().expect("断连");
+        assert_eq!(name, "one");
+        assert_eq!(ws.current_name().expect("全局不动"), "one");
+        assert!(fake.manip(2).is_none());
     }
 
     #[test]
