@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# 视觉回归：整窗十五张 + 组件若干。
+# 视觉回归：整窗十六张 + 组件若干。
 #
-# 整窗十五张都是「这台机器 + 这个窗口尺寸」的字节级基线：
+# 整窗十六张都是「这台机器 + 这个窗口尺寸」的字节级基线：
 #   screenshot-round64.png   贴底状态（Craft round 64 起沿用）
 #   screenshot-scroll.png    回看 6 行 + 跨三行选区 + 回看浮标（F1）
 #   screenshot-wrap.png      同一字节流开启 Word Wrap，长行折到 wrap column
@@ -23,7 +23,7 @@
 #                            （不再是 `00000000`，这就是环真的丢过字节的证据）
 #   screenshot-zh.png        中文界面：菜单 / 侧栏过滤框 / 快捷栏 / 底带 / 状态栏同时换字
 #
-# 前十四张由 `WINDTERM_LANG=en` 钉死，第十五张显式给 `WINDTERM_LANG=zh`；组件图一律
+# 前十五张由 `WINDTERM_LANG=en` 钉死，第十六张显式给 `WINDTERM_LANG=zh`；组件图一律
 # 英文。基线不能锚在用户 preferences 上，否则切了语言就会一起红。
 #
 # 取舍：弹窗的**外观**由组件图（`components/dialog_*.png`）守，整窗这张只守
@@ -55,7 +55,7 @@
 # 两个开关都不改变「逐字节比对」这条判据，只是省掉重复启动已证明一致的组合。
 #
 # 用法：
-#   scripts/screenshot-baseline.sh             # 比对十五张整窗图
+#   scripts/screenshot-baseline.sh             # 比对十六张整窗图
 #   scripts/screenshot-baseline.sh --components # 只比对组件图
 #   scripts/screenshot-baseline.sh --all        # 两者都跑
 #   scripts/screenshot-baseline.sh --update [--components|--all]
