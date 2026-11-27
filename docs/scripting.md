@@ -94,7 +94,7 @@ CRT 手册抄下来的脚本大多能直接跑；注意入口必须写成函数�
 | `crt.GetLastErrorMessage()` | `last_error()` | 门面对应 `crt().last_error()` |
 | `crt.Screen.WaitForString(p, secs)` | `crt().screen.wait_for_string(p, secs)` | 返回**布尔**：命中 `true`、超时 `false`（对应 CRT 的 True/-1 与 False/0），命中串被消费掉；要文本改用 `read_until(p, secs)`。CRT 省略 `secs` 会一直等到取消/关闭，本门面的单参重载用缺省超时 |
 | `crt.Screen.WaitForStrings([...], secs)` / `crt.Screen.MatchIndex` | `crt().screen.wait_for_strings([...], secs)` | 返回最先命中模式在数组里的 **1 起下标**（真实 CRT 的 0 表示超时，本门面超时显式报错）；全局 `wait_any` 的 `hit["index"]` 同为 1 起 |
-| `crt.Screen.ReadString(p, secs)` | `crt().screen.read_string(p, secs)` | 命中返回分隔符**之前**的文本；超时返回 CRT 风格哨兵（真实 CRT 为空串，本门面目前给整数 0）而不抛错；命中串被消费掉 |
+| `crt.Screen.ReadString(p, secs)` | `crt().screen.read_string(p, secs)` | 命中返回分隔符**之前**的文本；超时返回**空串**（与 CRT 一致），不抛错；命中串被消费掉 |
 
 全局没有 `send` / `wait_for_string` 这类裸函数：要么用全局动词 `write` /
 `read_until`，要么走 `crt().screen.*` 门面。
