@@ -18,6 +18,7 @@
 
 mod clipboard_policy; mod comp; mod ip_probe;
 mod construct;
+mod startup_defaults;
 mod dialogs; mod dispatch; mod lifecycle_events;
 mod effects; mod harness;
 pub(crate) mod kit;

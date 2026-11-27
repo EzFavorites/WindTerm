@@ -58,12 +58,13 @@ pub fn shell_basename() -> String {
 
 /// `$SHELL` 的原始值 → 显示用的壳名。
 ///
-/// 纯函数版，便于单测（同 [`login_from`]）。
+/// 纯函数版，便于单测（同 [`login_from`]）。对注入路径也公开，供
+/// [`crate::host_shells`] 复用同一套显示名口径，不要另写一遍切分规则。
 ///
 /// 兜底 `"shell"`：`$SHELL` 缺失（Windows、或从 GUI 启动而没继承环境）、为空白、
 /// 或以 `/` 结尾时，标签仍然要有个名字——空名字会让面板标签条上出现一块
 /// 只有一个 `×` 的空白块。
-fn shell_basename_from(raw: Option<&str>) -> String {
+pub fn shell_basename_from(raw: Option<&str>) -> String {
     let path = raw.map(str::trim).unwrap_or("");
     // 同时按 `/` 与 `\` 切：跨平台显示名，不假设路径分隔符。
     let base = path

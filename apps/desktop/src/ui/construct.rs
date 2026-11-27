@@ -7,6 +7,7 @@
 use super::*;
 // 目录树里的两个新模块 ：`use super::*` 看不到私有 `mod`，要显式引入。
 use crate::ui::{comp, harness};
+use crate::ui::startup_defaults::startup_defaults;
 use term_profile::prefs::Prefs;
 use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
@@ -43,19 +44,15 @@ impl TerminalWindow {
             }
         })));
         // 会话从 SQLite 会话库读（`persist::load`）。库不存在 / 读不出来
-        // 就退回出厂默认值，让一台新机器打开就有个能用的本地 shell。
-        let (groups, sessions) = term_runtime::persist::load().unwrap_or_else(|| {
-            let g = vec!["Servers".to_string()];
-            // P1-5：登录名由宿主注入。`term-core` 自己不读 `$USER`，
-            // 读环境的动作落在 `term-io` 这层（它本来就持有本机事实）。
-            let mut s = vec![SessionConfig::new_local_shell(&term_io::host::login())];
-            let mut ssh = SessionConfig::new(Protocol::Ssh);
-            ssh.name = "My Server".to_string();
-            ssh.host = "example.com".to_string();
-            ssh.username = "user".to_string();
-            s.push(ssh);
-            (g, s)
-        });
+        // 才是首次启动：探测本机可用 shell，按原版 `Shell sessions` 分组造
+        // 一条一条本地 Shell 会话。已有会话库时 `startup_defaults` 会原样
+        // 交回，探测闭包连调用都不会发生（用户数据绝不被动）。
+        // 登录名同样由宿主注入：`term-core` 不读 `$USER`，读环境落在 `term-io`。
+        let (groups, sessions) = startup_defaults(
+            term_runtime::persist::load(),
+            term_io::host_shells::detect_host_shells,
+            term_io::host::login,
+        );
 
         // 语言从偏好库读（读不到 / 标签不认就回默认英文）。这是**初值**，不是
         // 第二写入者：之后的每一次切换都走 `ShellAction::SetLanguage` → reduce。

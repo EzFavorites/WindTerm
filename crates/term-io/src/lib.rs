@@ -31,7 +31,8 @@
 //! - `log`：会话日志写入端（清洗在 `term_core::ansi`，落盘在这里）
 //! - `pre_session_log`：建连前错误的落盘（与 Debug 排障日志同源、同一套脱敏）
 //! - `local_dir`：本地目录枚举（Filer 的本地数据源；IO 不进 `ui/`）
-//! - `host`：宿主环境事实（当前登录名）——`term-core` 不读环境，值从这里注入
+//! - `host`：宿主环境事实（当前登录名 / shell 显示名）——`term-core` 不读环境，值从这里注入
+//! - `host_shells`：首次启动的本地 shell 探测（宿主读事实 + 纯函数注入判定，UI 只收结果）
 //! - `preview`：文件头部读取 + 内容类型嗅探（预览窗的数据底座）
 //!
 //! # 为什么 `local_dir` / `preview` 在这里
@@ -46,6 +47,7 @@ pub mod charset;
 pub mod channel;
 pub mod error;
 pub mod host;
+pub mod host_shells;
 pub mod local_dir;
 pub mod log;
 pub mod pre_session_log;

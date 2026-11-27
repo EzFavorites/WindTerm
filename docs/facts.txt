@@ -5,7 +5,7 @@
 tests_core=425
 tests_paths=8
 tests_profile=122
-tests_io=157
+tests_io=166
 tests_import=30
 tests_app=603
 tests_app_planned=35
