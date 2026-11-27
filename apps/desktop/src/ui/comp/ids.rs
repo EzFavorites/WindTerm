@@ -140,6 +140,7 @@ impl CompId {
         CompId::MenuSubmenu(28),
         CompId::MenuSubmenu(29),
         CompId::MenuSubmenu(30),
+        CompId::MenuSubmenu(31),
     ];
 
     /// 视觉基线专用夹具：快捷命令 2 个 + 右键菜单 2 个 + 未挂接弹层 3 个。

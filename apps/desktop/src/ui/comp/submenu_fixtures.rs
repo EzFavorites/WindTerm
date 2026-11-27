@@ -1,4 +1,4 @@
-//! 32 张子菜单展开态里的 31 张（`session/03 Log` 仍由 `menu_log` 守）。
+//! 33 张子菜单展开态里的 32 张（`session/03 Log` 仍由 `menu_log` 守）。
 //!
 //! 与顶层菜单夹具一样走生产同一份 `draw_menu_items_static`：父菜单高亮当前
 //! 路径上的子菜单行，子菜单按参考图位置紧贴父菜单右侧、顶边对齐被高亮的行。
@@ -56,6 +56,7 @@ pub(in crate::ui) const PATHS: &[(&str, &[&str])] = &[
         &["View", "Window Opacity"],
     ),
     ("menu_submenu_window_merge_to_group", &["Window", "Merge To Group"]),
+    ("menu_submenu_tool_script", &["Tool", "Script"]),
 ];
 
 pub(in crate::ui) fn name(idx: u8) -> &'static str {

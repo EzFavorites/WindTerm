@@ -125,7 +125,9 @@ pub(in crate::ui) enum CompId {
     /// Goto / View / Window / Help 仅有 `menu.rs` 的逻辑对齐，缺逐字节视觉基线。
     /// 这 7 张补上后，菜单栏 10 个菜单全部有独立出图，可逐张比对视觉基线。
     MenuEdit,
-    /// `01-menu-bar/tool/01-tool-menu.png`：五项 + Transfer Binary 子菜单。
+    /// `01-menu-bar/tool/01-tool-menu.png`：七项（Sync Input / OneKeys /
+    /// Triggers / Script / Tunnels / Tunnel Settings / Transfer Binary），
+    /// 其中 Script 与 Transfer Binary 为子菜单。
     MenuTool,
     MenuSearch,
     MenuSelection,
