@@ -89,6 +89,23 @@ fn tab_title_matches(title: &str, filter: &str) -> bool {
     needle.is_empty() || title.to_lowercase().contains(&needle)
 }
 
+/// 标签条上显示的标题：**只**是会话配置里的名字。
+///
+/// 退出码（`SessionStatus::exit_status`）与 OSC 动态标题（`GridSnapshot::title`）
+/// 都不进标签文字——用户要的是「会话叫什么」，不是「它此刻在说什么」。
+/// 非 live 的 `(disconnected)` 后缀本轮原样保留（owner 后续补断开连接截图再定口径）。
+///
+/// 全窗标签条 [`TerminalWindow::draw_tabs`] 与分屏标签条
+/// [`crate::ui::layout::pane_chrome::draw_pane_tab_strip`] 共用这一处，避免两处
+/// 标题口径各自漂移。
+pub(in crate::ui) fn tab_title(tab: &Tab, disconnected: &str) -> String {
+    if tab.is_live() {
+        tab.config.name.clone()
+    } else {
+        format!("{}{}", tab.config.name, disconnected)
+    }
+}
+
 /// 双击标签该派发什么。抽成纯函数是为了把判据钉在单测里：设置档决定
 /// 「双击有没有动作」，当前标签的 tmux 控制模式决定「是关标签还是改窗格名」。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -119,17 +136,7 @@ impl TerminalWindow {
             .iter()
             .enumerate()
             .map(|(i, tab)| {
-                let title = if tab.is_live() {
-                    if let Some(status) = tab.status().exit_status {
-                        format!("{} [{}]", tab.config.name, status)
-                    } else if !tab.snapshot.title.is_empty() {
-                        tab.snapshot.title.clone()
-                    } else {
-                        tab.config.name.clone()
-                    }
-                } else {
-                    format!("{}{}", tab.config.name, self.tr(" (disconnected)"))
-                };
+                let title = tab_title(tab, self.tr(" (disconnected)"));
                 (title, self.tab_color(i))
             })
             .collect();
@@ -549,6 +556,85 @@ mod tests {
         assert!(tab_title_matches("Local Shell", ""));
         assert!(tab_title_matches("Local Shell", " shell "));
         assert!(!tab_title_matches("My Server", "shell"));
+    }
+
+    /// 只在第一次 `poll()` 报一次退出文本：足以让 `pool.status().exit_status`
+    /// 有值，又不碰 PTY / SSH。
+    struct ExitingChannel {
+        reported: bool,
+    }
+
+    impl term_core::channel::TermChannel for ExitingChannel {
+        fn drain(&mut self) -> Vec<u8> {
+            Vec::new()
+        }
+        fn write(&mut self, _bytes: &[u8]) {}
+        fn resize(&mut self, _cols: usize, _rows: usize) {}
+        fn poll(&mut self) -> Option<String> {
+            if self.reported {
+                None
+            } else {
+                self.reported = true;
+                Some("exited 7".to_string())
+            }
+        }
+        fn finished(&self) -> bool {
+            self.reported
+        }
+        fn close(&mut self) {
+            self.reported = true;
+        }
+        fn description(&self) -> &str {
+            "exiting test channel"
+        }
+    }
+
+    /// 标题的唯一真相是 `config.name`：**即使** OSC 动态标题非空、退出态有值，
+    /// live tab 也不把这两样拼进文字（旧实现会显示 `name [exited 7]` 或 OSC 标题）。
+    #[test]
+    fn a_live_tab_shows_only_its_name_despite_an_exit_status_and_an_osc_title() {
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let ctx = egui::Context::default();
+        let ch = Box::new(ExitingChannel { reported: false })
+            as Box<dyn term_core::channel::TermChannel>;
+        let mut tab = crate::ui::terminal::make_tab_with_channel(
+            &pool,
+            SessionConfig::new(Protocol::Shell),
+            ch,
+            egui::Id::new("live_tab_title"),
+            &ctx,
+        );
+        tab.config.name = "1.zsh".to_string();
+        tab.snapshot.title = "OSC dynamic title".to_string();
+        let id = tab.session.expect("注入通道必须给出会话 id");
+
+        crate::ui::lifecycle_test_support::eventually("退出状态落到会话上", || {
+            let _ = pool.poll(id);
+            pool.status(id).and_then(|s| s.exit_status).is_some()
+        });
+        assert_eq!(tab.status().exit_status.as_deref(), Some("exited 7"));
+        assert!(!tab.snapshot.title.is_empty(), "前提：OSC 标题非空");
+        assert!(tab.is_live(), "前提：会话仍在册");
+
+        assert_eq!(tab_title(&tab, " (disconnected)"), "1.zsh");
+    }
+
+    /// 非 live 的后缀本轮**保留不动**：owner 后续补断开连接截图再定口径。
+    #[test]
+    fn a_disconnected_tab_keeps_its_suffix_for_now() {
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let ctx = egui::Context::default();
+        let mut tab = crate::ui::lifecycle_test_support::fake_tab(
+            &pool,
+            &ctx,
+            0,
+            &crate::ui::lifecycle_test_support::CloseCount::default(),
+        );
+        tab.config.name = "1.zsh".to_string();
+        tab.close();
+        assert!(!tab.is_live(), "前提：会话已断开");
+
+        assert_eq!(tab_title(&tab, " (disconnected)"), "1.zsh (disconnected)");
     }
 
     #[test]

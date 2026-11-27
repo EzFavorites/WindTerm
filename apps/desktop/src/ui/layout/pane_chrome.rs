@@ -18,8 +18,8 @@
 
 use crate::ui::layout::{pane_group_name, PaneGroup, PaneId};
 use crate::ui::shell::{
-    paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, ACTIVE_LINE, LINE_H,
-    PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_H,
+    paint_cross, paint_right_tool, paint_tab_icon, tab_number_prefix, tab_title, ACTIVE_LINE,
+    LINE_H, PANE_TOOLS_H, TAB_BAR_H, TAB_TOOLBAR_H,
 };
 use crate::ui::*;
 use term_app::menu::{TabTool, TAB_TOOLS};
@@ -144,17 +144,7 @@ fn draw_pane_tab_strip(
         .enumerate()
         .filter_map(|(i, sid)| {
             let tab = win.tabs.iter().find(|t| t.identity == *sid)?;
-            let title = if tab.is_live() {
-                if let Some(status) = tab.status().exit_status {
-                    format!("{} [{}]", tab.config.name, status)
-                } else if !tab.snapshot.title.is_empty() {
-                    tab.snapshot.title.clone()
-                } else {
-                    tab.config.name.clone()
-                }
-            } else {
-                format!("{}{}", tab.config.name, win.tr(" (disconnected)"))
-            };
+            let title = tab_title(tab, win.tr(" (disconnected)"));
             // 编号按**本组内**的位置算：分屏时每片窗格的标签条各数各的，
             // 与全窗标签条按全局位置编号不冲突。
             Some((
@@ -415,6 +405,53 @@ mod tests {
         assert!(
             focused < normal,
             "专注态 {focused} 形状应少于常态 {normal}：tab 条 / 工具行 / Sysmon 都不该画"
+        );
+    }
+
+    /// 分屏内的标签条与主标签条同一口径：OSC 动态标题不改 tab 文字。
+    /// 退出态的那条断言在 `shell/tab_bar` 的共享 helper 测试里（两条标签条共用它）。
+    #[test]
+    fn pane_tab_strip_ignores_the_dynamic_title() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let closes = crate::ui::lifecycle_test_support::CloseCount::default();
+        let mut tab = crate::ui::lifecycle_test_support::fake_tab(&pool, &ctx, 0, &closes);
+        tab.config.name = "1.zsh".to_string();
+        tab.snapshot.title = "OSC dynamic title".to_string();
+        let identity = tab.identity;
+        let mut win = crate::ui::lifecycle_test_support::window_with(pool, &ctx, vec![tab]);
+        let pane = crate::ui::layout::mint_pane_identity();
+        let group = PaneGroup { order: vec![identity], active: identity };
+
+        let mut texts = Vec::new();
+        // 首帧是 sizing pass，跑两帧取最终形状（见 `pane_shapes`）。
+        for _ in 0..2 {
+            let input = egui::RawInput {
+                screen_rect: Some(leaf_rect()),
+                ..Default::default()
+            };
+            let out = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    draw_pane_leaf(&mut win, ui, pane, &group, ui.available_rect_before_wrap());
+                });
+            });
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect();
+        }
+
+        assert!(
+            texts.iter().any(|t| t.contains("1.zsh")),
+            "标签条应画出配置里的会话名：{texts:?}"
+        );
+        assert!(
+            !texts.iter().any(|t| t.contains("OSC dynamic title")),
+            "OSC 标题不该进 tab 文字：{texts:?}"
         );
     }
 }
