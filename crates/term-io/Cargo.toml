@@ -1,6 +1,6 @@
 [package]
 name = "term-io"
-version = "0.0.1-beta3"
+version = "0.0.1-beta4"
 rust-version = "1.94"
 edition = "2021"
 

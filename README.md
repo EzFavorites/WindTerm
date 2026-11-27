@@ -8,7 +8,7 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 
 支持本地 Shell、SSH、Telnet、TCP、串口和独立 SFTP 会话。SSH 会话上可以直接开
 文件面板传文件，不必再连一次；SSH / Telnet / TCP 可以走 HTTP 或 SOCKS5 代理，
-也可以配跳板链和三类端口转发。当前版本 **v0.0.1-beta3**。
+也可以配跳板链和三类端口转发。当前版本 **v0.0.1-beta4**。
 
 > 本文只写已经实现的行为。命令面规模请用 `term-desk capability` 现算
 > （写作时实测 256 条命令 / 252 已接线 / 4 置灰）；测试数量以 `cargo test`
@@ -44,12 +44,12 @@ WindTerm 是一个桌面终端工作台：左边是会话树和文件面板，�
 | Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.msi` | 安装器（开始菜单快捷方式） |
 | Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.zip` | 便携包：`WindTerm.exe` + 说明书 |
 
-`<ver>` 取自 `apps/desktop/Cargo.toml`，按当前版本为 `0.0.1-beta3`（连字符）。
+`<ver>` 取自 `apps/desktop/Cargo.toml`，按当前版本为 `0.0.1-beta4`（连字符）。
 每个文件都附带同名 `.sha256`，例如：
 
 ```sh
-shasum -a 256 -c WindTerm-0.0.1-beta3-macos-aarch64.dmg.sha256
-# Linux：sha256sum -c WindTerm-0.0.1-beta3-linux-x86_64.deb.sha256
+shasum -a 256 -c WindTerm-0.0.1-beta4-macos-aarch64.dmg.sha256
+# Linux：sha256sum -c WindTerm-0.0.1-beta4-linux-x86_64.deb.sha256
 ```
 
 macOS 构建是 ad-hoc 签名，没有公证，首次启动会被 Gatekeeper 拦下：

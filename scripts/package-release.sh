@@ -6,7 +6,7 @@
 # 用法：
 #   scripts/package-release.sh <target-triple> <version> <binary> [outdir]
 # 例：
-#   scripts/package-release.sh aarch64-apple-darwin 0.0.1-beta3 \
+#   scripts/package-release.sh aarch64-apple-darwin 0.0.1-beta4 \
 #       target/aarch64-apple-darwin/release/term-desk dist
 #
 # 产物（按平台分支）：
