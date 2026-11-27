@@ -113,4 +113,3 @@ use super::*;
         set_remote_target(None);
         crate::sysmon_remote::clear();
     }
-
