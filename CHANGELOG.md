@@ -24,6 +24,11 @@
 
 ### Fixed
 
+- 修正 `docs/scripting.md` 的门面速查与偏差表：`WaitForString` 返回布尔（超时 `false`）而非文本，
+  捕获文本改用 `read_until`；明确「全局动词超时显式失败、门面成员返回 CRT 风格哨兵」两套契约，
+  并补上多语言 / 两行头 / 每次运行授权 / 前后台模式 / 录制器的 CRT 对照。
+- 修正随附示例：`00-template.rhai` 与 `03-capture-output.rhai` 改用全局 `read_until` 抓文本，
+  `02-batch-inspection.rhai` 的口令提示索引改为 1 起的 3 / 4；设计文档门面类型数改为八个。
 - 修正 `wait_any` 文档与两个随附示例的索引口径（1 起下标）。
 - 修正 `secret`（交互式掩码输入，非保险库句柄）与 `term-desk capability --json`
   （菜单命令台账，非动词表）的文档描述。

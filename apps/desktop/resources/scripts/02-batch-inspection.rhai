@@ -23,9 +23,9 @@ for host in hosts {
     }});
     session_use(info["name"]);
 
-    // 首个命中决定要不要答口令；wait_any 超时即显式失败。
+    // 首个命中决定要不要答口令；index 是 1 起：密码提示是 3 / 4；wait_any 超时即显式失败。
     let login = wait_any(["$ ", "# ", "Password:", "password:"], 20);
-    if login["index"] == 2 || login["index"] == 3 {
+    if login["index"] == 3 || login["index"] == 4 {
         write(secret("远端口令") + "\r");
         wait_any(["$ ", "# "], 20);
     }

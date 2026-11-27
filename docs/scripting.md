@@ -75,13 +75,15 @@ term-desk script run a.rhai --timeout 30 --quiet
 
 ### `crt` 兼容门面与真实拼写
 
-门面提供 SecureCRT 的**对象形状**，但注册名是 Rhai 的 snake_case：入口是函数调用
-`crt()`，后面接小写属性与方法——`crt().screen.send(...)` 转发到 `write`、
-`crt().screen.wait_for_string(...)` 转发到 `read_until`（消费式）、
-`crt().screen.get(...)` 转发到 `region`。对象上的 PascalCase 别名也已注册
-（`crt().Screen.Send(...)`、`crt().GetTab(1)` 可用），所以照 CRT 手册抄下来的脚本
-大多能直接跑；注意入口必须写成函数调用 `crt()`，不是属性 `crt.`。下面的速查表
-只是风格参考，不是必改清单。门面只提供形状，不提供 VBScript / Python 解释器。
+门面提供 SecureCRT 的**对象形状与返回语义**，但注册名是 Rhai 的 snake_case：入口
+是函数调用 `crt()`，后面接小写属性与方法——`crt().screen.send(...)` 转发到 `write`、
+`crt().screen.get(...)` 转发到 `region`。`crt().screen.wait_for_string(...)` 内部走
+消费式 `read_until`（命中会吃掉匹配输出），但按 CRT 约定**只返回布尔**（命中
+`true`、超时 `false`），不把文本交回脚本；要捕获文本请用全局 `read_until`。对象上的
+PascalCase 别名也已注册（`crt().Screen.Send(...)`、`crt().GetTab(1)` 可用），所以照
+CRT 手册抄下来的脚本大多能直接跑；注意入口必须写成函数调用 `crt()`，不是属性
+`crt.`。下面的速查表只是风格参考，不是必改清单。门面只提供形状与返回值约定，
+不提供 VBScript / Python 解释器。
 
 | SecureCRT 写法 | WindTerm / Rhai 写法 | 说明 |
 |---|---|---|
@@ -90,7 +92,9 @@ term-desk script run a.rhai --timeout 30 --quiet
 | `/SSH2 ...`（Open 会话配置行） | `session_open(#{config: #{host: "...", username: "...", auth: "agent"}})` | 也可用 `session_open(#{profile: "会话名"})` 开库里的会话 |
 | `crt.Arguments` / `crt.Arguments(0)` | `args()` / `args(0)` | 0 起，越界给空串；门面对应 `crt().arguments()` / `crt().argument(i)` |
 | `crt.GetLastErrorMessage()` | `last_error()` | 门面对应 `crt().last_error()` |
-| `crt.Screen.WaitForString(p, secs)` | `crt().screen.wait_for_string(p, secs)` | 命中返回**到分隔符为止（含分隔符）**的文本并推进读游标；超时是显式错误，不返回「假装成功」的哨兵 |
+| `crt.Screen.WaitForString(p, secs)` | `crt().screen.wait_for_string(p, secs)` | 返回**布尔**：命中 `true`、超时 `false`（对应 CRT 的 True/-1 与 False/0），命中串被消费掉；要文本改用 `read_until(p, secs)`。CRT 省略 `secs` 会一直等到取消/关闭，本门面的单参重载用缺省超时 |
+| `crt.Screen.WaitForStrings([...], secs)` / `crt.Screen.MatchIndex` | `crt().screen.wait_for_strings([...], secs)` | 返回最先命中模式在数组里的 **1 起下标**（真实 CRT 的 0 表示超时，本门面超时显式报错）；全局 `wait_any` 的 `hit["index"]` 同为 1 起 |
+| `crt.Screen.ReadString(p, secs)` | `crt().screen.read_string(p, secs)` | 命中返回分隔符**之前**的文本；超时返回 CRT 风格哨兵（真实 CRT 为空串，本门面目前给整数 0）而不抛错；命中串被消费掉 |
 
 全局没有 `send` / `wait_for_string` 这类裸函数：要么用全局动词 `write` /
 `read_until`，要么走 `crt().screen.*` 门面。
@@ -175,13 +179,15 @@ write("<口令>\n");
 
 这些不是「还没做」，而是刻意不照搬；照 CRT 手册写的脚本要按上表改写。
 
-| 偏差 | 现在的事实 |
-|---|---|
-| 无多语言解释器 | 只有 Rhai。门面提供 CRT 的**对象形状**，不解释 VBScript / Python，也不执行它们的语句 |
-| 无两行头 | `#$language = ...` 不解析；脚本头只有可选的 `// @cap ...`（授权，非语言选择） |
-| 超时显式失败 | `wait` / `wait_any` / `read_until` / `crt().screen.wait_for_string` 超时即报错，不返回哨兵值；原因可从 `last_error()` 读 |
-| 部分 API 需 caps 授权 | 文件、外部进程、剪贴板读、窗口与应用级状态默认全拒；用脚本头 `// @cap fs=write:/tmp,process` 或 CLI `--allow ...` 放行，只作用于本次运行 |
-| 无自定义对话框 / OLE | 不支持 CRT 的自定义窗体与 OLE 自动化；`crt().dialog` 只有 `message_box` / `prompt` / `file_open_dialog` / `file_save_dialog` 四种固定形态 |
+| 偏差 | CRT 的做法 | WindTerm 现在的事实 |
+|---|---|---|
+| 无多语言解释器 | 支持 VBScript / Python 等多种语言，由两行 `#$Language` 头选定 | 只有 Rhai。门面提供 CRT 的**对象形状与返回语义**，不解释 VBScript / Python，也不执行它们的语句 |
+| 无两行头 | 开头两行 `#$language = "VBScript"` 之类用于选语言 | 不解析两行头；脚本头只有可选的**单行** `// @cap ...`，它是本次运行的授权声明，不是语言选择 |
+| 超时是两套契约 | `WaitForString` 超时给 `false`、`ReadString` 给哨兵、`WaitForStrings` / `MatchIndex` 给 0，都不抛错 | **全局动词** `wait` / `wait_any` / `read_until` / `read` 超时即显式失败（原因可从 `last_error()` 读），不返回哨兵；**门面成员** `crt().screen.wait_for_string` / `read_string` 按 CRT 返回哨兵而不抛错。两套契约并存，别混用 |
+| 无每次运行的授权 | CRT 没有 per-run capability grant：脚本能做什么取决于脚本与宿主环境，没有按次收紧的开关 | `// @cap` 与 CLI `--allow` 是刻意加的**安全增强**，只作用于本次运行；文件、外部进程、剪贴板读、窗口与应用级状态默认全拒 |
+| 无前后台模式 | CRT 不区分脚本的前台 / 后台运行模式 | 不做该区分；把脚本跑在独立会话 / 进程里只是自动化安全的实现细节，不是用户可见的模式开关 |
+| 录制器形似而神不同 | 录人敲的键 + 观察到的输出，生成 `Send` / `WaitForString` 对 | 同样从**按键 + 屏幕安静锚点**录制，但生成 `write` / `read_until` 对（见「录制脚本」节） |
+| 无自定义对话框 / OLE | 支持自定义窗体与 OLE 自动化 | 不支持；`crt().dialog` 只有 `message_box` / `prompt` / `file_open_dialog` / `file_save_dialog` 四种固定形态 |
 
 ## JSON-RPC 桥
 
