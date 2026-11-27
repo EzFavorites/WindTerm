@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# 视觉回归：整窗十一张 + 组件若干。
+# 视觉回归：整窗十五张 + 组件若干。
 #
-# 整窗十一张都是「这台机器 + 这个窗口尺寸」的字节级基线：
+# 整窗十五张都是「这台机器 + 这个窗口尺寸」的字节级基线：
 #   screenshot-round64.png   贴底状态（Craft round 64 起沿用）
 #   screenshot-scroll.png    回看 6 行 + 跨三行选区 + 回看浮标（F1）
+#   screenshot-wrap.png      同一字节流开启 Word Wrap，长行折到 wrap column
+#   screenshot-rainbow.png   嵌套括号 + 彩虹着色，括号按深度上色
 #   screenshot-find.png      回看 6 行 + Find 栏打开 + 匹配高亮（F2）
 #   screenshot-word.png      回看 6 行 + 双击选中的单个词（F3）
 #   screenshot-block.png     回看 6 行 + 三行同一段列的矩形选区（F4）
+#   screenshot-preview.png   悬停预览窗：锚点外的历史快照与实时视口并存
+#   screenshot-sysmon.png    Sysmon 展开态：底部细带翻成 T/C/M 读数条
 #   screenshot-dialog.png    New Session 弹窗打开（弹窗位置 / 尺寸 / 是否溢出窗口）
 #   screenshot-margin.png    margin 边栏：时间戳列 + 行号列 + `›`/`~` 符号列
 #   screenshot-dock.png      底带：一条带 + 标签条 + Sender 工具行
@@ -18,7 +22,7 @@
 #                            （不再是 `00000000`，这就是环真的丢过字节的证据）
 #   screenshot-zh.png        中文界面：菜单 / 侧栏过滤框 / 快捷栏 / 底带 / 状态栏同时换字
 #
-# 前十张由 `WINDTERM_LANG=en` 钉死，第十一张显式给 `WINDTERM_LANG=zh`；组件图一律
+# 前十四张由 `WINDTERM_LANG=en` 钉死，第十五张显式给 `WINDTERM_LANG=zh`；组件图一律
 # 英文。基线不能锚在用户 preferences 上，否则切了语言就会一起红。
 #
 # 取舍：弹窗的**外观**由组件图（`components/dialog_*.png`）守，整窗这张只守
@@ -38,7 +42,7 @@
 # 创建为 `with_visible(false)`，wgpu 仍然把帧渲到图层，`ViewportCommand::Screenshot`
 # 读的是渲染后的那一帧。所以跑这套脚本**不会弹窗口、不抢前台焦点**，可随时在
 # 你正在工作的前台环境里直接运行，不必切到空闲桌面。手动 `--demo <夹具>`
-# （不带 `--screenshot`）仍按原样可见，便于肉眼调试夹具。11 整窗 + 全部组件图
+# （不带 `--screenshot`）仍按原样可见，便于肉眼调试夹具。15 整窗 + 全部组件图
 # 已用隐藏窗口逐字节复验，与可见窗口渲染结果完全一致。
 #
 # 2026-11-19 性能：98 张图原先逐张启动进程，实测 224s。现在做两件保守优化：
@@ -50,7 +54,7 @@
 # 两个开关都不改变「逐字节比对」这条判据，只是省掉重复启动已证明一致的组合。
 #
 # 用法：
-#   scripts/screenshot-baseline.sh             # 比对十一张整窗图
+#   scripts/screenshot-baseline.sh             # 比对十五张整窗图
 #   scripts/screenshot-baseline.sh --components # 只比对组件图
 #   scripts/screenshot-baseline.sh --all        # 两者都跑
 #   scripts/screenshot-baseline.sh --update [--components|--all]
@@ -334,7 +338,7 @@ if [ "$MODE" = "full" ] || [ "$MODE" = "all" ]; then
   add_job 'check screenshot-sysmon.png --demo sysmon'
   add_job 'check screenshot-dialog.png --demo newsession'
   # margin 边栏（时间戳 / 行号 / 符号三列 + 当前行强调）。
-  # 必须单独一张：另外五张的字节流既没有 OSC 133 提示符也不折行，
+  # 必须单独一张：其余整窗图的字节流既没有 OSC 133 提示符也不折行，
   # 符号列在它们身上永远是空的——等于没有基线。
   add_job 'check screenshot-margin.png --demo margin'
   # 底带（一条带 + 标签条 + 齿轮菜单）。同样必须单独一张：
