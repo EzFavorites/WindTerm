@@ -16,9 +16,13 @@
 //! # 高度按状态取
 //!
 //! 收起态用 [`TAB_TOOLBAR_H`]（视觉基线 25pt，一个像素都不许动：12 张整窗基线画的
-//! 就是这个高度）；过滤激活时抬到 [`TAB_TOOLBAR_FILTER_H`]（42pt），因为过滤行里
-//! 最占位的是 `TextEdit`——它 23.5pt 高，上下各留 9.25pt，25pt 装不下。
+//! 就是这个高度）；过滤激活时抬到 [`TAB_TOOLBAR_FILTER_H`]——它现在就是 Find 栏的
+//! [`super::FIND_BAR_H`]（43pt），过滤行直接套 Find 的纵向几何（`TextEdit` 23.5pt
+//! 高、上下各留 10pt），25pt 装不下。
 //! **仍然是同一条工具条、同一行**：不是新增面板，也不是把过滤行挤到第二行。
+//!
+//! 左端 `Filter`/`Filter:` 快速开关恒为 25pt 高（与 Sysmon 按钮同高），在 43pt 条里
+//! 垂直居中；激活后它本身就是 Find 式的下划线标签，点击即关，输入框从 x≈52 起。
 //!
 //! 抬高的代价是终端少几行：`layout/pane_chrome.rs` 与 `ui/mod.rs` 都按这个高度切段，
 //! `Tab::resize` 因此真的收到更矮的终端（有意为之）。行号不重排仍然成立——那是
@@ -43,13 +47,13 @@ use term_session::sysmon::{fmt_bytes, fmt_uptime};
 /// 细带高度（视觉基线 2× 图约 50px → 25pt）。
 pub(in crate::ui) const TAB_TOOLBAR_H: f32 = 25.0;
 
-/// 过滤激活态高度：42pt。
+/// 过滤激活态高度：**就是 Find 栏高度**（43pt）。
 ///
-/// 取值逐条落在几何上——过滤行里最占位的是 `TextEdit`，Find 栏把它定在 23.5pt
-/// 高、上下各留 10pt（`FIND_BAR_H = 43`）；这里同款留白，少 1pt 是因为这条工具条
-/// 还要同时放左端的 `Filter` 按钮。25pt 装不下：输入框上下各被吃掉 0.75pt，
-/// 光标就贴着边框了。
-pub(in crate::ui) const TAB_TOOLBAR_FILTER_H: f32 = 42.0;
+/// 用户 2026-11-27 裁定「参照 Find 栏重新设计」，纵向几何因此不再另算：Find 栏的
+/// `TextEdit` 是 23.5pt 高、上下各留 10pt，整条 43pt；过滤行直接用同一组常量
+/// （[`super::FIELD_TOP`] / [`super::FIELD_H`]）。左端 25pt 的快速开关垂直居中即可，
+/// 不再为此削掉 1pt。收起态仍是 [`TAB_TOOLBAR_H`]，视觉基线不动。
+pub(in crate::ui) const TAB_TOOLBAR_FILTER_H: f32 = super::FIND_BAR_H;
 
 
 /// 读数条设计宽度（视觉基线逐像素：条带 531px @2x ≈ 265pt）。
@@ -344,7 +348,13 @@ impl TerminalWindow {
         let filter_w = label_width(ui, &filter_label, &filter_font) + PAD_L * 2.0;
         // 左端 `Filter` 与右端 Sysmon 读数**共用同一条**，谁也不能越到对方身上：
         // 读数条右对齐后往左撑开，在窄条里会一路撑到条左沿、正好压住 `Filter`。
-        let filter_rect = filter_button_rect(rect, filter_w);
+        let filter_rect = if filter_visible {
+            // 激活态：这枚 25pt 快速按钮就是 Find 式的下划线 `Filter:` 标签本身，
+            // 命中区收在输入框左沿（x≈52）之前，与标签同处一行。
+            super::filter_label_button_rect(rect)
+        } else {
+            filter_button_rect(rect, filter_w)
+        };
         // Sysmon 那一侧的左边界：永远从 `Filter` 按钮右边起步。
         let sysmon_left = filter_rect.right() + GAP;
         let filter_id = match pane_salt {
@@ -352,6 +362,32 @@ impl TerminalWindow {
             None => egui::Id::new("sysmon_filter"),
         };
         let filter_resp = ui.interact(filter_rect, filter_id, egui::Sense::click());
+
+        // ── `Filter` 按钮绘制 + 点击翻转本会话的过滤位 ──
+        // 先画按钮底色：激活态的字由 `draw_filter_row` 按 Find 的 galley + 下划线
+        // 画法出，必须在底色之后落笔，不能被 hover 底盖住。收起态文字这里画。
+        let hovered = filter_resp.hovered();
+        let p = ui.painter();
+        if hovered {
+            p.rect_filled(filter_rect, 2.0, crate::theme::chrome(CHROME_SCALE.hover));
+        }
+        if !filter_visible {
+            p.text(
+                filter_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                filter_label,
+                filter_font,
+                crate::theme::chrome(if hovered {
+                    CHROME_SCALE.text_strong
+                } else {
+                    CHROME_SCALE.text
+                }),
+            );
+        }
+        let filter_clicked = filter_resp.clicked();
+        if hovered || filter_clicked {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
 
         // Sysmon 读数仍要能切回去：过滤态下藏起 T/C/M，但 `Filter` 按钮一直在，
         // 点它回到 Sysmon 读数；Sysmon 那个命中区在过滤态下不登记。
@@ -430,30 +466,10 @@ impl TerminalWindow {
             }
         }
 
-        // ── `Filter` 按钮绘制 + 点击翻转本会话的过滤位 ──
-        let hovered = filter_resp.hovered();
-        let p = ui.painter();
-        if hovered || filter_visible {
-            p.rect_filled(filter_rect, 2.0, crate::theme::chrome(CHROME_SCALE.hover));
-        }
-        p.text(
-            filter_rect.center(),
-            egui::Align2::CENTER_CENTER,
-            filter_label,
-            filter_font,
-            crate::theme::chrome(if hovered || filter_visible {
-                CHROME_SCALE.text_strong
-            } else {
-                CHROME_SCALE.text
-            }),
-        );
-        if hovered || filter_resp.clicked() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if filter_resp.clicked() {
+        // 点击最后落地（绘制时仍读本帧旧状态，关栏不会先闪一帧空查询）。
+        // `Action::Filter` 不写 `ViewState`，对本会话那条 tab 落地（分屏互不串味）。
+        if filter_clicked {
             if let Some(session) = filter_session {
-                // `Action::Filter` 不写 `ViewState`，对本会话那条 tab 落地
-                // （与 `Effect::Filter` 同一个 `filter::reduce`，这里只是 pane 自选会话）。
                 self.apply_filter_on(session, term_app::vocab::FilterAction::Toggle);
             }
         }
@@ -573,13 +589,23 @@ pub(in crate::ui) fn filter_button_width(rect: egui::Rect, filter_w: f32) -> f32
     filter_w.min(rect.width() * 0.5).max(MIN_FILTER_W)
 }
 
+/// 快速按钮的矩形：**高度恒为 25pt**（与 Sysmon 按钮同高），在工具条里垂直居中。
+///
+/// 收起态条高正好 25，视觉基线的文字中线不动；过滤态条高 43，按钮不跟着拉长——
+/// 它化作 Find 式的下划线 `Filter:` 标签，仍是一枚 25pt 的点击区。
+pub(in crate::ui) fn quick_button_rect(rect: egui::Rect, left: f32, width: f32) -> egui::Rect {
+    let h = TAB_TOOLBAR_H.min(rect.height());
+    let cy = rect.center().y;
+    egui::Rect::from_min_max(
+        egui::pos2(left, cy - h / 2.0),
+        egui::pos2(left + width, cy + h / 2.0),
+    )
+}
+
 /// `Filter` 按钮的命中矩形：条左端，左内边距 `EDGE_PAD`。
 pub(in crate::ui) fn filter_button_rect(rect: egui::Rect, filter_w: f32) -> egui::Rect {
     let w = filter_button_width(rect, filter_w);
-    egui::Rect::from_min_max(
-        egui::pos2(rect.left() + EDGE_PAD, rect.top() + 1.0),
-        egui::pos2(rect.left() + EDGE_PAD + w, rect.bottom() - 1.0),
-    )
+    quick_button_rect(rect, rect.left() + EDGE_PAD, w)
 }
 
 /// 一段文字的实际宽度（用于排显式命中矩形，不依赖 egui 的居中布局）。
@@ -637,10 +663,8 @@ fn button_rect(ui: &egui::Ui, rect: egui::Rect, min_left: f32, label: &str) -> e
     let w = (text_w + PAD_L * 2.0)
         .min(rect.right() - EDGE_PAD - min_left)
         .max(8.0);
-    egui::Rect::from_min_max(
-        egui::pos2(rect.right() - EDGE_PAD - w, rect.top() + 1.0),
-        egui::pos2(rect.right() - EDGE_PAD, rect.bottom() - 1.0),
-    )
+    // 与 `Filter` 快速按钮同一份 25pt 高度 / 垂直居中（见 `quick_button_rect`）。
+    quick_button_rect(rect, rect.right() - EDGE_PAD - w, w)
 }
 
 

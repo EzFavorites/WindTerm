@@ -68,29 +68,29 @@ use super::glyph;
 
 /// 整条高度（含上下各 1 点边线）。视觉基线 y 26..69。
 pub const FIND_BAR_H: f32 = 43.0;
-/// `Find:` 标签距窗口左端。
-const LABEL_X: f32 = 11.0;
-/// 输入框左沿。
-const FIELD_X: f32 = 52.0;
+/// `Find:` 标签距窗口左端。过滤行复用同一横坐标。
+pub(in crate::ui) const LABEL_X: f32 = 11.0;
+/// 输入框左沿。过滤行复用同一横坐标。
+pub(in crate::ui) const FIELD_X: f32 = 52.0;
 /// 输入框高。视觉基线 y 36..59.5。
-const FIELD_H: f32 = 23.5;
+pub(in crate::ui) const FIELD_H: f32 = 23.5;
 /// 输入框上沿距栏顶（不含那条 1 点边线）。
-const FIELD_TOP: f32 = 10.0;
+pub(in crate::ui) const FIELD_TOP: f32 = 10.0;
 /// 关闭 `×` 右沿距窗口右端。
 ///
 /// 与 `glyph::ICON_R_PAD` 是同一个数：快捷栏、面板标题带用的也是它，这样几条
 /// 栏右端的 `×` 才落在**同一条竖线**上（视觉基线 `ref-find-active.png` 里 Find
 /// 行与快捷栏的 `×` 墨迹列完全相同）。这里的常量保留成显式值，是因为下面的
 /// 横坐标累加式要它参与求和，直接引用 `glyph::` 反而看不出那笔账。
-const CLOSE_R_PAD: f32 = glyph::ICON_R_PAD;
+pub(in crate::ui) const CLOSE_R_PAD: f32 = glyph::ICON_R_PAD;
 /// `×` 的**视觉边长**（@2× 实测 13×13 物理 = 6.5 逻辑）。
 ///
 /// 两条对角线本身是 `CLOSE_SIZE - 1`：1 点线宽在两端各外扩 0.5，加回去才是
 /// 屏幕上量到的那个方块。写 6.5 却按 6.5 画对角线，量出来会是 7.5——
 /// 第一版就是这么比视觉基线粗了一整圈。画法本身在 `glyph::paint_cross`。
-const CLOSE_SIZE: f32 = glyph::CROSS_INK;
+pub(in crate::ui) const CLOSE_SIZE: f32 = glyph::CROSS_INK;
 /// `×` 左沿与 `Find All` 右沿之间的空隙。
-const CLOSE_GAP: f32 = 11.5;
+pub(in crate::ui) const CLOSE_GAP: f32 = 11.5;
 /// `<` / `>` 宽（视觉基线 78 与 77.5，取同宽）。
 const NAV_W: f32 = 77.5;
 /// `<` 与 `>` 之间的空隙。
@@ -101,14 +101,18 @@ const ALL_W: f32 = 85.5;
 const BEFORE_ALL_GAP: f32 = 8.5;
 /// 输入框右沿到 `<` 左沿的空隙。
 const FIELD_TO_NAV: f32 = 7.5;
-/// 输入框内图标格宽（`.*` / `Aa` / `W` / `≡` / `I` 五格等宽）。
-const ICON_W: f32 = 27.0;
+/// 输入框内图标格宽（`.*` / `Aa` / `W` / `≡` / `I` 五格等宽）。过滤行的图标格复用它。
+pub(in crate::ui) const ICON_W: f32 = 27.0;
 /// `⇄▾` 那一格的宽（图标 + 下拉箭头，视觉基线 43）。
 const CYCLE_W: f32 = 43.0;
 /// `I` 与 `⇄▾` 之间的空隙。
 const CYCLE_GAP: f32 = 5.0;
-/// 图标组右端距输入框内右沿。
-const ICON_R_PAD: f32 = 6.5;
+/// 图标组右端距输入框内右沿。过滤行的框内图标组复用它。
+pub(in crate::ui) const ICON_R_PAD: f32 = 6.5;
+
+/// 正则语法错的红色。与主题灰阶无关，是错误语义色；Find 栏与过滤行共用这一份，
+/// 两处的 `.*` 图标 / 输入框边框在非法表达式下必须是同一个红。
+pub(in crate::ui) const INVALID_COLOR: egui::Color32 = egui::Color32::from_rgb(0xE0, 0x6C, 0x6C);
 
 /// 画 Find 栏。栏内交互统一以 `Action` 出队，由调用方交给 reducer。
 ///
@@ -143,7 +147,7 @@ pub fn draw_find_bar(
     } else {
         None
     };
-    let invalid_c = egui::Color32::from_rgb(0xE0, 0x6C, 0x6C);
+    let invalid_c = INVALID_COLOR;
     let border_c = if regex_error.is_some() { invalid_c } else { line };
 
     // 上下各一条 1 点边线：视觉基线里它与快捷栏的分界就靠这两条线。

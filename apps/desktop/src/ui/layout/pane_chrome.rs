@@ -372,7 +372,7 @@ mod tests {
         assert!(
             filtered.term.height() + TAB_TOOLBAR_FILTER_H
                 == plain.term.height() + TAB_TOOLBAR_H,
-            "过滤态吃掉的正是多出来的 17pt"
+            "过滤态吃掉的正是多出来的 18pt"
         );
         assert_eq!(plain.toolbar.unwrap().height(), TAB_TOOLBAR_H);
         assert_eq!(filtered.toolbar.unwrap().height(), TAB_TOOLBAR_FILTER_H);
