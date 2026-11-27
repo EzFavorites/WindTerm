@@ -51,7 +51,7 @@ pub(in crate::ui) fn split_rules(text: &str) -> Vec<String> {
 ///
 /// 账本里**已有**指纹时用 `Strict` 真校验，不浪费既有账本的验证价值；账本为空
 /// 时跟会话首连走同一条 [`ssh_connect::FIRST_POLICY`]（Insecure，内部自动接受）。
-/// 界面已经没有「信任一次」的入口（owner 2026-11-27 裁定，与原版一致），
+/// 界面已经没有「信任一次」的入口（owner 2026-11-27 裁定，与参考版本一致），
 /// 若在这里报错，默认会话的隧道就成了一条永远走不通的死路。
 fn tunnel_host_key_policy(config: &SessionConfig) -> Result<term_ssh::HostKeyPolicy, term_ssh::SshError> {
     use term_ssh::SshError;
