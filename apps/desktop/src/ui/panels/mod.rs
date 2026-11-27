@@ -16,6 +16,7 @@ pub(in crate::ui) mod filer;
 pub(in crate::ui) mod sidebar;
 pub(in crate::ui) mod sidebar_rows;
 pub(in crate::ui) mod sidebar_logon_script;
+pub(in crate::ui) mod script_panel_strip;
 mod sidebar_view;
 mod session_icons;
 /// 底带 `Shell` 面板：面板内自己的标签条（多标签）+ 与主区同一份终端。

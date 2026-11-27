@@ -189,8 +189,17 @@ pub fn to_script(steps: &[Step]) -> String {
 pub fn save_to_library(text: &str) -> Result<std::path::PathBuf, String> {
     let dir = term_runtime::paths::scripts_dir()
         .ok_or_else(|| "找不到脚本库目录（没有家目录？）".to_string())?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("建不了脚本库目录 {}：{e}", dir.display()))?;
+    // 边界仍只有这一处 `String`；内部用 `io::Error`，免得给 4q 的错误边界
+    // 基线再添一条。文案在这里一次翻好。
+    save_to_library_in(&dir, text).map_err(|e| e.to_string())
+}
+
+/// 真正的落库逻辑；目录由调用方给，便于单测用临时目录而不碰进程级环境变量。
+fn save_to_library_in(
+    dir: &std::path::Path,
+    text: &str,
+) -> Result<std::path::PathBuf, std::io::Error> {
+    std::fs::create_dir_all(dir)?;
     for index in 1..1000 {
         let name = if index == 1 {
             "recorded.rhai".to_string()
@@ -201,11 +210,13 @@ pub fn save_to_library(text: &str) -> Result<std::path::PathBuf, String> {
         if path.exists() {
             continue;
         }
-        std::fs::write(&path, text)
-            .map_err(|e| format!("写不了录制脚本 {}：{e}", path.display()))?;
+        std::fs::write(&path, text)?;
         return Ok(path);
     }
-    Err(format!("脚本库里已经有太多 recorded-*.rhai（{}）", dir.display()))
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("脚本库里已经有太多 recorded-*.rhai（{}）", dir.display()),
+    ))
 }
 
 #[cfg(test)]
@@ -308,6 +319,31 @@ mod tests {
         assert_eq!(rhai_literal("\x7f"), "\"\\u007f\"");
         // 中文原样留着：它是正常文本，转成 `\u` 只会让脚本没法读。
         assert_eq!(rhai_literal("你好"), "\"你好\"");
+    }
+
+    /// 落库名字按 `recorded` / `recorded-2` 往后找空位：第二次录制不能盖掉第一次。
+    /// 直接给临时目录，不碰 `WINDTERM_PROFILE_DIR`——那是进程级变量，与
+    /// `with_temp_profile` 的用例并发时会互相看见对方的档案目录。
+    #[test]
+    fn save_to_library_never_overwrites_a_previous_recording() {
+        let dir = std::env::temp_dir().join(format!(
+            "zterm-recorder-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let first = save_to_library_in(&dir, "// first\n").expect("第一次落库");
+        let second = save_to_library_in(&dir, "// second\n").expect("第二次落库");
+        assert_eq!(first.file_name().and_then(|s| s.to_str()), Some("recorded.rhai"));
+        assert_eq!(second.file_name().and_then(|s| s.to_str()), Some("recorded-2.rhai"));
+        assert_eq!(std::fs::read_to_string(&first).unwrap(), "// first\n");
+        assert_eq!(std::fs::read_to_string(&second).unwrap(), "// second\n");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -1101,4 +1101,44 @@ mod tests {
 
         pool.close(session);
     }
+
+    /// 菜单的录制开关与面板按钮共用同一个槽位；键盘漏斗的字节要真的落进步序列。
+    /// 这里只测开关与击键接线，空录制不落文件——落库命名由 `script_recorder`
+    /// 自己的用例守，免得单测往用户脚本库里写东西。
+    #[test]
+    fn record_toggle_and_keyboard_tap_share_one_recorder_slot() {
+        let ctx = egui::Context::default();
+        let pool = std::sync::Arc::new(term_session::SessionPool::new());
+        let mut window = crate::ui::lifecycle_test_support::window_with(pool, &ctx, Vec::new());
+
+        assert!(!window.is_recording());
+        assert!(
+            window.toggle_recording().unwrap().is_none(),
+            "第一次点开始录制"
+        );
+        assert!(window.is_recording());
+
+        note_recorded_input(&window.recorder, b"ls\r");
+        assert_eq!(
+            window
+                .recorder
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("录制中")
+                .len(),
+            1,
+            "击键漏斗的一行要落成一步"
+        );
+
+        // 空停止不写文件；这里用的是另一条没有输入的窗口，避免动用户脚本库。
+        let mut empty = crate::ui::lifecycle_test_support::window_with(
+            std::sync::Arc::new(term_session::SessionPool::new()),
+            &ctx,
+            Vec::new(),
+        );
+        empty.toggle_recording().unwrap();
+        assert!(empty.toggle_recording().unwrap().is_none());
+        assert!(!empty.is_recording());
+    }
 }

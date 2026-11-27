@@ -512,7 +512,7 @@ pub struct TerminalWindow {
     /// `Option<ScriptRun>`，各持一本的话「在面板里跑的时候，运行窗口那边还以为
     /// 会话是空的」，两条脚本就会对着同一个 PTY 交错读写。
     script_runs: std::sync::Arc<crate::script_run::ScriptRunRegistry>,
-    /// 哪些会话的登录脚本已经跑过（ADR-0027 §S6）。
+    /// 哪些会话的登录脚本已经跑过（ADR-0027，一次性记账）。
     ///
     /// 按 `SessionId` 而不是标签下标记：重排 / 分屏会让下标漂，而「这条会话的
     /// 登录脚本跑过了」是个**一次性**事实，认错对象就会跑两遍（登录脚本常常
@@ -529,7 +529,7 @@ pub struct TerminalWindow {
     /// 与 `address::save_recent_prefs` 同一套）。不每帧读盘：面板每帧都要拿它
     /// 拼下拉，一次 `read_to_string` + 反序列化放在帧里就是白烧 CPU。
     script_recent: Vec<String>,
-    /// 录制器（ADR-0027 §S6）。`None` = 没在录。
+    /// 录制器（见 `script_recorder.rs`）。`None` = 没在录。
     ///
     /// 包了一层 `Arc<Mutex<…>>` 而不是裸 `Option`：键盘漏斗在 `pane.rs` 里，
     /// 那里已经借走了 `tab`（`&mut self.tabs[i]`），再调 `&mut self` 的方法会
@@ -816,8 +816,7 @@ impl TerminalWindow {
             || self.connector.is_some()
             || self.tunnel_editor.is_some()
             || self.xfer_prompt.is_some()
-            || self.script.is_some()
-            || self.logon_script_editor.is_some()
+            || self.script.is_some() || self.logon_script_editor.is_some()
             || self.script_ask.is_some()
             // `Option` 就是唯一的开 / 关真相：`Some` 即开，`None` 即关。
             || self.script_editor.is_some()
@@ -1141,9 +1140,8 @@ impl TerminalWindow {
         // **独立对话框**（兼容终端形态），不再借 Preferences 翻页。
         if self.view.show_triggers { self.draw_triggers_dialog(ctx); }
         if self.view.show_onekeys { self.draw_onekeys_dialog(ctx); }
-        self.draw_script_manager(ctx);
         // 会话树右键「Logon Script…」：默认没有状态，一行都不画。
-        self.draw_logon_script_editor(ctx);
+        self.draw_script_manager(ctx); self.draw_logon_script_editor(ctx);
         if self.view.show_about {
             self.draw_about_dialog(ctx);
         }
@@ -1185,7 +1183,7 @@ impl TerminalWindow {
         self.drain_app_requests();
         // 脚本的 `session_activate`：把那条会话的标签切到前台。
         self.drain_script_activated();
-        // 登录脚本：标签带着活会话出现之后跑一次（§S6）。放在 `poll_script` 之前，
+        // 登录脚本：标签带着活会话出现之后跑一次（ADR-0027）。放在 `poll_script` 之前，
         // 这样登录脚本的第一条提示能在同一帧进状态栏。
         // 认证后命令与登录脚本同一帧调度：前者写进会话，后者起脚本线程。
         self.fire_logon_scripts(); self.fire_auth_commands();

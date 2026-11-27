@@ -553,6 +553,7 @@ mod tests {
             }
         }
 
+        let _env_lock = crate::PROFILE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let _guard = ProfileDirGuard(std::env::var("WINDTERM_PROFILE_DIR").ok());
         let dir = std::env::temp_dir().join(format!(
             "windterm-script-host-{}-{}",

@@ -23,7 +23,7 @@ use term_core::vt::paste_bytes_for;
 mod debug_log;
 mod fold;
 mod mode;
-mod search; pub(in crate::ui) mod theme;
+mod search; pub(in crate::ui) mod theme; mod script;
 
 impl TerminalWindow {
     /// 帧末批量落地：同步输入广播 + 折叠列点击。两项都要借整个窗口，
@@ -469,33 +469,15 @@ impl TerminalWindow {
             // 对话框，不再需要「开设置再翻页」这两条效应。
             // `Terminal.ClearRecentUrls`：与地址栏右键「Clear Recent」同一个函数
             // （清内存副本 + load-modify-save 落盘），不另写一份清理逻辑。
-            // `Tool ▸ Script` 三条：菜单只给入口，面板开关仍归
-            // `Window ▸ Panes ▸ Script`；这里不碰 `ViewState`。
-            Effect::RunScript => self.open_script_dialog_for_active(),
-            Effect::NewScript => self.open_new_script(self.active),
-            Effect::ManageScripts => self.open_script_manager(),
-            // Stop 与 Local Mode 共用同一处遍历；录制勾与面板按钮共用同一个槽位。
-            Effect::StopScript => self.cancel_all_script_runs(),
-            Effect::RecordScript => match self.toggle_recording() {
-                Ok(Some(path)) => {
-                    self.log_note = Some(format!("Script recorded: {}", path.display()));
-                }
-                Ok(None) => {}
-                Err(msg) => self.log_note = Some(msg),
-            },
+            // 脚本五条命令的落地抽在 effects/script.rs（500 行门禁）。
+            Effect::RunScript | Effect::NewScript | Effect::ManageScripts | Effect::StopScript | Effect::RecordScript => { let _ = self.apply_script_effect(effect); }
             Effect::ClearRecentUrls => self.clear_recent_targets(),
             // 三档预设共用这一条带参数的 `Effect`。`from_permille` 是
             // 千分比 → f32 的唯一换算点；`set_window_opacity` 再一并改运行期
             // 副本与 `Prefs`（重启仍生效）。此处不碰 `Visuals`：那是每帧
             // `sync_window_opacity` 按钳制后的值做的事。
-            Effect::SetWindowOpacity {
-                transparent,
-                opacity_permille,
-            } => {
-                self.set_window_opacity(WindowOpacity::from_permille(
-                    transparent,
-                    opacity_permille,
-                ));
+            Effect::SetWindowOpacity { transparent, opacity_permille } => {
+                self.set_window_opacity(WindowOpacity::from_permille(transparent, opacity_permille));
             }
             // 第四条命令不设值——reducer 已把 `show_settings` 打开，
             // 这里只把左栏翻到 `Appearance`（那一页有开关 + 滑杆真控件）。

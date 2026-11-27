@@ -23,7 +23,9 @@ term-desk script run a.rhai --timeout 30 --quiet
 
 脚本动词与 JSON-RPC 桥共用**同一张能力描述表**（`term-core` 的 `surface`）：
 一个动词只有一处定义，脚本侧与远程侧是它的两个投影。完整清单与参数结构以
-`term-desk capability --json` 的实际输出为准，下面是按类别组织的概览。
+`term_core::surface::METHODS`（脚本侧用脚本原语 `describe()`，远程侧用 RPC `describe`）
+为准；`term-desk capability --json` 打印的是**菜单命令台账**（总数 / 已接线 / 置灰），
+不是这张动词表。下面是按类别组织的概览。
 
 **读**（只取事实，不改变会话状态）：
 
@@ -37,7 +39,7 @@ term-desk script run a.rhai --timeout 30 --quiet
 | 本地文件 | `fs_read` `fs_list` `fs_stat` `pick_file` | 本地文件系统 |
 | 远端文件 | `sftp_list` `sftp_stat` | SFTP 读取 |
 | 偏好 | `profile_get` `profile_list` | 读用户偏好 |
-| 安全 | `secret` | 取保险库里的凭据（不落日志） |
+| 安全 | `secret` | 弹掩码输入框向用户要口令（不是保险库查询；无窗口宿主不支持） |
 | 交互 | `ask` `confirm` `message` `choose` `text_input` `pick_file` | 向用户提问、确认、选择 |
 | 剪贴板 | `clipboard_get` | 读剪贴板 |
 | 运行时 | `args` `version` `script_path` `script_session` `last_error` `sleep` | 脚本自身上下文 |
@@ -101,7 +103,8 @@ term-desk script run a.rhai --timeout 30 --quiet
   **没有输出字节配额这个旋钮**：输出侧的边界只有「每次取数只返回上次消费点
   之后的文本」与固定 64 KiB 捕获窗口（超出保尾裁旧）；长输出要循环取数并当场
   消费，不要指望一次 `read` 端回几 MB。
-- `secret` 只返回凭据的可用句柄语义，不把明文写进脚本变量以外的地方；
+- `secret(prompt)` 弹一个掩码输入框，把用户输入**原文**作为字符串返回给脚本
+  （不是保险库句柄，也不从配置里读）。无窗口宿主不支持，会显式失败；
   脚本日志与错误信息不回显口令。
 - 脚本错误写进 `last_error`，不会让宿主进程崩溃。
 
@@ -128,17 +131,45 @@ term-desk script run apps/desktop/resources/scripts/03-capture-output.rhai --bat
 ```
 
 等一个不确定的提示语时用 `wait`（不推进游标，返回已匹配到的文本）或 `wait_any`
-（多模式取首个命中，返回 `{index, text}`，`index` 是模式在数组里的 0 起下标）：
+（多模式取首个命中，返回 `{index, text}`，`index` 是模式在数组里的 **1 起下标**）：
 
 ```rhai
 // 超时直接报错（写进 last_error），不会返回一个「假装成功」的哨兵值
 let hit = wait_any(["Password:", "password:", "密码"], 15);
-// hit["index"] = 命中的模式下标（0 起）；hit["text"] = 命中为止的文本
+// hit["index"] = 命中的模式下标（1 起，0 不会出现）；hit["text"] = 命中为止的文本
 write("<口令>\n");
 ```
 
-函数签名可能随版本演进；以 `term-desk capability --json` 与
+函数签名可能随版本演进；以 `describe()` / RPC `describe` 的实际输出与
 `crates/term-script/src/*.rs` 的注册表为准。
+
+## 录制脚本
+
+录制器录的是**人敲进去的字节 + 屏幕什么时候安静下来**，不是「调了哪些原语」。
+生成物与手写脚本同形（`write` 一段 → `read_until` 一个提示符 → 再 `write`），
+所以能直接看懂、改路径就能复用。
+
+- **入口**：`Tool ▸ Script ▸ Record Script`，或脚本面板工具行的 `Record` 按钮；
+  两者是同一个开关，菜单项的勾读的就是录制器当前状态。
+- **静默判定**：输入和屏幕最后一次变化之后 **400 ms** 算一段结束；每段落一条
+  `write(...)` 加一条 `read_until(锚点, 10)`。屏幕还在刷时不落步。
+- **只录人的输入**：设备应答（DSR / DA）、粘贴、本地只读会话的字节都不进录制。
+- **产物**：停止时写到脚本库（`profile_dir()/scripts/`），文件名依次
+  `recorded.rhai`、`recorded-2.rhai`…；状态栏会给出落地路径。空录制不留文件。
+- **回放**：生成物就是普通 `.rhai`，从运行窗口 / 面板 / 命令面板跑都行。
+  录制中的状态**不持久化**，退出应用会丢掉还没停的那一次。
+
+实现位于 `apps/desktop/src/script_recorder.rs`；它的单测会把录出的源码丢回真实
+引擎跑一遍，确保生成物不是只能看的字符串。
+
+## 命令行的边界
+
+`term-desk script run` 跑在独立进程里，**不共享**桌面窗口的会话池：
+
+- 它自己开、自己关会话（`--exec` 一次性命令 / `--session` 会话库引用 / 默认本地 shell）。
+- 无窗口进程不会解锁保险库，所以密码与 keyboard-interactive 认证的会话在这里
+  打不开（显式报错、退出码 1）；改用 Agent / 私钥，或到桌面里跑。
+- 脚本来自 stdin（`-`）时 `ask()` / `secret()` 不可用——输入源已被脚本占用。
 
 ## 与 CRT 的有意偏差
 

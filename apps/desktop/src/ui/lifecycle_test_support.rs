@@ -578,9 +578,9 @@ mod a3_drag_swap_tests {
 /// 各模块各持一把的话，两组用例会互相看见对方的目录（这正是本夹具取代
 /// `window_opacity_tests` 里那份私有副本的原因——原来那个锁只锁得住自己）。
 pub(in crate::ui) fn with_temp_profile<T>(check: impl FnOnce() -> T) -> T {
-    static PROFILE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
     static SEQ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-    let _guard = PROFILE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    // 与 `script_host` 等直改环境变量的用例共用 crate 级锁，避免跨模块竞态。
+    let _guard = crate::PROFILE_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let dir = std::env::temp_dir().join(format!(
         "windterm-test-profile-{}-{}",
         std::process::id(),

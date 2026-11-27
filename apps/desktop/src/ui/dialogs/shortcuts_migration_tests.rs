@@ -111,6 +111,8 @@ fn a_failed_cleanup_save_does_not_report_already_cleaned() {
                 .as_nanos()
         ));
         std::fs::write(&blocker, b"not a directory").expect("夹具需要造出不可写的 profile 路径");
+        // 外层 `with_temp_profile` 已持有 crate 级环境变量锁，这里只是把变量
+        // 临时指向不可写路径；再锁一次会自锁（Mutex 不可重入）。
         let previous = std::env::var("WINDTERM_PROFILE_DIR").ok();
         std::env::set_var("WINDTERM_PROFILE_DIR", &blocker);
 

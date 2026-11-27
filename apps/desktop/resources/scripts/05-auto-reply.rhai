@@ -8,7 +8,8 @@ let prompts = ["Password:", "yes/no", "Continue?"];
 for n in 0..3 {
     let hit = wait_any(prompts, 20);
     let kind = hit["index"];
-    if kind == 0 {
+    // wait_any 的 index 是 1 起：Password: = 1，其余是 2/3。
+    if kind == 1 {
         write(secret("远端口令") + "\r");
     } else {
         write("y\r");

@@ -19,7 +19,8 @@ session_use(info["name"]);
 
 // 命中返回到提示符为止（含提示符）；超时显式失败，不会假装登录成功。
 let hit = wait_any(["Password:", "password:", "$ ", "# "], 20);
-if hit["index"] == 0 || hit["index"] == 1 {
+// wait_any 的 index 是 1 起：Password: = 1、password: = 2、提示符 = 3/4。
+if hit["index"] == 1 || hit["index"] == 2 {
     write(secret("远端口令") + "\r");
     wait_any(["$ ", "# "], 20);
 }

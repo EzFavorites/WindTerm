@@ -460,65 +460,8 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
             ((full.top() + view_h).max(row_rect.bottom() + BODY_GAP + 40.0)) - strip_h,
         ),
     );
-    // ── 录制器 + 本次运行授权（ADR-0027）──
-    // 这两块是 adr-0027 带来的功能，放在结果区顶部：录制按钮按下去开始收人敲
-    // 的字节，再按下把生成物存进脚本库；权限折叠默认收起（九成脚本不碰本地
-    // 文件，常显会让人以为不勾就跑不了）。
-    let toolbar_h = {
-        let mut c = ui.new_child(egui::UiBuilder::new().max_rect(body));
-        c.horizontal_wrapped(|ui| {
-            // 文案先取成 `&'static str`：下面对 `grants` 是可变借用，不能在
-            // 同一个实参列表里再借 `win` 取词（E0502）。
-            let t_nothing = win.tr("Nothing recorded (no keystrokes captured)");
-            let t_permissions = win.tr("Permissions (this run only)");
-            let t_programs = win.tr("Run programs");
-            let t_clipboard = win.tr("Read clipboard");
-            let t_window = win.tr("Control window");
-            let t_dir = win.tr("folder for file access");
-            let t_writable = win.tr("Writable");
-            let t_subdirs = win.tr("Sub-folders are included; `..` is rejected before comparing.");
-            let recording = win.is_recording();
-            let label = if recording {
-                win.tr("Stop Recording")
-            } else {
-                win.tr("Record")
-            };
-            if ui.button(label).clicked() {
-                match win.toggle_recording() {
-                    Ok(Some(path)) => {
-                        win.script_panel.current_mut().path = path.to_string_lossy().into_owned();
-                        win.script_panel.current_mut().outcome = None;
-                        win.script_panel.current_mut().error = None;
-                    }
-                    Ok(None) => {
-                        win.script_panel.current_mut().error = if win.is_recording() {
-                            None
-                        } else {
-                            Some(t_nothing.to_string())
-                        };
-                    }
-                    Err(message) => win.script_panel.current_mut().error = Some(message),
-                }
-            }
-            ui.collapsing(t_permissions, |ui| {
-                ui.checkbox(&mut win.script_panel.current_mut().grants.process, t_programs);
-                ui.checkbox(&mut win.script_panel.current_mut().grants.clipboard, t_clipboard);
-                ui.checkbox(&mut win.script_panel.current_mut().grants.ui, t_window);
-                ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut win.script_panel.current_mut().grants.dir)
-                            .hint_text(t_dir)
-                            .desired_width(180.0),
-                    );
-                    ui.checkbox(&mut win.script_panel.current_mut().grants.write, t_writable);
-                });
-                if !win.script_panel.current_mut().grants.dir.trim().is_empty() {
-                    ui.weak(t_subdirs);
-                }
-            });
-        });
-        c.min_rect().height() + 2.0
-    };
+    // 录制器 + 单次授权条：控件与文案在 `script_panel_strip` 里，这里只留高度。
+    let toolbar_h = super::script_panel_strip::draw(win, ui, body);
     let body = egui::Rect::from_min_max(
         egui::pos2(body.left(), body.top() + toolbar_h),
         body.max,

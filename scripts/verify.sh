@@ -676,11 +676,10 @@ DESK_SZ_LIMIT=500
 # ADR-0027（2026-11-16）新增 3 处：脚本平台的执行/接线/窗口三块一次写不完，
 # 先登记为欠账（每处都已按「能拆的先拆」处理过，剩下的是一次原子改动）。
 # 2026-11-22：远端 menu 接线改动把 setup.rs 推到 506 行，登记为待拆。
-DESK_SZ_DEBT="apps/desktop/src/xfer_run.rs apps/desktop/src/session_open.rs apps/desktop/src/script_run.rs apps/desktop/src/ui/terminal/script.rs apps/desktop/src/ui/dialogs/session_form.rs apps/desktop/src/ui/terminal/setup.rs apps/desktop/src/ui/effects.rs apps/desktop/src/ui/mod.rs apps/desktop/src/ui/panels/script_panel.rs"
-# 2026-11-27：脚本菜单五条命令、脚本面板一致性修复与会话树登录脚本入口把
-# effects.rs / mod.rs / script_panel.rs 顶过 500（511 / 501 / 527 代码行）。
-# 三处都是同一批脚本工作的原子改动，先登记为可见欠账；拆到 ≤500 时必须
-# 同步从这张表里删掉，否则基线会变成永久豁免（与 4p/4q 同一口径）。
+DESK_SZ_DEBT="apps/desktop/src/xfer_run.rs apps/desktop/src/session_open.rs apps/desktop/src/script_run.rs apps/desktop/src/ui/terminal/script.rs apps/desktop/src/ui/dialogs/session_form.rs apps/desktop/src/ui/terminal/setup.rs"
+# 2026-11-27（已清）：脚本菜单把 effects.rs / mod.rs / script_panel.rs 顶过 500，
+# 当批先登记为可见欠账；同日拆出 effects/script.rs 与 panels/script_panel_strip.rs，
+# 三处回落到 495 / 499 / 475，已从表中删除。欠账只记现状，不做永久豁免。
 # 2026-11-15（架构审查 §5-6 扩面）：4j 原来只扫 apps/desktop/src，crates/ 下
 # 190 个 .rs **一次都没被量过**——supervisor.rs 1677 代码行、vt.rs 1605 行，
 # 不是「合规」而是没被看见。这里把现存 27 个超限文件登记为**可见基线**：
@@ -749,7 +748,7 @@ if [ -n "$over_files" ] || [ -n "$stale_debt" ]; then
   # 超限时才走到，于是这层检查长期只能说「绿」或「崩」，从不说「红」。
   bad "单文件代码行超限：${over_files}；待拆清单需更新：${stale_debt}（全仓最大的是 ${max_file}，${max_lines} 行）"
 else
-  ok "文件规模合规（递归 ${n_files} 个文件；desk 9 处 + crates ${crates_over_n} 处已登记欠账，其余均 ≤ ${DESK_SZ_LIMIT}；全仓最大 $max_file = $max_lines 行，属欠账）"
+  ok "文件规模合规（递归 ${n_files} 个文件；desk 6 处 + crates ${crates_over_n} 处已登记欠账，其余均 ≤ ${DESK_SZ_LIMIT}；全仓最大 $max_file = $max_lines 行，属欠账）"
 fi
 
 step "4i. crate 边界的错误必须分类（不得退回 String）"

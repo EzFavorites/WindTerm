@@ -64,6 +64,14 @@ mod sync_job;
 #[cfg(test)]
 mod golden; // 金样本回归集，只在 cargo test 下编译
 
+/// 进程级 `WINDTERM_PROFILE_DIR` 的全局锁。
+///
+/// 所有「设 → 读/写 → 还原」的用例都必须持它：环境变量是全进程共享的，
+/// `with_temp_profile`（UI 夹具）和 `script_host` 等直改变量的用例若各持一把锁，
+/// 并发时仍会互相看见对方的档案目录，表现为布局落盘断言偶发红。
+#[cfg(test)]
+pub(crate) static PROFILE_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use eframe::egui;
 
 /// `--screenshot <file.png>`: start normally, draw enough frames to settle the
