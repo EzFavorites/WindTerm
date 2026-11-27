@@ -24,7 +24,10 @@
         assert!(src.contains("draw_filter_row"), "过滤行画在工具条上");
         assert!(self_src.contains("egui::TextEdit::singleline"), "过滤行有 TextEdit");
         assert!(self_src.contains("FilterUiCommand::ToggleMode"), "Invert 切换模式");
-        assert!(self_src.contains("t(lang, \"Invert\")"), "按钮文案是 Invert / 反转");
+        assert!(
+            !self_src.contains("t(lang, \"Invert\")"),
+            "界面不再出现 Invert / 反转文字"
+        );
         assert!(
             self_src.contains("t(lang, \"Invert filter (grep -v): hide matching lines\")"),
             "悬停写明 grep -v 语义"
@@ -162,17 +165,80 @@
         egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, TAB_TOOLBAR_H))
     }
 
-    /// `Invert` / `反转` 格的实测宽代表值：等宽 12pt 下 6 字符 ≈ 43.2，
-    /// 加上与 `Aa` 相同的内边距 `ICON_W - 14.4` ≈ 55.8，取 56。
-    const MODE_W: f32 = 56.0;
+    /// 反转是一枚小图标格：与 `.*` / `Aa` 同宽，不再按文案宽度撑开。
+    const MODE_W: f32 = 27.0;
 
-    /// 和 `Aa` 一格用同样的内边距：文字一样宽时格宽就一样，不会凭空多一块大按钮。
+    /// 反选用纯 painter 两向箭头，不是字体字形，也不在界面留 Invert / 反转文字。
+    /// i18n key 仍服务于悬停提示；语义仍是默认 KeepMatching / 点击 DropMatching。
     #[test]
-    fn invert_cell_uses_the_same_padding_as_aa() {
-        assert!((invert_cell_width(14.4, 14.4) - ICON_W).abs() < 0.001);
-        assert!((invert_cell_width(43.2, 14.4) - (43.2 + ICON_W - 14.4)).abs() < 0.001);
-        // 比 Aa 宽仅仅因为字更长，仍在同一量级。
-        assert!(invert_cell_width(43.2, 14.4) < ICON_W * 2.2);
+    fn invert_is_a_painted_icon_cell() {
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        assert_eq!(MODE_W, ICON_W, "反转格与 .* / Aa 同宽");
+        assert!(self_src.contains("let mode_w = ICON_W"), "不再按文字宽撑格");
+        assert!(self_src.contains("paint_invert_icon"), "纯 painter 画图标");
+        assert!(
+            self_src.contains("line_segment"),
+            "箭头用 line_segment，与 Find 方向按钮同画法"
+        );
+        assert!(
+            !self_src.contains("layout_no_wrap(\"⇄\""),
+            "不排字，不依赖字体里有没有该字形"
+        );
+        assert!(
+            !self_src.contains("t(lang, \"Invert\")"),
+            "界面无 Invert / 反转文字"
+        );
+        assert!(self_src.contains("t(lang, \"Invert filter (grep -v): hide matching lines\")"));
+        assert_eq!(t(term_app::i18n::Lang::En, "Invert"), "Invert");
+        assert_eq!(t(term_app::i18n::Lang::Zh, "Invert"), "反转");
+        assert!(self_src.contains("FilterMode::DropMatching"), "点击进 grep -v");
+        assert!(
+            self_src.contains("CursorIcon::PointingHand"),
+            "命中区就是绘制区，光标指向手势"
+        );
+        assert!(
+            self_src.contains("ui.interact(r, hit(\"tab_toolbar_filter_mode\")"),
+            "无系统按钮边框，按坐标登记点击"
+        );
+    }
+
+    /// 四条 1px 竖线按功能区隔，颜色与上边线同口径、高度收在 25pt 条内；
+    /// 窄条丢计数时最后一根不画；收起态（只剩 Sysmon）由调用点不入这里。
+    #[test]
+    fn separators_divide_the_inline_zones() {
+        let bar = wide_bar();
+        let geom = filter_row_geom(bar, 46.0, 38.0, MODE_W);
+        let sep = filter_separators(&geom);
+        let count = geom.count.expect("宽条要放得下计数");
+        let [label_input, input_icons, icons_count, count_close] = sep.map(|x| x.unwrap());
+
+        assert!(label_input > bar.left() + LABEL_X + 38.0);
+        assert!(label_input < geom.edit.left());
+        assert!(geom.edit.left() < input_icons && input_icons < geom.icons[0].left());
+        assert!(geom.icons[2].right() < icons_count && icons_count < count.left());
+        assert!(count.right() < count_close && count_close < geom.close.left());
+
+        let y_top = bar.top() + ROW_INSET_Y;
+        let y_bottom = bar.bottom() - ROW_INSET_Y;
+        assert_eq!(y_bottom - y_top, 19.0);
+        assert!(y_top > bar.top() && y_bottom < bar.bottom());
+
+        let self_src = include_str!("tab_toolbar_filter.rs");
+        let toolbar_src = include_str!("tab_toolbar.rs");
+        assert!(self_src.contains("filter_separators(&geom)"), "过滤态画竖线");
+        assert!(
+            self_src.contains("bar.top() + ROW_INSET_Y"),
+            "线高限制在条内"
+        );
+        assert!(self_src.contains("CHROME_SCALE.border"), "与上边线同色口径");
+        assert!(
+            !toolbar_src.contains("filter_separators"),
+            "Sysmon 收起态不画这些线"
+        );
+
+        let narrow = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(190.0, TAB_TOOLBAR_H));
+        let small = filter_separators(&filter_row_geom(narrow, 46.0, 38.0, MODE_W));
+        assert_eq!(small[3], None, "窄条没计数，不画最后一根");
     }
 
     /// 25pt 条里的三格与输入 / 计数同处一条中线，格高压到 19pt。

@@ -5,10 +5,12 @@
 //! 过滤激活时工具条高度不变（`TAB_TOOLBAR_H` = 25pt），终端区也不少几行。
 //! `Filter:` 下划线标签、内联文本、三个图标格、计数与 `×` 全部在同一条细带里
 //! 垂直居中；整条只有一条与 Find 同口径的**顶部横线**，输入框没有常驻外壳。
+//! 功能区之间用 1px 竖线分隔（与上边线同色、`ROW_INSET_Y` 收在条内），细淡不抢
+//! 内容，也不给每个图标格描框。收起态（只剩 Sysmon）不画这些线。
 //! 只有输入控件拿到焦点时才画一枚贴合内联输入区的 1px 指示框（正则非法转红），
 //! 失焦即消失，回到与背景同色的内联文本。
 //!
-//! 视觉语言仍与 Find 同源：标签画法、图标格（`.*` / `Aa` / `Invert`）的
+//! 视觉语言仍与 Find 同源：标签画法、图标格（`.*` / `Aa` / 纯画笔两向箭头）的
 //! active / hover / 错误红、右端与 Find 同列的无边框 `×`（`glyph::paint_cross`）。
 //! 只是纵向几何压进 25pt：图标格高 `ICON_H` = 19，上下各留 3pt。
 //!
@@ -35,7 +37,7 @@ use crate::ui::shell::{
     LABEL_X, TAB_TOOLBAR_H,
 };
 
-/// 内联图标格：`.*` / `Aa` / `Invert` 反转开关，共三格。
+/// 内联图标格：`.*` / `Aa` / 两向箭头反转开关，共三格。
 const ICON_CELLS: usize = 3;
 /// 图标格上下各留 3pt，25pt 条里可用高度 19pt（不是 Find 框内的 23.5pt）。
 const ROW_INSET_Y: f32 = 3.0;
@@ -62,21 +64,12 @@ const EDIT_PAD_L: f32 = 6.0;
 pub(in crate::ui) struct FilterRowGeom {
     /// 无边框的内联输入区（x 范围 + 25pt 条内的纵向位置）。
     pub edit: egui::Rect,
-    /// 三格内联图标：`.*` / `Aa` / `Invert` 反转开关。
+    /// 三格内联图标：`.*` / `Aa` / 纯画笔两向箭头（反转开关）。
     pub icons: [egui::Rect; ICON_CELLS],
     /// `kept / hidden`；窄到放不下时返回 `None`（关闭 `×` 永远在）。
     pub count: Option<egui::Rect>,
     /// 整条右端的无边框 `×`，与 Find 栏同一列。
     pub close: egui::Rect,
-}
-
-/// `Invert` 格宽：文字实测宽 + `Aa` 格同样的左右内边距（`ICON_W - Aa 字宽`）。
-///
-/// 不写死一个数：字体一变两格一起变。它比 `Aa` 格宽是因为 "Invert" /
-/// "反转" 本身比 "Aa" 长，不是因为多画了一块突兀的大按钮——底色、上下边距、
-/// 垂直居中都和相邻两格完全一样。
-pub(in crate::ui) fn invert_cell_width(label_w: f32, aa_w: f32) -> f32 {
-    label_w + (ICON_W - aa_w)
 }
 
 /// 把过滤行排进 25pt 细带。
@@ -160,6 +153,43 @@ pub(in crate::ui) fn filter_top_line(bar: egui::Rect) -> [egui::Pos2; 2] {
     ]
 }
 
+/// 四条竖线的 x：标签|输入、输入|图标、图标|计数、计数|`×`，取两区之间的中点。
+/// 窄条丢掉计数时最后一根为 `None`（没两区可隔）；收起态由调用点不入这里。
+pub(in crate::ui) fn filter_separators(geom: &FilterRowGeom) -> [Option<f32>; 4] {
+    let mid = |a: f32, b: f32| (a + b) / 2.0;
+    let after_icons = geom.count.map_or_else(
+        || mid(geom.icons[2].right(), geom.close.left()),
+        |c| mid(geom.icons[2].right(), c.left()),
+    );
+    [
+        Some(geom.edit.left() - LABEL_GAP / 2.0),
+        Some(mid(geom.edit.right(), geom.icons[0].left())),
+        Some(after_icons),
+        geom.count.map(|c| mid(c.right(), geom.close.left())),
+    ]
+}
+
+/// 纯画笔两向箭头：与 Find 方向按钮的两条水平箭头同一画法（`line_segment` / 1px），
+/// 不排字，不依赖字体里有没有该字形。只出墨迹；底色/红色由调用方给。
+pub(in crate::ui) fn paint_invert_icon(
+    p: &egui::Painter,
+    center: egui::Pos2,
+    color: egui::Color32,
+) {
+    let st = egui::Stroke::new(1.0, color);
+    let rad = 4.5;
+    for (dir, dy) in [(1.0_f32, -2.5_f32), (-1.0, 2.5)] {
+        let mid = egui::pos2(center.x, center.y + dy);
+        p.line_segment(
+            [mid - egui::vec2(rad, 0.0), mid + egui::vec2(rad, 0.0)],
+            st,
+        );
+        let tip = egui::pos2(mid.x + rad * dir, mid.y);
+        p.line_segment([tip, tip + egui::vec2(-1.5 * dir, -2.0)], st);
+        p.line_segment([tip, tip + egui::vec2(-1.5 * dir, 2.0)], st);
+    }
+}
+
 /// 输入聚焦时的指示框：宽度**贴合内联输入区**，高度是文字行高且封顶 25pt，
 /// 所以不会变成 Find 那种 23.5pt 的大盒子，也不会越过本条细带。
 pub(in crate::ui) fn filter_focus_frame_rect(
@@ -228,9 +258,8 @@ impl TerminalWindow {
 
         let mut pending: Vec<term_app::vocab::FilterAction> = Vec::new();
         let count_text = format!("{kept} / {hidden}");
-        // 一枚反转开关：两态共用同一个标签，只有底色 / 字色区分开/关。
-        // `grep` / `grep -v` 是它的语义，不再作为按钮文案出现在过滤行里。
-        let mode_label = t(lang, "Invert");
+        // 一枚反转开关：两态共用同一枚画笔箭头，只有底色 / 墨色区分开/关。
+        // `grep` / `grep -v` 是它的语义；`Invert` 只留在悬停提示里，不上界面。
         let mode_tip = t(lang, "Invert filter (grep -v): hide matching lines");
         let label = t(lang, "Filter:");
         let label_font = crate::ui::type_scale::font(LABEL_FONT_PT);
@@ -248,10 +277,7 @@ impl TerminalWindow {
             .painter()
             .layout_no_wrap(label.to_owned(), label_font, text_c);
         let count_w = label_width(ui, &count_text, &count_font);
-        let mode_w = invert_cell_width(
-            label_width(ui, mode_label, &font),
-            label_width(ui, "Aa", &font),
-        );
+        let mode_w = ICON_W; // 箭头和 `.*` / `Aa` 同宽，不再按文案宽度撑开。
         let geom = filter_row_geom(bar, count_w, label_galley.size().x, mode_w);
 
         let hit = |name: &'static str| match pane_salt {
@@ -267,6 +293,18 @@ impl TerminalWindow {
                 let p = ui.painter();
                 // 与 Find 栏同口径的 1px 顶部横线，横贯整条；输入框没有常驻外壳。
                 p.line_segment(filter_top_line(bar), egui::Stroke::new(1.0, line_c));
+
+                // 功能区之间的 1px 竖线：同色口径，高度收在 25pt 条内上下各 3pt，
+                // 细淡不抢内容；只隔四区，不给每个图标格描框。
+                for x in filter_separators(&geom).into_iter().flatten() {
+                    p.line_segment(
+                        [
+                            egui::pos2(x, bar.top() + ROW_INSET_Y),
+                            egui::pos2(x, bar.bottom() - ROW_INSET_Y),
+                        ],
+                        egui::Stroke::new(1.0, line_c),
+                    );
+                }
 
                 // `Filter:` 与 Find 的 `Find:` 同款：galley + 首字下划线，x=11，
                 // 在 25pt 条里垂直居中。
@@ -367,12 +405,16 @@ impl TerminalWindow {
             pending.push(term_app::vocab::FilterAction::ToggleCase);
         }
 
-        // 反转开关：和 `.*` / `Aa` 同一个 icon_rect、同一套底色与字色，只有
+        // 反转开关：和 `.*` / `Aa` 同一个 icon_rect、同一套底色与墨色，只有
         // 这一格是「关 → 不铺底，开 → 铺 tab」，与 Find 栏开关的口径完全相同。
         // 默认 KeepMatching（不激活）；点一下变 DropMatching（grep -v，隐藏命中行）。
+        // 图标用纯 painter 两向箭头：无系统按钮边框，命中区就是这格绘制区。
         let drop = mode == FilterMode::DropMatching;
         let r = geom.icons[2];
         let resp = ui.interact(r, hit("tab_toolbar_filter_mode"), egui::Sense::click());
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
         if drop {
             ui.painter().rect_filled(r, 0.0, active_bg);
         } else if resp.hovered() {
@@ -386,10 +428,7 @@ impl TerminalWindow {
         } else {
             text_c
         };
-        let g = ui
-            .painter()
-            .layout_no_wrap(mode_label.to_owned(), font.clone(), mode_c);
-        ui.painter().galley(r.center() - g.size() / 2.0, g, mode_c);
+        paint_invert_icon(ui.painter(), r.center(), mode_c);
         if resp.on_hover_text(mode_tip).clicked() {
             pending.push(term_app::filter::ui_command(
                 term_app::filter::FilterUiCommand::ToggleMode,
