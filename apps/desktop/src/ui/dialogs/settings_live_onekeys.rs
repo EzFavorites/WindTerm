@@ -99,8 +99,6 @@ pub(in crate::ui) struct OneKeysEdit {
     pub(in crate::ui) renaming: bool,
     /// 重命名的输入缓冲。
     pub(in crate::ui) rename_buf: String,
-    /// Account 页密码组 Send 框的明文开关（眼睛图标）。
-    pub(in crate::ui) show_password_send: bool,
     /// Sessions 页 Filter 框的跨帧缓冲。
     pub(in crate::ui) session_filter: String,
     /// 组件夹具专用：进 Sessions 页时给 Filter 一个焦点，重现原图的蓝描边。
@@ -361,14 +359,13 @@ pub(in crate::ui) fn onekeys(win: &mut TerminalWindow, ui: &mut egui::Ui) {
             }
             win.save_onekeys();
         } else {
-            // Cancel 必须把**三份凭据草稿**一起丢掉。它们都是 `win` 上的字段，
+            // Cancel 必须把**两份凭据草稿**一起丢掉。它们都是 `win` 上的字段，
             // 不在这份 `edit` 里；留着的话，下次任意一次 Ok 都会 `save_onekeys()`，
             // 把这次已经取消的输入写进保险库——用户以为取消了，凭据却落了盘。
-            // 密码、Keyboard-Interactive 应答、自动填充密码三者共用同一条写入口
-            // （见 `vault.rs::flush_onekey_drafts`），漏一个就等于没取消。
+            // SSH/Account 页的密码与 Keyboard-Interactive 应答共用同一条写入口
+            // （见 `vault.rs::save_onekeys`），漏一个就等于没取消。
             win.onekeys_password_draft = None;
             win.onekeys_ki_draft = None;
-            win.onekeys_autofill_draft = None;
         }
         win.view.show_onekeys = false;
         // 丢掉整份编辑态：下次打开重新从落盘值拷贝草稿。
@@ -472,7 +469,7 @@ fn write_body(ui: &mut egui::Ui, body: egui::Rect, win: &mut TerminalWindow, edi
         // idx 为 None 就直接丢弃——不可持久，但观感与视觉基线一致。
         match edit.tab {
             Tab::Ssh => ssh_editor(win, ui, &mut key, edit),
-            Tab::Account => account_editor(win, ui, &mut key, &mut edit.show_password_send),
+            Tab::Account => account_editor(win, ui, &mut key, &mut edit.show_password),
             Tab::Sessions => sessions_editor(win, ui, &key, &mut edit.session_filter, edit.session_filter_focus),
         }
         // 「Click the lock to make changes」是硬约束：锁着时页面可以照常看，

@@ -1,14 +1,20 @@
 //! 自定义菜单 `Run command` 项的**载荷判据**（从 `ip_hover.rs` 拆出以便单测）。
 //!
-//! `TriggerAction::RunCommand` 的契约是**命令 ID**，而兼容终端的 `Run command`
+//! `UiAction::RunCommand` 的契约是**命令 ID**，而兼容终端的 `Run command`
 //! 输入框里既可能写 `View.ToggleColumnMarker`（ID），也可能写 `ping -c 4 …`（正文）。
 //! 把正文塞进 RunCommand 会让执行器把它当 ID 查表、查不到就静默丢弃；这里在产出
 //! 动作时就把两种写法分开：真 ID 留给 `RunCommand`，正文走 `SendLine` 直接下发。
 //!
 //! 三个 OS 的输入框顺序固定在 `[macOS, Linux, Windows]`，按宿主选一项，不再恒取 0。
 
-use term_app::trigger::Rule;
-use term_core::trigger::{OsCommand, TriggerAction};
+use crate::ui::dialogs::triggers::model::Rule;
+use crate::ui::dialogs::triggers::model::{OsCommand, UiAction};
+use term_core::automation::Action;
+
+/// 悬停 / 内置触发器产出的编辑意图展开成内核动作，走与用户规则同一条派发链。
+pub(in crate::ui) fn to_core_action(action: &UiAction) -> Option<Action> {
+    action.to_core()
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum Host {
@@ -39,11 +45,11 @@ pub(in crate::ui) fn command_of(rule: &Rule, host: Host) -> &OsCommand {
 
 /// 命令串 → 动作：真命令 ID 仍走 `RunCommand`（帧末窗口级 `dispatch`），
 /// 命令正文改成 `SendLine`（写远端并回车）。
-pub(in crate::ui) fn run_command_action(command: &str) -> TriggerAction {
+pub(in crate::ui) fn run_command_action(command: &str) -> UiAction {
     if term_app::action::Action::parse(command).is_some() {
-        TriggerAction::RunCommand(command.to_string())
+        UiAction::RunCommand(command.to_string())
     } else {
-        TriggerAction::SendLine(command.to_string())
+        UiAction::SendLine(command.to_string())
     }
 }
 
@@ -82,7 +88,7 @@ mod tests {
         assert!(term_app::action::Action::parse(id).is_some());
         assert_eq!(
             run_command_action(id),
-            TriggerAction::RunCommand(id.to_string())
+            UiAction::RunCommand(id.to_string())
         );
     }
 
@@ -91,7 +97,7 @@ mod tests {
         for body in ["ping -c 4 10.0.0.9", "echo ${match}", ""] {
             assert_eq!(
                 run_command_action(body),
-                TriggerAction::SendLine(body.to_string())
+                UiAction::SendLine(body.to_string())
             );
         }
     }

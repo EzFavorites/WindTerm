@@ -91,9 +91,9 @@ fn ordinary_paste_never_carries_the_restore_flag() {
 #[test]
 fn a_bad_escape_note_from_the_ip_hit_reaches_the_foreground_notice() {
     let mut win = fixture(false);
-    win.pending_ip_hit = Some(term_core::trigger::Hit {
+    win.pending_ip_hit = Some(crate::ui::dialogs::triggers::model::Hit {
         rule_id: "ip-hit".into(),
-        actions: vec![term_core::trigger::TriggerAction::SendText(r"\x0".into())],
+        actions: vec![crate::ui::dialogs::triggers::model::UiAction::SendText(r"\x0".into())],
         matched: String::new(),
     });
     let slot = TabSlot::Main(win.tabs[0].identity);

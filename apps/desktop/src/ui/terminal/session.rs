@@ -10,14 +10,17 @@
 //! 换控制面又要改 25 处。
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
+use term_core::automation::{Action, AppAction, Effect, Signal, Target, Ticks};
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
 use term_core::session::{backoff, effective, ReconnectPolicy};
 use term_core::session_runtime::{LogStatus, SessionId, SessionStatus};
 
 use crate::ui::*;
-use term_app::trigger::{Rule, TriggerAction, TriggerOn};
+use crate::ui::dialogs::triggers::model::{self, Rule};
+use crate::ui::terminal::trigger_dispatch::{DispatchCtx, FrameIntent, ScriptIntent, UiIntent};
 
 /// 宿主注入的「现在」（Unix 秒）。触发器内核不读墙钟，由这里统一提供，
 /// 冷却与空闲判定都用它。`SystemTime` 可能被 NTP 回拨，内核的 `allow()` 已对
@@ -49,7 +52,7 @@ pub(super) fn set_test_now(now: Option<u64>) {
 
 /// 用系统默认程序打开 hyperlink。失败只留一条日志，绝不 panic（gate 4p）。
 /// opener 作为参数是为了让单测能用可控的假实现覆盖「调用路径 + 失败静默」。
-fn open_link_with(url: &str, opener: impl FnOnce(&Path) -> std::io::Result<()>) {
+pub(in crate::ui) fn open_link_with(url: &str, opener: impl FnOnce(&Path) -> std::io::Result<()>) {
     if let Err(err) = opener(Path::new(url)) {
         eprintln!("触发器 Open hyperlink 失败：{err}");
     }
@@ -97,11 +100,9 @@ impl Tab {
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         auto_reconnect: bool,
-        onekeys: &[term_core::onekey::OneKey],
-        autofill: &std::collections::HashMap<String, String>,
     ) -> bool {
         let mut note = None;
-        let changed = self.poll_with_note(rules, run_commands, auto_reconnect, onekeys, autofill, &mut note);
+        let changed = self.poll_with_note(rules, run_commands, auto_reconnect, &mut note);
         if let Some(note) = note {
             eprintln!("{note}");
         }
@@ -118,12 +119,10 @@ impl Tab {
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         auto_reconnect: bool,
-        onekeys: &[term_core::onekey::OneKey],
-        autofill: &std::collections::HashMap<String, String>,
         note: &mut Option<String>,
     ) -> bool {
         let policy = ReconnectPolicy::from_enabled(auto_reconnect);
-        self.poll_with_policy(rules, run_commands, &policy, onekeys, autofill, note)
+        self.poll_with_policy(rules, run_commands, &policy, note)
     }
 
     /// 真正的事件泵。与 [`poll_with_note`](Self::poll_with_note) 同一份实现，
@@ -134,11 +133,14 @@ impl Tab {
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         global_policy: &ReconnectPolicy,
-        onekeys: &[term_core::onekey::OneKey],
-        autofill: &std::collections::HashMap<String, String>,
         note: &mut Option<String>,
     ) -> bool {
         let now = now_secs();
+        // 编辑投影 → 内核规则。每帧 reload 不会清运行态：`Evaluator::reload`
+        // 按规则 id 保留冷却 / once 记账，只更新规则本体。
+        let core_rules: Vec<term_core::automation::Rule> =
+            rules.iter().map(model::ViewRule::to_core).collect();
+        self.triggers.reload(&core_rules);
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
         // 此刻看到的顶部绝对行，末尾再按新的 history 钉回去。
         //
@@ -183,46 +185,21 @@ impl Tab {
                 // Modem 自动触发：与触发器读同一份本帧输出，但只认提示符后 /
                 // 行首的 rz/sz/rx/rb。命中只记在 tab 上，落地在窗口级 modem_auto。
                 self.modem.note(&text, &self.config.modem_commands);
-                let target = term_core::trigger_target::Target {
-                    system: &self.config.system,
-                    session: &self.config.name,
+                self.last_output_secs = Some(now);
+                let target = Target {
+                    system: self.config.system.clone(),
+                    session: self.config.name.clone(),
                 };
-                let hits = self.triggers.feed_for(rules, &text, now, Some(target));
-                // Send Condition / Send Later 命中先排队；立即放行的原样返回。
-                let mut hits = self.triggers.schedule(hits, rules, now);
-                if text.contains('\n') {
-                    hits.extend(self.triggers.on_line_break(now));
+                let signal = Signal::Output {
+                    stream: &self.config.name,
+                    text: &text,
+                    at: Ticks::from_secs(now),
+                };
+                for effect in self.triggers.eval(&signal, &target) {
+                    self.dispatch_effect(&effect, run_commands, note);
                 }
-                if term_app::trigger_builtins::looks_like_prompt(&text) {
-                    hits.extend(self.triggers.on_prompt(now));
-                }
-                hits.extend(self.triggers.due(now));
-                for hit in hits {
-                    self.apply_trigger(hit, run_commands, note);
-                }
-                // Account OneKey 的 expect → send：同一个提示只回一次，
-                // 方案名写错 / 已停用时 `active()` 返回 None，静默跳过。
-                if let Some(scheme) = term_core::onekey::OneKey::active(onekeys, &self.config.onekey) {
-                    let expects = scheme.expects.clone();
-                    for expect in &expects {
-                        if self.onekey_expects_fired.contains(&expect.expect) {
-                            continue;
-                        }
-                        if term_core::onekey::expect_matches(expect, &text) {
-                            self.onekey_expects_fired.insert(expect.expect.clone());
-                            // Password 组的 Send 不在 prefs（明文），应答从保险库
-                            // 派生的表里取；空串说明没存过，不静默发空密码。
-                            let answer = if expect.send.is_empty() {
-                                autofill.get(&scheme.name).map(String::as_str).unwrap_or("")
-                            } else {
-                                expect.send.as_str()
-                            };
-                            if !answer.is_empty() {
-                                self.write(answer.as_bytes());
-                            }
-                        }
-                    }
-                }
+                // OneKey 只在连接期生效（ADR-0030 决策 5）：会话期不再按
+                // expect → send 回复输出，登录之后的字节只进触发器 / 屏幕。
                 self.tmux_consume_bytes(&bytes);
             }
         }
@@ -233,38 +210,39 @@ impl Tab {
         // 只读查看时整段跳过（不求值 = 不执行），但 `was_live` 照常更新——否则
         // 退出只读的第一帧会把「连上」当成一次新跳变，补跑一遍 Connect 动作。
         let live = self.session.is_some();
+        let target = Target {
+            system: self.config.system.clone(),
+            session: self.config.name.clone(),
+        };
         if self.local_mode {
             self.was_live = live;
         } else if live && !self.was_live {
             // 「刚连上」的边沿：窗口层的自动日志（`Log types`）只认这一处。
-            // 重连会换一个新 `SessionId`，`was_live` 那时已是 false，所以边沿
-            // 会再来一次——这正是重连后要重新开一份日志的原因。
             self.just_connected = true;
-            // 连上就把退避清零：下次掉线从 1 秒重新起算。
             self.auto_reconnect_at = None;
             self.auto_reconnect_attempts = 0;
             self.triggers.reset();
-            self.onekey_expects_fired.clear();
-            let hits = self.triggers.event(rules, TriggerOn::Connect, now);
-            for hit in hits {
-                self.apply_trigger(hit, run_commands, note);
+            let signal = Signal::Connected {
+                stream: &self.config.name,
+                at: Ticks::from_secs(now),
+            };
+            for effect in self.triggers.eval(&signal, &target) {
+                self.dispatch_effect(&effect, run_commands, note);
             }
         } else if !live && self.was_live {
             // 断开边沿清掉这条会话的运行时凭据：Tab.auth 里只剩引用，没有
             // 密码就再也取不到——凭据不再活完整场会话。重连会重新问保险库。
             crate::ui::dialogs::vault::clear_session_secrets(&self.config.name);
-            let hits = self.triggers.event(rules, TriggerOn::Disconnect, now);
-            for hit in hits {
-                self.apply_trigger(hit, run_commands, note);
+            let signal = Signal::Disconnected {
+                stream: &self.config.name,
+                at: Ticks::from_secs(now),
+                reason: term_core::automation::CloseReason::Normal,
+            };
+            for effect in self.triggers.eval(&signal, &target) {
+                self.dispatch_effect(&effect, run_commands, note);
             }
-            // 断连边沿：只有「发不出去的已到期项」才丢。自动重连的非 shell
-            // 会话会马上回来，未到期的 Send Later 必须留着，否则重连后那条
-            // 发送就永远不会落地（见 `discard_pending_sends`）。
+            // 断连边沿：未派发的意图属于这条已经不在的会话，丢掉并明确报数。
             self.discard_pending_sends(now, note, global_policy.enabled);
-            // 掉线边沿排**下一次**尝试：唯一判据是 `allows_reconnect()`
-            // （非 Shell + 有效策略 enabled）。显式 Disconnect 的 blocked 位、
-            // 终止性失败（由调用方置 blocked）、溢出保护都在各自那一层拦住；
-            // 180s 窗口由窗口侧的运行时判，这里只回答「这次等多久」。
             if self.config.allows_reconnect(global_policy) && !self.auto_reconnect_blocked {
                 let policy = effective(global_policy, &self.config.reconnect);
                 if let Some(delay) = backoff(&policy, u32::from(self.auto_reconnect_attempts)) {
@@ -273,27 +251,19 @@ impl Tab {
                 }
             }
         }
-        // 只有「只读查看」才整段跳过；不能拿 `live &&` 把 `due` 一起关掉——
-        // 会话断掉之后没有输出事件，Send Later 本来就该在这条安静期里到期。
-        if !self.local_mode {
-            if live {
-                // Idle 只在「距上次输出至少 idle_secs 秒、且本段空闲还没报过」时命中；
-                // `feed` 一旦有输出就把 `idle_fired` 清空，下一段空闲重新开始计。
-                let hits = self.triggers.event(rules, TriggerOn::Idle, now);
-                for hit in hits {
-                    self.apply_trigger(hit, run_commands, note);
-                }
-            }
-            // Send Later 的到期只靠输出事件驱动是不够的：远端在命中之后安静下来，
-            // 就再也不会有 `on_line_break` / `on_prompt` / `due` 的机会，定时发送
-            // 永远不落地。空闲段每帧补一次 `due`（断开之后也一样）。
-            // `moved` 那一帧已经在输出分支调过 `due`（它会取走到期项），这里跳过，
-            // 避免同一帧把同一条命中发两遍。
-            if !moved {
-                let due = self.triggers.due(now);
-                for hit in due {
-                    self.apply_trigger(hit, run_commands, note);
-                }
+        // Idle 也是一条 Signal：安静时长由上次输出时间推导，规则自己声明阈值。
+        if !self.local_mode && live {
+            let quiet = self
+                .last_output_secs
+                .map(|t| now.saturating_sub(t))
+                .unwrap_or(now);
+            let signal = Signal::Idle {
+                stream: &self.config.name,
+                quiet: Duration::from_secs(quiet),
+                at: Ticks::from_secs(now),
+            };
+            for effect in self.triggers.eval(&signal, &target) {
+                self.dispatch_effect(&effect, run_commands, note);
             }
         }
         self.was_live = live;
@@ -358,78 +328,27 @@ impl Tab {
         true
     }
 
-    /// 把一次命中的动作落到会话上。
-    ///
-    /// - `SendText` / `SendLine`：经 `Tab::write`（PTY 唯一漏斗）。`SendLine` 补一个
-    ///   CR，等价于敲回车；远端行规把 CR 当行结束，与键盘 Enter 一致。
-    /// - `Beep`：写终端响铃字符 `BEL (0x07)` 到 PTY——这是本层能做到的「真实副作用」
-    ///   （本地桌面响铃需要 OS / ctx，tab 不持有；v0.3 若有更合适的提醒通道再换）。
-    /// - `RunCommand`：收集命令 ID，交给窗口层 `dispatch`——它走既有命令通道，
-    ///   需要 `Action` 分发器，tab 这一层没有。
-    /// - `Highlight`：记下命中所在的内容行，`paint_rows` 在字形下铺一层淡底；
-    ///   不进选区、不影响复制。
-    /// - `OpenLink`：经投影层 `sysopen::open` 用系统默认程序打开；失败只记日志。
-    pub(in crate::ui) fn apply_trigger(
+    /// 把一次命中翻译成待派发意图。**这里不写 PTY、不改视图状态**：四类
+    /// `Action` 各自落到 `FrameIntent`，由窗口层统一消费（仲裁器从 `ctx` 接入）。
+    pub(in crate::ui) fn dispatch_effect(
         &mut self,
-        hit: term_app::trigger::Hit,
+        effect: &Effect,
         run_commands: &mut Vec<String>,
-        note: &mut Option<String>,
+        _note: &mut Option<String>,
     ) {
-        for action in &hit.actions {
-            match action {
-                // 只有文本里**明确写了转义**才走 Sender 那张表：`\x03` / `\003`
-                // / `\cc` 都要能发 Ctrl+C。普通文本（例如 `C:\Windows\path`）
-                // 原样发，不能被未知转义吃掉反斜杠，也不能因末尾孤立 `\` 整条不发送。
-                // 写错的转义不回退成字面字节：既不发，也把原因送到状态行。
-                TriggerAction::SendText(s) => match decode_send_text(s) {
-                    Ok(bytes) => {
-                        self.write(&bytes);
-                    }
-                    Err(err) => note_escape_error(note, &hit.rule_id, "Send text", &err),
-                },
-                TriggerAction::SendLine(s) => match decode_send_text(s) {
-                    Ok(mut bytes) => {
-                        bytes.push(b'\r');
-                        self.write(&bytes);
-                    }
-                    Err(err) => note_escape_error(note, &hit.rule_id, "Send line", &err),
-                },
-                TriggerAction::Beep => {
-                    self.write(&[0x07]);
-                }
-                TriggerAction::RunCommand(id) => {
-                    run_commands.push(id.clone());
-                }
-                TriggerAction::OpenLink(url) => open_link_with(url, crate::sysopen::open),
-                TriggerAction::LocalSendLine(s) => {
-                    let mut text = s.clone();
-                    text.push('\r');
-                    match term_core::send_escapes::decode(&text) {
-                        Ok(bytes) => self.pending_local_sends.push(String::from_utf8_lossy(&bytes).into_owned()),
-                        Err(err) => note_escape_error(note, &hit.rule_id, "Local send line", &err),
-                    }
-                }
-                TriggerAction::Highlight => {
-                    // 命中发生在这一帧的事实窗口里：记下光标的绝对内容行，
-                    // 由 paint_rows 铺一层淡底。只保留最近 64 行，避免长会话
-                    // 把高亮表养大；复制 / 选区完全不受影响。
-                    if let Some((row, _)) = self.view.cursor {
-                        let row = super::highlights::absolute_row(row, self.view.range.start);
-                        if !self.trigger_highlight_rows.contains(&row) {
-                            self.trigger_highlight_rows.push(row);
-                            if self.trigger_highlight_rows.len() > 64 {
-                                self.trigger_highlight_rows.remove(0);
-                            }
-                        }
-                    }
-                }
-            }
+        let Some(intent) = super::trigger_dispatch::intent_from_effect(effect) else {
+            return;
+        };
+        // 命令 ID 走既有窗口级分发器，其余意图进队列等待窗口消费。
+        if let IntentKind::App(AppIntent::Dispatch(id)) = &intent.kind {
+            run_commands.push(id.clone());
         }
+        self.pending_intents.push(intent);
     }
 
     /// 断连边沿处理排队的发送意图；只在确实送不出去时丢并报一条提示。
     ///
-    /// `Matcher::reset` 只清尾巴 / 冷却 / 一次性表，不清 trigger queue，所以
+    /// `Evaluator::reset` 只清尾巴 / 冷却 / 一次性表，不清 trigger queue，所以
     /// 队列本身是跨边沿活着的。关键在**不能无条件抽干**：
     ///
     /// - 自动重连开着且不是 local shell：短暂掉线后还会回来，未到期的
@@ -438,22 +357,20 @@ impl Tab {
     /// - 其它边沿（手动断开 / shell / 关了自动重连）：只取走**此刻已到期却
     ///   无会话可发**的项，不碰还没到期的计划——它们留给可能的手动重连。
     ///
-    /// 连上边沿的 `Matcher::reset` 不清队列（`term_app::trigger`），所以留下
+    /// 连上边沿的 `Evaluator::reset` 不清意图队列，所以留下
     /// 的命中能在新会话上正常落地。
     pub(in crate::ui) fn discard_pending_sends(
         &mut self,
-        now: u64,
+        _now: u64,
         note: &mut Option<String>,
         auto_reconnect: bool,
     ) {
         if self.config.allows_reconnect(&ReconnectPolicy::from_enabled(auto_reconnect)) {
             return;
         }
-        let mut dropped = self.triggers.on_prompt(now).len();
-        dropped += self.triggers.on_line_break(now).len();
-        // 只收本刻到期的 Send Later。上一版用 `due(u64::MAX)` 把未来项也
-        // 抽干，正是「重连后 Send Later 消失」的根因。
-        dropped += self.triggers.due(now).len();
+        // 排队的是意图而非定时器：断线后没有会话可落地的意图一律丢弃并报数。
+        let dropped = self.pending_intents.len();
+        self.pending_intents.clear();
         if dropped > 0 && note.is_none() {
             *note = Some(format!("会话已断开，{dropped} 条待发送触发器已丢弃（未送达）"));
         }
@@ -695,7 +612,7 @@ impl Tab {
 ///
 /// 第三轮：显式转义写错时返回 `Err`，由调用方上报到状态行，**不再静默回退**
 /// 成原样字节（那等于发了一串反斜杠，比不发更糟）。
-pub(super) fn decode_send_text(
+pub(in crate::ui) fn decode_send_text(
     text: &str,
 ) -> Result<Vec<u8>, term_core::send_escapes::EscapeError> {
     let mut chars = text.chars().peekable();
@@ -718,7 +635,7 @@ pub(super) fn decode_send_text(
 
 /// 一处转义写错：把「哪条规则的哪个动作」与错误原因写进窗口提示槽。
 /// 同一批动作里只留第一条，避免一次命中把状态行刷成同一句话的列表。
-fn note_escape_error(
+pub(in crate::ui) fn note_escape_error(
     note: &mut Option<String>,
     rule: &str,
     action: &str,

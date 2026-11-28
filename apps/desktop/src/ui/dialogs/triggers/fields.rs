@@ -339,7 +339,7 @@ pub(in crate::ui::dialogs) fn toggle(
 pub(in crate::ui::dialogs) fn flag_bar(
     ui: &mut egui::Ui,
     rect: egui::Rect,
-    flags: &mut term_core::trigger::MatchFlags,
+    flags: &mut crate::ui::dialogs::triggers::model::MatchFlags,
     literal: &mut bool,
     case_sensitive: &mut bool,
 ) {

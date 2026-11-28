@@ -100,21 +100,21 @@ fn a_bad_trigger_escape_reaches_the_note_slot_and_writes_nothing() {
     let (tx, rx) = std::sync::mpsc::channel();
     tab.raw.attach(crate::hex_tap::HexTap::new(rx));
 
-    let mut rule = term_core::trigger::Rule::default();
+    let mut rule = crate::ui::dialogs::triggers::model::Rule::default();
     rule.id = "bad-escape".into();
     rule.enabled = true;
-    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.on = crate::ui::dialogs::triggers::model::Channel::Output;
     rule.pattern = "wake".into();
     rule.literal = true;
-    rule.config.send.condition = term_core::trigger::SendCondition::AfterMatch;
+    rule.config.send.condition = crate::ui::dialogs::triggers::model::SendCondition::AfterMatch;
     rule.config.send.later_secs = "0".into();
-    rule.actions = vec![term_core::trigger::TriggerAction::SendText(r"\x0".into())];
+    rule.actions = vec![crate::ui::dialogs::triggers::model::UiAction::SendText(r"\x0".into())];
     let rules = [rule];
 
     super::session::set_test_now(Some(10));
     tx.send(b"wake".to_vec()).expect("送一次远端输出");
     let mut note = None;
-    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new(), &mut note);
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &mut note);
     let note = note.expect("转义写错必须上报，不许静默吞掉");
     assert!(note.contains("触发器 bad-escape 的 Send text 转义写错"), "note={note:?}");
     assert!(note.contains("\\x 需要两位十六进制"), "note={note:?}");
@@ -146,41 +146,40 @@ fn send_later_fires_after_the_remote_goes_quiet_for_two_seconds() {
     let (tx, rx) = std::sync::mpsc::channel();
     tab.raw.attach(crate::hex_tap::HexTap::new(rx));
 
-    let mut rule = term_core::trigger::Rule::default();
+    let mut rule = crate::ui::dialogs::triggers::model::Rule::default();
     rule.id = "later".into();
     rule.enabled = true;
-    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.on = crate::ui::dialogs::triggers::model::Channel::Output;
     rule.pattern = "wake".into();
     rule.literal = true;
     rule.config.send.later_secs = "2".into();
-    rule.actions = vec![term_core::trigger::TriggerAction::SendText("LATER".into())];
+    rule.actions = vec![crate::ui::dialogs::triggers::model::UiAction::SendText("LATER".into())];
     let rules = [rule];
-    let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
     tx.send(b"wake".to_vec()).expect("送一次远端输出");
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    tab.poll(&rules, &mut Vec::new(), false);
     assert!(writes.0.lock().expect("读写入记录").is_empty(), "命中只排队，不能立刻发");
-    assert_eq!(tab.triggers.pending_count(), 1, "Send Later 已入队");
+    assert_eq!(tab.pending_intents.len(), 1, "Send Later 已入队");
 
     // 远端安静下来：101s 还没到期，102s 到期。两帧 tap 都是空的，
     // 输出分支不会再跑——只有空闲段补调 due 才会出现这次发送。
     super::session::set_test_now(Some(101));
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    tab.poll(&rules, &mut Vec::new(), false);
     assert!(writes.0.lock().expect("读写入记录").is_empty(), "还没到 2s 不该发");
 
     super::session::set_test_now(Some(102));
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    tab.poll(&rules, &mut Vec::new(), false);
     // `pool.send` 把写命令交给监管者线程，落盘到假通道是异步的。
     crate::ui::lifecycle_test_support::eventually("Send Later 写出", || {
         writes.0.lock().map(|w| w.as_slice() == b"LATER").unwrap_or(false)
     });
-    assert_eq!(tab.triggers.pending_count(), 0, "到期项应被取走，不能重复发");
+    assert_eq!(tab.pending_intents.len(), 0, "到期项应被取走，不能重复发");
 
     // 同帧不重复：后续继续静默也不该再写一遍。
     for t in 103..107 {
         super::session::set_test_now(Some(t));
-        tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+        tab.poll(&rules, &mut Vec::new(), false);
     }
     assert_eq!(writes.0.lock().expect("读写入记录").as_slice(), b"LATER");
     super::session::set_test_now(None);
@@ -199,7 +198,7 @@ fn an_externally_closed_session_turns_the_tab_into_a_disconnected_one() {
     assert!(pool.close(id), "关一条在册的会话必须成功");
 
     let mut commands = Vec::new();
-    let redraw = tab.poll(&[], &mut commands, false, &[], &std::collections::HashMap::new());
+    let redraw = tab.poll(&[], &mut commands, false);
 
     assert!(redraw, "会话没了是**新事实**，必须要求重绘一次");
     assert!(!tab.is_live(), "标签要转成断开形态，不能永远显示活着");
@@ -225,7 +224,7 @@ fn a_session_that_is_still_in_the_pool_is_left_alone() {
 
     // 连跑几帧：第一帧可能真的带回新事实，之后没有——两种都不该改 `session`。
     for _ in 0..3 {
-        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+        tab.poll(&[], &mut Vec::new(), false);
         assert_eq!(tab.session(), Some(id), "在册的会话不许被对账改成断开");
         assert!(tab.is_live());
     }
@@ -246,18 +245,18 @@ fn the_connect_edge_is_reported_once_per_connection_and_consumed() {
     let mut tab = fake_tab(&pool, &ctx, 0, &closes);
     let id = tab.session().expect("夹具应当绑上一条会话");
 
-    tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&[], &mut Vec::new(), false);
     assert!(tab.take_just_connected(), "首帧是「没连过 → 连着」，必须报边沿");
 
     // 同一次连接里的后续帧不再报：自动日志因此只开一份。
     for _ in 0..3 {
-        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+        tab.poll(&[], &mut Vec::new(), false);
         assert!(!tab.take_just_connected(), "同一次连接只配一个边沿");
     }
 
     // 断开那一帧不是「连上」边沿（那是 Disconnect 触发器的活）。
     pool.close(id);
-    tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&[], &mut Vec::new(), false);
     assert!(!tab.is_live());
     assert!(!tab.take_just_connected(), "断开不该被认成连上");
 }
@@ -292,15 +291,15 @@ fn tab_with_tap(
     )
 }
 
-fn later_rule(id: &str, secs: &str) -> term_core::trigger::Rule {
-    let mut rule = term_core::trigger::Rule::default();
+fn later_rule(id: &str, secs: &str) -> crate::ui::dialogs::triggers::model::Rule {
+    let mut rule = crate::ui::dialogs::triggers::model::Rule::default();
     rule.id = id.into();
     rule.enabled = true;
-    rule.on = term_core::trigger::TriggerOn::Output;
+    rule.on = crate::ui::dialogs::triggers::model::Channel::Output;
     rule.pattern = "wake".into();
     rule.literal = true;
     rule.config.send.later_secs = secs.into();
-    rule.actions = vec![term_core::trigger::TriggerAction::SendText("LATER".into())];
+    rule.actions = vec![crate::ui::dialogs::triggers::model::UiAction::SendText("LATER".into())];
     rule
 }
 
@@ -310,20 +309,19 @@ fn later_rule(id: &str, secs: &str) -> term_core::trigger::Rule {
 fn a_due_send_later_is_checked_even_after_the_session_is_gone() {
     let (_sid, mut tab, tx) = tab_with_tap("due-after-disconnect");
     let rules = [later_rule("later-gone", "2")];
-    let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
     // 直接把标签转成断开态，`was_live` 也清掉，不触发断连边沿的丢弃逻辑。
     tab.session = None;
     tab.was_live = false;
     tx.send(b"wake".to_vec()).expect("送一次输出");
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
-    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1, "命中先排队");
 
     super::session::set_test_now(Some(102));
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
+    tab.poll(&rules, &mut Vec::new(), false);
     assert_eq!(
-        tab.triggers.pending_count(),
+        tab.pending_intents.len(),
         0,
         "静默期（且会话已断）也必须补调 due，不能只靠输出事件"
     );
@@ -336,21 +334,20 @@ fn a_due_send_later_is_checked_even_after_the_session_is_gone() {
 fn a_disconnect_edge_discards_due_pending_sends_and_reports_it() {
     let (_sid, mut tab, tx) = tab_with_tap("discard-on-disconnect");
     let rules = [later_rule("later-discard", "1")];
-    let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
     tx.send(b"wake".to_vec()).expect("送一次输出");
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
-    assert_eq!(tab.triggers.pending_count(), 1);
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1);
 
     // 模拟显式断开：`was_live` 还留着 true，下一帧就是断连边沿。
     tab.session = None;
     let mut note = None;
     // 1s 后确实到期了，才该被丢；用 due(u64::MAX) 时未到期也会被抽干。
     super::session::set_test_now(Some(102));
-    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &autofill, &mut note);
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &mut note);
 
-    assert_eq!(tab.triggers.pending_count(), 0, "到期项必须取走，不能留给下一条会话");
+    assert_eq!(tab.pending_intents.len(), 0, "到期项必须取走，不能留给下一条会话");
     let note = note.expect("丢弃必须上屏，不能静默");
     assert!(note.contains("丢弃"), "note={note:?}");
     assert!(note.contains("未送达"), "note={note:?}");
@@ -363,19 +360,18 @@ fn a_disconnect_edge_discards_due_pending_sends_and_reports_it() {
 fn a_not_yet_due_send_later_is_kept_on_a_non_auto_reconnect_disconnect() {
     let (_sid, mut tab, tx) = tab_with_tap("keep-undue-on-disconnect");
     let rules = [later_rule("later-keep", "5")];
-    let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
     tx.send(b"wake".to_vec()).expect("送一次输出");
-    tab.poll(&rules, &mut Vec::new(), false, &[], &autofill);
-    assert_eq!(tab.triggers.pending_count(), 1);
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1);
 
     tab.session = None;
     let mut note = None;
     super::session::set_test_now(Some(101));
-    tab.poll_with_note(&rules, &mut Vec::new(), false, &[], &autofill, &mut note);
+    tab.poll_with_note(&rules, &mut Vec::new(), false, &mut note);
     assert_eq!(
-        tab.triggers.pending_count(),
+        tab.pending_intents.len(),
         1,
         "未到期的项不属于「已到期但无会话可发」，不能抽干"
     );
@@ -406,20 +402,19 @@ fn a_send_later_survives_a_one_second_auto_reconnect_and_fires() {
     let (tx, rx) = std::sync::mpsc::channel();
     tab.raw.attach(crate::hex_tap::HexTap::new(rx));
     let rules = [later_rule("later-reconnect", "1")];
-    let autofill = std::collections::HashMap::new();
 
     super::session::set_test_now(Some(100));
     tx.send(b"wake".to_vec()).expect("送一次输出");
-    tab.poll(&rules, &mut Vec::new(), true, &[], &autofill);
-    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+    tab.poll(&rules, &mut Vec::new(), true);
+    assert_eq!(tab.pending_intents.len(), 1, "命中先排队");
 
     // 断开边沿：自动重连 + 非 shell → 队列原样留住，且按 1s 退避排重连。
     // 断开必须发生在到期之前，否则静默期的 due 会先把它发出去（那时没有会话）。
     tab.session = None;
     let mut note = None;
-    tab.poll_with_note(&rules, &mut Vec::new(), true, &[], &autofill, &mut note);
+    tab.poll_with_note(&rules, &mut Vec::new(), true, &mut note);
     assert_eq!(
-        tab.triggers.pending_count(),
+        tab.pending_intents.len(),
         1,
         "短暂重连必须留住未到期的 Send Later"
     );
@@ -432,7 +427,7 @@ fn a_send_later_survives_a_one_second_auto_reconnect_and_fires() {
     assert_ne!(new_sid, old_sid, "重连换成新会话 id");
 
     super::session::set_test_now(Some(101));
-    tab.poll(&rules, &mut Vec::new(), true, &[], &autofill);
+    tab.poll(&rules, &mut Vec::new(), true);
     crate::ui::lifecycle_test_support::eventually("重连后的 Send Later 写出", || {
         writes
             .0
@@ -440,7 +435,7 @@ fn a_send_later_survives_a_one_second_auto_reconnect_and_fires() {
             .map(|w| w.as_slice() == b"LATER")
             .unwrap_or(false)
     });
-    assert_eq!(tab.triggers.pending_count(), 0, "到期项必须被取走，不能重复发");
+    assert_eq!(tab.pending_intents.len(), 0, "到期项必须被取走，不能重复发");
     super::session::set_test_now(None);
 }
 
@@ -480,7 +475,7 @@ fn a_serial_channel_that_is_not_alive_produces_a_disconnect_edge() {
     assert!(tab.session.is_some(), "夹具先带一条活会话");
 
     crate::ui::lifecycle_test_support::eventually("串口 !alive 产生断开边沿", || {
-        tab.poll(&[], &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+        tab.poll(&[], &mut Vec::new(), false);
         tab.session.is_none()
     });
     // 边沿来自 `status().alive == false`，不是显式 Disconnect：blocked 不能置，
@@ -534,15 +529,15 @@ fn cond_tab(id: &str) -> (crate::ui::Tab, crate::hex_tap::TapSender, Writes) {
 }
 
 /// 输出型规则：命中 "wake" 就 SendText("SEND")。不设 `later_secs`，吃新的默认 0。
-fn cond_rule(id: &str, condition: term_core::trigger::SendCondition) -> term_core::trigger::Rule {
-    let mut r = term_core::trigger::Rule::default();
+fn cond_rule(id: &str, condition: crate::ui::dialogs::triggers::model::SendCondition) -> crate::ui::dialogs::triggers::model::Rule {
+    let mut r = crate::ui::dialogs::triggers::model::Rule::default();
     r.id = id.into();
     r.enabled = true;
-    r.on = term_core::trigger::TriggerOn::Output;
+    r.on = crate::ui::dialogs::triggers::model::Channel::Output;
     r.pattern = "wake".into();
     r.literal = true;
     r.config.send.condition = condition;
-    r.actions = vec![term_core::trigger::TriggerAction::SendText("SEND".into())];
+    r.actions = vec![crate::ui::dialogs::triggers::model::UiAction::SendText("SEND".into())];
     r
 }
 
@@ -557,13 +552,13 @@ fn assert_sent(writes: &Writes) {
 #[test]
 fn a_prompt_condition_holds_the_send_until_a_prompt_chunk_arrives() {
     let (mut tab, tx, writes) = cond_tab("cond-prompt");
-    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    let rules = [cond_rule("p", crate::ui::dialogs::triggers::model::SendCondition::AfterMatchAndPrompt)];
     tx.send(b"wake".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
-    assert_eq!(tab.triggers.pending_count(), 1, "命中先排队");
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1, "命中先排队");
     assert!(writes.0.lock().unwrap().is_empty(), "提示符未到不能发");
     tx.send(b"user@host:~$ ".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&rules, &mut Vec::new(), false);
     assert_sent(&writes);
 }
 
@@ -571,13 +566,13 @@ fn a_prompt_condition_holds_the_send_until_a_prompt_chunk_arrives() {
 #[test]
 fn a_line_break_condition_holds_the_send_until_a_newline_chunk_arrives() {
     let (mut tab, tx, writes) = cond_tab("cond-line-break");
-    let rules = [cond_rule("lb", term_core::trigger::SendCondition::AfterMatchAndLineBreak)];
+    let rules = [cond_rule("lb", crate::ui::dialogs::triggers::model::SendCondition::AfterMatchAndLineBreak)];
     tx.send(b"wake".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
-    assert_eq!(tab.triggers.pending_count(), 1, "换行未到先排队");
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1, "换行未到先排队");
     assert!(writes.0.lock().unwrap().is_empty(), "换行未到不能发");
     tx.send(b"next line\n".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&rules, &mut Vec::new(), false);
     assert_sent(&writes);
 }
 
@@ -585,12 +580,12 @@ fn a_line_break_condition_holds_the_send_until_a_newline_chunk_arrives() {
 #[test]
 fn a_prompt_condition_is_not_released_by_a_plain_line_break() {
     let (mut tab, tx, writes) = cond_tab("cond-lb-not-prompt");
-    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    let rules = [cond_rule("p", crate::ui::dialogs::triggers::model::SendCondition::AfterMatchAndPrompt)];
     tx.send(b"wake".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&rules, &mut Vec::new(), false);
     tx.send(b"next line\n".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
-    assert_eq!(tab.triggers.pending_count(), 1, "换行不放行 Prompt 门");
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 1, "换行不放行 Prompt 门");
     assert!(writes.0.lock().unwrap().is_empty(), "没有提示符就不发");
 }
 
@@ -598,10 +593,10 @@ fn a_prompt_condition_is_not_released_by_a_plain_line_break() {
 #[test]
 fn an_immediate_match_condition_fires_in_the_same_frame() {
     let (mut tab, tx, writes) = cond_tab("cond-match");
-    let rules = [cond_rule("m", term_core::trigger::SendCondition::AfterMatch)];
+    let rules = [cond_rule("m", crate::ui::dialogs::triggers::model::SendCondition::AfterMatch)];
     tx.send(b"wake".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
-    assert_eq!(tab.triggers.pending_count(), 0, "Match 条件不排队");
+    tab.poll(&rules, &mut Vec::new(), false);
+    assert_eq!(tab.pending_intents.len(), 0, "Match 条件不排队");
     assert_sent(&writes);
 }
 
@@ -609,14 +604,14 @@ fn an_immediate_match_condition_fires_in_the_same_frame() {
 #[test]
 fn a_prompt_queued_send_is_not_released_by_an_idle_due_tick() {
     let (mut tab, tx, writes) = cond_tab("cond-idle");
-    let rules = [cond_rule("p", term_core::trigger::SendCondition::AfterMatchAndPrompt)];
+    let rules = [cond_rule("p", crate::ui::dialogs::triggers::model::SendCondition::AfterMatchAndPrompt)];
     tx.send(b"wake".to_vec()).unwrap();
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&rules, &mut Vec::new(), false);
     for t in 101..105 {
         super::session::set_test_now(Some(t));
-        tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+        tab.poll(&rules, &mut Vec::new(), false);
     }
-    assert_eq!(tab.triggers.pending_count(), 1, "空闲 due 不放行 Prompt 门");
+    assert_eq!(tab.pending_intents.len(), 1, "空闲 due 不放行 Prompt 门");
     assert!(writes.0.lock().unwrap().is_empty(), "没有提示符就不发");
     super::session::set_test_now(None);
 }
@@ -626,14 +621,14 @@ fn a_prompt_queued_send_is_not_released_by_an_idle_due_tick() {
 #[test]
 fn a_connect_rule_send_text_bypasses_the_send_condition() {
     let (mut tab, _tx, writes) = cond_tab("cond-connect");
-    let mut r = term_core::trigger::Rule::default();
+    let mut r = crate::ui::dialogs::triggers::model::Rule::default();
     r.id = "c".into();
     r.enabled = true;
-    r.on = term_core::trigger::TriggerOn::Connect;
-    r.config.send.condition = term_core::trigger::SendCondition::AfterMatchAndPrompt;
-    r.actions = vec![term_core::trigger::TriggerAction::SendText("SEND".into())];
+    r.on = crate::ui::dialogs::triggers::model::Channel::Connect;
+    r.config.send.condition = crate::ui::dialogs::triggers::model::SendCondition::AfterMatchAndPrompt;
+    r.actions = vec![crate::ui::dialogs::triggers::model::UiAction::SendText("SEND".into())];
     let rules = [r];
-    tab.poll(&rules, &mut Vec::new(), false, &[], &std::collections::HashMap::new());
+    tab.poll(&rules, &mut Vec::new(), false);
     assert_sent(&writes);
-    assert_eq!(tab.triggers.pending_count(), 0, "事件类规则不排队");
+    assert_eq!(tab.pending_intents.len(), 0, "事件类规则不排队");
 }

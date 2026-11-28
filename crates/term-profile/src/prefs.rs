@@ -36,9 +36,9 @@ use serde::{Deserialize, Serialize};
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use term_core::automation::Rule;
 use term_core::command_history::CommandHistory;
 use term_core::onekey::OneKey;
-use term_core::trigger::Rule;
 use term_core::tunnel::TunnelProfile;
 
 use crate::quickbar::QuickBarDisplay;
@@ -563,10 +563,10 @@ pub struct Prefs {
     /// 出厂 40（参考 `40 %`）。
     #[serde(default = "default_40")]
     pub tab_thumbnail_pct: usize,
-    /// 触发器规则（事件 → 匹配 → 动作）。落盘在 `prefs.json` 的 `triggers`
-    /// 数组里，运行时由每个 tab 的 `Matcher` 消费。空数组 = 出厂态（没有规则）。
+    /// 触发器规则（信号 → 匹配 → 意图）。落盘在 `prefs.json` 的 `triggers`
+    /// 数组里，运行时由 `term_core::automation::Evaluator` 消费。空数组 = 出厂态。
     ///
-    /// 规则类型定义在 `term_core::trigger::Rule`：数据层下放到最低 crate，
+    /// 规则类型定义在 `term_core::automation::Rule`：数据层下放到最低 crate，
     /// `term-profile` 因此只依赖 `term-core`，不反向依赖 `term-app`（应用层），
     /// 守住 ADR-0014 的分层。`#[serde(default)]` 让老文件 / 缺键回落空规则集，
     /// 而不是整份 `prefs` 作废。

@@ -10,7 +10,7 @@ use super::{Actions, Open, View};
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::TriggerKind;
+use crate::ui::dialogs::triggers::model::TriggerKind;
 
 /// 画当前打开的弹窗。
 pub(in crate::ui) fn show(
@@ -351,7 +351,7 @@ fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui, o: egui::Pos2, view: &
     // ── Style 组：四行 ──
     let opens = [Open::TextColor, Open::BgColor, Open::LineStyle, Open::LineColor];
     let line_none = sel
-        .map(|i| win.triggers[i].config.mark.line_style == term_core::trigger::LineStyle::None)
+        .map(|i| win.triggers[i].config.mark.line_style == crate::ui::dialogs::triggers::model::LineStyle::None)
         .unwrap_or(true);
     for (k, top) in hl::ROWS.iter().enumerate() {
         let fr = egui::Rect::from_min_size(
@@ -438,7 +438,7 @@ fn highlight(win: &mut TerminalWindow, ui: &mut egui::Ui, o: egui::Pos2, view: &
 /// 弹窗里可改字段的指纹（`OK` 可用性的判据）。
 ///
 /// 覆盖 `Pattern` / `Description` / flag bar 三个开关 / 四行 Style 的颜色与线型。
-fn hl_fingerprint(r: &term_app::trigger::Rule) -> u64 {
+fn hl_fingerprint(r: &crate::ui::dialogs::triggers::model::Rule) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     r.pattern.hash(&mut h);

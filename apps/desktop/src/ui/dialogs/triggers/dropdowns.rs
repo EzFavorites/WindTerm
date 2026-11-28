@@ -23,7 +23,7 @@ use super::{ColorSlot, Open, Picker, View};
 use crate::ui::view::trigger_pages_spec as ps;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::{ActionKind, ColorChoice, LineStyle, SendCondition};
+use crate::ui::dialogs::triggers::model::{ActionKind, ColorChoice, LineStyle, SendCondition};
 
 /// 菜单里的一行。
 enum Item {

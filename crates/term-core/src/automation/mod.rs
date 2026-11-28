@@ -26,7 +26,7 @@ pub use engine::Evaluator;
 pub use line::{apply_lines, LinePolicy};
 pub use pattern::{Pattern, PatternError, Span, Syntax, WindowHint};
 pub use rule::{
-    dispatchable_method, validate_rules, Action, AppAction, Effect, Filter, Guard, Invocation,
-    OnceScope, Rule, RuleFault, RuleId,
+    validate_rules, Action, AlertKind, AppAction, Effect, Filter, Guard, Invocation, LinkSpec,
+    MarkSpec, MenuItemSpec, MenuSpec, OnceScope, Rule, RuleFault, RuleId, TextSpec,
 };
-pub use signal::{CloseReason, Signal, Target, Ticks, When};
+pub use signal::{CloseReason, Lifecycle, Signal, Target, Ticks, When};

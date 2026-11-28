@@ -18,7 +18,7 @@ fn origin(o: egui::Pos2) -> egui::Pos2 {
 /// 视觉基线 `10` 只给了 `Action = Run command` 那一态；另外三项（`Send text` /
 /// `Open hyperlink` / `Play sound`）没有对应视觉基线，字段区按「本页 Mark 行
 /// 之前的可用高度」铺开，与事件页的分支共用同一套绘制（`page_action::fields`）。
-pub(super) fn custom(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut term_app::trigger::Rule) {
+pub(super) fn custom(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut crate::ui::dialogs::triggers::model::Rule) {
     let base = origin(o);
     // 夹具专用：参考图 `10` / `23` 的 Match 框是聚焦蓝边，Action 下拉则是普通态。
     let match_focus = std::env::var_os("WINDTERM_TRIG_FOCUS_MATCH").is_some();
@@ -111,8 +111,8 @@ pub(super) fn mark_row(ui: &mut egui::Ui, base: egui::Pos2, row: MarkRow<'_>, vi
 }
 
 /// 颜色选择的显示文本。
-pub(super) fn color_label(choice: &term_core::trigger::ColorChoice) -> String {
-    use term_core::trigger::ColorChoice;
+pub(super) fn color_label(choice: &crate::ui::dialogs::triggers::model::ColorChoice) -> String {
+    use crate::ui::dialogs::triggers::model::ColorChoice;
     match choice {
         ColorChoice::Empty => "Empty".to_owned(),
         ColorChoice::Ansi(s) => s.clone(),
@@ -129,7 +129,7 @@ pub(super) fn color_label(choice: &term_core::trigger::ColorChoice) -> String {
 pub(super) fn match_box(
     ui: &mut egui::Ui,
     base: egui::Pos2,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
     h: f32,
     focused: bool,
 ) {
@@ -162,7 +162,7 @@ pub(super) fn match_box(
 const SCRIPT_HINT: &str = "E.g.:\nreturn \"echo ${match}\"";
 
 /// `Send Text` 页面：Match + Send + Text/Script + Condition + Later + Captures。
-pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut term_app::trigger::Rule) {
+pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut crate::ui::dialogs::triggers::model::Rule) {
     let base = origin(o);
     let p = ui.painter().clone();
     match_box(ui, base, rule, spec::send::MATCH_H, false);
@@ -201,9 +201,9 @@ pub(super) fn send(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View, rule: &mut
         if ui.allocate_rect(r, egui::Sense::click()).clicked() {
             view.script = i == 1;
             rule.config.send.mode = if i == 1 {
-                term_core::trigger::SendMode::Script
+                crate::ui::dialogs::triggers::model::SendMode::Script
             } else {
-                term_core::trigger::SendMode::Text
+                crate::ui::dialogs::triggers::model::SendMode::Text
             };
         }
         x += w + 2.0;
@@ -309,7 +309,7 @@ mod tests {
         // 占位若写 JS 箭头函数，用户照抄后会被原样当文本发出去——那是「写了跑不起来」。
         assert!(!SCRIPT_HINT.contains("=>"), "占位不能是 JS 箭头函数：{SCRIPT_HINT}");
         let body = SCRIPT_HINT.lines().nth(1).expect("第二行是示例表达式");
-        assert_eq!(term_core::trigger_script::eval(body), "echo ${match}");
+        assert_eq!(crate::ui::dialogs::triggers::model::eval_script_template(body), "echo ${match}");
     }
 }
 

@@ -71,7 +71,6 @@ mod tests {
             // 粘贴测试不碰它们，取出厂值（全关 = 屏幕一个像素都不变）。
             marks: crate::ui::terminal::MarksParams::default(),
             trigger_highlight_rows: Vec::new(),
-            onekey_expects_fired: std::collections::HashSet::new(),
             modem: crate::ui::modem_auto::TabState::default(),
             // 调试覆盖层：粘贴测试不碰它，取出厂值（关 = 屏幕一个像素都不变）。
             debug: false,
@@ -84,7 +83,9 @@ mod tests {
             // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
             tmux: term_app::tmux::ControlMode::default(),
             tmux_pending: Vec::new(),
-            triggers: term_app::trigger::Matcher::new(),
+            triggers: term_core::automation::Evaluator::new(),
+        pending_intents: Vec::new(),
+        last_output_secs: None,
             was_live: false,
             just_connected: false,
             auto_reconnect_at: None,

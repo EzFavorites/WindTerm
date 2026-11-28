@@ -265,7 +265,7 @@ pub(in crate::ui) fn draw(ctx: &egui::Context, notice: &Notice) -> bool {
 mod tests {
     use super::*;
     use crate::ui::lifecycle_test_support::{fake_tab, window_with, CloseCount};
-    use term_core::trigger::{Rule, TriggerAction, TriggerOn};
+    use crate::ui::dialogs::triggers::model::{Rule, UiAction, Channel};
 
     /// 真实的每帧调用形态：`log_note` 长期非空（旧值一直在），但传给 poll 的
     /// 是本帧新建的空缓冲，帧末再交回窗口。若照旧把 `&mut self.log_note`
@@ -282,13 +282,13 @@ mod tests {
         let mut rule = Rule::default();
         rule.id = "bad-escape".into();
         rule.enabled = true;
-        rule.on = TriggerOn::BeforeConnect;
-        rule.actions = vec![TriggerAction::SendText(r"\x0".into())];
+        rule.on = term_core::automation::Lifecycle::BeforeConnect;
+        rule.actions = vec![UiAction::SendText(r"\x0".into())];
         win.triggers = vec![rule];
         win.lifecycle_events
             .lock()
             .expect("事件队列")
-            .push(TriggerOn::BeforeConnect);
+            .push(term_core::automation::Lifecycle::BeforeConnect);
 
         // 与 `mod.rs::draw` / `lifecycle_events::poll` 同一形态。
         let mut note = None;
@@ -389,13 +389,13 @@ mod tests {
             let mut rule = Rule::default();
             rule.id = "frame-end-escape".into();
             rule.enabled = true;
-            rule.on = TriggerOn::BeforeConnect;
-            rule.actions = vec![TriggerAction::SendText(r"\x0".into())];
+            rule.on = term_core::automation::Lifecycle::BeforeConnect;
+            rule.actions = vec![UiAction::SendText(r"\x0".into())];
             win.triggers = vec![rule];
             win.lifecycle_events
                 .lock()
                 .expect("事件队列")
-                .push(TriggerOn::BeforeConnect);
+                .push(term_core::automation::Lifecycle::BeforeConnect);
             let mut note = None;
             crate::ui::lifecycle_events::poll(&mut win, 100, &mut Vec::new(), &mut note);
             win.commit_note(note.take());

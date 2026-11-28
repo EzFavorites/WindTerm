@@ -8,8 +8,8 @@ use super::View;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_app::trigger::Rule;
-use term_core::trigger::TriggerKind;
+use crate::ui::dialogs::triggers::model::Rule;
+use crate::ui::dialogs::triggers::model::TriggerKind;
 
 /// 左栏显示名。
 pub(super) fn display_name(rule: &Rule, i: usize) -> String {

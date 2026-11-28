@@ -18,7 +18,7 @@ use super::{Picker, View};
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::ColorChoice;
+use crate::ui::dialogs::triggers::model::ColorChoice;
 
 /// 画取色器（未打开时什么都不做）。
 pub(in crate::ui) fn show(ui: &mut egui::Ui, o: egui::Pos2, view: &mut View) {
@@ -480,7 +480,7 @@ mod tests {
 
     #[test]
     fn from_choice_initialises_from_current_colour() {
-        use term_core::trigger::ColorChoice;
+        use crate::ui::dialogs::triggers::model::ColorChoice;
         let white = super::Picker::from_choice(&ColorChoice::Empty);
         assert_eq!(white.hex, "#ffffff");
         let red = super::Picker::from_choice(&ColorChoice::Ansi("Ansi Red".to_owned()));

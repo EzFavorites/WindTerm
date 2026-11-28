@@ -42,6 +42,18 @@ pub enum CloseReason {
     Error(String),
 }
 
+/// 会话生命周期事件，`Signal` 那四条事件通道的**拥有型**投影。
+///
+/// 宿主钩子（例如 `SessionPool` 的连接事件接收端）跨线程传递的是它，不是带
+/// 借用的 `Signal`；四类事件与 `When` 的四个事件分支一一对应。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Lifecycle {
+    BeforeConnect,
+    Connected,
+    BeforeDisconnect,
+    Disconnected,
+}
+
 /// 一次外部刺激。求值器只认这个类型，不认"帧" / "轮询" / "事件"这些来源。
 #[derive(Clone, Debug, PartialEq)]
 pub enum Signal<'a> {

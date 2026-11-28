@@ -45,7 +45,6 @@ fn bare_tab() -> Tab {
         // 空白/符号可视化六项：这条夹具只验 tmux 控制行，六项取出厂值（全关）。
         marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
-        onekey_expects_fired: std::collections::HashSet::new(),
         modem: crate::ui::modem_auto::TabState::default(),
         // 调试覆盖层：这条夹具只验 tmux 控制行，覆盖层取出厂值（关）。
         debug: false,
@@ -57,7 +56,9 @@ fn bare_tab() -> Tab {
         raw: RawLog::new(),
         tmux: term_app::tmux::ControlMode::default(),
         tmux_pending: Vec::new(),
-        triggers: term_app::trigger::Matcher::new(),
+        triggers: term_core::automation::Evaluator::new(),
+        pending_intents: Vec::new(),
+        last_output_secs: None,
         was_live: false,
         just_connected: false,
         auto_reconnect_at: None,
@@ -122,16 +123,7 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     tx.send(b"in 1700000000 42 0\r\n".to_vec())
         .expect("送第二块");
 
-    assert!(
-        tab.poll(
-            &[],
-            &mut Vec::new(),
-            false,
-            &[],
-            &std::collections::HashMap::new()
-        ),
-        "有新字节就该请求重绘"
-    );
+    assert!(tab.poll(&[], &mut Vec::new(), false), "有新字节就该请求重绘");
     assert!(tab.tmux.in_notification);
     assert!(tab.tmux.panes.is_empty());
     assert!(tab.tmux_pending.is_empty());
@@ -143,13 +135,7 @@ fn poll_drains_the_tap_and_automatically_feeds_control_mode() {
     // 手动喂与自动喂是两条独立来源：这里再喂一条只进面板日志的测试行，
     // 不会把 tap 那条重复喂一遍（pending 已空，环不会多出字节）。
     assert!(
-        !tab.poll(
-            &[],
-            &mut Vec::new(),
-            false,
-            &[],
-            &std::collections::HashMap::new()
-        ),
+        !tab.poll(&[], &mut Vec::new(), false),
         "tap 已空，第二帧不该再报新事实"
     );
     assert_eq!(tab.raw.ring.take(0, 24).len(), 24, "环没有被重复追加");

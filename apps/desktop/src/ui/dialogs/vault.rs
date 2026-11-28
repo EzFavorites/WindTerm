@@ -160,29 +160,6 @@ impl TerminalWindow {
         }
     }
 
-    /// Account 页 Password 组的自动应答（保险库里的 `onekey:<name>:autofill`）。
-    pub(in crate::ui) fn onekey_autofill(&self, name: &str) -> Option<String> {
-        self.vault
-            .as_ref()?
-            .find(&onekey::autofill_vault_id(name))
-            .and_then(|e| e.secret())
-            .map(str::to_string)
-    }
-
-    /// 本帧所有 OneKey 方案的密码应答表（方案名 → 密码）。
-    /// `Tab::poll` 不认识保险库，由这里一次性派生，锁着时是空表。
-    pub(in crate::ui) fn onekey_autofill_map(&self) -> std::collections::HashMap<String, String> {
-        self.onekeys
-            .iter()
-            .filter_map(|k| self.onekey_autofill(&k.name).map(|v| (k.name.clone(), v)))
-            .map(|(name, value)| {
-                // 应答会经过终端回显 / 自动日志：登记后日志写入端统一脱敏。
-                term_io::log::register_secret(&value);
-                (name, value)
-            })
-            .collect()
-    }
-
     /// 这条会话的密码（保险库锁着、没存、条目丢了都返回 `None`）。
     ///
     /// 只读：查不到就是查不到，**不**在这里顺手弹解锁框——连接流程有自己的
@@ -373,16 +350,13 @@ impl TerminalWindow {
         if let Some((_, password)) = &self.onekeys_password_draft {
             term_io::log::register_secret(password);
         }
-        if let Some((_, password)) = &self.onekeys_autofill_draft {
-            term_io::log::register_secret(password);
-        }
         if let Some((_, answers)) = &self.onekeys_ki_draft {
             for answer in answers {
                 term_io::log::register_secret(answer);
             }
         }
         let names: Vec<String> = self.onekeys.iter().map(|k| k.name.clone()).collect();
-        // 三处写盘**累计错误**，不再静默吞掉：任何一处失败都要让用户看到
+        // 两处写盘**累计错误**，不再静默吞掉：任何一处失败都要让用户看到
         // 「credentials not saved」，否则 prefs 存了方案、密码却没进 vault。
         let mut errors: Vec<String> = Vec::new();
         // 密码草稿 → vault（解锁才写）。草稿按**方案名**键控：下标在删/复制之后
@@ -422,47 +396,6 @@ impl TerminalWindow {
                 }
             }
         }
-        // Account 页 Password 组的应答同样是密码：只进 vault，prefs 里那一格
-        // 永远是空串。不这么做就等于把 OneKey 的登录密码明文写进 prefs.json。
-        if let Some((name, password)) = self.onekeys_autofill_draft.take() {
-            if self.vault_unlocked() && names.contains(&name) && !password.is_empty() {
-                if let Some(vault) = self.vault.as_mut() {
-                    match vault.upsert(Entry::password(&onekey::autofill_vault_id(&name), &name, &password)) {
-                        Ok(()) => match vault.seal() {
-                            Ok(bytes) if !persist::save_vault(&bytes) => {
-                                errors.push(format!("{name}: 写不进保险库文件"))
-                            }
-                            Err(e) => errors.push(format!("{name}: {e}")),
-                            _ => {}
-                        },
-                        Err(e) => errors.push(format!("{name}: {e}")),
-                    }
-                }
-            }
-        }
-        // Send 栏不是密码栏：谁把保险库里的密码 / 应答抄进 `expect.send`，
-        // 就等于把明文写进 prefs.json。保存时清掉这些值并明确报错。
-        for scheme in &mut self.onekeys {
-            let mut protected: Vec<String> = Vec::new();
-            if let Some(vault) = self.vault.as_ref() {
-                for id in [
-                    onekey::vault_id(&scheme.name),
-                    onekey::ki_vault_id(&scheme.name),
-                    onekey::autofill_vault_id(&scheme.name),
-                ] {
-                    if let Some(raw) = vault.find(&id).and_then(|e| e.secret()) {
-                        protected.push(raw.to_string());
-                        protected.extend(onekey::decode_ki_answers(raw));
-                    }
-                }
-            }
-            for expect in &mut scheme.expects {
-                if !expect.send.is_empty() && protected.contains(&expect.send) {
-                    expect.send.clear();
-                    errors.push(format!("{}: Send 不能填密码，请用 Password 组", scheme.name));
-                }
-            }
-        }
         if errors.is_empty() {
             self.vault_form.error = None;
         } else {
@@ -473,7 +406,7 @@ impl TerminalWindow {
         }
         // 方案名改过之后，vault 里的条目 id 也要跟着改（旧 id 变成孤儿）。
         // 简单而诚实：只写 prefs；旧 id 残留由 `onekey_password` 的
-        //「找不到就 None（空密码）」自然兜住，不悄悄删 vault 条目。
+        //「找不到就当空密码」自然兜住，不悄悄删 vault 条目。
         save_prefs(|p| p.onekeys = self.onekeys.clone());
         // 控制面持有的是方案表的**副本**（连接时读的是它，不是 `Prefs`）。
         // 不在这里推一份，用户改完方案之后已开的窗口仍然按旧方案连接——

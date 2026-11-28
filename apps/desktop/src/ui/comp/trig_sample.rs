@@ -3,9 +3,9 @@
 //! 从 `comp/mod.rs` 拆出（单文件 500 行上限）。只在
 //! `--demo comp:dialog_settings_triggers` 这条测试路径上被调用，产品代码不引用。
 
-pub(super) fn sample_triggers() -> Vec<term_app::trigger::Rule> {
-    use term_app::trigger::Rule;
-    use term_core::trigger::{RuleConfig, TriggerKind};
+pub(super) fn sample_triggers() -> Vec<crate::ui::dialogs::triggers::model::Rule> {
+    use crate::ui::dialogs::triggers::model::Rule;
+    use crate::ui::dialogs::triggers::model::{RuleConfig, TriggerKind};
 
     let wanted = std::env::var("WINDTERM_TRIG_SAMPLE").unwrap_or_default();
     let main_kind = TriggerKind::ALL
@@ -63,7 +63,7 @@ pub(super) fn sample_triggers() -> Vec<term_app::trigger::Rule> {
     // `WINDTERM_TRIG_STYLES=1`：换成一组带样式的 Highlight 规则，用来核对
     // 规则表 `Style` 列的预览（色块 / 线型样例）。
     if std::env::var("WINDTERM_TRIG_STYLES").is_ok() {
-        use term_core::trigger::LineStyle;
+        use crate::ui::dialogs::triggers::model::LineStyle;
         v = ["error", "warning", "TODO", "panic", "链接"]
             .iter()
             .enumerate()
@@ -95,8 +95,8 @@ pub(super) fn sample_triggers() -> Vec<term_app::trigger::Rule> {
 /// - `WINDTERM_TRIG_TIP_SCRIPT=1`：`Show tooltip` 的 `Script` 选项卡（图 `31`）。
 /// - `Play sound` 类型固定注入视觉基线里的声音与时长（图 `21` / `29` 的
 ///   `Dige's Cat.mp3` / `00:00:01.368`），空态另由 `WINDTERM_TRIG_EMPTY` 控制。
-fn apply_reference_state(v: &mut [term_app::trigger::Rule], main_kind: term_core::trigger::TriggerKind) {
-    use term_core::trigger::{ActionKind, SendMode, TriggerKind};
+fn apply_reference_state(v: &mut [crate::ui::dialogs::triggers::model::Rule], main_kind: crate::ui::dialogs::triggers::model::TriggerKind) {
+    use crate::ui::dialogs::triggers::model::{ActionKind, SendMode, TriggerKind};
     let action = std::env::var("WINDTERM_TRIG_ACTION").unwrap_or_default();
     let tip_script = std::env::var_os("WINDTERM_TRIG_TIP_SCRIPT").is_some();
     let action_kind = ActionKind::ALL.iter().find(|k| format!("{k:?}") == action).copied();
@@ -120,7 +120,7 @@ fn apply_reference_state(v: &mut [term_app::trigger::Rule], main_kind: term_core
             main_kind,
             TriggerKind::CustomLink | TriggerKind::CustomMenu | TriggerKind::ShowTooltip
         ) {
-            use term_core::trigger::{ColorChoice, LineStyle};
+            use crate::ui::dialogs::triggers::model::{ColorChoice, LineStyle};
             first.config.mark.mark_style = LineStyle::Solid;
             first.config.mark.mark_color = ColorChoice::Ansi("Ansi Bright Black".to_owned());
         }
@@ -131,7 +131,7 @@ fn apply_reference_state(v: &mut [term_app::trigger::Rule], main_kind: term_core
 struct MarkPatch {
     text: &'static str,
     bg: &'static str,
-    line: term_core::trigger::LineStyle,
+    line: crate::ui::dialogs::triggers::model::LineStyle,
     line_col: &'static str,
 }
 
@@ -139,14 +139,14 @@ impl MarkPatch {
     fn new(
         text: &'static str,
         bg: &'static str,
-        line: term_core::trigger::LineStyle,
+        line: crate::ui::dialogs::triggers::model::LineStyle,
         line_col: &'static str,
     ) -> Self {
         Self { text, bg, line, line_col }
     }
 
-    fn apply(self) -> term_core::trigger::MarkConfig {
-        use term_core::trigger::{ColorChoice, MarkConfig};
+    fn apply(self) -> crate::ui::dialogs::triggers::model::MarkConfig {
+        use crate::ui::dialogs::triggers::model::{ColorChoice, MarkConfig};
         let pick = |s: &str| -> ColorChoice {
             if s == "Empty" {
                 ColorChoice::Empty

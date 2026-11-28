@@ -20,7 +20,7 @@ use crate::ui::view::trigger_pages_spec as ps;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::{ActionKind, MenuItem};
+use crate::ui::dialogs::triggers::model::{ActionKind, MenuItem};
 
 fn origin(o: egui::Pos2) -> egui::Pos2 {
     o + egui::vec2(spec::BODY.0, spec::BODY.1)
@@ -31,7 +31,7 @@ pub(in crate::ui) fn page(
     ui: &mut egui::Ui,
     o: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     let base = origin(o);
     super::edit::match_box(ui, base, rule, ps::custom_menu::MATCH_H, true);
@@ -56,7 +56,7 @@ fn table(
     ui: &mut egui::Ui,
     base: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     use ps::custom_menu as cm;
     let p = ui.painter().clone();
@@ -172,7 +172,7 @@ fn tools(
     ui: &mut egui::Ui,
     base: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     use ps::custom_menu as cm;
     let p = ui.painter().clone();
@@ -242,7 +242,7 @@ fn tools(
     }
 }
 
-fn move_row(rule: &mut term_app::trigger::Rule, view: &mut View, delta: isize) {
+fn move_row(rule: &mut crate::ui::dialogs::triggers::model::Rule, view: &mut View, delta: isize) {
     let Some(i) = view.menu_sel else { return };
     let n = rule.config.menu.items.len();
     let j = i as isize + delta;
@@ -258,7 +258,7 @@ fn mark_rows(
     ui: &mut egui::Ui,
     base: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     let style = rule.config.mark.mark_style.label().to_owned();
     super::edit::mark_row(
@@ -290,7 +290,7 @@ fn mark_rows(
 }
 
 /// `Add Action` / `Add Separator` 的落地（由 `dropdowns::apply` 调用）。
-pub(in crate::ui) fn add_item(rule: &mut term_app::trigger::Rule, separator: bool) {
+pub(in crate::ui) fn add_item(rule: &mut crate::ui::dialogs::triggers::model::Rule, separator: bool) {
     rule.config.menu.items.push(if separator {
         MenuItem { separator: true, ..MenuItem::default() }
     } else {

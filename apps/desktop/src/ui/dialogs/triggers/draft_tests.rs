@@ -16,7 +16,7 @@ fn rule(name: &str) -> Rule {
         description: String::new(),
         kind: TriggerKind::SendText,
         config: RuleConfig::default(),
-        on: term_core::trigger::TriggerOn::Output,
+        on: crate::ui::dialogs::triggers::model::Channel::Output,
         pattern: String::new(),
         literal: true,
         case_sensitive: true,

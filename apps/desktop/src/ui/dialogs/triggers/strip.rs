@@ -8,7 +8,7 @@ use super::{Actions, View};
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::TriggerKind;
+use crate::ui::dialogs::triggers::model::TriggerKind;
 
 /// 两条底部工具条。
 pub(super) fn strips(

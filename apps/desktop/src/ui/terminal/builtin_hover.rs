@@ -3,7 +3,7 @@
 //!
 //! 检测与换算全在 `term_app::trigger_builtins`（纯函数、零 IO / 零墙钟）；这里只做
 //! 两件事：把指针所在 cell 反查成被命中的片段；把换算结果拼成文案画进 `egui::Area`。
-//! 这三个触发器只**展示**结果——不写 PTY、不改选区、不返回 `TriggerAction`
+//! 这三个触发器只**展示**结果——不写 PTY、不改选区、不返回 `UiAction`
 //! （要执行动作的 IP 菜单走 `ip_hover.rs`，与本文件互不相干）。
 
 use super::hover_anchor;

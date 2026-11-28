@@ -1,16 +1,17 @@
 //! 规则与意图。全是纯数据 + serde，无副作用。
 //!
-//! 两类动作按**是否落在会话面**分开：`Action::Session` 直接引用
-//! `surface::METHODS` 的动词（`Invocation`），`Action::App` 才是应用层的
-//! 标记 / 菜单 / 跑脚本等。这样"能做什么"只有一份清单，新增会话动作不动内核。
+//! [`Action`] 收敛为四类正交意图：会话动词调用、应用面动作、凭据引用、脚本运行。
+//! 会话动词直接引用 [`crate::surface::METHODS`] 的名字，不另建第二张动词表；
+//! 凭据与脚本只声明「要用什么」，派发与授权留给宿主。
 //!
 //! `Rule` 里**没有 `kind` 字段**：兼容终端 11 种类型是 UI 预设，经工厂展开成
-//! 这里的正交字段。改过结构的规则不强行归类（`kind_of` 返回 `None`）。
+//! 这里的正交字段。改过结构的规则不强行归类。
 
 use std::fmt;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::automation::pattern::Span;
 use crate::automation::signal::Target;
@@ -57,16 +58,16 @@ impl Filter {
     }
 }
 
-/// 一次会话面调用。`method` 必须是 `surface::METHODS` 里的名字，
-/// dispatcher 调之前用同一份 schema 校验参数。
+/// 一次会话面调用。`method` 必须是 `surface::METHODS` 里的名字；
+/// 装载期用同一条 schema 校验参数，执行期不再做第二次形状检查。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Invocation {
     pub method: String,
-    pub params: serde_json::Value,
+    pub params: Value,
 }
 
 impl Invocation {
-    pub fn new(method: impl Into<String>, params: serde_json::Value) -> Self {
+    pub fn new(method: impl Into<String>, params: Value) -> Self {
         Self {
             method: method.into(),
             params,
@@ -128,33 +129,8 @@ pub enum AlertKind {
     SystemNotice,
 }
 
-/// 一次脚本运行的授权声明。**不复用 `Capabilities`**——那个类型没有 serde，
-/// 且它是"一次运行的实际授权"，这里是"规则里存的授权请求"，两者在
-/// dispatcher 里显式映射，避免把持久化格式绑到运行期类型。
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScriptGrant {
-    #[serde(default)]
-    pub fs_roots: Vec<String>,
-    #[serde(default)]
-    pub fs_write: bool,
-    #[serde(default)]
-    pub process: bool,
-    #[serde(default)]
-    pub clipboard: bool,
-    #[serde(default)]
-    pub ui: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScriptSpec {
-    pub path: String,
-    #[serde(default)]
-    pub args: Vec<String>,
-    #[serde(default)]
-    pub grant: ScriptGrant,
-}
-
-/// 应用面动作：没有对应的会话动词。
+/// 应用面动作：没有对应的会话动词。授权不属于这里——`RunScript` 只带路径与
+/// 参数，一次运行的实际授权由宿主在运行前决定，绝不持久化进规则。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum AppAction {
     Mark(MarkSpec),
@@ -164,17 +140,29 @@ pub enum AppAction {
     Alert(AlertKind),
     /// 菜单命令 ID，走既有命令通道。
     Dispatch(String),
-    /// 后台线程跑一段 Rhai（触发器 → 脚本的唯一连接方式）。
-    RunScript(ScriptSpec),
 }
 
-/// 一条规则命中后要做的事。只声明意图，不执行。
+/// 一条规则命中后要做的事。四类意图正交，只声明意图，不执行。
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Action {
-    /// 会话面：引用 `surface::METHODS` 的动词。
-    Session(Invocation),
-    /// 应用层：标记 / 菜单 / 通知 / 跑脚本。
-    App(AppAction),
+    /// 会话面：引用 `surface::METHODS` 的动词与参数。
+    SessionInvocation {
+        method: String,
+        params: Value,
+    },
+    /// 应用面：标记 / 链接 / 菜单 / 提示 / 通知 / 命令派发。
+    AppAction(AppAction),
+    /// 凭据引用：指向一个登录方案里的字段。只做数据定义，取凭据与派发留给宿主；
+    /// 规则文件里永远不出现明文密码。
+    CredentialRef {
+        scheme: String,
+        field: String,
+    },
+    /// 跑一段脚本：路径 + 参数，授权在运行时决定。
+    RunScript {
+        path: String,
+        args: Vec<String>,
+    },
 }
 
 /// 规则校验失败：动作里有内核 / 分发器执行不了的项。
@@ -192,52 +180,150 @@ impl fmt::Display for RuleFault {
 
 impl std::error::Error for RuleFault {}
 
-/// 有分发实现的会话动词。**规则校验与 dispatcher 共用这一份清单**，免得
-/// 「校验放行」与「命中后才有 NoEffect」两边各写一张表然后漂移。
-pub const DISPATCHABLE_METHODS: &[&str] = &["write", "keys", "notify"];
+/// `surface.rs` 的 schema 是 JSON Schema 的一个小子集。这里只认它实际用到的
+/// 键（`type` / `properties` / `required` / `items` / `enum` / `minimum` /
+/// `minLength` / `minItems`），不引第三方校验器；遇到没见过的 schema 键不因此
+/// 拒收参数（`description` 满篇都是），但没见过的 `type` 一律拒——那是 schema
+/// 作者写错了，不能让规则悄悄通过。
+fn type_matches(value: &Value, ty: &str) -> bool {
+    match ty {
+        "object" => value.is_object(),
+        "array" => value.is_array(),
+        "string" => value.is_string(),
+        "integer" => value.is_i64() || value.is_u64(),
+        "number" => value.is_number(),
+        "boolean" => value.is_boolean(),
+        "null" => value.is_null(),
+        _ => false,
+    }
+}
 
-pub fn dispatchable_method(method: &str) -> bool {
-    DISPATCHABLE_METHODS.contains(&method)
+fn value_fits_schema(value: &Value, schema: &Value) -> bool {
+    let Some(obj) = schema.as_object() else {
+        return false;
+    };
+    if let Some(ty) = obj.get("type") {
+        let ok = match ty {
+            Value::String(s) => type_matches(value, s),
+            Value::Array(types) => types
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|t| type_matches(value, t)),
+            _ => false,
+        };
+        if !ok {
+            return false;
+        }
+    }
+    if let Some(Value::Array(allowed)) = obj.get("enum") {
+        if !allowed.iter().any(|v| v == value) {
+            return false;
+        }
+    }
+    if let (Some(Value::Number(min)), Some(n)) = (obj.get("minimum"), value.as_f64()) {
+        if let Some(min) = min.as_f64() {
+            if n < min {
+                return false;
+            }
+        }
+    }
+    if let (Some(Value::Number(min)), Some(s)) = (obj.get("minLength"), value.as_str()) {
+        if let Some(min) = min.as_u64() {
+            if (s.chars().count() as u64) < min {
+                return false;
+            }
+        }
+    }
+    if let (Some(Value::Number(min)), Some(items)) = (obj.get("minItems"), value.as_array()) {
+        if let Some(min) = min.as_u64() {
+            if (items.len() as u64) < min {
+                return false;
+            }
+        }
+    }
+    if let (Some(Value::Object(props)), Value::Object(fields)) = (obj.get("properties"), value) {
+        for (key, sub) in props {
+            if let Some(child) = fields.get(key) {
+                if !value_fits_schema(child, sub) {
+                    return false;
+                }
+            }
+        }
+    }
+    if let Some(Value::Array(required)) = obj.get("required") {
+        if let Value::Object(fields) = value {
+            for key in required.iter().filter_map(Value::as_str) {
+                if !fields.contains_key(key) {
+                    return false;
+                }
+            }
+        }
+    }
+    if let (Some(items), Value::Array(values)) = (obj.get("items"), value) {
+        if !values.iter().all(|v| value_fits_schema(v, items)) {
+            return false;
+        }
+    }
+    true
 }
 
 impl Action {
-    /// 装载期校验：动词既要在能力面登记，也要有分发实现；AppAction 同理。
+    /// 装载期校验：会话动词必须在能力面上、对规则可见、参数形状符合它自己的
+    /// `params_schema`；凭据引用与脚本路径必须给出非空目标。
     pub fn validate(&self) -> Result<(), RuleFault> {
         match self {
-            Action::Session(inv) => {
-                if crate::surface::find(&inv.method).is_none() {
+            Action::SessionInvocation { method, params } => {
+                let Some(spec) = crate::surface::find(method) else {
+                    return Err(RuleFault(format!("会话动词 {method:?} 不在能力面上")));
+                };
+                // 规则在宿主侧执行，走的是脚本前端的可见性（RPC-only 动词在
+                // 规则里没有调用上下文）。
+                if !spec.exposure.on_script() {
                     return Err(RuleFault(format!(
-                        "会话动词 {:?} 不在能力面上",
-                        inv.method
+                        "会话动词 {method:?} 对规则不可见"
                     )));
                 }
-                if !dispatchable_method(&inv.method) {
+                let schema: Value = serde_json::from_str(spec.params_schema).map_err(|e| {
+                    RuleFault(format!("会话动词 {method:?} 的 params_schema 写坏了：{e}"))
+                })?;
+                if !value_fits_schema(params, &schema) {
                     return Err(RuleFault(format!(
-                        "会话动词 {:?} 已登记但还没有分发实现，规则不能装载",
-                        inv.method
+                        "会话动词 {method:?} 的参数不符合 params_schema"
                     )));
                 }
                 Ok(())
             }
-            Action::App(app) => app.validate(),
+            Action::AppAction(app) => app.validate(),
+            Action::CredentialRef { scheme, field } => {
+                if scheme.trim().is_empty() || field.trim().is_empty() {
+                    return Err(RuleFault(
+                        "凭据引用的 scheme / field 不能为空".to_string(),
+                    ));
+                }
+                // 存在性与明文取值都在派发时问宿主：内核只保证形状可用。
+                Ok(())
+            }
+            Action::RunScript { path, .. } => {
+                if path.trim().is_empty() {
+                    return Err(RuleFault("脚本路径不能为空".to_string()));
+                }
+                Ok(())
+            }
         }
     }
 }
 
 impl AppAction {
     pub fn validate(&self) -> Result<(), RuleFault> {
+        // 六类应用面动作都已有宿主派发落点（ui/trigger_intents.rs 的 UI 帧队列 /
+        // AppControl 端口）：标记、链接、菜单、提示、响铃、通知、命令。
         match self {
-            AppAction::Alert(AlertKind::Beep)
-            | AppAction::Dispatch(_)
-            | AppAction::RunScript(_) => Ok(()),
-            AppAction::Alert(AlertKind::SystemNotice) => Err(RuleFault(
-                "桌面通知还没有分发实现，规则不能装载".to_string(),
-            )),
-            AppAction::Mark(_) | AppAction::Link(_) | AppAction::Menu(_) | AppAction::Tooltip(_) => {
-                Err(RuleFault(
-                    "Mark / Link / Menu / Tooltip 的渲染基底还没落地，规则不能装载".to_string(),
-                ))
-            }
+            AppAction::Mark(_)
+            | AppAction::Link(_)
+            | AppAction::Menu(_)
+            | AppAction::Tooltip(_)
+            | AppAction::Alert(_)
+            | AppAction::Dispatch(_) => Ok(()),
         }
     }
 }
@@ -294,8 +380,8 @@ pub struct Effect {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automation::signal::When;
     use crate::automation::pattern::{Pattern, Syntax};
+    use crate::automation::signal::When;
 
     fn rule() -> Rule {
         Rule {
@@ -305,10 +391,10 @@ mod tests {
             when: When::Output(Pattern::compile("error", Syntax::Literal, true).unwrap()),
             filter: Filter::default(),
             guard: Guard::default(),
-            actions: vec![Action::Session(Invocation::new(
-                "write",
-                serde_json::json!({ "session": "s1", "data": "hi" }),
-            ))],
+            actions: vec![Action::SessionInvocation {
+                method: "write".into(),
+                params: serde_json::json!({ "session": "s1", "text": "hi" }),
+            }],
         }
     }
 
@@ -365,34 +451,102 @@ mod tests {
     }
 
     #[test]
-    fn validation_admits_only_methods_that_the_dispatcher_can_execute() {
-        for method in ["write", "keys", "notify"] {
-            let action = Action::Session(Invocation::new(method, serde_json::json!({})));
+    fn validation_uses_the_surface_catalog_and_not_a_second_method_list() {
+        for (method, params) in [
+            ("write", serde_json::json!({"session": "s", "text": "hi"})),
+            ("keys", serde_json::json!({"session": "s", "keys": ["enter"]})),
+            ("notify", serde_json::json!({"message": "hi"})),
+        ] {
+            let action = Action::SessionInvocation {
+                method: method.into(),
+                params,
+            };
             assert!(action.validate().is_ok(), "{method} 应可装载");
         }
-        // 登记在能力面但没有分发实现 → 装载期就拒，不等命中变 NoEffect。
-        let action = Action::Session(Invocation::new("log_start", serde_json::json!({})));
-        assert!(action.validate().is_err());
-        let unknown = Action::Session(Invocation::new("not_a_verb", serde_json::json!({})));
+        // 能力面上登记的动词也能装载（以前被一张硬编码动词清单挡掉）。
+        let logged = Action::SessionInvocation {
+            method: "log_start".into(),
+            params: serde_json::json!({"session": "s", "dir": "/tmp"}),
+        };
+        assert!(logged.validate().is_ok());
+        let unknown = Action::SessionInvocation {
+            method: "not_a_verb".into(),
+            params: serde_json::json!({}),
+        };
         assert!(unknown.validate().is_err());
     }
 
     #[test]
-    fn validation_rejects_unimplemented_app_actions() {
-        assert!(AppAction::Alert(AlertKind::Beep).validate().is_ok());
-        assert!(AppAction::Alert(AlertKind::SystemNotice).validate().is_err());
-        assert!(AppAction::Mark(MarkSpec::default()).validate().is_err());
-        assert!(AppAction::Link(LinkSpec::default()).validate().is_err());
-        assert!(AppAction::Menu(MenuSpec::default()).validate().is_err());
-        assert!(AppAction::Tooltip(TextSpec::default()).validate().is_err());
+    fn params_must_match_the_methods_own_schema() {
+        // required 缺项、类型不对、enum 越界、最小长度不足都要在装载期拒。
+        for params in [
+            serde_json::json!({"text": "hi"}),                       // 缺 session
+            serde_json::json!({"session": 1, "text": "hi"}),         // session 不是字符串
+            serde_json::json!({"session": "", "text": "hi"}),        // minLength
+            serde_json::json!({"session": "s", "text": 42}),         // text 不是字符串
+        ] {
+            let action = Action::SessionInvocation {
+                method: "write".into(),
+                params,
+            };
+            assert!(action.validate().is_err(), "{:?} 应被 schema 拒绝", action);
+        }
+        let bad_enum = Action::SessionInvocation {
+            method: "app_layout".into(),
+            params: serde_json::json!({"action": "jump"}),
+        };
+        assert!(bad_enum.validate().is_err());
+    }
+
+    #[test]
+    fn credentials_and_scripts_validate_their_targets_only() {
+        let cred = Action::CredentialRef {
+            scheme: "prod".into(),
+            field: "password".into(),
+        };
+        assert!(cred.validate().is_ok());
+        let blank = Action::CredentialRef {
+            scheme: "  ".into(),
+            field: "password".into(),
+        };
+        assert!(blank.validate().is_err());
+
+        let script = Action::RunScript {
+            path: "/tmp/a.rhai".into(),
+            args: vec![],
+        };
+        assert!(script.validate().is_ok());
+        let no_path = Action::RunScript {
+            path: String::new(),
+            args: vec![],
+        };
+        assert!(no_path.validate().is_err());
+    }
+
+    #[test]
+    fn every_app_action_with_a_dispatch_sink_is_loadable() {
+        for app in [
+            AppAction::Mark(MarkSpec::default()),
+            AppAction::Link(LinkSpec::default()),
+            AppAction::Menu(MenuSpec::default()),
+            AppAction::Tooltip(TextSpec::default()),
+            AppAction::Alert(AlertKind::Beep),
+            AppAction::Alert(AlertKind::SystemNotice),
+            AppAction::Dispatch("Terminal.ClearScreen".into()),
+        ] {
+            assert!(app.validate().is_ok(), "{app:?} 已有派发落点，应可装载");
+        }
     }
 
     #[test]
     fn validate_rules_points_at_the_bad_rule() {
         let mut bad = rule();
-        bad.actions.push(Action::App(AppAction::Mark(MarkSpec::default())));
+        bad.actions.push(Action::SessionInvocation {
+            method: "not_a_verb".into(),
+            params: serde_json::json!({}),
+        });
         let (id, fault) = validate_rules(&[rule(), bad]).expect_err("应拒");
         assert_eq!(id, "r1");
-        assert!(fault.to_string().contains("Mark"));
+        assert!(fault.to_string().contains("能力面"));
     }
 }

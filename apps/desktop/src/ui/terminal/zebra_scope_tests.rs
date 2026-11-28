@@ -68,7 +68,6 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         // 空白/符号可视化六项：这条夹具只验斑马线，六项取出厂值（全关）。
         marks: crate::ui::terminal::MarksParams::default(),
         trigger_highlight_rows: Vec::new(),
-        onekey_expects_fired: std::collections::HashSet::new(),
         modem: crate::ui::modem_auto::TabState::default(),
         // 调试覆盖层：这条夹具要逐像素数斑马线底色块，覆盖层必须关。
         debug: false,
@@ -81,7 +80,9 @@ fn hex_tab(pool: &std::sync::Arc<term_session::SessionPool>, hex: HexParams) -> 
         // B2：控制模式状态机归本 tab，跨块行缓冲从空开始。
         tmux: term_app::tmux::ControlMode::default(),
         tmux_pending: Vec::new(),
-        triggers: term_app::trigger::Matcher::new(),
+        triggers: term_core::automation::Evaluator::new(),
+        pending_intents: Vec::new(),
+        last_output_secs: None,
         was_live: false,
         just_connected: false,
         auto_reconnect_at: None,

@@ -58,10 +58,11 @@
 //! - `structure`：结构领域模型——作用域栈 / 多光标的不变量（折叠区间已在
 //!   默认面的 `folds`，结构模型本身仍无生产读者）
 //!
-//! `trigger`（触发器求值内核——事件 → 匹配 → 动作；跨 chunk 的尾巴、冷却与
-//! 一次性事件都在纯层，`now` 由宿主注入）与 `tmux_layout`
-//! （`%layout-change` 布局串 → 窗格矩形、PTY 尺寸双向换算）都已因真读者提回
-//! **默认编译面**，见下方 `trigger` / `tmux_layout` 段的注释。
+//! 规则 / 求值内核已上收至 `term_core::automation`（ADR-0030）：本层只保留
+//! `trigger_builtins` 的纯检测函数（URL / IP / hex / 时间戳 / 压缩包），
+//! 不拥有规则类型，也不再重复一份求值器。`tmux_layout`
+//! （`%layout-change` 布局串 → 窗格矩形、PTY 尺寸双向换算）仍因真读者在
+//! **默认编译面**。
 
 pub mod action;
 // `address` 留在**默认编译面**上，不进 `--features planned`。
@@ -128,12 +129,9 @@ pub mod wrap_word;
 
 // ── `planned`：已实现、已测试，但**没有任何生产读者** ──────────────────────
 //
-// 现在只剩 `structure` 一个模块。2026-11-12 审查实测时 `trigger` 也在清单里，
-// 但那次结论已经过期：`apps/desktop` 随后把触发器接进了真实路径——会话的
-// `apply_trigger` / 右键的规则编辑 / `ip_hover` 与 `builtin_hover` 的检测都直接
-// `use term_app::trigger`，桌面端还一度必须显式开 `planned` 才能编过。有真读者
-// 就必须回到默认编译面（与 `folds` / `tmux_layout` 同一规矩），否则默认 `cargo
-// test` 的绿色根本没覆盖用户真正点得到的那条路。
+// 现在只剩 `structure` 一个模块。触发器的规则类型与求值内核此前也在这里，
+// 2026-11-28 按 ADR-0030 上收到 `term_core::automation`，求值器与规则类型
+// 一并删除；本层不再持有第二份规则模型。
 //
 // `structure` 里剩下的 `ScopeStack` / `StructureModel` 依然零读者，继续挂在
 // `planned`；`FoldRegion` / `StructureError` 早在 2026-11-14 就搬去默认面的
@@ -156,16 +154,9 @@ pub mod structure;
 // 后续产品侧 auto-feed / 尺寸双向也走这里。
 pub mod tmux_layout;
 
-// `trigger` 于本轮提回默认编译面：桌面端的 `ui/terminal/session.rs`、
-// `ui/dialogs/triggers/*`、`ui/terminal/ip_hover.rs` 等都是生产读者，
-// 显式开 `planned` 只是历史遗留。`trigger_regex` 是它内部唯一使用的简化正则，
-// 必须跟着一起进默认面；`trigger_builtins` / `trigger_queue` 早已在默认面。
-pub mod trigger;
+// 内置触发器的纯检测函数（不生成规则、不派发）：仍被桌面端的 hover / 链接
+// 识别复用，留在默认编译面。规则与求值内核在 `term_core::automation`。
 pub mod trigger_builtins;
-pub mod trigger_queue;
-
-// Trigger 的简化正则（分组 / 选择都不支持）；只在 `trigger` 内部使用。
-mod trigger_regex;
 
 pub use tmux_layout::{layout_to_size, parse_layout, resize_command, resize_pane_command, Layout, Node};
 
@@ -176,5 +167,3 @@ pub use address::{
     merge_candidates, move_selection, parse_target, push_recent, render_target,
     session_candidates, window_start, AddressKind, AddressProblem, AddressState, Candidate, Target,
 };
-
-pub use trigger::{validate, Hit, Matcher, Rule, TriggerAction, TriggerOn};

@@ -10,7 +10,7 @@ use crate::ui::view::trigger_pages_spec as ps;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::SendMode;
+use crate::ui::dialogs::triggers::model::SendMode;
 
 fn origin(o: egui::Pos2) -> egui::Pos2 {
     o + egui::vec2(spec::BODY.0, spec::BODY.1)
@@ -21,7 +21,7 @@ pub(in crate::ui) fn page(
     ui: &mut egui::Ui,
     o: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     use ps::tooltip as tt;
     let base = origin(o);

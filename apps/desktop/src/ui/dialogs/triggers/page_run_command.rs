@@ -18,7 +18,7 @@ pub(in crate::ui) fn page(
     ui: &mut egui::Ui,
     o: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     let base = origin(o);
     super::edit::match_box(ui, base, rule, ps::run_command::MATCH_H, true);

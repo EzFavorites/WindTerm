@@ -2,21 +2,20 @@
 //!
 //! # 与旧版的区别
 //!
-//! 旧版是 flow 布局：Account 页一句说明 + 横向 Expect/Send + 三个文字开关，
-//! Sessions 页只有一句「No session uses …」。视觉基线不是这个形态：
+//! 旧版 Account 页是两组 `Expect :` / `Send :`，把会话期的自动应答也做成
+//! 方案字段。会话期 expect → send 已删除（ADR-0030 决策 5），这一页现在
+//! 只画**连接期真正用到的两项**：`OneKey.username` 与保险库条目
+//! `onekey:<name>` 的密码。两组的分组框与实测坐标照旧保留。
 //!
-//! - Account 是**两组固定分组框**：`Username` / `Password`，每组两行
-//!   `Expect :` / `Send :`，期望框右端三枚匹配图标（`.*` / `Aa` / `W`），
-//!   密码组 Send 框右端一枚眼睛；
-//! - Sessions 是**整宽** Filter + `Session | OneKey` 两列表格，占满主体高度，
-//!   没有左栏列表与工具行。
+//! Sessions 是**整宽** Filter + `Session | OneKey` 两列表格，占满主体高度，
+//! 没有左栏列表与工具行。
 //!
 //! 所有坐标都是视觉基线（@2×）物理像素 ÷2 的实测值，相对**右栏内容原点**；
 //! 绘制仍走 `place` 绝对定位，不用 flow——`add_space` 会随字体度量漂。
 
 use super::dialog_chrome::{dark_field, fill_field, place, rgb};
 use crate::ui::*;
-use term_core::onekey::{ExpectFlags, ExpectSend, OneKey};
+use term_core::onekey::OneKey;
 
 const PANEL_W: f32 = 420.0;
 const BOX_W: f32 = 420.5;
@@ -29,15 +28,13 @@ const FIELD_H: f32 = 24.0;
 const USER_TITLE_Y: f32 = 5.5;
 const USER_BOX_Y: f32 = 19.5;
 const USER_BOX_H: f32 = 77.0;
-const USER_EXPECT_Y: f32 = 29.5;
-const USER_SEND_Y: f32 = 59.5;
+const USER_FIELD_Y: f32 = 29.5;
 const PASS_TITLE_Y: f32 = 106.5;
 const PASS_BOX_Y: f32 = 122.5;
 const PASS_BOX_H: f32 = 77.0;
-const PASS_EXPECT_Y: f32 = 132.5;
-const PASS_SEND_Y: f32 = 162.5;
+const PASS_FIELD_Y: f32 = 132.5;
 
-/// 首字符带下划线的短标签（视觉基线的键盘加速器：U / P / E / S）。
+/// 首字符带下划线的短标签（视觉基线的键盘加速器：U / P）。
 fn access_label(ui: &mut egui::Ui, at: egui::Pos2, text: &str, hex: u32) {
     place(ui, egui::Rect::from_min_size(at, egui::vec2(96.0, 14.0)), |ui| {
         let font = egui::TextStyle::Button.resolve(ui.style());
@@ -79,35 +76,7 @@ fn group_box(ui: &egui::Ui, o: egui::Pos2, y: f32, h: f32) {
     );
 }
 
-/// 期望框右端那三枚图标：`. *` = 正则、`Aa` = 区分大小写、`W` = 整词。
-/// 点亮的是**当前生效的匹配规则**，下划线就是视觉基线里的状态指示。
-fn flag_icon(
-    ui: &mut egui::Ui,
-    center: egui::Pos2,
-    glyph: &str,
-    on: bool,
-    tip: &str,
-) -> bool {
-    let rect = egui::Rect::from_center_size(center, egui::vec2(20.0, 14.0));
-    let resp = ui.allocate_rect(rect, egui::Sense::click());
-    let color = rgb(if on { 0xDDDDDD } else { 0xA8A8A8 });
-    let font = crate::ui::type_scale::body();
-    let mut job = egui::text::LayoutJob::default();
-    let fmt = egui::TextFormat {
-        underline: if on { egui::Stroke::new(1.0, color) } else { egui::Stroke::NONE },
-        ..egui::TextFormat::simple(font, color)
-    };
-    job.append(glyph, 0.0, fmt);
-    let galley = ui.fonts(|f| f.layout_job(job));
-    ui.painter().galley(
-        center - egui::vec2(galley.size().x / 2.0, galley.size().y / 2.0),
-        galley,
-        color,
-    );
-    resp.on_hover_text(tip).clicked()
-}
-
-/// 密码 Send 框右端的眼睛：椭圆轮廓 + 瞳孔，几何画出，不依赖 emoji 字形。
+/// 密码框右端的眼睛：椭圆轮廓 + 瞳孔，几何画出，不依赖 emoji 字形。
 fn eye_button(ui: &mut egui::Ui, center: egui::Pos2, visible: bool) -> bool {
     let rect = egui::Rect::from_center_size(center, egui::vec2(16.0, 14.0));
     let resp = ui.allocate_rect(rect, egui::Sense::click());
@@ -132,146 +101,85 @@ fn secret_field(ui: &mut egui::Ui, rect: egui::Rect, value: &mut String, visible
     });
 }
 
-/// 一组的五个实测 y 值，按值传，避免给绘制函数塞一长串 f32。
+/// 一组的四个实测 y 值，按值传，避免给绘制函数塞一长串 f32。
 #[derive(Clone, Copy)]
 struct GroupLayout {
     title_y: f32,
     box_y: f32,
     box_h: f32,
-    expect_y: f32,
-    send_y: f32,
+    field_y: f32,
 }
 
-/// 画一组 `Expect : / Send :`。`password` 组把 Send 当秘密字段处理。
-fn expect_group(
+/// 画一组凭据输入框：`secret` 为 `Some` 时用掩码字段并带眼睛开关。
+fn credential_group(
     ui: &mut egui::Ui,
     o: egui::Pos2,
     title: &str,
+    label: &str,
     l: GroupLayout,
-    entry: &mut ExpectSend,
-    password: bool,
-    show_password: &mut bool,
+    value: &mut String,
+    secret: Option<&mut bool>,
 ) {
     access_label(ui, o + egui::vec2(3.5, l.title_y), title, 0xBBBBBB);
     group_box(ui, o, l.box_y, l.box_h);
 
     access_label(
         ui,
-        o + egui::vec2(LABEL_X, l.expect_y + 4.0),
-        "Expect :",
+        o + egui::vec2(LABEL_X, l.field_y + 4.0),
+        label,
         0xC8C8C8,
     );
-    let er = egui::Rect::from_min_size(
-        o + egui::vec2(FIELD_X, l.expect_y),
+    let rect = egui::Rect::from_min_size(
+        o + egui::vec2(FIELD_X, l.field_y),
         egui::vec2(FIELD_W, FIELD_H),
     );
-    dark_field(ui, er, &mut entry.expect);
-    let right = o.x + FIELD_X + FIELD_W;
-    let ey = er.center().y;
-    if flag_icon(
-        ui,
-        egui::pos2(right - 72.0, ey),
-        ".*",
-        entry.flags.regex,
-        "Regular expression",
-    ) {
-        entry.flags.regex = !entry.flags.regex;
-    }
-    if flag_icon(
-        ui,
-        egui::pos2(right - 48.0, ey),
-        "Aa",
-        entry.flags.case_sensitive,
-        "Case sensitive",
-    ) {
-        entry.flags.case_sensitive = !entry.flags.case_sensitive;
-    }
-    if flag_icon(
-        ui,
-        egui::pos2(right - 24.0, ey),
-        "W",
-        entry.flags.whole_word,
-        "Whole word",
-    ) {
-        entry.flags.whole_word = !entry.flags.whole_word;
-    }
-
-    access_label(
-        ui,
-        o + egui::vec2(LABEL_X, l.send_y + 4.0),
-        "Send :",
-        0xC8C8C8,
-    );
-    let sr = egui::Rect::from_min_size(
-        o + egui::vec2(FIELD_X, l.send_y),
-        egui::vec2(FIELD_W, FIELD_H),
-    );
-    if password {
-        secret_field(ui, sr, &mut entry.send, *show_password);
-        if eye_button(ui, egui::pos2(right - 16.0, sr.center().y), *show_password) {
-            *show_password = !*show_password;
+    match secret {
+        Some(show) => {
+            secret_field(ui, rect, value, *show);
+            if eye_button(ui, egui::pos2(rect.right() - 16.0, rect.center().y), *show) {
+                *show = !*show;
+            }
         }
-    } else {
-        dark_field(ui, sr, &mut entry.send);
+        None => dark_field(ui, rect, value),
     }
 }
 
-/// Account 标签：`expects[0]` = Username 组，`expects[1]` = Password 组。
-/// 视觉基线只有这两组；多余的历史条目保留在数据里，不在这一页展示。
+/// Account 标签：直接画 `OneKey.username` 与保险库条目 `onekey:<name>` 的密码。
+/// 会话期的 `expect → send` 已删除，这里只维护连接期用到的这两项。
 pub(in crate::ui) fn account_editor(
     win: &mut TerminalWindow,
     ui: &mut egui::Ui,
     key: &mut OneKey,
     show_password: &mut bool,
 ) {
-    while key.expects.len() < 2 {
-        key.expects.push(ExpectSend {
-            expect: String::new(),
-            send: String::new(),
-            flags: ExpectFlags::default(),
-        });
-    }
     let o = ui.cursor().min;
-    let (user, pass) = key.expects.split_at_mut(1);
-    expect_group(
-        ui, o, "Username",
+    credential_group(
+        ui, o, "Username", "Username :",
         GroupLayout {
             title_y: USER_TITLE_Y,
             box_y: USER_BOX_Y,
             box_h: USER_BOX_H,
-            expect_y: USER_EXPECT_Y,
-            send_y: USER_SEND_Y,
+            field_y: USER_FIELD_Y,
         },
-        &mut user[0], false, show_password,
+        &mut key.username, None,
     );
-    // Password 组的 Send 是密码：显示时临时从 vault 取，画完立刻放回草稿，
-    // `prefs.json` 里的那一格永远是空串。否则用户按文档把密码填进 Account 页，
-    // 退出时明文就进了 preferences——与保险库模型正面冲突。
-    let stored = std::mem::take(&mut pass[0].send);
-    if let Some(vault) = win.vault.as_ref() {
-        if let Some(secret) = vault
-            .find(&term_core::onekey::autofill_vault_id(&key.name))
-            .and_then(|e| e.secret())
-        {
-            pass[0].send = secret.to_string();
-        }
-    }
-    let before_edit = pass[0].send.clone();
-    expect_group(
-        ui, o, "Password",
+    // 密码只在保险库里：显示时临时取一份，改动按方案名记草稿，
+    // 保存时走与 SSH 页同一条落盘路径（`vault.rs::save_onekeys`）。
+    let mut password = win.onekey_password(&key.name);
+    let before_edit = password.clone();
+    credential_group(
+        ui, o, "Password", "Password :",
         GroupLayout {
             title_y: PASS_TITLE_Y,
             box_y: PASS_BOX_Y,
             box_h: PASS_BOX_H,
-            expect_y: PASS_EXPECT_Y,
-            send_y: PASS_SEND_Y,
+            field_y: PASS_FIELD_Y,
         },
-        &mut pass[0], true, show_password,
+        &mut password, Some(show_password),
     );
-    if pass[0].send != before_edit {
-        win.onekeys_autofill_draft = Some((key.name.clone(), pass[0].send.clone()));
+    if password != before_edit {
+        win.onekeys_password_draft = Some((key.name.clone(), password));
     }
-    pass[0].send = stored; // 原样放回（空串），明文不进草稿 / prefs
     // 绝对定位不占流式高度。
     ui.advance_cursor_after_rect(egui::Rect::from_min_size(
         o,

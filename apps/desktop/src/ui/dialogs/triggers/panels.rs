@@ -9,7 +9,7 @@ use super::View;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::{RuleConfig, TriggerKind};
+use crate::ui::dialogs::triggers::model::{RuleConfig, TriggerKind};
 
 /// `BODY` 左上角（窗口坐标）。
 fn origin(o: egui::Pos2) -> egui::Pos2 {
@@ -58,7 +58,7 @@ pub(in crate::ui) fn body(
         let idx = view.sel.filter(|i| *i < win.triggers.len());
         // 没有选中项时用一份草稿渲染，不让右栏空白（视觉基线打开就有内容）。
         let mut scratch = RuleStub::new(view.kind);
-        let rule: &mut term_app::trigger::Rule = match idx {
+        let rule: &mut crate::ui::dialogs::triggers::model::Rule = match idx {
             Some(i) => &mut win.triggers[i],
             None => &mut scratch.rule,
         };
@@ -78,13 +78,13 @@ pub(in crate::ui) fn body(
 
 /// 无选中项时的草稿规则（页面照常可编辑，但不落库）。
 struct RuleStub {
-    rule: term_app::trigger::Rule,
+    rule: crate::ui::dialogs::triggers::model::Rule,
 }
 
 impl RuleStub {
     fn new(kind: TriggerKind) -> Self {
         Self {
-            rule: term_app::trigger::Rule {
+            rule: crate::ui::dialogs::triggers::model::Rule {
             id: String::new(),
             name: String::new(),
             description: String::new(),

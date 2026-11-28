@@ -143,7 +143,7 @@ impl Evaluator {
 mod tests {
     use super::*;
     use crate::automation::pattern::{Pattern, Span, Syntax};
-    use crate::automation::rule::{Filter, Guard, Invocation};
+    use crate::automation::rule::{Action, Filter, Guard};
     use crate::automation::signal::{CloseReason, When};
     use std::time::Duration;
 
@@ -151,11 +151,11 @@ mod tests {
         Pattern::compile(s, Syntax::Literal, true).unwrap()
     }
 
-    fn action() -> crate::automation::rule::Action {
-        crate::automation::rule::Action::Session(Invocation::new(
-            "write",
-            serde_json::json!({ "session": "s" }),
-        ))
+    fn action() -> Action {
+        Action::SessionInvocation {
+            method: "write".into(),
+            params: serde_json::json!({ "session": "s", "text": "x" }),
+        }
     }
 
     fn rule(id: &str, when: When) -> Rule {

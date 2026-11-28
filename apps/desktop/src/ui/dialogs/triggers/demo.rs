@@ -43,7 +43,7 @@ fn pin_kind(view: &mut View) {
     let Ok(wanted) = std::env::var("WINDTERM_TRIG_SAMPLE") else {
         return;
     };
-    if let Some(k) = term_core::trigger::TriggerKind::ALL
+    if let Some(k) = crate::ui::dialogs::triggers::model::TriggerKind::ALL
         .iter()
         .find(|k| format!("{k:?}") == wanted)
     {
