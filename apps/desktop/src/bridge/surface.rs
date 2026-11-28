@@ -18,7 +18,8 @@
 //!
 //! 1. 方法名与 schema 的单一真相是 `term_core::surface::METHODS`，两边都经
 //!    [`describe_value`] 生成，没有任何手工清单；
-//! 2. 参数解析只用 `term_bridge::handler` 里的 `required_*` / `optional_*`，
+//! 2. 参数解析只用 `term_core::contract` 里的 `required_*` / `optional_*`
+//!    （`term_bridge::handler` 只是它的再导出），
 //!    不在本文件里自己拆 JSON（否则「缺参数」会被写成 panic 或默认值）；
 //! 3. 本文件末尾的用例逐个断言线上形状，与夹具那侧的断言是同一组期望值。
 //!
@@ -30,12 +31,12 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use term_bridge::error::SurfaceError;
-use term_bridge::handler::{
+use term_core::contract::{
     describe_value, optional_string, optional_u64, required_session, required_string, Surface,
 };
 use term_core::session::SessionConfig;
 use term_core::session_runtime::{FacetKind, SessionId, SessionState, WaitError};
+use term_core::surface_error::SurfaceError;
 use term_script::{PrimitiveError, ScriptSession};
 use term_session::{OpenError, SessionPool};
 
@@ -508,7 +509,7 @@ fn primitive_failure(err: PrimitiveError) -> SurfaceError {
         // （要改的是授权声明或换宿主），所以归到 locked 而不是 internal。
         PrimitiveError::Cancelled => SurfaceError::cancelled(err.to_string()),
         PrimitiveError::Denied(_) | PrimitiveError::Unsupported(_) => {
-            SurfaceError::new(term_bridge::error::ErrorKind::Locked, err.to_string())
+            SurfaceError::new(term_core::surface_error::ErrorKind::Locked, err.to_string())
         }
         PrimitiveError::Failed(_) => SurfaceError::internal(err.to_string()),
     }

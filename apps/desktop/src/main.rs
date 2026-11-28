@@ -103,7 +103,6 @@ fn main() {
     if let Some(code) = cli::try_run(&args) {
         std::process::exit(code);
     }
-    let mut headless_exec: Option<String> = None;
     let mut demo_spec: Option<demo::DemoSpec> = None;
     let mut comp_demo: Option<String> = None;
     let mut shot_path: Option<std::path::PathBuf> = None;
@@ -122,11 +121,14 @@ fn main() {
                 println!("{name}\t{}", if baseline { "gated" } else { "wip" });
             }
             return;
-        } else if args[i] == "--headless" {
-            i += 1;
-        } else if args[i] == "--exec" && i + 1 < args.len() {
-            headless_exec = Some(args[i + 1].clone());
-            i += 2;
+        } else if args[i] == "--headless" || args[i] == "--exec" {
+            // ADR-0030：无头执行入口已删除。这里**显式报错**，不能像以前那样
+            // 吞掉再走 GUI——那会让「脚本以为自己跑完了」变成「弹出一个窗口」。
+            eprintln!(
+                "{} 已移除：会话统一由前台窗口持有；请用 `term-desk api` / `term-desk mcp` 连前台控制端点",
+                args[i]
+            );
+            std::process::exit(2);
         } else if args[i] == "--demo" && i + 1 < args.len() {
             let value = args[i + 1].clone();
             // 两种夹具共用一个开关：`--demo <整窗夹具>` 与 `--demo comp:<组件>`。
@@ -157,35 +159,8 @@ fn main() {
         }
     }
 
-    // 端到端验收入口：不起窗口，跑一条命令并打印最终网格文本。
-    //
-    // 退出码必须透传（ADR-0020：这是原 `term-cli local exec` 的能力之一，
-    // 删掉 CLI 不等于这条能力可以消失）。状态走 stderr，stdout 只留屏幕文本，
-    // 这样 `term-desk --headless --exec … | grep` 不会被状态行污染。
-    if let Some(command) = headless_exec {
-        match term_runtime::supervisor::run_headless(&command, 80, 24) {
-            Ok((text, code)) => {
-                print!("{text}");
-                // `process::exit` 不走析构，stdout 的缓冲要自己冲掉。
-                use std::io::Write;
-                let _ = std::io::stdout().flush();
-                let code = match code {
-                    Some(c) => c,
-                    // 没拿到退出码 = 命令没在超时内退出（`top` 之类）。如实说，
-                    // 但不把它伪装成失败：交互式命令本身不是错误。
-                    None => {
-                        eprintln!("[{command}] 未在 5s 内退出，已断开（没有退出码）");
-                        0
-                    }
-                };
-                std::process::exit(code);
-            }
-            Err(e) => {
-                eprintln!("headless failed: {e}");
-                std::process::exit(1);
-            }
-        }
-    }
+    // ADR-0030：`--headless --exec` 那条无头执行路径已删除（上面的参数解析
+    // 直接报错退出）。会话只由前台窗口持有，远程一律走 UDS 控制端点。
 
     // 默认窗口的逻辑尺寸对齐 WindTerm 视觉基线主窗口（1280×760 @2×
     // 之前用框架默认的 800×600：底部快捷命令栏 4 组 15 项有一半被裁在
@@ -279,12 +254,21 @@ impl WindTermApp {
         shot: Option<std::path::PathBuf>,
     ) -> Self {
         let is_shot = shot.is_some();
+        // 夹具运行只画一帧/一个组件，不是「前台」：不去占固定 socket，
+        // 免得把用户真窗口的控制端点顶掉。
+        let is_fixture = demo.is_some() || comp_demo.is_some();
         let prefs = term_runtime::prefs::load().unwrap_or_default();
         let mut app = Self {
             ui: ui::TerminalWindow::new(cc),
             shot: shot.map(shot::Shot::new),
         };
         app.ui.init(cc);
+        // UDS 控制端点只在真正的 GUI 启动路径里起：`api` / `mcp` 在
+        // `cli::try_run` 那一侧已经先返回，根本走不到这里。端点与窗口共用
+        // 同一个池（`window.pool.clone()`），不再自建第二个 SessionPool。
+        if !is_shot && !is_fixture {
+            bridge::start_control_endpoint(app.ui.session_pool());
+        }
         // 把磁盘上的命令行历史接进窗口，按 `prefs` 的容量 / TTL 收敛一遍
         // （超出上限或过期的条目在读入时就裁掉，不必等下一次写入）。
         //

@@ -733,6 +733,11 @@ pub use tab::Tab;
 // 点击把命令 ID 交给 `dispatch`，未接线的项由 `capability` 判定并置灰。
 
 impl TerminalWindow {
+    /// UDS 控制端点与窗口共享同一个池（不另建第二个池）。
+    pub(crate) fn session_pool(&self) -> Arc<term_session::SessionPool> {
+        self.pool.clone()
+    }
+
     /// ADR-0025 阶段 1：往主区 `tabs` 追加一条标签，同步 `open_order`，返回其下标。
     /// 所有「打开新标签」的入口收口到这里，避免散落各文件各自写一遍登记。
     pub(in crate::ui) fn add_tab(&mut self, tab: Tab) -> usize {

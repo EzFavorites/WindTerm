@@ -1,39 +1,40 @@
-//! 无窗口子命令：`doctor` / `capability` / `serve`（ADR-0020 §3）。
+//! 无窗口子命令：`doctor` / `capability` / `api` / `mcp`（ADR-0030）。
 //!
 //! 为什么在 `apps/desktop` 而不是第二个二进制：ADR-0019 与 ADR-0020 把可执行
 //! 目标收敛成一个，`apps/` 只留 `desk`。这些命令的共同点是**不需要窗口**，
 //! 所以必须在 `eframe` 起来之前处理掉——一旦进了 `main` 后半段，就会要求显示
 //! 环境，CI 与排障现场都跑不了。
 //!
-//! 只认 `argv[1]` 作为子命令：`--headless` / `--screenshot` / `--demo` 这些是
-//! 窗口参数（可以出现在任意位置），不能被误判成子命令。反过来，`argv[1]` 以
+//! `api` / `mcp` 都只是前台 UDS 的薄客户端：连固定 socket、发请求、映射错误。
+//! 它们**没有** `serve` / `script run` / `--headless` 这些自建会话池的入口——
+//! 那些入口会让「远程操作窗口里的会话」变成「操作另一个池里的另一批会话」。
+//!
+//! 只认 `argv[1]` 作为子命令：`--screenshot` / `--demo` 这些是窗口参数
+//! （可以出现在任意位置），不能被误判成子命令。反过来，`argv[1]` 以
 //! `-` 开头就一定是窗口参数，直接交回给 `main`。
 
 mod align;
+mod api;
 mod capability;
 mod doctor;
-mod python;
-mod script;
-mod serve;
+mod mcp;
 
 const USAGE: &str = "\
 term-desk 无窗口子命令
 
 用法：
   term-desk doctor                            环境体检（$SHELL / profile / 主题 / 能力面）
-                                              有必需项缺失时退出码 1
+                                               有必需项缺失时退出码 1
   term-desk capability [--json] [--all]        能力面：命令总数 / 已接线 / 置灰
-                                              --json 的字段名与 docs/facts.txt 同名
-  term-desk serve [--port N] [--token-file P]  把能力面暴露到 127.0.0.1（ADR-0022）
-                                              连接的第一条请求必须是 auth 握手
-  term-desk script run <file.rhai>             在独立会话里跑一段 Rhai 脚本
-      [--exec CMD] [--cols N] [--rows N]       `-` 表示从 stdin 读；--exec 用一次性
-      [--timeout SECS] [--quiet]               命令会话代替本地 shell
+                                               --json 的字段名与 docs/facts.txt 同名
+  term-desk api describe                       问前台要能力清单
+  term-desk api call <method> [params-json]    调前台的一个方法（session 显式传）
+  term-desk mcp                                stdio MCP server（tools 来自 describe）
   term-desk --version                         打印版本号（WindTerm x.y.z）
   term-desk --help                            这份说明
 
-窗口相关参数（--headless / --exec / --screenshot / --demo / --list-components）
-不经过这里，仍由 main 解析。";
+无窗口入口不建会话池：api / mcp 要求前台窗口已经在跑，连 ~/.zterm/control.sock。
+窗口参数（--screenshot / --demo / --list-components）不经过这里，仍由 main 解析。";
 
 /// 若 `argv` 是一条无窗口子命令，执行并返回退出码；否则返回 `None`，
 /// 让 `main` 继续按窗口参数解析。
@@ -46,8 +47,8 @@ pub fn try_run(args: &[String]) -> Option<i32> {
             let all = args.iter().any(|a| a == "--all");
             Some(capability::run(json, all))
         }
-        "serve" => Some(serve::run(&args[2..])),
-        "script" => Some(script::run(&args[2..])),
+        "api" => Some(api::run(&args[2..])),
+        "mcp" => Some(mcp::run(&args[2..])),
         // 发布产物必须能自证身份：用户报问题时第一句就是「你那个版本号」。
         // **这条必须排在下面 `starts_with('-')` 的通配之前**——否则 `--version`
         // 会被当成窗口参数交回 main，于是「查版本」变成「拉起一个 GUI」。
@@ -60,8 +61,7 @@ pub fn try_run(args: &[String]) -> Option<i32> {
             print!("{USAGE}");
             Some(0)
         }
-        // 窗口参数：交回 main。这是 `term-desk --headless --exec …` 仍然能跑的
-        // 唯一原因。
+        // 窗口参数：交回 main。
         other if other.starts_with('-') => None,
         other => {
             eprintln!("未知子命令：{other}\n\n{USAGE}");
@@ -82,8 +82,8 @@ mod tests {
 
     #[test]
     fn a_window_flag_is_not_a_subcommand() {
-        assert_eq!(try_run(&argv(&["--headless", "--exec", "echo hi"])), None);
         assert_eq!(try_run(&argv(&["--screenshot", "/tmp/a.png"])), None);
+        assert_eq!(try_run(&argv(&["--demo", "scroll"])), None);
     }
 
     #[test]
@@ -143,9 +143,15 @@ mod tests {
     }
 
     #[test]
-    fn serve_bad_arguments_exit_2_without_binding_anything() {
-        // 只测「参数不对」这一支：设了合法参数就会真的开始监听并阻塞。
-        assert_eq!(try_run(&argv(&["serve", "--port", "abc"])), Some(2));
-        assert_eq!(try_run(&argv(&["serve", "--host", "0.0.0.0"])), Some(2));
+    fn serve_and_script_run_are_no_longer_subcommands() {
+        // 两条自建会话池的入口已删除：现在只能是「未知子命令」。
+        assert_eq!(try_run(&argv(&["serve"])), Some(2));
+        assert_eq!(try_run(&argv(&["script", "run", "-"])), Some(2));
+    }
+
+    #[test]
+    fn api_and_mcp_help_are_recognized_without_connecting() {
+        assert_eq!(try_run(&argv(&["api", "--help"])), Some(0));
+        assert_eq!(try_run(&argv(&["mcp", "--help"])), Some(0));
     }
 }

@@ -23,7 +23,8 @@
 
 use std::io::{self, BufRead, Read, Write};
 
-use crate::handler::Surface;
+use term_core::contract::Surface;
+
 use crate::jsonrpc::dispatch;
 
 /// 单行上限。JSON-RPC 的一条请求不该有 1 MiB——真到了，不是脚本把整个文件

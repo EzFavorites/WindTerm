@@ -25,6 +25,9 @@
 //!   两个展开函数。三处（写入端 / 配置界面 / 偏好）共用一份语义
 //! - `osc133`：Shell 集成的 OSC 133 标记流（前置，纯字节语义）
 //! - `surface`：会话控制面的描述层（方法名 / 说明 / 参数与结果 schema，纯数据）
+//! - `contract`：控制面契约（`Surface` trait / `invoke` 入口 / `describe` 生成与
+//!   参数读取助手；传输层从这里再导出，不再拥有契约定义）
+//! - `surface_error`：统一的 `{code, message, kind}` 失败三元组与 `WaitError` 映射
 //! - `telnet`：Telnet 选项协商纯状态机（IAC 转义 / ECHO / SGA / NAWS）
 //! - `tunnel`：Tunnels 配置的纯数据与校验（一条命名隧道 → 一行 `L|R|D` 规则文本）
 //! - `auth`：OneKey 凭据回退链（有序尝试 + 全失败诊断，纯状态机）
@@ -42,6 +45,7 @@ pub mod command_history;
 pub mod completion;
 pub mod completion_words;
 pub mod config;
+pub mod contract;
 pub mod coords;
 pub mod debug_log;
 pub mod find;
@@ -57,6 +61,7 @@ pub mod send_escapes;
 pub mod session;
 pub mod session_runtime;
 pub mod surface;
+pub mod surface_error;
 pub mod telnet;
 pub mod tunnel;
 pub mod theme;
