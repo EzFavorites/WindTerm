@@ -25,6 +25,145 @@ fn kind(err: &SurfaceError) -> ErrorKind {
     err.kind
 }
 
+#[derive(Clone, Default)]
+struct RecordedWrites(Arc<Mutex<Vec<u8>>>);
+
+impl term_core::channel::TermChannel for RecordedWrites {
+    fn drain(&mut self) -> Vec<u8> { Vec::new() }
+    fn write(&mut self, bytes: &[u8]) {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).extend_from_slice(bytes);
+    }
+    fn resize(&mut self, _cols: usize, _rows: usize) {}
+    fn poll(&mut self) -> Option<String> { None }
+    fn finished(&self) -> bool { false }
+    fn close(&mut self) {}
+    fn description(&self) -> &str { "surface regression channel" }
+}
+
+/// 一条带独立仲裁器与写记录器的会话，用来观察「失效许可是否真的没写」。
+fn surface_with_writes() -> (DeskSurface, u64, RecordedWrites, Arc<Mutex<term_core::automation::Arbitrator>>) {
+    let pool = Arc::new(SessionPool::new());
+    let writes = RecordedWrites::default();
+    let id = pool.open_with_channel(
+        &SessionConfig::new(Protocol::Shell),
+        80,
+        24,
+        Box::new(writes.clone()),
+    );
+    let arbiter = Arc::new(Mutex::new(term_core::automation::Arbitrator::new()));
+    (
+        DeskSurface::with_arbiter(Arc::clone(&pool), Arc::clone(&arbiter)),
+        id,
+        writes,
+        arbiter,
+    )
+}
+
+#[test]
+fn a_grant_invalidated_before_landing_never_writes_and_is_reported_busy() {
+    let (surface, id, writes, arbiter) = surface_with_writes();
+    let key = arbiter_session(&surface.pool, id);
+    let grant = arbiter
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .request(key, "api:write", term_core::automation::Priority::P2Explicit, false)
+        .expect("许可应放行");
+    // 排队之后、落地之前发生 P0 按键：epoch 前进，旧许可作废。
+    arbiter.lock().unwrap_or_else(|e| e.into_inner()).user_key_pressed(key);
+    assert!(!arbiter.lock().unwrap_or_else(|e| e.into_inner()).is_valid(key, &grant));
+
+    let name = surface.pool.name(id).expect("会话名");
+    let err = surface
+        .invoke_granted("write", &json!({ "session": name, "text": "x" }), &grant)
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Busy, "失效许可应是可重试的 Busy：{err}");
+    assert_eq!(err.code, -32005);
+    assert!(err.message.contains("未写入"));
+    assert!(
+        writes.0.lock().unwrap_or_else(|e| e.into_inner()).is_empty(),
+        "TOCTOU：失效许可绝不能把字节写进 PTY"
+    );
+}
+
+#[test]
+fn arbitration_busy_is_a_retryable_kind_not_the_locked_screen() {
+    let (surface, id, _writes, arbiter) = surface_with_writes();
+    let key = arbiter_session(&surface.pool, id);
+    {
+        let mut guard = arbiter.lock().unwrap_or_else(|e| e.into_inner());
+        guard.set_phase(key, term_core::automation::Phase::Connecting);
+        guard.request(key, "auth", term_core::automation::Priority::P1Auth, true).expect("连接期 owner");
+    }
+    let name = surface.pool.name(id).expect("会话名");
+    let err = surface
+        .call("write", &json!({ "session": name, "text": "x", "exclusive": true }))
+        .unwrap_err();
+    assert_eq!(err.kind, ErrorKind::Busy);
+    assert_eq!(err.code, -32005);
+    assert_ne!(err.kind, ErrorKind::Locked, "稍后重试 ≠ 锁屏 / 保险库未解锁");
+}
+
+#[test]
+fn cancelling_a_connection_ends_a_pending_wait_before_its_timeout() {
+    let pool = Arc::new(SessionPool::new());
+    let id = pool.open_exec("sleep 5", 80, 24).expect("一条不输出的会话");
+    let name = pool.name(id).expect("会话名");
+    let cancel = term_script::CancelToken::new();
+    let surface = Arc::new(DeskSurface::with_cancel(
+        Arc::clone(&pool),
+        ScriptSessions::new(),
+        cancel.clone(),
+    ));
+    let worker = {
+        let surface = Arc::clone(&surface);
+        let name = name.clone();
+        std::thread::spawn(move || {
+            surface
+                .call("wait", &json!({ "session": name, "pattern": "NEVER", "timeout_ms": 5000 }))
+                .unwrap_err()
+        })
+    };
+    std::thread::sleep(Duration::from_millis(80));
+    let started = std::time::Instant::now();
+    cancel.cancel();
+    let err = worker.join().expect("等待线程");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "断连取消必须远早于 5000ms 的 wait 上限：{:?}",
+        started.elapsed()
+    );
+    assert_eq!(err.kind, ErrorKind::Cancelled, "取消不是超时：{err}");
+    assert_eq!(err.code, -32004);
+    assert!(pool.close(id));
+}
+
+#[test]
+fn cancelling_a_connection_ends_a_pending_read_before_its_timeout() {
+    let pool = Arc::new(SessionPool::new());
+    let id = pool.open_exec("sleep 5", 80, 24).expect("一条不输出的会话");
+    let name = pool.name(id).expect("会话名");
+    let cancel = term_script::CancelToken::new();
+    let surface = Arc::new(DeskSurface::with_cancel(
+        Arc::clone(&pool),
+        ScriptSessions::new(),
+        cancel.clone(),
+    ));
+    let worker = {
+        let surface = Arc::clone(&surface);
+        let name = name.clone();
+        std::thread::spawn(move || {
+            surface
+                .call("read", &json!({ "session": name, "timeout_ms": 5000 }))
+                .unwrap_err()
+        })
+    };
+    std::thread::sleep(Duration::from_millis(80));
+    cancel.cancel();
+    let err = worker.join().expect("读取线程");
+    assert_eq!(err.kind, ErrorKind::Cancelled, "取消的 read 不是超时也不是空串：{err}");
+    assert!(pool.close(id));
+}
+
 #[test]
 fn describe_lists_the_same_methods_as_the_protocol_table() {
     let value = surface().call("describe", &json!({})).expect("describe");

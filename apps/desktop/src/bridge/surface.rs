@@ -36,9 +36,9 @@ use term_core::contract::{
     Surface,
 };
 use term_core::session::SessionConfig;
-use term_core::session_runtime::{SessionId, SessionState, WaitError};
+use term_core::session_runtime::{SessionId, SessionState, WaitError, WaitMatch, WaitRegistration};
 use term_core::surface_error::SurfaceError;
-use term_script::{ScriptSession, ScriptSessions};
+use term_script::{CancelToken, ScriptSession, ScriptSessions};
 use term_session::SessionPool;
 
 use crate::session_open::{open_session, OpenFailure};
@@ -56,6 +56,11 @@ const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
 /// `session_open` 的缺省尺寸（与 ADR-0019 的 80×24 对齐）。
 const DEFAULT_COLS: u64 = 80;
 const DEFAULT_ROWS: u64 = 24;
+
+/// 连线游标的兜底预算，与 `term-script` 的 `DEFAULT_MAX_WAIT` 同口径：
+/// 真正的超时由每个动词的 `timeout_ms` 收口，这里只是防止游标构造出一个
+/// 瞬时到期的视图（ADR §4 的「断连即取消」由 `CancelToken` 负责）。
+const CURSOR_MAX_WAIT: Duration = Duration::from_secs(24 * 60 * 60);
 
 /// 前台进程里唯一一份仲裁器：GUI 的规则 / 键盘与所有 API 连接共用它，
 /// 否则「显式调用 vs 用户规则」只会各查各的表，判据形同虚设。
@@ -88,6 +93,10 @@ pub struct DeskSurface {
     /// ADR-0023/0030：按会话一份 `ScriptSession`，登记处由宿主构造并同时交给
     /// `ScriptWorkspace`，所以脚本与 API 读写同一会话时续的是同一个读点。
     sessions: ScriptSessions,
+    /// ADR §4「连接断开即取消」：每条控制连接一份令牌。注入到这里之后，
+    /// 所有阻塞原语都走 `*_cancellable`（`wait` 显式分派，`ScriptSession`
+    /// 家族由构造时的令牌接管），对端 EOF / IO 错误时由传输层 cancel。
+    cancel: Option<CancelToken>,
 }
 
 impl DeskSurface {
@@ -101,6 +110,7 @@ impl DeskSurface {
             pool,
             arbiter,
             sessions: ScriptSessions::shared().handle(),
+            cancel: None,
         }
     }
 
@@ -110,6 +120,22 @@ impl DeskSurface {
             pool,
             arbiter: shared_arbiter_arc(),
             sessions,
+            cancel: None,
+        }
+    }
+
+    /// 一条控制连接的装配：带上这条连接专属的取消令牌与游标登记处。
+    /// 登记处按连接隔离，否则先建好游标的另一条连接会让令牌注入落空。
+    pub fn with_cancel(
+        pool: Arc<SessionPool>,
+        sessions: ScriptSessions,
+        cancel: CancelToken,
+    ) -> Self {
+        Self {
+            pool,
+            arbiter: shared_arbiter_arc(),
+            sessions,
+            cancel: Some(cancel),
         }
     }
 
@@ -118,13 +144,15 @@ impl DeskSurface {
         let key = arbiter_session(&self.pool, tab);
         let mut arbiter = self.arbiter.lock().unwrap_or_else(|e| e.into_inner());
         arbiter.request(key, source, Priority::P2Explicit, exclusive).map_err(|denied| {
-            SurfaceError::new(term_core::surface_error::ErrorKind::Locked, denied.as_message())
+            // Busy = 时序冲突，稍后重试；Suppressed = 本次写没产生。
+            // 两者都不是「锁屏」——那一种是 SurfaceError::locked，码 -32003。
+            let kind = if denied.is_busy() {
+                term_core::surface_error::ErrorKind::Busy
+            } else {
+                term_core::surface_error::ErrorKind::Suppressed
+            };
+            SurfaceError::new(kind, denied.as_message())
         })
-    }
-
-    fn consume_grant(&self, tab: SessionId, grant: &Grant) {
-        let key = arbiter_session(&self.pool, tab);
-        self.arbiter.lock().unwrap_or_else(|e| e.into_inner()).consume(key, grant);
     }
 
     /// 上层（规则 / 凭据）已经拿过仲裁许可的写：走同一份动词实现，但**不**
@@ -149,6 +177,12 @@ impl DeskSurface {
     }
 
     /// 拿到许可后的唯一写出点。`count` 只决定 `keys` 要不要回带字节数。
+    ///
+    /// # TOCTOU（P1-2）
+    ///
+    /// 「申请许可」与「写 PTY」之间可能发生 P0 按键 / 独占抢占，epoch 随之
+    /// 前进。复核与落地必须在**同一把仲裁器锁**里：分开两次加锁，第二次锁
+    /// 之前照样能被抢占，检查就只是摆设（这正是原实现的行为）。
     fn send_granted(
         &self,
         tab: SessionId,
@@ -157,8 +191,26 @@ impl DeskSurface {
         grant: &Grant,
         count: bool,
     ) -> Result<Value, SurfaceError> {
-        let written = self.pool.send(tab, bytes);
-        self.consume_grant(tab, grant);
+        let key = arbiter_session(&self.pool, tab);
+        let written = {
+            let mut arbiter = self.arbiter.lock().unwrap_or_else(|e| e.into_inner());
+            if !arbiter.is_valid(key, grant) {
+                // 不写、也不动计数；抢占方已经记过一次压制。这里再留一条
+                // 可见痕迹：错误回到调用方（API 客户端 / UI 提示行），
+                // stderr 给服务端排障——绝不静默吞掉这次未落地。
+                eprintln!(
+                    "Grant {}:{} 在落地前失效，会话 {session:?} 本次未写入（按键 / 独占抢占）",
+                    grant.seq, grant.epoch
+                );
+                return Err(SurfaceError::busy(format!(
+                    "Busy: 会话 {session:?} 的写在落地前被按键 / 独占抢占（seq {}），本次未写入，请稍后重试",
+                    grant.seq
+                )));
+            }
+            let written = self.pool.send(tab, bytes);
+            arbiter.consume(key, grant);
+            written
+        };
         if !written {
             return Err(SurfaceError::not_found(format!("会话 {session:?} 不存在，没有可写入的会话")));
         }
@@ -179,8 +231,28 @@ impl DeskSurface {
                 .pool
                 .session(tab)
                 .ok_or_else(|| SurfaceError::not_found(format!("会话 {tab} 不在池子里")))?;
-            Ok(ScriptSession::new(handle))
+            // 连入的游标必须带上本连接的令牌：ScriptSession 的 read /
+            // read_until / wait_any / wait_idle 据此走 *_cancellable 切片。
+            let cursor = match &self.cancel {
+                Some(cancel) => {
+                    ScriptSession::with_cancel(handle, CURSOR_MAX_WAIT, Some(cancel.clone()))
+                }
+                None => ScriptSession::new(handle),
+            };
+            Ok(cursor)
         })
+    }
+
+    /// `wait` 的取消分派：有令牌走切片等待，没有则保持老语义。
+    fn wait_with_cancel(
+        &self,
+        registration: Box<dyn WaitRegistration>,
+        timeout: Duration,
+    ) -> Result<WaitMatch, WaitError> {
+        match &self.cancel {
+            Some(cancel) => registration.wait_cancellable(timeout, cancel),
+            None => registration.wait(timeout),
+        }
     }
 
     /// `session` 参数 → `(名字, id)`。**所有**收会话参数的动词都从这里进。
@@ -366,8 +438,8 @@ impl DeskSurface {
         // 先登记、后匹配（ADR-0019）：wait_register 返回即已生效，
         // 之后的输出保证被匹配；登记点之前的输出不入账。
         let registration = self.pool.wait_register(tab, &pattern)?;
-        let matched = registration
-            .wait(Duration::from_millis(timeout_ms))
+        let matched = self
+            .wait_with_cancel(registration, Duration::from_millis(timeout_ms))
             .map_err(|err| match err {
                 WaitError::Timeout => SurfaceError::timeout(format!(
                     "{timeout_ms}ms 内没等到 {pattern:?}（会话仍在，可加大 timeout_ms 重试）"

@@ -224,6 +224,50 @@ fn same_frame_writes_are_sorted_by_priority_then_sequence() {
 }
 
 #[test]
+fn a_stale_ui_grant_is_rechecked_at_landing_and_never_writes() {
+    let (mut tab, writes) = fixture("ui-toctou-stale-grant");
+    let key = key_of(&tab);
+    let grant = shared_arbiter()
+        .lock()
+        .expect("仲裁器锁")
+        .request(key, "rule", Priority::P3Rule, false)
+        .expect("规则许可");
+    tab.pending_intents = vec![FrameIntent {
+        ctx: DispatchCtx {
+            session: key,
+            source: "rule".into(),
+            priority: Priority::P3Rule,
+            owner: None,
+            grant: Some(grant),
+        },
+        kind: IntentKind::Surface(SurfaceIntent {
+            method: "write".into(),
+            params: json!({ "session": "current", "text": "STALE" }),
+        }),
+        release: term_core::automation::Release::Immediate,
+        since: term_core::automation::Ticks::ZERO,
+    }];
+    // 排队之后、落地之前来了用户按键：epoch 前进，旧许可作废。
+    crate::ui::trigger_intents::user_key_preempt(&tab);
+    let mut win = crate::ui::lifecycle_test_support::window_with(
+        tab.pool.clone(),
+        &egui::Context::default(),
+        vec![tab],
+    );
+    let mut note = None;
+    crate::ui::trigger_intents::drain(&mut win, &mut Vec::new(), &mut note);
+    assert!(
+        writes.0.lock().expect("读写入").is_empty(),
+        "失效的 UI 许可不许把字节写进 PTY"
+    );
+    assert!(
+        note.as_deref().is_some_and(|n| n.contains("抢占") || n.contains("Busy")),
+        "压制必须留痕给用户：{note:?}"
+    );
+    shared_arbiter().lock().expect("仲裁器锁").clear(key);
+}
+
+#[test]
 fn credential_fields_are_exhaustive_and_empty_values_are_errors() {
     use term_core::automation::CredentialField;
 
@@ -278,7 +322,8 @@ fn an_exclusive_api_write_is_busy_during_auth_and_takes_over_a_rule_later() {
             &json!({ "session": "Local Shell", "text": "x", "exclusive": true }),
         )
         .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::Locked);
+    assert_eq!(err.kind, ErrorKind::Busy, "仲裁 Busy 有独立 kind，不能和锁屏混为一谈");
+    assert_eq!(err.code, -32005);
     assert!(err.message.contains("Busy"), "{}", err.message);
 
     {
@@ -313,6 +358,22 @@ fn a_default_api_write_coexists_with_the_rule_owner() {
 }
 
 #[test]
+fn an_unknown_action_id_is_reported_instead_of_silently_running_a_shell() {
+    let (tab, _writes) = fixture("unknown-action-id");
+    let mut win = crate::ui::lifecycle_test_support::window_with(
+        tab.pool.clone(),
+        &egui::Context::default(),
+        vec![tab],
+    );
+    win.dispatch("Window.NoSuchCommand");
+    assert!(
+        win.log_note.as_deref().is_some_and(|n| n.contains("未知命令 ID")),
+        "拼错的命令 ID 必须显式报错，不能静默丢给 /bin/sh：{:?}",
+        win.log_note
+    );
+}
+
+#[test]
 fn shared_arbiter_is_the_one_both_ui_and_api_use() {
     let (tab, _writes) = fixture("shared-arbiter-identity");
     let key = key_of(&tab);
@@ -325,7 +386,7 @@ fn shared_arbiter_is_the_one_both_ui_and_api_use() {
     let err = surface
         .invoke("write", &json!({ "session": "Local Shell", "text": "x", "exclusive": true }))
         .unwrap_err();
-    assert_eq!(err.kind, ErrorKind::Locked, "{err:?}");
+    assert_eq!(err.kind, ErrorKind::Busy, "{err:?}");
     assert!(err.message.contains("Busy"));
     shared_arbiter().lock().expect("仲裁器锁").clear(key);
 }
