@@ -27,21 +27,21 @@
 //! - **没做**：不解析 agent 协议（只搬字节）、不缓存也不重连通道、
 //!   Windows 的命名管道未接线（在那些平台上开 `-A` 会直接报错，不会假装成功）。
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, Handle};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
 
 use crate::auth;
 use crate::authenticated::ForwardSink;
 use crate::error::SshError;
 use crate::handler::{self, HostKeyHandler, Rejection};
 use crate::options::{DEFAULT_PORT, SshOptions};
-use crate::outbound;
+use crate::proxy_dial::dial;
+pub(crate) use crate::proxy_resolve::{stage_timeout, NO_TIMEOUT_FALLBACK};
 
 /// 一条能承载 SSH 的字节流：第一段是 TCP，之后的每一段是上游连接里的一条通道。
 ///
@@ -51,20 +51,6 @@ use crate::outbound;
 pub(crate) trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> Stream for T {}
 pub(crate) type BoxStream = Box<dyn Stream>;
-
-/// `connect_timeout = 0` 的语义是「不设超时」。但 `tokio::time::timeout(0, …)`
-/// 是**立刻超时**——不统一映射的话，用户在表单里填 0 会在第一跳就失败。
-/// 所有阶段（TCP / 代理协商 / KEX / 开通道）都经这里换算成一个长兜底，
-/// 认证阶段另有自己的 120 秒下限（见 `handshake`）。
-pub(crate) const NO_TIMEOUT_FALLBACK: Duration = Duration::from_secs(120);
-
-fn stage_timeout(timeout: Duration) -> Duration {
-    if timeout.is_zero() {
-        NO_TIMEOUT_FALLBACK
-    } else {
-        timeout
-    }
-}
 
 /// 链上的一个端点：先握手的是第 0 跳，最后一个是用户真正要连的机器。
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -167,48 +153,6 @@ pub(crate) fn agent_forward_error(agent_forward: bool, socket: Option<&Path>) ->
     }
 }
 
-/// 主机 + 端口 → 一个具体地址。DNS 失败与「连上了但被拒」是两类错误。
-pub(crate) fn resolve_host(host: &str, port: u16) -> Result<SocketAddr, SshError> {
-    (host, port)
-        .to_socket_addrs()
-        .map_err(|e| SshError::Resolve(format!("{host}:{port} —— {e}")))?
-        .next()
-        .ok_or_else(|| SshError::Resolve(format!("{host} 没有解析出任何地址")))
-}
-
-/// 带预算的解析：`getaddrinfo` 是阻塞调用，直接放在 async 线程里会把整条
-/// 连接链钉住（DNS 卡住时连 `connect_timeout` 都没机会生效）。搬进
-/// `spawn_blocking` 再套一层超时，时间到就返回 `Resolve`，工作线程自己收摊。
-pub(crate) async fn resolve_host_async(
-    host: &str,
-    port: u16,
-    timeout: Duration,
-) -> Result<SocketAddr, SshError> {
-    let owned = host.to_string();
-    let task = tokio::task::spawn_blocking(move || resolve_host(&owned, port));
-    await_resolve(host, port, timeout, task).await
-}
-
-/// 等解析任务但预算有界。单独抽出来是为了让「超时」分支能在单测里用一条
-/// 保证不返回的 future 钉住——直接拿 `Duration::ZERO` 去赌本机 DNS 没跑完
-/// 是会 flaky 的（回环解析有时真的能抢在计时器之前完成）。
-async fn await_resolve(
-    host: &str,
-    port: u16,
-    timeout: Duration,
-    task: tokio::task::JoinHandle<Result<SocketAddr, SshError>>,
-) -> Result<SocketAddr, SshError> {
-    match tokio::time::timeout(timeout, task).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(e)) => Err(SshError::Resolve(format!(
-            "{host}:{port} —— DNS 工作线程退出：{e}"
-        ))),
-        Err(_) => Err(SshError::Resolve(format!(
-            "{host}:{port} —— {timeout:?} 内没有解析出地址"
-        ))),
-    }
-}
-
 /// 建链。0 跳时就是一次直连，1 跳时是「跳板机 + 一条 direct-tcpip」，
 /// N 跳时每一跳都在前一条连接里再开一条通道。
 ///
@@ -268,69 +212,6 @@ pub(crate) async fn connect(
 
     // 循环在最后一跳必然 return；能走到这里说明只可能是空链（上面已挡）。
     Err(SshError::Config("连接链是空的".to_string()))
-}
-
-/// 建好第一段能承载 SSH 的流，并报出这条 TCP 的本机地址（供 `direct-tcpip`
-/// 的 originator 字段）。超时沿用会话的 `connect_timeout`。
-///
-/// 有出网代理时**只解析代理地址**：目标主机（或第一跳跳板机）的名字默认
-/// 原样交给代理去解析（`dns_over_proxy=true`）。内网名字本地必然解析不了，
-/// 先 `getaddrinfo` 一次就等于把「DNS 走代理」废掉。关掉这一档时才本地解析。
-/// 每一次本地解析都走 [`resolve_host_async`]，有界、不堵住整个 async worker。
-async fn dial(
-    target: &Target,
-    opts: &SshOptions,
-) -> Result<(BoxStream, Option<SocketAddr>), SshError> {
-    let timeout = stage_timeout(opts.connect_timeout);
-    let Some(proxy) = opts.outbound_proxy.as_ref() else {
-        let addr = resolve_host_async(&target.host, target.port, timeout).await?;
-        let tcp = connect_tcp(addr, timeout, &target.label(), opts).await?;
-        let local = tcp.local_addr().ok();
-        return Ok((Box::new(tcp), local));
-    };
-
-    let addr = resolve_host_async(&proxy.host, proxy.port, timeout)
-        .await
-        .map_err(|e| {
-            SshError::Resolve(format!(
-                "{} 出网代理 {} —— {e}",
-                proxy.kind.label(),
-                proxy.label()
-            ))
-        })?;
-    let tcp = connect_tcp(addr, timeout, &proxy.label(), opts).await?;
-    let local = tcp.local_addr().ok();
-    // 默认把目标主机名交给代理解析（远程 DNS，内网名字才能通）；关掉开关
-    // 时在本地解析好，再把 IP 交给代理。
-    let dial_host = if proxy.dns_over_proxy {
-        target.host.clone()
-    } else {
-        resolve_host_async(&target.host, target.port, timeout)
-            .await?
-            .ip()
-            .to_string()
-    };
-    let stream = outbound::handshake(tcp, proxy, &dial_host, target.port, timeout).await?;
-    Ok((stream, local))
-}
-
-async fn connect_tcp(
-    addr: SocketAddr,
-    timeout: Duration,
-    label: &str,
-    opts: &SshOptions,
-) -> Result<TcpStream, SshError> {
-    match tokio::time::timeout(timeout, TcpStream::connect(addr)).await {
-        // 会话表单这两项过去只写不读：现在真的落到第一段 TCP 上。
-        Ok(Ok(socket)) => crate::tcp_tune::tune(&socket, opts.tcp_low_delay, opts.tcp_keep_alive)
-            .map_err(|e| SshError::Connect(format!("{label} —— {e}")))
-            .map(|()| socket),
-        Ok(Err(e)) => Err(SshError::Connect(format!("{label} —— {e}"))),
-        Err(_) => Err(SshError::Connect(format!(
-            "{} 秒内没有连上 {label}",
-            timeout.as_secs()
-        ))),
-    }
 }
 
 /// 在一条既有流上跑一次 SSH 握手 + 认证。
@@ -455,12 +336,6 @@ mod tests {
                 password: "x".to_string(),
             },
         )
-    }
-
-    #[test]
-    fn a_zero_stage_timeout_never_means_an_immediate_timeout() {
-        assert_eq!(stage_timeout(Duration::ZERO), NO_TIMEOUT_FALLBACK);
-        assert_eq!(stage_timeout(Duration::from_secs(5)), Duration::from_secs(5));
     }
 
     #[test]
@@ -610,121 +485,4 @@ mod tests {
         }
     }
 
-    /// 接线判据：`dial` 把**第一段 TCP**交给出网代理，而且目标主机名
-    /// 原样送去（不在本地解析）。`target.internal` 在本机 DNS 里不存在——
-    /// 只要有人把 `resolve_host(&target.host)` 加回去，这个用例就会红。
-    #[tokio::test]
-    async fn dial_uses_http_proxy_and_leaves_target_dns_to_the_proxy() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let task = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut reader = BufReader::new(&mut socket);
-            let mut request = String::new();
-            for _ in 0..32 {
-                let mut line = String::new();
-                reader.read_line(&mut line).await.unwrap();
-                request.push_str(&line);
-                if line == "\r\n" {
-                    break;
-                }
-            }
-            socket
-                .write_all(b"HTTP/1.1 200 OK\r\n\r\nSSH-2.0")
-                .await
-                .unwrap();
-            request
-        });
-
-        let mut opts = session();
-        opts.outbound_proxy = Some(crate::options::OutboundProxy {
-            kind: crate::options::ProxyKind::Http,
-            host: addr.ip().to_string(),
-            port: addr.port(),
-            auth: None,
-            dns_over_proxy: true,
-        });
-        let first = chain(&opts).remove(0);
-        let (mut stream, local) = dial(&first, &opts).await.expect("经代理建链应当成功");
-        assert!(local.is_some(), "originator 仍取自这条 TCP 的本机地址");
-        let request = task.await.unwrap();
-        assert!(
-            request.starts_with("CONNECT target.internal:22 HTTP/1.1\r\n"),
-            "{request}"
-        );
-        // 代理转发过来的目标字节没有被 CONNECT 响应头吃掉。
-        let mut banner = [0u8; 7];
-        tokio::io::AsyncReadExt::read_exact(&mut stream, &mut banner)
-            .await
-            .unwrap();
-        assert_eq!(&banner, b"SSH-2.0");
-    }
-
-    /// 同一条判据的 SOCKS5 版本：代理收到的是域名 `ATYP=3`，不是解析后的 IP。
-    #[tokio::test]
-    async fn dial_uses_socks5_proxy_with_a_domain_target() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        use tokio::net::TcpListener;
-
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let task = tokio::spawn(async move {
-            let (mut socket, _) = listener.accept().await.unwrap();
-            let mut greeting = [0u8; 3];
-            socket.read_exact(&mut greeting).await.unwrap();
-            socket.write_all(&[5, 0]).await.unwrap();
-            let mut head = [0u8; 4];
-            socket.read_exact(&mut head).await.unwrap();
-            let mut len = [0u8; 1];
-            socket.read_exact(&mut len).await.unwrap();
-            let mut target = vec![0u8; len[0] as usize + 2];
-            socket.read_exact(&mut target).await.unwrap();
-            socket
-                .write_all(&[5, 0, 0, 1, 127, 0, 0, 1, 0, 0])
-                .await
-                .unwrap();
-            (greeting.to_vec(), head.to_vec(), target)
-        });
-
-        let mut opts = session();
-        opts.outbound_proxy = Some(crate::options::OutboundProxy {
-            kind: crate::options::ProxyKind::Socks5,
-            host: addr.ip().to_string(),
-            port: addr.port(),
-            auth: None,
-            dns_over_proxy: true,
-        });
-        let first = chain(&opts).remove(0);
-        let (_stream, local) = dial(&first, &opts).await.expect("SOCKS5 建链应当成功");
-        assert!(local.is_some());
-        let (greeting, head, target) = task.await.unwrap();
-        assert_eq!(greeting, vec![5, 1, 0]);
-        assert_eq!(head, vec![5, 1, 0, 3], "ATYP=3：域名交给代理解析");
-        const DOMAIN: &[u8] = b"target.internal";
-        assert_eq!(&target[..DOMAIN.len()], DOMAIN);
-        assert_eq!(&target[DOMAIN.len()..], &22u16.to_be_bytes());
-    }
-
-    /// 用一条确定不返回的 future 钉住超时分支：DNS 卡住时必须在预算内
-    /// 得到 Resolve 错误，而不是把整条连接链永久挂住。
-    #[tokio::test]
-    async fn dns_resolution_is_bounded_by_the_stage_timeout() {
-        let stuck = tokio::spawn(async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            Ok("127.0.0.1:22".parse().unwrap())
-        });
-        let expired = await_resolve("example.com", 22, Duration::from_millis(30), stuck)
-            .await
-            .expect_err("预算一到必须返回，不能跟着解析一起卡住");
-        assert!(matches!(expired, SshError::Resolve(_)), "{expired:?}");
-        assert!(expired.to_string().contains("没有解析出地址"), "{expired}");
-
-        let ok = resolve_host_async("127.0.0.1", 22, Duration::from_secs(2))
-            .await
-            .expect("本机回环应当解析成功");
-        assert_eq!(ok.ip().to_string(), "127.0.0.1");
-    }
 }

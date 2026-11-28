@@ -36,6 +36,8 @@ mod auth;
 mod authenticated;
 mod background;
 mod channel;
+/// X11 `x11-req` 载荷：cookie 随机性与线格式编码，从 `channel` 拆出以便守 500 行。
+mod channel_x11;
 mod error;
 mod exec;
 mod handler;
@@ -46,6 +48,9 @@ pub mod known_hosts_admin;
 mod options;
 mod outbound;
 mod proxy;
+/// 第一段建链：本地 / 出网代理的 TCP 与 DNS 解析，从 `proxy` 拆出以便守 500 行。
+mod proxy_dial;
+mod proxy_resolve;
 mod tcp_tune;
 
 pub use authenticated::{Authenticated, ChannelOpener, Forwarded};
