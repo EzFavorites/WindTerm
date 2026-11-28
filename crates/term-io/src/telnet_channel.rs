@@ -38,6 +38,7 @@
 //!   立即把新的子协商写回，否则仍由上面的「等到 `DO NAWS` 再补发」路径负责。
 //!   这样既不会在对端拒绝/未协商时发非法 SB，也不会漏掉初始尺寸。
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{ErrorKind, Read, Write};
 use std::net::{Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
@@ -53,6 +54,14 @@ use crate::channel::TermChannel;
 
 /// 读线程一次 `read` 的上限。终端流量是小块，8 KiB 足够且不会撑爆一帧。
 const READ_CHUNK: usize = 8 * 1024;
+
+/// 一帧最多交多少下行字节给 VT。与 `term-io::pty` / `term-ssh::channel`
+/// 的 `FRAME_BUDGET` 同值：三处都是「一帧的预算」，不该不一样。
+///
+/// 读线程只管往 mpsc 里塞，对端狂发时队列可以涨到任意大；`collect()` 与
+/// `drain()` 必须各自守住这个预算，多出来的留在队列里下一帧再取——否则
+/// 一帧里 `mem::take` 掉整个 pending，UI 会被一次 `find /` 级别的输出卡死。
+pub const FRAME_BUDGET: usize = 256 * 1024;
 
 /// 读超时：读线程每 50ms 至少醒来一次看停止标志，`close()` 才不会干等。
 const READ_TIMEOUT: Duration = Duration::from_millis(50);
@@ -145,8 +154,11 @@ pub(crate) fn apply_tcp_options(stream: &TcpStream, config: &SessionConfig) {
 pub struct TelnetChannel {
     /// 读线程派发的数据与结束事件。
     events: mpsc::Receiver<ReaderEvent>,
-    /// `drain()` 之间攒着的纯数据字节。
+    /// `drain()` 之间攒着的纯数据字节（永不超过 [`FRAME_BUDGET`]）。
     pending: Vec<u8>,
+    /// `collect()` 已经从 mpsc 取出、但本帧预算不够的事件。放回去等下一帧，
+    /// 而不是丢掉或用 `pending` 无限攒着——这就是下行背压的落点。
+    staged: VecDeque<ReaderEvent>,
     /// 断开原因，`poll()` 取走即清空。
     notice: Option<String>,
     /// 生命周期是否已结束（对端断开 / 写失败 / `close()`）。
@@ -282,6 +294,7 @@ impl TelnetChannel {
         Ok(Self {
             events: events_rx,
             pending: Vec::new(),
+            staged: VecDeque::new(),
             notice: None,
             over: false,
             closed: false,
@@ -295,20 +308,44 @@ impl TelnetChannel {
         })
     }
 
-    /// 把读线程已经派发的事件收进本对象的缓冲。
+    /// 收一个事件进缓冲。`Data` 放不下就退回 `staged` 并返回 false，
+    /// 让调用方停手：未取完的留在 mpsc / staged 里，下一帧继续。
+    fn absorb(&mut self, event: ReaderEvent) -> bool {
+        match event {
+            ReaderEvent::Data(bytes) => {
+                if self.pending.len().saturating_add(bytes.len()) > FRAME_BUDGET {
+                    self.staged.push_front(ReaderEvent::Data(bytes));
+                    return false;
+                }
+                self.pending.extend_from_slice(&bytes);
+            }
+            ReaderEvent::End(why) => {
+                self.over = true;
+                if !self.closed && self.notice.is_none() {
+                    self.notice = Some(why);
+                }
+            }
+        }
+        true
+    }
+
+    /// 把读线程已经派发的事件收进本对象的缓冲，但一帧最多收 [`FRAME_BUDGET`]
+    /// 个字节。先处理上一帧被预算挡回来的事件（它们更老），再取 mpsc 里的。
     ///
     /// 这是 `drain()` 与 `poll()` 唯一的「等待」来源——`try_recv` 立刻返回，
     /// 绝不碰 socket，因此不会把 UI 帧钉住。
     fn collect(&mut self) {
-        while let Ok(event) = self.events.try_recv() {
-            match event {
-                ReaderEvent::Data(bytes) => self.pending.extend_from_slice(&bytes),
-                ReaderEvent::End(why) => {
-                    self.over = true;
-                    if !self.closed && self.notice.is_none() {
-                        self.notice = Some(why);
-                    }
-                }
+        while let Some(event) = self.staged.pop_front() {
+            if !self.absorb(event) {
+                break;
+            }
+        }
+        while self.pending.len() < FRAME_BUDGET {
+            let Ok(event) = self.events.try_recv() else {
+                break;
+            };
+            if !self.absorb(event) {
+                break;
             }
         }
     }
@@ -338,11 +375,17 @@ impl TermChannel for TelnetChannel {
     fn drain(&mut self) -> Vec<u8> {
         if self.closed {
             self.pending.clear();
+            self.staged.clear();
             return Vec::new();
         }
         self.collect();
+        // 一帧只交预算内的字节；剩下的留在 `pending` 里下一帧再给。
+        // collect 已经保证 pending <= FRAME_BUDGET，这里再夹一次是防御性的。
+        let take = self.pending.len().min(FRAME_BUDGET);
         // 对端断开（over）时仍要把已到手的最后一帧数据交出去，不能丢屏。
-        std::mem::take(&mut self.pending)
+        let out = self.pending[..take].to_vec();
+        self.pending.drain(..take);
+        out
     }
 
     fn write(&mut self, bytes: &[u8]) {
@@ -397,6 +440,7 @@ impl TermChannel for TelnetChannel {
         self.over = true;
         self.notice = None;
         self.pending.clear();
+        self.staged.clear();
         self.shutdown_reader();
     }
 

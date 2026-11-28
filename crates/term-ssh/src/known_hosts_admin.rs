@@ -5,14 +5,17 @@
 //!
 //! 三条原则：
 //!
-//! 1. **不认识的行走原样保留**。注释、空行、`@cert-authority`、带 `!` 的反向匹配、
-//!    哈希过的 `|1|…` —— 一律不改写。这个文件是用户和 OpenSSH 共用的，
-//!    我们只是偶尔动一两行，动完别人还得能接着用。
+//! 1. **不认识的行走原样保留**。注释、空行、`@cert-authority` / `@revoked`
+//!    这类带 `@` 的 directive、带 `!` 的反向匹配、哈希过的 `|1|…` —— 一律不
+//!    改写、不删除，连它原本的行终止符（CRLF / 末尾无换行）都照抄。带 marker
+//!    的行尤其不能碰：删掉一条 `@revoked` 等于悄悄撤销用户的吊销决定。
+//!    这个文件是用户和 OpenSSH 共用的，我们只是偶尔动一两行。
 //! 2. **只认精确匹配**。`forget("example.com", 22)` 只删 `example.com` 这一条，
 //!    不删 `*.example.com`、不删 `[example.com]:2222`。通配符展开是 OpenSSH
 //!    的匹配语义，在这里替用户猜等于删错行。
-//! 3. **只改被命中的行**。没命中就**一个字节都不写**——连 mtime 都不动，
-//!    否则备份脚本会看到一堆「什么都没改」的变更。
+//! 3. **只改被命中的行**。没命中就**一个字节都不写**——连 mtime 都不动；
+//!    命中时也只重写那一行，其余各行连同原始行终止符原样写回，绝不把整份
+//!    LF/CRLF 混用的账本悄悄规范化成 LF。
 //!
 //! 写文件是「同目录临时文件 + rename」：中途崩掉时旧文件还在，不会留下半截账本。
 //!
@@ -47,7 +50,8 @@ pub struct HostRecord {
     pub hosts: Vec<String>,
     /// 这一行的主机名是哈希形式。
     pub hashed: bool,
-    /// `@cert-authority` / `@revoked` 这类标记。
+    /// 保留字段：带 `@` 标记的 directive 行现在一律视为「不认识」，既不
+    /// 列举也不改写，所以这里恒为 `None`。留着字段是为了不破坏已有的调用方。
     pub marker: Option<String>,
     /// 钥匙类型（`ssh-ed25519` …）。
     pub key_type: String,
@@ -94,7 +98,7 @@ pub fn list(path: &Path) -> Result<Vec<HostRecord>, SshError> {
                 line: index + 1,
                 hosts: parsed.hosts,
                 hashed: parsed.hashed,
-                marker: parsed.marker,
+                marker: None,
                 key_type: parsed.key_type,
                 fingerprint: parsed.fingerprint,
             })
@@ -130,6 +134,7 @@ pub fn trust(
 ) -> Result<TrustOutcome, SshError> {
     let token = host_token(host, port);
     let text = read_optional(path)?.unwrap_or_default();
+    let eol = ledger_eol(&text);
     let (mut kept, removed) = filter_out(&text, &token);
 
     let bare = PublicKey::new(key.key_data().clone(), String::new());
@@ -138,10 +143,11 @@ pub fn trust(
             "拼不出要写入的钥匙行：{e}"
         )))
     })?;
+    // 只在「上一行没有终止符」时补一个：已有行的 CRLF/LF 一个都不改。
     if !kept.is_empty() && !kept.ends_with('\n') {
-        kept.push('\n');
+        kept.push_str(eol);
     }
-    kept.push_str(&format!("{token} {line}\n"));
+    kept.push_str(&format!("{token} {line}{eol}"));
     write_atomic(path, &kept)?;
 
     Ok(TrustOutcome {
@@ -174,7 +180,6 @@ pub fn trust_openssh(
 
 /// 解析一行；注释、空行、看不懂的行都返回 `None`（调用方原样保留）。
 struct Parsed {
-    marker: Option<String>,
     hosts: Vec<String>,
     hashed: bool,
     key_type: String,
@@ -187,11 +192,13 @@ fn parse_line(line: &str) -> Option<Parsed> {
         return None;
     }
     let mut fields = trimmed.split_whitespace();
-    let mut first = fields.next()?;
-    let mut marker = None;
+    let first = fields.next()?;
+    // `@cert-authority` / `@revoked` 是 OpenSSH 的 directive，不是一条
+    // 「这台主机的这把钥匙」记录。过去这里会把它们当普通主机解析，于是
+    // `forget("example.com")` 连带删掉 `@revoked example.com …`——悄悄撤销
+    // 吊销决定是事故。现在整行当不认识：list 不列、filter_out 不删、原样保留。
     if first.starts_with('@') {
-        marker = Some(first.to_string());
-        first = fields.next()?;
+        return None;
     }
     let key_type = fields.next()?.to_string();
     let blob = fields.next()?.to_string();
@@ -206,7 +213,6 @@ fn parse_line(line: &str) -> Option<Parsed> {
         .ok()
         .map(|key| fingerprint(&key));
     Some(Parsed {
-        marker,
         hosts,
         hashed,
         key_type,
@@ -214,20 +220,34 @@ fn parse_line(line: &str) -> Option<Parsed> {
     })
 }
 
-/// 把命中 `token` 的行丢掉，其余（含注释与空行）原样保留。
+/// 把命中 `token` 的行丢掉，其余（含注释与空行）**连同原始行终止符**原样保留。
+///
+/// `str::lines()` 会把 CRLF 剥掉，再统一补 LF——那等于把整份账本重写一遍，
+/// 没命中的行也全变了字节。这里按 `split_inclusive('\n')` 逐块处理，每个块
+/// 自带它原来的 `\r\n` / `\n` / 无换行；判定只拿去 `parse_line` 看一眼，
+/// 写回时把整块照抄。
 fn filter_out(text: &str, token: &str) -> (String, usize) {
     let mut kept = String::with_capacity(text.len());
     let mut removed = 0;
-    for line in text.lines() {
-        let hit = parse_line(line).is_some_and(|parsed| parsed.hosts.iter().any(|h| h == token));
+    for chunk in text.split_inclusive('\n') {
+        let hit = parse_line(chunk).is_some_and(|parsed| parsed.hosts.iter().any(|h| h == token));
         if hit {
             removed += 1;
-            continue;
+        } else {
+            kept.push_str(chunk);
         }
-        kept.push_str(line);
-        kept.push('\n');
     }
     (kept, removed)
+}
+
+/// 文件里出现过 CRLF 就继续用 CRLF 追加新行：不要把一份 CRLF 账本改成
+/// 混用终止符的「半 LF」文件。
+fn ledger_eol(text: &str) -> &'static str {
+    if text.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    }
 }
 
 fn read_optional(path: &Path) -> Result<Option<String>, SshError> {
@@ -325,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn listing_skips_comments_and_reports_markers_and_fingerprints() {
+    fn listing_skips_comments_and_marker_directives() {
         let path = scratch("list");
         let host_line = key(HOST_PUB).to_openssh().expect("拼一行");
         fs::write(
@@ -334,24 +354,25 @@ mod tests {
                 "# 这是我自己的账本\n\n\
                  example.com,www.example.com {host_line}\n\
                  @revoked old.example.com {host_line}\n\
+                 @cert-authority old.example.com {host_line}\n\
                  |1|abc=|def= {host_line}\n"
             ),
         )
         .expect("写账本");
 
         let records = list(&path).expect("列账本");
-        assert_eq!(records.len(), 3, "注释与空行不算记录：{records:#?}");
+        // 注释、空行、@directive 都不算记录；行号仍按编辑器里的物理行算。
+        assert_eq!(records.len(), 2, "带 marker 的 directive 不该冒充记录：{records:#?}");
         assert_eq!(records[0].line, 3, "行号要能对上编辑器");
         assert_eq!(records[0].hosts, ["example.com", "www.example.com"]);
         assert!(!records[0].hashed);
         assert_eq!(records[0].marker, None);
         assert!(records[0].fingerprint.as_deref().is_some_and(|f| f.starts_with("SHA256:")));
 
-        assert_eq!(records[1].marker.as_deref(), Some("@revoked"));
-
-        assert!(records[2].hashed, "|1|… 是哈希行");
-        assert!(records[2].hosts.is_empty(), "哈希行读不出主机名，不假装能读");
-        assert!(records[2].fingerprint.is_some(), "指纹只跟钥匙有关，仍可算");
+        assert!(records[1].hashed, "|1|… 是哈希行");
+        assert_eq!(records[1].line, 6, "被跳过的 directive 仍占物理行号");
+        assert!(records[1].hosts.is_empty(), "哈希行读不出主机名，不假装能读");
+        assert!(records[1].fingerprint.is_some(), "指纹只跟钥匙有关，仍可算");
     }
 
     #[test]
@@ -513,5 +534,56 @@ mod tests {
             original,
             "解析失败时一个字节都不该落盘——先清后写会留下空账本"
         );
+    }
+
+    /// 回归：带 marker 的 directive 行绝不自动改写/删除，且整份账本的原始
+    /// 行终止符（CRLF、末行无换行）必须逐字节保留。
+    ///
+    /// 旧实现有两个 bug 叠在一起：
+    /// ① `parse_line` 把 `@revoked example.com …` 当普通主机，forget 时连
+    ///    吊销决定一起删；
+    /// ② `filter_out` 用 `lines()` 剥掉 CRLF 再统一补 LF，把没命中的行也重写了。
+    #[test]
+    fn marker_and_crlf_lines_survive_forget_byte_for_byte() {
+        let path = scratch("marker-crlf");
+        let host_line = key(HOST_PUB).to_openssh().expect("拼一行");
+        let revoked = format!("@revoked example.com {host_line}");
+        let cert = format!("@cert-authority example.com {host_line}");
+        let victim = format!("example.com {host_line}");
+        // 末行故意不带换行：也算「原始行终止符」的一种。
+        let original = format!(
+            "# 注释\r\n{revoked}\r\n{victim}\r\n{cert}\r\nlast.example.com {host_line}"
+        );
+        fs::write(&path, &original).expect("写账本");
+
+        assert_eq!(forget(&path, "example.com", 22).expect("忘掉"), 1);
+        let after = fs::read_to_string(&path).expect("读回");
+        assert_eq!(
+            after,
+            format!("# 注释\r\n{revoked}\r\n{cert}\r\nlast.example.com {host_line}"),
+            "只删命中那一行；其余行连同 CRLF / 无换行照抄"
+        );
+        assert!(after.contains(&format!("{revoked}\r\n")), "@revoked 不能被动");
+        assert!(after.contains(&format!("{cert}\r\n")), "@cert-authority 不能被动");
+        assert!(!after.lines().any(|line| line.trim() == victim));
+    }
+
+    /// trust 追加新行时沿用账本自己的换行风格，且既有行字节不变。
+    #[test]
+    fn trusting_a_crlf_ledger_keeps_every_old_line_terminator() {
+        let path = scratch("trust-crlf");
+        let old_line = key(CLIENT_PUB).to_openssh().expect("拼旧行");
+        let marker = format!("@revoked example.com {old_line}");
+        let original = format!("{marker}\r\nexample.com {old_line}\r\n");
+        fs::write(&path, &original).expect("写账本");
+
+        trust(&path, "example.com", 22, &key(HOST_PUB)).expect("换钥");
+        let after = fs::read_to_string(&path).expect("读回");
+        assert!(after.starts_with(&format!("{marker}\r\n")), "marker 行原样保留");
+        assert!(after.contains("\r\n"), "既有 CRLF 不能被改成 LF");
+        assert!(!after.contains("\n\n"), "不要留下空行或混用换行");
+        for line in after.split_inclusive('\n') {
+            assert!(line.ends_with("\r\n"), "每一行都还是 CRLF：{line:?}");
+        }
     }
 }

@@ -60,6 +60,10 @@ pub struct Request {
 }
 
 /// 客户端问候：`VER NMETHODS METHODS...`。返回（是否提供无认证, 吃掉的字节数）。
+///
+/// `Short` 是「字节还不够，喂更多进来」的信号，**不是**协议错误：TCP 完全
+/// 可以把这 3 个字节拆到 3 个段里。调用方（见 `lib.rs` 的 `read_complete`）
+/// 必须拿同一个缓冲反复喂这里，直到返回 `Ok`，不能只读一次 socket 就拒绝。
 pub fn read_greeting(buf: &[u8]) -> Result<(bool, usize), Socks5Error> {
     if buf.len() < 2 {
         return Err(Socks5Error::Short);
@@ -174,6 +178,22 @@ mod tests {
         assert_eq!(read_greeting(&[5]), Err(Socks5Error::Short));
         // 声明 3 种方法但只到了 2 个方法
         assert_eq!(read_greeting(&[5, 3, 0, 2]), Err(Socks5Error::Short));
+    }
+
+    /// 逐字节喂 greeting：每一步都只报 `Short`，最后一步才给出答案。
+    /// 这是 `read_complete` 那条循环依赖的契约——早期版本把第一次 `Short`
+    /// 当成协议错误，逐字节到达的客户端就被拒绝了。
+    #[test]
+    fn feeding_a_greeting_one_byte_at_a_time_stays_short_until_complete() {
+        let wire = [5u8, 3, 2, 0, 1];
+        for n in 1..wire.len() {
+            assert_eq!(
+                read_greeting(&wire[..n]),
+                Err(Socks5Error::Short),
+                "前 {n} 字节还不完整"
+            );
+        }
+        assert_eq!(read_greeting(&wire), Ok((true, wire.len())));
     }
 
     #[test]

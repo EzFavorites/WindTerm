@@ -20,7 +20,6 @@
 //! 用 `bool` 的话，对端关连接那一下正好有数据在队列里，就会丢掉最后一行
 //! （比如 `logout` 之后那句 `Connection closed.`）。
 
-use std::net::SocketAddr;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -51,6 +50,10 @@ pub const HANDSHAKE_FALLBACK: Duration = Duration::from_secs(120);
 /// 一收到 EOF 就 `break` 会把它们全吞掉（状态栏显示 "connection closed" 而不是
 /// 真实退出码）。兜底超时保证服务端只发 EOF 不关通道时也不会把会话挂死。
 pub const EOF_GRACE: Duration = Duration::from_secs(2);
+
+/// 收尾时观察 worker 自己退出的窗口。`connect()` 的超时分支只「尽量回收」——
+/// 观察窗一过就放手（detach），绝不让自己变成第二个无限阻塞点。
+const CLOSE_GRACE: Duration = Duration::from_secs(2);
 
 /// 本次会话握手实际用的预算。0 = 不设超时，按 [`HANDSHAKE_FALLBACK`] 兜底。
 fn handshake_budget(opts: &SshOptions) -> Duration {
@@ -114,24 +117,26 @@ impl std::fmt::Debug for SshChannel {
 /// 耗时的部分在内部线程里跑，`connect` 只是在等一个 `Result`。
 pub fn connect(opts: SshOptions) -> Result<SshChannel, SshError> {
     opts.validate()?;
-    if opts.proxy_jump.is_empty() && opts.outbound_proxy.is_none() {
-        // 先解析一次：DNS 失败与「连上了但被拒」是两类不同的错，用户要做的事也不同。
-        //
-        // **有跳或出网代理时不能这么做**：这两种用法的典型场景恰恰是「目标名字
-        // 只在内网 / 代理那一侧能解析」，那时本地 DNS 必然失败；目标主机名该由
-        // 最后一跳或代理去解析（官文「DNS 可走代理」）。
-        resolve(&opts)?;
-    }
+    // DNS 解析**不在这里做**：`ToSocketAddrs` 是阻塞调用且没有内建超时，
+    // 在 UI 线程上直接调用它，等于把「名字解析不出来」变成永久转圈。
+    // 解析统一放进工作线程，由 `proxy::dial` 的带超时版本完成；这样有跳 /
+    // 出网代理时也不会误在本地解析「只有代理那一侧才认识」的内网名字。
     let description = opts.description();
     let (cmd_tx, cmd_rx) = tokio::sync::mpsc::unbounded_channel();
     let (emit_tx, emit_rx) = channel();
     let (ready_tx, ready_rx) = channel::<Result<(), SshError>>();
+    // worker 真正退出的信号。裸 `join()` 在线程卡死时会把 UI 一起钉住，
+    // 有这个信号才能做「有界 join」。
+    let (done_tx, done_rx) = channel::<()>();
 
     let budget = handshake_budget(&opts) + Duration::from_secs(5);
     let name = format!("term-ssh-{}", opts.host);
     let worker = std::thread::Builder::new()
         .name(name)
-        .spawn(move || run_worker(opts, cmd_rx, emit_tx, ready_tx))
+        .spawn(move || {
+            run_worker(opts, cmd_rx, emit_tx, ready_tx);
+            let _ = done_tx.send(());
+        })
         .map_err(|e| SshError::Local(format!("无法启动 SSH 线程：{e}")))?;
 
     // 内层 `handshake()` 已有超时；这里再兜一次「线程还没进 runtime 就卡住」
@@ -147,26 +152,65 @@ pub fn connect(opts: SshOptions) -> Result<SshChannel, SshError> {
             _worker: Some(worker),
         }),
         Ok(Err(e)) => {
-            let _ = worker.join();
+            bounded_join(worker, done_rx, CLOSE_GRACE);
             Err(e)
         }
         // 线程连 `ready` 都没发就没了：通常是 panic 在建运行时之前。
         Err(RecvTimeoutError::Disconnected) => {
-            let _ = worker.join();
+            bounded_join(worker, done_rx, CLOSE_GRACE);
             Err(SshError::Local(
                 "SSH 线程在握手完成前退出（可能是平台不支持或内存不足）".to_string(),
             ))
         }
-        // 二次兜底：不等线程（join 会重新变成无限阻塞），让它自己收摊。
-        Err(RecvTimeoutError::Timeout) => Err(SshError::Channel(format!(
-            "{budget:?} 内没有收到握手结果（服务端不回应或本机资源不足）"
-        ))),
+        // 二次兜底：先发取消信号，再有界回收。裸 join 会重新变成无限阻塞，
+        // 那正是这条分支要消灭的故障。
+        Err(RecvTimeoutError::Timeout) => {
+            let _ = cmd_tx.send(Command::Close);
+            bounded_join(worker, done_rx, CLOSE_GRACE);
+            Err(SshError::Channel(format!(
+                "{budget:?} 内没有收到握手结果（服务端不回应或本机资源不足）"
+            )))
+        }
     }
 }
 
-/// 主机名 + 端口 → 一个具体的地址。
-fn resolve(opts: &SshOptions) -> Result<SocketAddr, SshError> {
-    crate::proxy::resolve_host(&opts.host, opts.port)
+/// 等 worker 在 `bound` 内自己退出：收到完成信号才 `join()` 回收线程句柄，
+/// 等不到就丢掉句柄让它继续收摊。调用方**不会**因为一个卡死的 worker 卡住。
+fn bounded_join(worker: JoinHandle<()>, done: Receiver<()>, bound: Duration) {
+    if done.recv_timeout(bound).is_ok() {
+        let _ = worker.join();
+    } else {
+        drop(worker);
+    }
+}
+
+/// `SshOptions` 会被 worker 的 async future 持有整条会话。握手一结束就把
+/// 凭据清掉：此后留在内存里的只有 host / 端口 / 超时这些非敏感事实。
+fn scrub_credentials(opts: &mut SshOptions) {
+    fn clear(method: &mut crate::options::AuthMethod) {
+        match method {
+            crate::options::AuthMethod::Password { password } => password.clear(),
+            crate::options::AuthMethod::PrivateKey { passphrase, .. } => {
+                // 连「给没给过口令」这一位一起丢掉，不留下空壳。
+                passphrase.take();
+            }
+            crate::options::AuthMethod::Agent => {}
+            crate::options::AuthMethod::KeyboardInteractive { answers } => {
+                for answer in answers {
+                    answer.clear();
+                }
+            }
+        }
+    }
+    clear(&mut opts.auth);
+    for method in &mut opts.auth_chain {
+        clear(method);
+    }
+    if let Some(proxy) = opts.outbound_proxy.as_mut() {
+        if let Some(auth) = proxy.auth.as_mut() {
+            auth.password.clear();
+        }
+    }
 }
 
 fn run_worker(
@@ -189,7 +233,7 @@ fn run_worker(
 }
 
 async fn session(
-    opts: SshOptions,
+    mut opts: SshOptions,
     mut cmd_rx: tokio::sync::mpsc::UnboundedReceiver<Command>,
     emit: Sender<Emit>,
     ready: Sender<Result<(), SshError>>,
@@ -210,6 +254,8 @@ async fn session(
             return;
         }
     };
+    // 握手已经把凭据用完了；在 bona fide 连接上也不让密码多留一分钟。
+    scrub_credentials(&mut opts);
     // 到这里「连上了」才是事实：之前所有失败都得回给 `connect()`。
     let _ = ready.send(Ok(()));
 
@@ -575,5 +621,82 @@ mod tests {
         assert!(first.iter().any(|&b| b != 0), "不能是全零占位");
         // 两次独立取样不相等：不再依赖时间戳 / 计数器这种可预测的唯一性。
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn credentials_are_wiped_after_the_handshake() {
+        use crate::options::{AuthMethod, OutboundProxy, ProxyAuth, ProxyKind};
+        let mut opts = SshOptions::new(
+            "h",
+            "u",
+            AuthMethod::Password {
+                password: "secret".into(),
+            },
+        );
+        opts.auth_chain = vec![
+            AuthMethod::PrivateKey {
+                path: "/tmp/key".into(),
+                passphrase: Some("phrase".into()),
+            },
+            AuthMethod::KeyboardInteractive {
+                answers: vec!["answer".into()],
+            },
+        ];
+        opts.outbound_proxy = Some(OutboundProxy {
+            kind: ProxyKind::Http,
+            host: "proxy".into(),
+            port: 8080,
+            auth: Some(ProxyAuth {
+                username: "p".into(),
+                password: "proxy-secret".into(),
+            }),
+            dns_over_proxy: true,
+        });
+
+        scrub_credentials(&mut opts);
+
+        assert!(matches!(&opts.auth, AuthMethod::Password { password } if password.is_empty()));
+        assert!(matches!(
+            &opts.auth_chain[0],
+            AuthMethod::PrivateKey { passphrase: None, .. }
+        ));
+        assert!(matches!(
+            &opts.auth_chain[1],
+            AuthMethod::KeyboardInteractive { answers } if answers.iter().all(String::is_empty)
+        ));
+        assert!(opts
+            .outbound_proxy
+            .as_ref()
+            .and_then(|p| p.auth.as_ref())
+            .is_some_and(|a| a.password.is_empty()));
+        // 非凭据字段不能被顺手清掉：worker 之后还要用 timeout / 尺寸这些。
+        assert_eq!(opts.host, "h");
+        assert_eq!(opts.port, 22);
+    }
+
+    #[test]
+    fn bounded_join_detaches_a_worker_that_never_signals_done() {
+        // 模拟卡在内核里、永远不发完成信号的 worker。
+        let (release_tx, release_rx) = channel::<()>();
+        let worker = std::thread::spawn(move || {
+            let _ = release_rx.recv();
+        });
+        let (_keep_done_alive, done_rx) = channel::<()>();
+        let started = std::time::Instant::now();
+        bounded_join(worker, done_rx, Duration::from_millis(30));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "有界 join 不能把调用方钉住"
+        );
+        let _ = release_tx.send(());
+    }
+
+    #[test]
+    fn bounded_join_reaps_a_worker_that_finishes() {
+        let (done_tx, done_rx) = channel::<()>();
+        let worker = std::thread::spawn(move || {
+            let _ = done_tx.send(());
+        });
+        bounded_join(worker, done_rx, Duration::from_secs(1));
     }
 }

@@ -44,7 +44,7 @@ use term_core::session::{Protocol, SessionConfig, SpawnPlan};
 use term_core::telnet::{DO, DONT, ECHO, IAC, NAWS, SB, SE, SGA, WILL, WONT};
 use term_io::channel::open_channel;
 use term_io::error::SpawnError;
-use term_io::telnet_channel::TelnetChannel;
+use term_io::telnet_channel::{FRAME_BUDGET, TelnetChannel};
 
 /// 所有等待的**硬上界**：拿不到就 fail-fast，测试绝不挂死。
 ///
@@ -397,6 +397,39 @@ fn peer_close_is_reported_once_and_finishes_the_channel() {
     assert!(text.contains("telnet"), "{text}");
     assert!(ch.finished());
     assert_eq!(ch.poll(), None, "断开只报一次");
+}
+
+/// 下行背压：对端一次灌进 2 帧多的字节，`drain()` 每帧最多交 FRAME_BUDGET，
+/// 多出来的留在队列里下一帧再取，一个字节都不能丢。
+#[test]
+fn drain_is_budgeted_and_keeps_the_unread_bytes_queued() {
+    let server = MockServer::new();
+    let mut ch = open_telnet(&server.addr(), 80, 24);
+
+    let total = FRAME_BUDGET * 2 + 1024;
+    let payload = vec![b'q'; total];
+    server.send(&payload);
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut received = Vec::with_capacity(total);
+    let mut frames = 0usize;
+    while received.len() < total {
+        let frame = ch.drain();
+        if frame.is_empty() {
+            assert!(Instant::now() < deadline, "背压测试超时，已收 {} 字节", received.len());
+            thread::sleep(Duration::from_millis(2));
+            continue;
+        }
+        assert!(
+            frame.len() <= FRAME_BUDGET,
+            "单帧不能超过预算：{} > {FRAME_BUDGET}",
+            frame.len()
+        );
+        frames += 1;
+        received.extend_from_slice(&frame);
+    }
+    assert!(frames >= 3, "2 帧多的字节应当分多帧交出，不能一次 mem::take 全部");
+    assert_eq!(received, payload, "背压只限制每帧大小，不能丢字节");
 }
 
 #[test]

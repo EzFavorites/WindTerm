@@ -176,6 +176,39 @@ pub(crate) fn resolve_host(host: &str, port: u16) -> Result<SocketAddr, SshError
         .ok_or_else(|| SshError::Resolve(format!("{host} 没有解析出任何地址")))
 }
 
+/// 带预算的解析：`getaddrinfo` 是阻塞调用，直接放在 async 线程里会把整条
+/// 连接链钉住（DNS 卡住时连 `connect_timeout` 都没机会生效）。搬进
+/// `spawn_blocking` 再套一层超时，时间到就返回 `Resolve`，工作线程自己收摊。
+pub(crate) async fn resolve_host_async(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+) -> Result<SocketAddr, SshError> {
+    let owned = host.to_string();
+    let task = tokio::task::spawn_blocking(move || resolve_host(&owned, port));
+    await_resolve(host, port, timeout, task).await
+}
+
+/// 等解析任务但预算有界。单独抽出来是为了让「超时」分支能在单测里用一条
+/// 保证不返回的 future 钉住——直接拿 `Duration::ZERO` 去赌本机 DNS 没跑完
+/// 是会 flaky 的（回环解析有时真的能抢在计时器之前完成）。
+async fn await_resolve(
+    host: &str,
+    port: u16,
+    timeout: Duration,
+    task: tokio::task::JoinHandle<Result<SocketAddr, SshError>>,
+) -> Result<SocketAddr, SshError> {
+    match tokio::time::timeout(timeout, task).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(e)) => Err(SshError::Resolve(format!(
+            "{host}:{port} —— DNS 工作线程退出：{e}"
+        ))),
+        Err(_) => Err(SshError::Resolve(format!(
+            "{host}:{port} —— {timeout:?} 内没有解析出地址"
+        ))),
+    }
+}
+
 /// 建链。0 跳时就是一次直连，1 跳时是「跳板机 + 一条 direct-tcpip」，
 /// N 跳时每一跳都在前一条连接里再开一条通道。
 ///
@@ -243,21 +276,28 @@ pub(crate) async fn connect(
 /// 有出网代理时**只解析代理地址**：目标主机（或第一跳跳板机）的名字默认
 /// 原样交给代理去解析（`dns_over_proxy=true`）。内网名字本地必然解析不了，
 /// 先 `getaddrinfo` 一次就等于把「DNS 走代理」废掉。关掉这一档时才本地解析。
+/// 每一次本地解析都走 [`resolve_host_async`]，有界、不堵住整个 async worker。
 async fn dial(
     target: &Target,
     opts: &SshOptions,
 ) -> Result<(BoxStream, Option<SocketAddr>), SshError> {
     let timeout = stage_timeout(opts.connect_timeout);
     let Some(proxy) = opts.outbound_proxy.as_ref() else {
-        let addr = resolve_host(&target.host, target.port)?;
+        let addr = resolve_host_async(&target.host, target.port, timeout).await?;
         let tcp = connect_tcp(addr, timeout, &target.label(), opts).await?;
         let local = tcp.local_addr().ok();
         return Ok((Box::new(tcp), local));
     };
 
-    let addr = resolve_host(&proxy.host, proxy.port).map_err(|e| {
-        SshError::Resolve(format!("{} 出网代理 {} —— {e}", proxy.kind.label(), proxy.label()))
-    })?;
+    let addr = resolve_host_async(&proxy.host, proxy.port, timeout)
+        .await
+        .map_err(|e| {
+            SshError::Resolve(format!(
+                "{} 出网代理 {} —— {e}",
+                proxy.kind.label(),
+                proxy.label()
+            ))
+        })?;
     let tcp = connect_tcp(addr, timeout, &proxy.label(), opts).await?;
     let local = tcp.local_addr().ok();
     // 默认把目标主机名交给代理解析（远程 DNS，内网名字才能通）；关掉开关
@@ -265,7 +305,10 @@ async fn dial(
     let dial_host = if proxy.dns_over_proxy {
         target.host.clone()
     } else {
-        resolve_host(&target.host, target.port)?.ip().to_string()
+        resolve_host_async(&target.host, target.port, timeout)
+            .await?
+            .ip()
+            .to_string()
     };
     let stream = outbound::handshake(tcp, proxy, &dial_host, target.port, timeout).await?;
     Ok((stream, local))
@@ -663,5 +706,25 @@ mod tests {
         const DOMAIN: &[u8] = b"target.internal";
         assert_eq!(&target[..DOMAIN.len()], DOMAIN);
         assert_eq!(&target[DOMAIN.len()..], &22u16.to_be_bytes());
+    }
+
+    /// 用一条确定不返回的 future 钉住超时分支：DNS 卡住时必须在预算内
+    /// 得到 Resolve 错误，而不是把整条连接链永久挂住。
+    #[tokio::test]
+    async fn dns_resolution_is_bounded_by_the_stage_timeout() {
+        let stuck = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            Ok("127.0.0.1:22".parse().unwrap())
+        });
+        let expired = await_resolve("example.com", 22, Duration::from_millis(30), stuck)
+            .await
+            .expect_err("预算一到必须返回，不能跟着解析一起卡住");
+        assert!(matches!(expired, SshError::Resolve(_)), "{expired:?}");
+        assert!(expired.to_string().contains("没有解析出地址"), "{expired}");
+
+        let ok = resolve_host_async("127.0.0.1", 22, Duration::from_secs(2))
+            .await
+            .expect("本机回环应当解析成功");
+        assert_eq!(ok.ip().to_string(), "127.0.0.1");
     }
 }
