@@ -253,6 +253,20 @@ mod tests {
                 assert_eq!(tool["inputSchema"], described, "{} 的 schema 未逐字透传", spec.name);
             }
         }
+        // write 的 exclusive 与前台派发同源：能力面漏写会让 MCP 客户端看不到它，
+        // 或让规则装载期把合法调用判成参数形状不符（P2-5 漂移防线）。
+        let write = tools.iter().find(|t| t["name"] == "write").expect("write 工具");
+        let exclusive = &write["inputSchema"]["properties"]["exclusive"];
+        assert_eq!(exclusive["type"], json!("boolean"));
+        assert_eq!(exclusive["default"], json!(false));
+        assert!(
+            !write["inputSchema"]["required"]
+                .as_array()
+                .expect("required")
+                .iter()
+                .any(|v| v == "exclusive"),
+            "exclusive 是可选参数，不得进 required"
+        );
     }
 
     #[test]

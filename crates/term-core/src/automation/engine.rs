@@ -8,9 +8,13 @@
 
 use std::collections::HashMap;
 
+use crate::automation::cursor::ScanCursor;
 use crate::automation::pattern::PatternError;
 use crate::automation::rule::{Effect, OnceScope, Rule, RuleId};
 use crate::automation::signal::{Signal, Target, Ticks, Verdict};
+
+/// push 规则跨帧窗口的上限，与脚本侧捕获窗口同阶。无界模式的保尾也吃这个数。
+const PROBE_CAP: usize = 64 * 1024;
 
 /// 一条"编译好"的规则。
 ///
@@ -32,10 +36,25 @@ pub struct RuleState {
 }
 
 /// 纯求值器：输入信号与目标，输出动作意图。
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Evaluator {
     rules: Vec<CompiledRule>,
     state: HashMap<RuleId, RuleState>,
+    /// 每条会话一份的 push 窗口。所有 `When::Output` 规则经同一个 cursor 的
+    /// `probe`（scan 指针）匹配：跨 chunk 拼接与去重都归 cursor 管，求值器不再
+    /// 对当前帧做一次性的 `p.find(text, 0)`。它与脚本路径的 cursor 是同一套
+    /// 双指针原语——probe 只抬 scan，take 才推进 consume，互不吞数据。
+    cursor: ScanCursor,
+}
+
+impl Default for Evaluator {
+    fn default() -> Self {
+        Self {
+            rules: Vec::new(),
+            state: HashMap::new(),
+            cursor: ScanCursor::new(PROBE_CAP),
+        }
+    }
 }
 
 impl Evaluator {
@@ -56,6 +75,9 @@ impl Evaluator {
             .collect();
         self.state
             .retain(|id, _| rules.iter().any(|r| &r.id == id));
+        // cursor 的按规则 probe 基准跟着规则表一起剪，别让它随每帧 reload 增长。
+        self.cursor
+            .retain_probe_keys(|id| rules.iter().any(|r| &r.id == id));
         Vec::new()
     }
 
@@ -72,6 +94,11 @@ impl Evaluator {
     /// 契约：每条规则一次最多触发一轮；一轮里每个 `action` 产一条 `Effect`，
     /// 同一轮不会因为模式在文本里出现多次而重复报（"只报最早那次"）。
     pub fn eval(&mut self, signal: &Signal, target: &Target) -> Vec<Effect> {
+        // 本帧输出只压入一次，所有 Output 规则共用这份窗口。probe 不消费，
+        // 因此规则的 scan 与脚本的 consume 读的是同一段缓冲的不同指针。
+        if let Signal::Output { text, .. } = signal {
+            self.cursor.push(text);
+        }
         // 连接事件先重置 Connection 一次性标记，让连接事件本身也能触发
         // once=Connection 的规则（顺序颠倒会让它永远被上一连接挡住）。
         if matches!(
@@ -89,8 +116,8 @@ impl Evaluator {
 
         let now = signal.at();
         let mut out = Vec::new();
-        // 拆字段借，避免"遍历规则"与"改状态"争用整个 `self`。
-        let Self { rules, state } = self;
+        // 拆字段借，避免"遍历规则"与"改状态 / 改游标"争用整个 `self`。
+        let Self { rules, state, cursor } = self;
         for cr in rules.iter() {
             let r = &cr.rule;
             // ① 启用 + ② 目标过滤
@@ -98,7 +125,7 @@ impl Evaluator {
                 continue;
             }
             // ③ 关心哪种信号
-            let span = match r.when.evaluate(signal) {
+            let span = match r.when.evaluate_keyed(signal, cursor, &r.id) {
                 Verdict::Yes(span) => span,
                 Verdict::No => continue,
             };
@@ -134,9 +161,11 @@ impl Evaluator {
         out
     }
 
-    /// 只清运行态，规则保留。
+    /// 只清运行态，规则保留。会话边界上连跨帧窗口一起清：否则重连后第一帧
+    /// 会拿上一会话的尾巴拼出一次假命中。
     pub fn reset(&mut self) {
         self.state.clear();
+        self.cursor.reset();
     }
 }
 
@@ -314,5 +343,46 @@ mod tests {
         ev.reload(&[rule("r1", When::Output(pattern("x")))]);
         let effects = ev.eval(&output("xxx", 0), &Target::default());
         assert_eq!(effects.len(), 1);
+    }
+
+    #[test]
+    fn a_pattern_split_across_two_frames_matches_and_is_not_reported_twice() {
+        // 金样本：push 规则不能只看本帧。第一帧只有半截 "pass"，第二帧才
+        // 补上 "word:"；旧实现每帧 `p.find(text, 0)` 必漏。现在两帧的文本
+        // 由同一份 ScanCursor 拼接，probe 的 scan 指针同时担去重。
+        let mut ev = Evaluator::new();
+        ev.reload(&[rule("r1", When::Output(pattern("password:")))]);
+        let t = Target::default();
+        assert!(ev.eval(&output("login: pass", 0), &t).is_empty(), "半截不该命中");
+        let effects = ev.eval(&output("word: ", 1), &t);
+        assert_eq!(effects.len(), 1, "跨帧拼起来应命中");
+        assert_eq!(effects[0].span, Some(Span { start: 7, end: 16 }));
+        // 同一命中不重复报：后续帧只把 scan 留在命中结尾。
+        assert!(ev.eval(&output("\n", 2), &t).is_empty(), "同一命中不重复报");
+    }
+
+    #[test]
+    fn two_rules_matching_the_same_hit_both_produce_effects() {
+        // 同一段输出被两条规则盯上时都要产出意图；由仲裁器决定谁被压制，
+        // 不能在求值器里因为共用 cursor 就把第二条吞掉。
+        let mut ev = Evaluator::new();
+        ev.reload(&[
+            rule("onekey", When::Output(pattern("password:"))),
+            rule("user", When::Output(pattern("password:"))),
+        ]);
+        let effects = ev.eval(&output("password:", 0), &Target::default());
+        assert_eq!(effects.len(), 2);
+    }
+
+    #[test]
+    fn reset_clears_the_cross_frame_window_on_reconnect() {
+        let mut ev = Evaluator::new();
+        ev.reload(&[rule("r1", When::Output(pattern("password:")))]);
+        let t = Target::default();
+        assert!(ev.eval(&output("login: pass", 0), &t).is_empty());
+        ev.reset();
+        // 新会话的第一帧单独成窗：不能拿旧尾巴拼出命中。
+        assert_eq!(ev.eval(&output("word: ", 1), &t).len(), 0);
+        assert_eq!(ev.eval(&output("password: ", 2), &t).len(), 1);
     }
 }

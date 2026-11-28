@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::automation::cursor::ScanCursor;
 use crate::automation::pattern::{Pattern, Span};
 
 /// 单调时钟刻度，单位**毫秒**。用 newtype 而不是裸 `u64`，避免秒/毫秒混用。
@@ -128,10 +129,25 @@ pub enum Verdict {
 }
 
 impl When {
-    pub fn evaluate(&self, signal: &Signal) -> Verdict {
+    /// 对一条信号判定。`Output` 分支必须经 [`ScanCursor::probe`]：规则求值发生在
+    /// 每帧的清洗文本上，而一个模式完全可以跨两帧（`"pass"` + `"word:"`）。
+    /// `cursor` 由求值器按会话持有并在每次 Output 前 `push(text)`；`probe` 的
+    /// `scan` 指针同时负责跨帧拼接与「同一命中不重复报」。
+    pub fn evaluate(&self, signal: &Signal, cursor: &mut ScanCursor) -> Verdict {
+        self.evaluate_keyed(signal, cursor, "")
+    }
+
+    /// 求值器路径：用规则 id 作 key，让多条规则在同一份 cursor 上各有自己的
+    /// probe 指针。两条规则同时盯 "password:" 时都要命中，由仲裁器决定压制。
+    pub fn evaluate_keyed(
+        &self,
+        signal: &Signal,
+        cursor: &mut ScanCursor,
+        key: &str,
+    ) -> Verdict {
         match (self, signal) {
-            (Self::Output(p), Signal::Output { text, .. }) => {
-                match p.find(text, 0) {
+            (Self::Output(p), Signal::Output { .. }) => {
+                match cursor.probe_keyed(key, p) {
                     Some(span) => Verdict::Yes(Some(span)),
                     None => Verdict::No,
                 }
@@ -183,14 +199,18 @@ mod tests {
                 stream, quiet: Duration::from_secs(2), at,
             }),
         ];
+        let mut cursor = ScanCursor::new(64);
         for (when, signal) in &cases {
-            assert_eq!(when.evaluate(signal), Verdict::Yes(None), "{when:?}");
+            assert_eq!(when.evaluate(signal, &mut cursor), Verdict::Yes(None), "{when:?}");
         }
         // 串台：Connected 规则不该被 Disconnected 信号触发。
         assert_eq!(
-            When::Connected.evaluate(&Signal::Disconnected {
-                stream, at, reason: CloseReason::Normal,
-            }),
+            When::Connected.evaluate(
+                &Signal::Disconnected {
+                    stream, at, reason: CloseReason::Normal,
+                },
+                &mut cursor
+            ),
             Verdict::No
         );
     }
@@ -203,7 +223,12 @@ mod tests {
             text: "kernel panic: x",
             at: Ticks::ZERO,
         };
-        assert_eq!(when.evaluate(&signal), Verdict::Yes(Some(Span { start: 7, end: 12 })));
+        let mut cursor = ScanCursor::new(64);
+        cursor.push("kernel panic: x");
+        assert_eq!(
+            when.evaluate(&signal, &mut cursor),
+            Verdict::Yes(Some(Span { start: 7, end: 12 }))
+        );
     }
 
     #[test]
@@ -215,8 +240,9 @@ mod tests {
         let long = Signal::Idle {
             stream: "s", quiet: Duration::from_secs(30), at: Ticks::ZERO,
         };
-        assert_eq!(when.evaluate(&short), Verdict::No);
-        assert_eq!(when.evaluate(&long), Verdict::Yes(None));
+        let mut cursor = ScanCursor::new(64);
+        assert_eq!(when.evaluate(&short, &mut cursor), Verdict::No);
+        assert_eq!(when.evaluate(&long, &mut cursor), Verdict::Yes(None));
     }
 
     #[test]

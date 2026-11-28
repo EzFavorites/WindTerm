@@ -14,6 +14,8 @@
 //! 尚未消费的旧数据，是"保尾"的既定取舍——调用方须把 `cap` 设为所有活跃
 //! 模式的最大 `window_hint` 所需长度。
 
+use std::collections::HashMap;
+
 use crate::automation::pattern::{Pattern, Span, WindowHint};
 
 /// 跨 chunk 的滑动窗口。
@@ -23,6 +25,10 @@ pub struct ScanCursor {
     scan: usize,
     consume: usize,
     cap: usize,
+    /// 多条规则共用同一份缓冲时，各自记住自己 probe 到哪（key 一般是规则 id）。
+    /// 同一段文本因此可以被两条规则各命中一次——这是 push 路径的语义：两条
+    /// 规则同时盯着 "password:"，都要产出意图，由仲裁器决定谁被压制。
+    probe_scans: HashMap<String, usize>,
 }
 
 impl ScanCursor {
@@ -34,6 +40,7 @@ impl ScanCursor {
             scan: 0,
             consume: 0,
             cap: cap.max(1),
+            probe_scans: HashMap::new(),
         }
     }
 
@@ -82,15 +89,38 @@ impl ScanCursor {
     /// 没有命中时把 `scan` 抬到 `buf.len() - cap`，仅保留尾部供下一批拼接；
     /// 这是"每批每规则最多一命中"与有界内存的共同基础。
     pub fn probe(&mut self, p: &Pattern) -> Option<Span> {
-        if let Some(hit) = p.find(&self.buf, self.scan) {
-            self.scan = hit.end;
-            self.raise_consume_to_scan();
+        let hit = Self::probe_at(&self.buf, self.cap, p, &mut self.scan);
+        self.debug_assert_invariant();
+        hit
+    }
+
+    /// 带名字的 probe：同一份缓冲上给每条规则一个独立的 `scan` 指针。
+    /// 多规则共用实例时用它，避免先查的那条把后查的那条要找的命中「吃掉」。
+    /// 新 key 从 `consume` 起算——后装的规则不翻旧账，只读它之后的文本。
+    pub fn probe_keyed(&mut self, key: &str, p: &Pattern) -> Option<Span> {
+        let cap = self.cap;
+        let scan = self.probe_scans.entry(key.to_owned()).or_insert(self.consume);
+        let hit = Self::probe_at(&self.buf, cap, p, scan);
+        self.debug_assert_invariant();
+        hit
+    }
+
+    /// `probe` / `probe_keyed` 共用的实际查找：找第一个结束位置晚于 `after` 的
+    /// 命中并把 `after` 抬到结尾（命中可以起于 `after` 之前，见 `Pattern::find`）；
+    /// 没命中就只保尾部，供下一批拼接。
+    fn probe_at(buf: &str, cap: usize, p: &Pattern, after: &mut usize) -> Option<Span> {
+        if let Some(hit) = p.find(buf, *after) {
+            *after = hit.end;
             return Some(hit);
         }
-        let keep_from = self.buf.len().saturating_sub(self.cap);
-        self.scan = self.scan.max(keep_from);
-        self.raise_consume_to_scan();
+        let keep_from = buf.len().saturating_sub(cap);
+        *after = (*after).max(keep_from);
         None
+    }
+
+    /// 规则表变动后丢掉已消失规则的 probe 基准，防止这张表随 reload 无界增长。
+    pub fn retain_probe_keys(&mut self, keep: impl Fn(&str) -> bool) {
+        self.probe_scans.retain(|key, _| keep(key));
     }
 
     /// 检查并消费：从 `consume` 起找命中，把 `consume` 推到命中结尾。
@@ -140,12 +170,15 @@ impl ScanCursor {
         self.buf.clear();
         self.scan = 0;
         self.consume = 0;
+        self.probe_scans.clear();
     }
 
-    /// 维护 `consume <= scan`。`take` 之后两者可能短暂相等，`probe` 只抬 scan，
-    /// 这里保证任何路径结束后不变量都成立。
-    fn raise_consume_to_scan(&mut self) {
-        debug_assert!(self.consume <= self.scan);
+    /// 检查 `consume <= scan` 不变量。`take` 之后两者可能短暂相等，`probe` 只抬
+    /// scan；这里只做断言、不改游标——名字须与行为一致（旧名
+    /// `raise_consume_to_scan` 暗示会推进 consume，实际只有一条 debug_assert）。
+    /// 不变量由 `probe` / `take` / `consume_to` / `drain` 各自的赋值维护。
+    fn debug_assert_invariant(&self) {
+        debug_assert!(self.consume <= self.scan && self.scan <= self.buf.len());
     }
 
     /// 从头部丢到 `cap` 以内，两个指针同步左移。
@@ -160,6 +193,10 @@ impl ScanCursor {
         self.buf.drain(..drop);
         self.scan = self.scan.saturating_sub(drop);
         self.consume = self.consume.saturating_sub(drop);
+        // 各规则的 probe 基准也指向被丢掉的绝对偏移，必须同步左移。
+        for after in self.probe_scans.values_mut() {
+            *after = after.saturating_sub(drop);
+        }
         debug_assert!(self.consume <= self.scan && self.scan <= self.buf.len());
     }
 }
@@ -217,6 +254,19 @@ mod tests {
         assert!(c.probe(&a).is_none());
         assert!(c.take(&b).is_some());
         assert_eq!(c.unconsumed(), "x");
+    }
+
+    #[test]
+    fn keyed_probes_give_each_rule_its_own_pointer_on_one_buffer() {
+        let p = lit("password:");
+        let mut c = ScanCursor::new(32);
+        c.push("password: ok");
+        // 两条规则盯着同一段文本，各自命中一次；先查的不吃掉后查的。
+        assert!(c.probe_keyed("onekey", &p).is_some());
+        assert!(c.probe_keyed("user", &p).is_some());
+        // 去重按规则各自算。
+        assert!(c.probe_keyed("onekey", &p).is_none());
+        assert!(c.probe_keyed("user", &p).is_none());
     }
 
     #[test]
