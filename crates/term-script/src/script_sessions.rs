@@ -50,8 +50,8 @@ pub struct ScriptSessions {
 }
 
 impl ScriptSessions {
-    /// 宿主构造的一份**新**登记处。用于进程级装配（`desk serve` 的 accept
-    /// 循环、脚本侧的独立工作区）与单测隔离。
+    /// 宿主构造的一份**新**登记处。前台 UDS 控制端点每条连接共用 `shared()`
+    /// 那份宿主登记处；这里给脚本侧的独立工作区与单测隔离用。
     pub fn new() -> Self {
         Self {
             map: Arc::new(Mutex::new(HashMap::new())),
