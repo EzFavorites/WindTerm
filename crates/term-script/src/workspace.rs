@@ -175,7 +175,7 @@ pub struct ScriptWorkspace {
 impl ScriptWorkspace {
     /// 池级工作区：调用方给一整套宿主接缝（[`HostEnv`]），`current` 是脚本
     /// 一开始就在用的那条会话。**自建一份登记处**——给无需与 API 共游标的
-    /// 独立调用方（`desk script run`、引擎单测）用。
+    /// 引擎单测等调用方用。
     pub fn new(env: HostEnv, current: Arc<Mutex<dyn Session>>, max_wait: Duration) -> Self {
         Self::with_sessions(env, current, max_wait, ScriptSessions::new())
     }
