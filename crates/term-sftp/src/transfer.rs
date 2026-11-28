@@ -8,9 +8,11 @@
 //!   回调交出去。它不知道事件通道的存在——怎么节流、要不要唤醒 UI 是
 //!   `background` 的事。
 //!
-//! 续传的判据只有一条：**已有前缀必须短于（或等于）完整文件**。两边都对不上时
-//! 明确失败——静默覆盖会把别人辛苦传了一半的 5 GB 抹掉，静默从头开始会让
-//! `--resume` 变成一句假话。默认（不带 `--resume`）才是覆盖。
+//! 续传的判据有两条：**已有前缀不能比完整文件长**，而且**前缀内容必须逐字节
+//! 一致**。只比长度是不够的——同一长度的半截文件可能来自另一个版本 / 另一台
+//! 机器，接着写只会拼出一个看起来完整、内容却是垃圾的文件。校验失败时明确
+//! 报错并让用户删除重传；绝不静默覆盖，也不让 `--resume` 变成一句假话。
+//! 默认（不带 `--resume`）才是覆盖。
 
 use std::fmt;
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -19,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::{FileAttributes, OpenFlags};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 
 use crate::cancel::{CancelToken, Disposition, Stop, disposition};
 use crate::entry::format_size;
@@ -147,6 +149,96 @@ pub fn resume_offset(
         });
     }
     Ok(existing)
+}
+
+/// 把同步 `Read` 包成 `AsyncRead`，让本地分片与远端 SFTP 文件走同一条
+/// 异步比对循环。term-sftp 没开 tokio 的 `fs` feature，本地文件本来就在
+/// 页缓存里，同步读不会真的把 runtime 钉住。
+struct SyncAsAsync<R>(R);
+
+impl<R: Read + Unpin> AsyncRead for SyncAsAsync<R> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        let mut tmp = [0u8; 8 * 1024];
+        let want = tmp.len().min(buf.remaining());
+        let this = self.get_mut();
+        loop {
+            match this.0.read(&mut tmp[..want]) {
+                Ok(0) => return std::task::Poll::Ready(Ok(())),
+                Ok(n) => {
+                    buf.put_slice(&tmp[..n]);
+                    return std::task::Poll::Ready(Ok(()));
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                Err(e) => return std::task::Poll::Ready(Err(e)),
+            }
+        }
+    }
+}
+
+/// 读到 `buf` 满或 EOF。一次 `read` 返回得少是常态，不能直接拿它和另一条
+/// 流的单次返回值比——那会把「两边分片不同」误判成内容不一致。
+async fn read_up_to<R: AsyncRead + Unpin>(reader: &mut R, buf: &mut [u8]) -> Result<usize, String> {
+    let mut filled = 0usize;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]).await {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    Ok(filled)
+}
+
+/// 逐块比对两条流的前 `len` 字节。`Ok(None)` = 完全一致；`Ok(Some(at))` 是
+/// 第一个不同的字节偏移；`Err` = 读失败，或文件比声明的 `len` 短。
+async fn first_prefix_mismatch<A, B>(
+    partial: &mut A,
+    source: &mut B,
+    len: u64,
+) -> Result<Option<u64>, String>
+where
+    A: AsyncRead + Unpin,
+    B: AsyncRead + Unpin,
+{
+    let mut left = vec![0u8; CHUNK];
+    let mut right = vec![0u8; CHUNK];
+    let mut done = 0u64;
+    while done < len {
+        let want = (CHUNK as u64).min(len - done) as usize;
+        let a = read_up_to(partial, &mut left[..want]).await?;
+        let b = read_up_to(source, &mut right[..want]).await?;
+        if a != want || b != want {
+            return Err(format!(
+                "前缀只读到 {} / {} 字节，比声明的 {len} 字节短（文件在传输期间被改过）",
+                a.min(b),
+                want
+            ));
+        }
+        if let Some(i) = (0..want).find(|&i| left[i] != right[i]) {
+            return Ok(Some(done + i as u64));
+        }
+        done += want as u64;
+    }
+    Ok(None)
+}
+
+/// 内容对不上时的用户可见文案。把判据写进错误里：用户得知道「长度一样也
+/// 不够」，否则他会以为程序只是在挑剔文件大小，然后继续用坏分片重试。
+fn prefix_mismatch_message(direction: Direction, offset: u64, detail: String) -> String {
+    let (existing, full) = match direction {
+        Direction::Download => ("本地", "远端"),
+        Direction::Upload => ("远端", "本地"),
+    };
+    format!(
+        "续传校验失败：{existing}已有的 {offset} 字节前缀与{full}文件内容不一致（{detail}）；\
+         只比长度就接着写会拼出坏文件。确认后删掉{existing}文件重传，\
+         或不加 --resume 从头覆盖"
+    )
 }
 
 /// 远端路径的最后一截，作为本地文件名：`"/var/log/syslog"` → `"syslog"`。
@@ -321,6 +413,33 @@ pub async fn download(
         });
     }
 
+    // 长度相同也不代表是同一个文件的同一段前缀。先比对已有前缀的内容，
+    // 不一致就明确失败，绝不把两段不同来源的字节拼成一个「成功」的文件。
+    if resume && offset > 0 {
+        let mut partial = SyncAsAsync(
+            std::fs::File::open(local_path)
+                .map_err(|e| format!("打开本地分片校验失败：{e}"))?,
+        );
+        let mut source = sftp
+            .open(remote)
+            .await
+            .map_err(|e| format!("打开远端文件校验失败：{e}"))?;
+        match first_prefix_mismatch(&mut partial, &mut source, offset).await {
+            Ok(None) => {}
+            Ok(Some(at)) => {
+                return Err(prefix_mismatch_message(
+                    Direction::Download,
+                    offset,
+                    format!("第 {at} 字节起不同"),
+                )
+                .into());
+            }
+            Err(e) => {
+                return Err(prefix_mismatch_message(Direction::Download, offset, e).into());
+            }
+        }
+    }
+
     let mut out = open_local_for_write(local_path, offset)?;
     let mut src = sftp
         .open(remote)
@@ -429,6 +548,31 @@ pub async fn upload(
         return Err(TransferError::Cancelled {
             pre_existing: preexisted,
         });
+    }
+
+    // 与下载对称：远端大小对得上也要比内容。否则拿一个同长度的旧版本文件
+    // 续传，就会把新内容的尾巴接到旧前缀上，得到一个谁都没要过的文件。
+    if resume && offset > 0 {
+        let mut partial = sftp
+            .open(remote)
+            .await
+            .map_err(|e| format!("打开远端分片校验失败：{e}"))?;
+        let mut source = SyncAsAsync(
+            std::fs::File::open(local_path)
+                .map_err(|e| format!("打开本地文件校验失败：{e}"))?,
+        );
+        match first_prefix_mismatch(&mut partial, &mut source, offset).await {
+            Ok(None) => {}
+            Ok(Some(at)) => {
+                return Err(prefix_mismatch_message(
+                    Direction::Upload,
+                    offset,
+                    format!("第 {at} 字节起不同"),
+                )
+                .into());
+            }
+            Err(e) => return Err(prefix_mismatch_message(Direction::Upload, offset, e).into()),
+        }
     }
 
     let mut src =
@@ -765,5 +909,50 @@ mod tests {
         // 报过之后基准是新值：再涨 1 MB 才报。
         assert!(!th.should_report(128 * 1024 + MB, t0 + Duration::from_millis(230)));
         assert!(th.should_report(128 * 1024 + 2 * MB, t0 + Duration::from_millis(240)));
+    }
+
+    /// 长度相等但内容不同：旧实现会直接续传，新实现必须指出第一个不同的字节。
+    #[tokio::test]
+    async fn resume_checks_prefix_content_not_just_its_length() {
+        let partial = &b"hello"[..];
+        let source = &b"hellX"[..];
+        assert_eq!(
+            first_prefix_mismatch(&mut &partial[..], &mut &source[..], 5).await,
+            Ok(Some(4)),
+            "同样的 5 字节前缀，内容不同也要拒绝"
+        );
+        assert_eq!(
+            first_prefix_mismatch(&mut &b"hello"[..], &mut &b"hello world"[..], 5).await,
+            Ok(None),
+            "前缀一致、源文件更长才是正常续传"
+        );
+        // 跨 CHUNK 边界也要逐块比，不能只看第一块。
+        let long = vec![b'x'; CHUNK + 32];
+        let mut changed = long.clone();
+        changed[CHUNK + 7] = b'y';
+        assert_eq!(
+            first_prefix_mismatch(&mut &long[..], &mut &changed[..], (CHUNK + 32) as u64).await,
+            Ok(Some((CHUNK + 7) as u64))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_prefix_shorter_than_its_declared_length_is_an_error() {
+        let err = first_prefix_mismatch(&mut &b"ab"[..], &mut &b"abcde"[..], 4)
+            .await
+            .expect_err("文件被改短了不该被当成一致");
+        assert!(err.contains("比声明的"), "{err}");
+    }
+
+    #[test]
+    fn prefix_mismatch_error_names_both_sides_and_the_length_only_trap() {
+        let down = prefix_mismatch_message(Direction::Download, 10, "第 3 字节起不同".into());
+        assert!(down.contains("本地") && down.contains("远端"), "{down}");
+        assert!(down.contains("只比长度"), "得把判据写进用户可见语义：{down}");
+        assert!(down.contains("--resume"), "{down}");
+
+        let up = prefix_mismatch_message(Direction::Upload, 10, "第 3 字节起不同".into());
+        assert!(up.contains("远端") && up.contains("本地"), "{up}");
+        assert!(up.contains("只比长度"), "{up}");
     }
 }

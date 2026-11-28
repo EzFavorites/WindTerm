@@ -31,7 +31,7 @@ use std::thread::JoinHandle;
 use russh::Channel;
 use russh::ChannelMsg;
 use term_ssh::{Authenticated, ChannelOpener, Forwarded, SshOptions};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Notify;
 
@@ -224,9 +224,10 @@ fn run(
                         let opener = opener.clone();
                         // 每条规则一面自己的旗：一条挂了不该把整条隧道标死。
                         let alive = Arc::clone(&alive.rules[i]);
+                        let listener_stop = Arc::clone(&stop);
                         let target = target.clone();
                         tokio::spawn(async move {
-                            serve_local(listener, target, opener, alive).await
+                            serve_local(listener, target, opener, alive, listener_stop).await
                         });
                     }
                     Err(e) => {
@@ -245,7 +246,10 @@ fn run(
                         bound.push(actual);
                         let opener = opener.clone();
                         let alive = Arc::clone(&alive.rules[i]);
-                        tokio::spawn(async move { serve_socks5(listener, opener, alive).await });
+                        let listener_stop = Arc::clone(&stop);
+                        tokio::spawn(async move {
+                            serve_socks5(listener, opener, alive, listener_stop).await
+                        });
                     }
                     Err(e) => {
                         let _ = ready.send(Err(TunnelError::Listen {
@@ -279,9 +283,10 @@ fn run(
         if !remote.is_empty() {
             let opener = opener.clone();
             let alive = Arc::clone(&alive.ssh);
+            let listener_stop = Arc::clone(&stop);
             let rules_for_task = remote.clone();
             tokio::spawn(async move {
-                serve_remote(forwarded, rules_for_task, opener, alive).await
+                serve_remote(forwarded, rules_for_task, opener, alive, listener_stop).await
             });
         }
         // SSH 可能在没有任何连接进来时被服务端断开；监听任务不会报错，
@@ -304,7 +309,8 @@ fn run(
         }
         let _ = ready.send(Ok(bound));
 
-        // 一直到被要求关闭。监听任务自己死掉也算结束（`alive` 被置 false）。
+        // 等到显式关闭，**或**任一监听任务退出。后者会先把自己的 `alive`
+        // 置 false 再 notify——过去只置旗不叫醒，主任务就抱着 SSH 连接永远等下去。
         stop.notified().await;
         for (addr, port, _) in &remote {
             opener.cancel_remote_forward(addr, *port).await;
@@ -320,16 +326,27 @@ fn split(auth: Authenticated) -> (ChannelOpener, tokio::sync::mpsc::UnboundedRec
     (opener, auth.into_forwarded())
 }
 
+/// 监听任务退出的统一收尾：先把自己这条旗记死，再叫醒主任务。
+///
+/// 顺序很要紧：主任务被叫醒后走 `alive.close()`，若先 notify 后 store，
+/// 它会看到一条还「活着」的旗。反过来没问题——`is_alive()` 此刻已经为假，
+/// 主任务醒来就撤 `-R`、挂断 SSH，而不是抱着一条已死的隧道不释放。
+fn listener_gone(alive: &AtomicBool, stop: &Notify) {
+    alive.store(false, Ordering::Relaxed);
+    stop.notify_one();
+}
+
 /// `-L`：本地监听，每条进来的连接开一条 `direct-tcpip` 通道。
 async fn serve_local(
     listener: TcpListener,
     target: Target,
     opener: ChannelOpener,
     alive: Arc<AtomicBool>,
+    stop: Arc<Notify>,
 ) {
     loop {
         let Ok((tcp, peer)) = listener.accept().await else {
-            alive.store(false, Ordering::Relaxed);
+            listener_gone(&alive, &stop);
             return;
         };
         let opener = opener.clone();
@@ -346,25 +363,65 @@ async fn serve_local(
     }
 }
 
+/// 从 `reader` 读到 `parse` 认为「消息完整」为止。
+///
+/// greeting 与 request 都可能半包到达——客户端把 VER、NMETHODS、方法列表
+/// 拆到三个 TCP 段是常态，只读一次就把 `Short` 当协议错误是在制造假失败。
+/// 两阶段共用这一条 `filled` 循环：先解析已有字节，`Short` 才继续读；
+/// 真正的协议错误原样交回调用方回失败帧。
+async fn read_complete<R, T, F>(
+    reader: &mut R,
+    buf: &mut [u8],
+    filled: &mut usize,
+    parse: F,
+) -> Result<(T, usize), socks5::Socks5Error>
+where
+    R: AsyncRead + Unpin,
+    F: Fn(&[u8]) -> Result<(T, usize), socks5::Socks5Error>,
+{
+    loop {
+        match parse(&buf[..*filled]) {
+            Ok(parsed) => return Ok(parsed),
+            Err(socks5::Socks5Error::Short) => {}
+            Err(e) => return Err(e),
+        }
+        if *filled == buf.len() {
+            return Err(socks5::Socks5Error::Short);
+        }
+        match reader.read(&mut buf[*filled..]).await {
+            Ok(0) | Err(_) => return Err(socks5::Socks5Error::Short),
+            Ok(n) => *filled += n,
+        }
+    }
+}
+
 /// `-D`：SOCKS5，只做 `CONNECT`。
-async fn serve_socks5(listener: TcpListener, opener: ChannelOpener, alive: Arc<AtomicBool>) {
-    use socks5::{failure_reply, greeting_reply, read_greeting, read_request, success_reply};
+async fn serve_socks5(
+    listener: TcpListener,
+    opener: ChannelOpener,
+    alive: Arc<AtomicBool>,
+    stop: Arc<Notify>,
+) {
     loop {
         let Ok((mut tcp, peer)) = listener.accept().await else {
-            alive.store(false, Ordering::Relaxed);
+            listener_gone(&alive, &stop);
             return;
         };
         let opener = opener.clone();
         tokio::spawn(async move {
+            use socks5::{failure_reply, greeting_reply, read_greeting, read_request, success_reply};
             let mut buf = [0u8; 512];
+            let mut filled = 0usize;
 
-            // 1. 问候
-            let n = match tcp.read(&mut buf).await {
-                Ok(0) | Err(_) => return,
-                Ok(n) => n,
-            };
-            let no_auth = match read_greeting(&buf[..n]) {
-                Ok((no_auth, _)) => no_auth,
+            // 1. 问候：半包也继续读，不再「只读一次」。
+            let no_auth = match read_complete(&mut tcp, &mut buf, &mut filled, read_greeting).await {
+                Ok((no_auth, used)) => {
+                    // 客户端可能把问候和请求塞进同一个段：把问候没吃掉的字节
+                    // 挪到缓冲开头留给下一阶段，绝不丢字节。
+                    buf.copy_within(used..filled, 0);
+                    filled -= used;
+                    no_auth
+                }
                 Err(_) => {
                     let _ = tcp.write_all(&greeting_reply(false)).await;
                     return;
@@ -374,36 +431,23 @@ async fn serve_socks5(listener: TcpListener, opener: ChannelOpener, alive: Arc<A
                 return;
             }
 
-            // 2. 请求（可能半包，读到完整为止）
-            let mut filled = 0usize;
-            let (req, used) = loop {
-                if filled == buf.len() {
-                    let _ = tcp.write_all(&failure_reply(socks5::REP_GENERAL_FAILURE)).await;
+            // 2. 请求：复用同一块缓冲与 filled，半包继续读到完整为止。
+            let req = match read_complete(&mut tcp, &mut buf, &mut filled, read_request).await {
+                Ok((req, _)) => req,
+                Err(e) => {
+                    let code = match e {
+                        socks5::Socks5Error::UnsupportedCommand(_) => {
+                            socks5::REP_COMMAND_NOT_SUPPORTED
+                        }
+                        socks5::Socks5Error::UnsupportedAddress(_) => {
+                            socks5::REP_ADDRESS_NOT_SUPPORTED
+                        }
+                        _ => socks5::REP_GENERAL_FAILURE,
+                    };
+                    let _ = tcp.write_all(&failure_reply(code)).await;
                     return;
                 }
-                match tcp.read(&mut buf[filled..]).await {
-                    Ok(0) | Err(_) => return,
-                    Ok(n) => filled += n,
-                }
-                match read_request(&buf[..filled]) {
-                    Ok(pair) => break pair,
-                    Err(socks5::Socks5Error::Short) => continue,
-                    Err(e) => {
-                        let code = match e {
-                            socks5::Socks5Error::UnsupportedCommand(_) => {
-                                socks5::REP_COMMAND_NOT_SUPPORTED
-                            }
-                            socks5::Socks5Error::UnsupportedAddress(_) => {
-                                socks5::REP_ADDRESS_NOT_SUPPORTED
-                            }
-                            _ => socks5::REP_GENERAL_FAILURE,
-                        };
-                        let _ = tcp.write_all(&failure_reply(code)).await;
-                        return;
-                    }
-                }
             };
-            let _ = used;
 
             // 3. 开通道并回「成功」，然后原样搬字节。
             let peer_ip = peer.ip().to_string();
@@ -427,6 +471,7 @@ async fn serve_remote(
     rules: Vec<(String, u16, Target)>,
     opener: ChannelOpener,
     alive: Arc<AtomicBool>,
+    stop: Arc<Notify>,
 ) {
     while let Some(conn) = forwarded.recv().await {
         let Some(target) = pick_target(&rules, conn.connected_port) else {
@@ -444,7 +489,9 @@ async fn serve_remote(
         });
     }
     let _ = opener;
-    alive.store(false, Ordering::Relaxed);
+    // 服务端不再推连接 = 这条 `-R` 规则已经死了。同样要叫醒主任务收摊，
+    // 否则 SSH 连接会一直留着。
+    listener_gone(&alive, &stop);
 }
 
 /// 服务端报回来的 `connected_address/port` → 该走哪条规则。
@@ -594,5 +641,86 @@ mod tests {
         ];
         assert_eq!(pick_target(&rules, 9001), Some(Target::new("db.internal", 5432)));
         assert_eq!(pick_target(&rules, 9000), Some(Target::new("localhost", 3000)));
+    }
+
+    /// 监听任务死掉必须**同时**记死和叫醒主任务；少 notify 那一下，SSH 连接
+    /// 会被主任务一直抱着（这正是 P2-2 的故障形状）。
+    #[tokio::test]
+    async fn a_dead_listener_wakes_the_worker_after_marking_itself_dead() {
+        let alive = Arc::new(AtomicBool::new(true));
+        let stop = Arc::new(Notify::new());
+        let notified = stop.notified();
+        tokio::pin!(notified);
+        listener_gone(&alive, &stop);
+        tokio::time::timeout(std::time::Duration::from_secs(1), notified)
+            .await
+            .expect("监听任务退出必须叫醒主任务");
+        assert!(!alive.load(Ordering::Relaxed), "叫醒之前旗已经该是 false");
+    }
+
+    /// 可控分片的模拟流：chunk=1 是逐字节到达，chunk 很大则整段一起到达。
+    struct ChunkedReader {
+        bytes: Vec<u8>,
+        pos: usize,
+        chunk: usize,
+    }
+
+    impl AsyncRead for ChunkedReader {
+        fn poll_read(
+            mut self: std::pin::Pin<&mut Self>,
+            _cx: &mut std::task::Context<'_>,
+            buf: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            if self.pos >= self.bytes.len() {
+                return std::task::Poll::Ready(Ok(()));
+            }
+            let n = self.chunk.min(self.bytes.len() - self.pos);
+            buf.put_slice(&self.bytes[self.pos..self.pos + n]);
+            self.pos += n;
+            std::task::Poll::Ready(Ok(()))
+        }
+    }
+
+    #[tokio::test]
+    async fn a_greeting_fed_one_byte_at_a_time_is_read_in_full() {
+        // VER / NMETHODS=3 / 三个方法，无认证在第 2 个：拆成 5 次 read。
+        let mut src = ChunkedReader {
+            bytes: vec![5, 3, 2, 0, 1],
+            pos: 0,
+            chunk: 1,
+        };
+        let mut buf = [0u8; 512];
+        let mut filled = 0usize;
+        let (no_auth, used) = read_complete(&mut src, &mut buf, &mut filled, socks5::read_greeting)
+            .await
+            .expect("半包 greeting 不该被当成协议错误");
+        assert!(no_auth);
+        assert_eq!(used, 5);
+        assert_eq!(filled, 5, "整条 greeting 都在缓冲里");
+    }
+
+    #[tokio::test]
+    async fn greeting_and_request_in_one_segment_leaves_the_request_bytes_for_phase_two() {
+        let mut wire = vec![5, 1, 0]; // greeting
+        wire.extend_from_slice(&[5, 1, 0, 1, 10, 0, 0, 7, 0x1F, 0x90]); // request
+        let mut src = ChunkedReader {
+            bytes: wire,
+            pos: 0,
+            chunk: 512,
+        };
+        let mut buf = [0u8; 512];
+        let mut filled = 0usize;
+        let (no_auth, used) = read_complete(&mut src, &mut buf, &mut filled, socks5::read_greeting)
+            .await
+            .expect("greeting");
+        assert!(no_auth);
+        buf.copy_within(used..filled, 0);
+        filled -= used;
+        assert_eq!(filled, 10, "greeting 之后的请求字节不能被吞掉");
+        let (req, _) = read_complete(&mut src, &mut buf, &mut filled, socks5::read_request)
+            .await
+            .expect("请求应当直接从未消费字节里解析出来");
+        assert_eq!(req.host, "10.0.0.7");
+        assert_eq!(req.port, 8080);
     }
 }
