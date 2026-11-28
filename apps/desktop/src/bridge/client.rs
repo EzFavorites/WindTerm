@@ -144,7 +144,10 @@ impl Client {
     }
 }
 
-#[cfg(all(test, unix))]
+// 分开写两个 cfg（等价于 `all(test, unix)`）：4p 按第一个 `#[cfg(test)]`
+// 截断生产段，合成一个属性时这一整块测试会被算进生产 panic 预算。
+#[cfg(test)]
+#[cfg(unix)]
 mod tests {
     use super::*;
     use std::os::unix::net::UnixListener;

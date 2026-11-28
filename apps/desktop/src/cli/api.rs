@@ -89,7 +89,9 @@ pub fn run(rest: &[String]) -> i32 {
     let outcome = match command {
         Command::Describe => client.call("describe", &json!({})),
         Command::Call { method, params } => client.call(&method, &params),
-        Command::Help => unreachable!("上面已经处理"),
+        // Help 已在上面打印并返回；到这里只可能是调用方改了 parse 却漏改这里。
+        // 不 panic：显式当作成功退出，并且不碰 socket。
+        Command::Help => return 0,
     };
     match outcome {
         Ok(value) => {

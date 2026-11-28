@@ -10,8 +10,10 @@ use super::*;
 use term_core::session::Protocol;
 use term_bridge::error::ErrorKind;
 use term_script::{HostEnv, ScriptWorkspace};
+use term_session::OpenError;
 
 use crate::script_host::PooledSessions;
+use crate::session_open::OpenFailure;
 
 use std::time::Duration;
 

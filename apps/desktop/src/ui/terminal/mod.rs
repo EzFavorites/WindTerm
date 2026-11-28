@@ -152,7 +152,8 @@ pub(in crate::ui) use hex_params::HexParams;
 /// `ui/effects.rs` 的落地点、`setup.rs` 的初值入口、`pane.rs` 的绘制都要用它，
 /// 所以在这里转一次手，调用方不必写长路径。
 pub(in crate::ui) use marks::{MarksParams, WhitespaceMode};
-pub(in crate::ui) use pane::draw_caret;
+mod caret;
+pub(in crate::ui) use caret::draw_caret;
 pub(in crate::ui) use script::ScriptDialog;
 pub(in crate::ui) use setup::{ensure_view, make_tab, make_tab_with_channel, tab_from};
 pub(in crate::ui) use tab_slot::TabSlot;

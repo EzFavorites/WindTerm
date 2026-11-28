@@ -49,7 +49,16 @@ pub fn profile_dir() -> Option<PathBuf> {
     if let Some(chosen) = read_profile_dir_choice() {
         return Some(chosen);
     }
-    Some(platform_dir()?.join(APP_DIR))
+    default_profile_dir(platform_dir())
+}
+
+/// 平台配置目录 → 默认 profile 目录（只做「进一层子目录」这一件事）。
+///
+/// 单独成函数是为了让「默认路径必须收进子目录」这条策略可被**不读用户配置**
+/// 地单测：真实 `profile_dir()` 会先读 `profile-dir.txt`，用户那份选择文件
+/// 不该被测试碰，也不该让测试失败。
+fn default_profile_dir(platform: Option<PathBuf>) -> Option<PathBuf> {
+    Some(platform?.join(APP_DIR))
 }
 
 /// 首次启动的目录选择是否已经做过。
@@ -332,15 +341,15 @@ mod tests {
     /// `~/Library/Application Support/` 根（和别的应用抢目录）。
     #[test]
     fn the_default_profile_dir_sits_under_the_app_subfolder() {
-        let dir = profile_dir();
-        // 只在不设覆盖的分支上断言：`cargo test` 里若有别的用例正持锁改了
-        // 环境变量，这里就不是「默认路径」，跳过比误判成红好。
-        if std::env::var_os("WINDTERM_PROFILE_DIR").is_some() {
-            return;
-        }
-        let dir = dir.expect("平台配置目录应当可得");
+        // 注入一个假的平台配置根，不读 `WINDTERM_PROFILE_DIR`、不读用户的
+        // `profile-dir.txt`：这条用例钉的是「默认路径进一层子目录」这条策略，
+        // 而不是用户此刻选了哪条 profile。于是无环境覆盖的 `cargo test` 也稳定。
+        let platform = PathBuf::from("/tmp/term-paths-default-root");
+        let dir = default_profile_dir(Some(platform.clone())).expect("假根目录可解析");
+        assert_eq!(dir, platform.join(APP_DIR));
         assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some(APP_DIR));
-        assert_eq!(dir.parent(), platform_dir().as_deref());
+        assert_eq!(dir.parent(), Some(platform.as_path()));
+        assert_eq!(default_profile_dir(None), None);
     }
 
     /// 每个用例一个独立临时目录。
