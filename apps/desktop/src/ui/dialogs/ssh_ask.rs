@@ -68,14 +68,14 @@ pub(super) fn resolve_auth(auth: SshAuth) -> Result<SshAuth, SshError> {
 /// 「信任 / 换钥 / 忘记」这类交互。
 ///
 /// `term_ssh` 库里的 `HostKeyPolicy::{Strict,Tofu,Insecure}` 三档与
-/// `known_hosts_admin` API 原样保留，供脚本与无窗口路径使用；UI 只是不再
+/// `known_hosts_admin` API 原样保留，供脚本与自动化规则使用；UI 只是不再
 /// 把它们接到弹窗上。
 pub(in crate::ui) const FIRST_POLICY: HostKeyPolicy = HostKeyPolicy::Insecure;
 /// 这个会话现在缺什么。
 ///
 /// `Connect` 只携带**首选**凭据。回退链不进这个枚举——它由 `options_for`
 /// 从 `config.auth_chain` 现场解析后塞进 `SshOptions::auth_chain`，于是所有
-/// 调用方（界面 / headless）都自动获得链，无需改判 `Ask` 的消费点。
+/// 调用方（界面 / 脚本 / API）都自动获得链，无需改判 `Ask` 的消费点。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum Ask {
     /// 凭据齐了，可以连（仅首选；回退链见 `options_for`）。
@@ -301,7 +301,7 @@ pub(crate) fn options_for(
         dns_over_proxy: config.dns_over_proxy,
     });
     // 界面路径的回退链。`auth` 里带着用户刚在对话框输入的密码，所以这里
-    // 能把完整的「密码→公钥」OneKey 编进链（headless 路径拿不到密码，只能做
+    // 能把完整的「密码→公钥」OneKey 编进链（控制面路径拿不到密码，只能做
     // Agent / PublicKey）。链长 ≤1 时保持单方法旧行为不变。
     let chain = ui_fallback_chain(config, &auth, dirs::home_dir().as_deref());
     if chain.len() > 1 {
@@ -312,7 +312,7 @@ pub(crate) fn options_for(
 
 /// 界面路径的回退链解析。
 ///
-/// 与 headless 的 `session_open::ssh_fallback_chain` 的差别只有一处：这里
+/// 与 `session_open::ssh_fallback_chain` 的差别只有一处：这里
 /// **能拿到密码**（用户刚在密码框输入的那一个，藏在 `primary` 里），所以
 /// Password / KeyboardInteractive 也能进链——「密码被拒后自动改试公钥」正是
 /// 界面 OneKey 的核心场景。

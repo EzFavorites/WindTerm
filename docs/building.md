@@ -44,13 +44,15 @@ cargo build -p term-desk --release
 
 ## 无窗口子命令
 
-`term-desk` 在窗口起来之前先处理这些子命令，适合 CI 与排障现场：
+`term-desk` 在窗口起来之前先处理这些子命令，适合 CI 与排障现场；它们不建
+会话池，`api` / `mcp` 只是前台 UDS 控制端点的薄客户端：
 
 ```sh
 term-desk doctor                  # 环境体检（shell / profile / 主题 / 能力面）
 term-desk capability              # 能力面统计（--json / --all）
-term-desk serve --port 0          # 把能力面暴露到 127.0.0.1（需 token 文件）
-term-desk script run a.rhai       # 在独立会话里跑一段 Rhai 脚本
+term-desk api describe            # 问前台要动词清单（需前台已运行）
+term-desk api call <method> '{"json":"params"}'
+term-desk mcp                     # stdio MCP server（tools 来自 describe）
 term-desk --version
 ```
 

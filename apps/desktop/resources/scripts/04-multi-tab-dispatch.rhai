@@ -1,5 +1,5 @@
 // 多标签下发：开两条本地 shell，逐会话发命令（借鉴 CRT 的多标签下发节奏）。
-// 运行：term-desk script run 04-multi-tab-dispatch.rhai --batch
+// 运行：在脚本窗口打开本文件点「运行」。
 // 改这里：把 session_open() 换成 session_open(#{profile: "你的会话"}) 或
 //   #{config: #{host: ..., username: ..., auth: "agent"}} 就能下发到远端标签。
 

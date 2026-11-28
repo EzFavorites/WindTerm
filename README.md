@@ -80,16 +80,18 @@ VERIFY_CLIPPY=1 bash scripts/verify.sh    # 额外跑 clippy -D warnings
 ## 无窗口命令
 
 ```sh
-term-desk doctor                 # 环境体检：$SHELL / profile / 主题 / 能力面
-term-desk capability             # 能力面统计；--all 列全部，--json 给机器读
-term-desk serve --port 0         # 把能力面暴露到 127.0.0.1（需 token 握手）
-term-desk script run file.rhai   # 在独立会话里跑 Rhai 脚本
+term-desk doctor                  # 环境体检：$SHELL / profile / 主题 / 能力面
+term-desk capability              # 能力面统计；--all 列全部，--json 给机器读
+term-desk api describe            # 问前台实例要动词清单（需前台已运行）
+term-desk api call <method> '{"json":"params"}'  # 调前台实例的一个方法
+term-desk mcp                     # stdio MCP server（tools 来自 describe）
 term-desk --version
 term-desk --help
 ```
 
-`serve` 只监听回环地址，第一条请求必须完成 token 握手。脚本与桥接共用同一张
-动词表，用会话**名字**寻址（不是进程内自增 ID），所以脚本存下来明天还能跑。
+`api` / `mcp` 连前台实例的本地 UDS 控制端点（`~/.zterm/control.sock`，0600 +
+peercred），前台未运行时明确报错退出，不自建会话池。脚本与 API 共用同一张动词表，
+用会话**名字**寻址（不是进程内自增 ID），所以脚本存下来明天还能跑。
 
 ## 功能
 
@@ -162,8 +164,9 @@ term-desk --help
 
 ### 自动化与外观
 
-- Rhai 脚本引擎：内置会话 API、文件与剪贴板辅助；`term-desk script run`
-  无窗口执行，界面里有脚本库和带行号、错误跳行的脚本编辑器。随附 5 个可直接改的
+- Rhai 脚本引擎：内置会话 API、文件与剪贴板辅助；脚本在前台实例的会话里运行，
+  界面里有脚本库和带行号、错误跳行的脚本编辑器。命令行不执行脚本文件，可用
+  `term-desk api` / `term-desk mcp` 连前台控制端点。随附 5 个可直接改的
   示例（自动登录、批量巡检落盘、抓命令输出、多标签下发、自动应答）在
   `apps/desktop/resources/scripts/`，写法与 API 速查见
   [`docs/scripting.md`](docs/scripting.md)。

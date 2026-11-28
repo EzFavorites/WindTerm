@@ -2,10 +2,9 @@
 //!
 //! 全仓**唯一**的会话所有者库：按 tab 聚合 `Session`，对外暴露能力面
 //! 方法（`open` / `send` / `screen` / `state` / `wait_register` /
-//! `close` / `list`）。四个客户端——交互式 UI、脚本引擎（腿 A）、
-//! JSON-RPC 桥（腿 B）、AI 面板 agent——全部只经这里触达会话；
-//! 任何客户端不得自持远端会话（那就是「静默执行」，本 crate 的存在
-//! 正是为了让这类分叉在类型层面不可能）。
+//! `close` / `list`）。交互式 UI、脚本引擎、前台 API / MCP 与规则注入
+//! 全部只经这里触达会话；任何客户端不得自持远端会话（那就是「静默执行」，
+//! 本 crate 的存在正是为了让这类分叉在类型层面不可能，ADR-0030）。
 //!
 //! 协议无关（ADR-0019 §B.14 最高原则）：本 crate 的公开 API 里**不出现**
 //! SSH / SFTP / 隧道等协议专有概念。本地 PTY 会话由 [`SessionPool::open`]
@@ -218,8 +217,8 @@ impl SessionPool {
 
     /// 灌入登录方案表（OneKeys）。**可重复调用**，后一次覆盖前一次。
     ///
-    /// 谁会调：界面在构造时灌一次、每次落盘 OneKeys 编辑页之后再灌一次
-    /// 无窗口路径（`desk script` / `desk serve`）在开会话前从 `prefs` 读一次。
+    /// 谁会调：界面在构造时灌一次、每次落盘 OneKeys 编辑页之后再灌一次；
+    /// 脚本与 API 路径在开会话前从 `prefs` 读一次。
     /// 没灌过时表是空的——等价于「所有会话都没选方案」，不是错误。
     pub fn set_onekeys(&self, schemes: Vec<OneKey>) {
         *lock_or_recover(&self.onekeys) = schemes;
@@ -1062,7 +1061,7 @@ mod tests {
 
     #[test]
     fn without_a_factory_the_old_failure_category_is_unchanged() {
-        // `desk script` / `desk serve` 靠这一臂报告「漏装了一步」；
+        // 脚本与 API 路径靠这一臂报告「漏装了一步」；
         // 既有失败分类单测因此一条都不用改。
         let pool = SessionPool::new();
         let cfg = SessionConfig::new(Protocol::Ssh);

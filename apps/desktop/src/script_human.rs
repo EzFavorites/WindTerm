@@ -2,7 +2,7 @@
 //!
 //! # 两条实现，按入口选
 //!
-//! - [`StdinHuman`]：进程级（`desk script run`）。提示写 stderr、回答读一行
+//! - [`StdinHuman`]：夹具 / 单测用的 stdin 端口。提示写 stderr、回答读一行
 //!   标准输入。**提示绝不进 stdout**——那里是脚本的返回值。
 //! - [`UiHuman`]：界面里的脚本。脚本线程把问题塞进 [`AskQueue`]，界面每帧取
 //!   一个显示成模态框，用户点完把答案送回队列；脚本线程在 `recv` 上等。
@@ -249,7 +249,7 @@ fn push_note(notes: &Arc<Mutex<Vec<String>>>, message: &str) {
     }
 }
 
-/// 进程级（`desk script run`）的人机端口：stderr 问、stdin 答。
+/// 夹具 / 单测用的 stdin 人机端口：stderr 问、stdin 答。
 pub struct StdinHuman {
     /// `false` = 不读标准输入（脚本源码本身就来自 stdin，再读只会拿到 EOF）。
     input: bool,
@@ -260,7 +260,7 @@ impl StdinHuman {
         Self { input: true }
     }
 
-    /// 关掉输入来源（`desk script run -`）。
+    /// 关掉输入来源（脚本源码本身占用 stdin 时）。
     pub fn without_input(mut self) -> Self {
         self.input = false;
         self
@@ -286,7 +286,7 @@ impl StdinHuman {
             // 不关回显 = 把密码打进终端历史与肩窥范围。这里直接拒绝做半套：
             // 「看似隐藏其实没隐藏」比明说不支持更糟。
             return Err(AskError::Unsupported(
-                "进程级运行无法隐藏输入，请改在界面里跑（或在脚本里用 profile/密钥）"
+                "stdin 通道无法隐藏输入，请改在前台界面里运行脚本（或在脚本里用 profile/密钥）"
                     .to_string(),
             ));
         }
@@ -346,7 +346,7 @@ impl HumanChannel for StdinHuman {
                     answer
                 }))
             }
-            // 密码类输入直接拒绝：进程级没有不回显的读法，而「看似隐藏其实
+            // 密码类输入直接拒绝：stdin 没有不回显的读法，而「看似隐藏其实
             // 没隐藏」比明说不支持更糟。
             Ask::Secret { title, prompt } => {
                 self.read_line(&format!("{title} {prompt}"), true).map(Answer::Text)
@@ -381,7 +381,7 @@ impl HumanChannel for StdinHuman {
                 buttons,
                 ..
             } => {
-                // 进程级没有按钮：用户输入具体按钮标签就能精确选中（三按钮组的
+                // stdin 没有按钮：用户输入具体按钮标签就能精确选中（三按钮组的
                 // abort/retry/ignore 也能各自映射到 CRT ID）；仍兼容 y/N 简写。
                 let hint = if buttons == &term_script::MessageButton::Ok {
                     String::new()
@@ -409,7 +409,7 @@ impl HumanChannel for StdinHuman {
 
     fn pick_file(&self, _request: &PickFile) -> Result<Option<PathBuf>, AskError> {
         Err(AskError::Unsupported(
-            "进程级运行没有文件选择框；请在脚本里写死路径，或加 --allow fs:… 授权后用 fs_*".to_string(),
+            "当前脚本运行通道没有文件选择框；请在脚本面板 ▸ Permissions 勾选本次 fs 授权后用 fs_*".to_string(),
         ))
     }
 }
@@ -418,7 +418,7 @@ impl HumanChannel for StdinHuman {
 mod tests {
     use super::*;
 
-    /// 进程级没有终端时**不猜答案**：`NoInput` 而不是空串。
+    /// stdin 不是终端时**不猜答案**：`NoInput` 而不是空串。
     #[test]
     fn the_stdin_channel_refuses_when_it_is_not_a_terminal() {
         use std::io::IsTerminal;
@@ -451,7 +451,7 @@ mod tests {
             filter: String::new(),
             default: String::new(),
         }), Err(AskError::Unsupported(
-            "进程级运行没有文件选择框；请在脚本里写死路径，或加 --allow fs:… 授权后用 fs_*".to_string()
+            "当前脚本运行通道没有文件选择框；请在脚本面板 ▸ Permissions 勾选本次 fs 授权后用 fs_*".to_string()
         )));
     }
 

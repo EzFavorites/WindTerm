@@ -1,6 +1,6 @@
 // 自动登录（对应 CRT 的 /SSH2 … + WaitForString 脚本）。
-// 运行：term-desk script run 01-auto-login.rhai --arg <host> --arg <user>
-// 改这里：认证方式默认 agent（命令行无需保险库）；若你的 SSH 用密码，
+// 运行：在脚本窗口打开本文件，登记项里配好参数 <host> <user> 后点「运行」。
+// 改这里：认证方式默认 agent（无需保险库）；若你的 SSH 用密码，
 //   请先在窗口里解锁保险库，或改用会话库中的会话：session_open(#{profile: "名字"})。
 // 口令提示出现时才向人询问，不把口令写进脚本文件。
 

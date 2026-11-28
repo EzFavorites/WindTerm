@@ -247,14 +247,14 @@ pub trait Sessions: Send + Sync {
     // `notify` / `ask` 曾经在这条 trait 上（默认写 stderr / 返回 None）。
     // ADR-0027 之后，它们属于 [`HumanChannel`](crate::HumanChannel) 这个**独立
     // 端口**：会话集合回答「有哪些会话」，人机端口回答「怎么问人」。两件事
-    // 混在一条 trait 上，进程级宿主想换「问人的方式」就得连会话集合一起换。
+    // 混在一条 trait 上，直调宿主想换「问人的方式」就得连会话集合一起换。
 }
 
 /// 只托管一条会话的固定集合：[`crate::ScriptEngine::run`] 的老签名（直接给一条
 /// 会话）落到这里。
 ///
 /// `open` / `close` 一律 [`SessionsError::Refused`]——**不是**静默 no-op。原因：
-/// 老 API 的调用方（`desk script run` 之外的嵌入式用法、单测）没有「池」的
+/// 老 API 的调用方（嵌入式用法、单测）没有「池」的
 /// 概念，新开一条会话没人负责关它，泄漏比报错更糟。
 pub struct FixedSessions {
     id: SessionId,

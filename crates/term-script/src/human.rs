@@ -205,7 +205,7 @@ pub trait HumanChannel: Send + Sync {
     }
 }
 
-/// 无头宿主：提示进 stderr，提问一律 `NoInput`，文件框一律拒绝。
+/// 没有输入源的宿主：提示进 stderr，提问一律 `NoInput`，文件框一律拒绝。
 ///
 /// 名字叫 `Headless` 而不是 `Null`：它的行为是**有语义的降级**，不是一个
 /// 空对象——`notify` 真的会把话写出去。

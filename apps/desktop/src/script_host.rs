@@ -6,18 +6,18 @@
 //!
 //! # 谁在用
 //!
-//! - `cli/script.rs`：`desk script run` 的进程级会话（自己开池、跑完就退）；
 //! - `script_run.rs`：界面里的「运行脚本」（跑在用户已有的池子上，`session_list`
-//!   看到的就是窗口里的会话）。
+//!   看到的就是窗口里的会话）；
+//! - 直调者与单测：不接界面队列，跑完把池子留给调用方。
 //!
-//! 两处共用同一份实现，所以「脚本眼里的会话」与「桥接眼里的会话」是同一张
-//! 清单——这正是 ADR-0023 要的：一个动词，两个前端，同一份事实。
+//! 两处共用同一份实现，所以「脚本眼里的会话」与「API 眼里的会话」是同一张
+//! 清单——这正是 ADR-0030 要的：一个动词实现，同一份事实。
 //!
 //! # 语义：新开的会话归调用方所有
 //!
 //! `open` 只负责建会话，**不**负责关。脚本结束后由引擎的集合实现不管；
-//! 进程级那条路是调用方（`cli/script.rs`）在收尾时把池子里剩下的会话一起清掉，
-//! 界面那条路则交给用户——脚本开出来的会话就该留在窗口里，用户能看见、
+//! 没有界面队列时由调用方在收尾时把池子里剩下的会话一起清掉，界面那条路则
+//! 交给用户——脚本开出来的会话就该留在窗口里，用户能看见、
 //! 能继续用。这条规则写在 `Sessions::open` 的文档里，不靠调用方猜。
 //!
 //! ADR-0025 阶段 5 起，界面那条路的「能看见」是**真的**：新开的会话经
@@ -40,7 +40,7 @@ use crate::session_open::{open_request, OpenFailure};
 /// `SessionPool` 之上的一层薄适配。
 pub struct PooledSessions {
     pool: Arc<SessionPool>,
-    /// 界面侧「脚本新开了哪些会话」的队列（`None` = 进程级，没人看）。
+    /// 界面侧「脚本新开了哪些会话」的队列（`None` = 没有界面队列，没人看）。
     opened: Option<OpenedQueue>,
     /// 界面侧「把哪条会话带到前台」的队列（`None` = 没有界面）。
     activated: Option<ActivatedQueue>,
@@ -73,7 +73,7 @@ pub type OpenedQueue = Arc<Mutex<Vec<(SessionId, SessionConfig)>>>;
 pub type ActivatedQueue = Arc<Mutex<Vec<SessionId>>>;
 
 impl PooledSessions {
-    /// 全功能集合：能列、能开、能关。给进程级那条路（`desk script run`）用。
+    /// 全功能集合：能列、能开、能关。给不接界面队列的直调者（夹具 / 单测）用。
     pub fn new(pool: Arc<SessionPool>) -> Self {
         Self {
             pool,
@@ -93,7 +93,7 @@ impl PooledSessions {
     /// 脚本开一条，界面下一帧就把它变成真标签页（能看、能点、能关），于是
     /// 闸门的**前提**消失了，闸门本身也就不必留。
     ///
-    /// 进程级 `desk script run` 不调它：那条路自己开池、跑完就退，没有界面在等。
+    /// 没有界面队列时不调它：没有人会把新会话变成标签页。
     pub fn with_opened(mut self, opened: OpenedQueue) -> Self {
         self.opened = Some(opened);
         self
@@ -136,7 +136,7 @@ impl PooledSessions {
         Some(info)
     }
 
-    /// 阶段 5：把新开的会话递回界面。没人等（进程级那条路）就什么也不做。
+    /// 阶段 5：把新开的会话递回界面。没人等（没有界面队列）就什么也不做。
     ///
     /// 排队失败**不让 `open` 失败**：会话已经在池子里活着、`session_list` 看得见，
     /// 脚本完全没有做错什么；丢的只是「界面上多一个标签页」这件事。让脚本因为
@@ -450,8 +450,7 @@ mod tests {
         assert!(pool.close(info.id));
     }
 
-    /// 进程级那条路（`desk script run`）没人看池子：不接线就不该有队列，
-    /// 也不该因此少开一条会话。
+    /// 没有界面队列时没人看池子：不接线就不该有队列，也不该因此少开一条会话。
     #[test]
     fn the_process_level_host_hands_nothing_back() {
         let pool = Arc::new(SessionPool::new());

@@ -366,10 +366,9 @@ pub static METHODS: &[MethodSpec] = &[
     },
     // ── 面向人的两条 ────────────────────────────────────────────
     //
-    // 它们不是会话操作，因此只在脚本前端出现：远程调用的「用户」在客户端那一侧，
-    // 由服务端弹一句话没有接收者（`desk serve` 是无窗口进程，`notify` 只会在
-    // 终端里打一行）。这与 `cursor_pos` 只给脚本的理由不同——那是省一次性往返，
-    // 这是**根本没有那个用户**。
+    // 它们不是会话操作，因此只对脚本可见：远程调用方才是「用户」，由服务端
+    // 弹一句话没有接收者（`notify` 只会在终端里打一行）。这与 `cursor_pos`
+    // 只给脚本的理由不同——那是省一次性往返，这是**根本没有那个用户**。
     MethodSpec {
         name: "notify",
         summary: "把一句话送到用户眼前（窗口里是状态栏一行，无窗口时是 stderr）。\
@@ -408,7 +407,7 @@ pub static METHODS: &[MethodSpec] = &[
     },
     MethodSpec {
         name: "args",
-        summary: "返回命令行参数数组（`desk script run --arg a --arg b`）。越界索引返回空串，不报错——CRT 的 Arguments 同语义。",
+        summary: "返回前台运行脚本时配置的参数数组（界面脚本登记项；外部客户端经 `term-desk api call` 传参）。越界索引返回空串，不报错——CRT 的 Arguments 同语义。",
         params_schema: r#"{"type":"object","properties":{"index":{"type":"integer","minimum":0,"description":"可选：取第几项（0 起）；不给则返回整个数组"}},"required":[]}"#,
         result_schema: r#"{"type":["array","string"],"description":"整个数组，或指定索引的那一项（越界为空串）"}"#,
         kind: MethodKind::Read,
@@ -752,9 +751,9 @@ pub static METHODS: &[MethodSpec] = &[
     },
     // ── 应用面（ADR-0027） ────────────────────────────
     //
-    // 两条都只对脚本可见（`Exposure::Script`）：唯一的 RPC 宿主 `desk serve`
-    // 没有窗口，`app_state` 在那里只能返回 `Unsupported`——给它一个永远失败的
-    // 远程方法，比不给更糟（客户端会当它可用）。
+    // 两条都只对脚本可见（`Exposure::Script`）：UI 控制类动词要由前台窗口回答，
+    // 远程调用方没有这份事实——给它一个永远失败的远程方法，比不给更糟
+    // （客户端会当它可用，ADR-0030）。
     MethodSpec {
         name: "app_state",
         summary: "读一份应用状态快照：面板的可见性与停靠位、主区窗格数、窗口旗标、\
@@ -976,8 +975,8 @@ mod tests {
         // set_synchronous 是第三种：它改的是**后续调用**的语义（粘性状态），
         // 而远程每次调用自带全部参数，没有地方存这个开关、也没法把它回报给
         // 客户端；notify / ask 是第四种：远程的「用户」在客户端那一侧。
-        // app_state / app_panel_set 是第五种：唯一能回答它们的宿主是有窗口的
-        // `desk`，而 RPC 侧的宿主 `desk serve` 没有窗口（ADR-0027）。
+        // app_state / app_panel_set 是第五种：它们要由前台窗口回答，远程调用方
+        // 没有这份事实（ADR-0030）。
         for name in [
             "cursor_pos",
             "terminal_size",

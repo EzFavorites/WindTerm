@@ -14,7 +14,7 @@
 //!
 //! # `cols` / `rows` 为什么在这里
 //!
-//! `session_open()` 不带尺寸时用它们。界面传窗口尺寸、CLI 传 80×24；
+//! `session_open()` 不带尺寸时用它们。界面传窗口尺寸、直接调用者传 80×24；
 //! 这个数属于**宿主**（它知道终端多大），不属于脚本。
 
 use std::sync::{Arc, Mutex};
@@ -37,7 +37,7 @@ use crate::sessions::Sessions;
 pub struct ScriptContext {
     /// 脚本文件路径；`-`（stdin）为 `None`。
     pub script_path: Option<String>,
-    /// 命令行参数（`desk script run --arg a --arg b`）。
+    /// 脚本参数（在脚本登记项里配置，`args()` 按 0 起下标读）。
     pub args: Vec<String>,
     /// 版本串（`term-script` 的包版本；与能力面 `version()` 同一个来源）。
     pub version: String,

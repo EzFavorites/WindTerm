@@ -24,7 +24,7 @@
   界面不会给出任何提示。这是与参考版本（原版）一致的有意取舍，**不是安全推荐**；
   需要严格校验的场景请走 `term_ssh` 的 `Strict` / `Tofu` 策略或脚本路径。
 - `term_ssh` 库仍保留 `HostKeyPolicy::{Strict,Tofu,Insecure}` 三档与
-  `known_hosts_admin` 的 trust / forget / list API，供脚本与无窗口路径使用。
+  `known_hosts_admin` 的 trust / forget / list API，供脚本与自动化规则使用。
 
 ## 数据落盘
 
@@ -46,12 +46,13 @@
 
 ## 网络面
 
-- 程序只主动连接用户配置的主机（SSH / Telnet / SFTP / 隧道目标）与本地
-  回环上的自建服务（`term-desk serve`）。
+- 程序只主动连接用户配置的主机（SSH / Telnet / SFTP / 隧道目标）。本地控制
+  端点不是 TCP 服务，而是 Unix domain socket `~/.zterm/control.sock`
+  （Windows 用命名管道），权限 0600 并校验 peercred，只接受同用户连接。
 - 没有遥测上报，也没有自动更新外联；网络活动面板把程序自身的连接列出来，
   便于核对。
-- `term-desk serve` 默认只监听 `127.0.0.1`，连接的第一条请求必须完成 token
-  握手。
+- CLI / MCP 客户端连不上控制端点时明确报错退出，绝不自己起一个会话池；
+  锁屏时拒绝接入与调用。没有 token 文件与 `auth` 握手（ADR-0030）。
 
 ## 报告问题
 

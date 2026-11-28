@@ -10,5 +10,5 @@ write(command + "\r");
 // 等待分两类：read_until 消费文本并返回到分隔符为止的内容；wait 只观察、不推进游标。
 let out = read_until(marker, 15);
 
-// 最后一条不带分号的表达式就是脚本返回值（CLI 会打印，GUI 显示在结果栏）。
+// 最后一条不带分号的表达式就是脚本返回值（GUI 显示在结果栏）。
 out

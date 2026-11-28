@@ -31,7 +31,7 @@ egui = "0.29"
 epaint = "0.29"
 # 文件/目录选择一律唤起系统对话框（NSOpenPanel / Win32 公共对话框 / XDG portal），
 # 不再自己列目录做「假文件管理器」。rfd 只用同步 API；调用放在后台线程，
-# 回执经共享槽取（ui/ 里因此没有任何 channel 端）。截图/无头运行不会开它。
+# 回执经共享槽取（ui/ 里因此没有任何 channel 端）。截图运行不会开它。
 rfd = "0.15"
 # 字体选择器：要读装在本机的字面（字族名 / 字重 / 是否等宽 + `.ttc` 里第几面）。
 # `ttf-parser` 早就躺在依赖图里（`epaint → ab_glyph → owned_ttf_parser → ttf-parser`
@@ -52,14 +52,14 @@ image = { version = "0.24", default-features = false, features = [
 ] }
 serde_json = "1.0"
 dirs = "5.0"
-# **只有非 unix 分支用到**：`bridge/token.rs` 的 32 字节 token 在 unix 上读
-# `/dev/urandom`（零依赖），Windows 没有那个设备，改走 `getrandom`（后端是
-# `RtlGenRandom`）。写在普通 `[dependencies]` 而不是 `[target.'cfg(not(unix))']`
+# 叶子依赖：历史上给已删除的 `bridge/token.rs` 在 Windows 上取随机数（后端是
+# `RtlGenRandom`）；token 已随 ADR-0030 删除，这里不改动依赖表形状。
+# 写在普通 `[dependencies]` 而不是 `[target.'cfg(not(unix))']`
 # 是**故意的**：后者会在这里新开一个 target 段，而 `scripts/verify.sh` 4j 只放行
 # 段内唯一那个 `winit` 键（历史上 target 段写错位置把 13 条依赖吞成 macOS-only）。
 # 代价是 unix 构建多编一个已经躺在依赖图里的叶子 crate（0.2.17）。
 getrandom = "0.2"
-# 原生 SSH 只有桌面端用（CLI 仍走系统 ssh / 无交互）。这是全仓唯一
+# 原生 SSH 只有桌面端用（`api` / `mcp` 是薄客户端，不建会话）。这是全仓唯一
 # 把 tokio **间接**带进 apps 的地方——直接依赖 tokio / russh 仍然禁止（verify 4k），
 # 本 crate 的源码里也一个 `.await` 都没有：`term_ssh::connect` 是同步的。
 term-ssh = { path = "../../crates/term-ssh" }
@@ -71,16 +71,17 @@ term-sftp = { path = "../../crates/term-sftp" }
 # 保险库实例由 apps/* 持有（ADR-0017：解锁一次、本次运行可用）。
 # 它是纯同步的加密层，没有线程也没有文件句柄——文件读写仍在 term-runtime::persist。
 term-vault = { path = "../../crates/term-vault" }
-# ADR-0019 / ADR-0022：`desk serve` 把能力面暴露到 TCP，而 desk 是**唯一的会话
-# 所有者**（ADR-0019），所以这里第一次直接依赖控制面本身。两者都是纯同步的
+# ADR-0019 / ADR-0030：前台 GUI 是**唯一的会话所有者**，本地控制端点用它持有
+# 的会话池，所以这里第一次直接依赖控制面本身。两者都是纯同步的
 # （term-session 零 `.await`、term-bridge 只依赖 term-core），不破坏 tokio 笼子。
 term-session = { path = "../../crates/term-session" }
 # 桥接本体：只提供协议（`dispatch` / `serve_stdio` / `Surface`），不含会话实现。
 # 后端适配在 `src/bridge/surface.rs`——那正是「协议与宿主分离」的落点。
 term-bridge = { path = "../../crates/term-bridge" }
-# ADR-0019 腿 A：`desk script run <file>` 是脚本引擎的第一个消费者。它只依赖
-# term-core（Rhai + regex，零线程、零 tokio、零 `.await`），因此这里加它不会
-# 给 apps 带进任何异步面——4k 门禁仍然只需管住 term-ssh / term-tunnel / term-sftp。
+# 脚本引擎的消费者是前台 GUI 的脚本窗口 / 编辑器（ADR-0030），脚本只操作
+# 用户可见的会话。它只依赖 term-core（Rhai + regex，零线程、零 tokio、零
+# `.await`），因此这里加它不会给 apps 带进任何异步面——4k 门禁仍然只需管住
+# term-ssh / term-tunnel / term-sftp。
 term-script = { path = "../../crates/term-script" }
 # 文件传输的协议内核（XMODEM / XMODEM-1K / YMODEM 状态机）。零 IO、零依赖，
 # 盘与线程都在 `src/xfer_run.rs` 这一侧——所以它不会给 apps 带进异步面，

@@ -453,7 +453,7 @@ pub struct TerminalWindow {
     /// `ViewState`（那会让 reducer 持有一个线程句柄）。
     tunnels: Vec<panels::RunningTunnel>,
     /// 会话控制面（ADR-0019 档 1.1）：本窗口所有会话都登记在这里。不做全局单例，
-    /// 因为 `desk serve` 与 GUI 是两个进程、两个池（ADR-0022 §决策 7）。
+    /// 前台 GUI 是唯一持有会话池的进程；`api` / `mcp` 只连它的控制端点（ADR-0030）。
     pool: Arc<term_session::SessionPool>,
     /// 已解锁的保险库（`None` = 还没解锁 / 还没建）。
     /// ADR-0017 §未决问题 5：解锁一次、本次运行可用，所以实例放在 `apps/*` 里。

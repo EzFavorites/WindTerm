@@ -1,9 +1,9 @@
 // @cap fs=write:/tmp
 // 批量巡检落盘：对多台主机跑同一组命令，结果追加到一份本地报告。
-// 运行：term-desk script run 02-batch-inspection.rhai --batch \
-//         --arg host1 --arg host2 --arg host3
+// 运行：在脚本窗口打开本文件，登记项里配好参数 host1 host2 host3，预算档选
+//   Batch 后点「运行」。
 // 改这里：user / commands / report；换输出目录时，上面的 @cap 根也要一起改。
-// 认证用 agent；密码认证的会话在命令行里打不开（保险库是窗口侧的）。
+// 认证用 agent；密码认证的会话要先在前台窗口里解锁保险库。
 
 let report = "/tmp/windterm-inspection.txt";
 let user = "ops";

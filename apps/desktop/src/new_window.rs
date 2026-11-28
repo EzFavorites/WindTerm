@@ -16,10 +16,11 @@
 //!
 //! # 新进程零 argv
 //!
-//! `main.rs` 的 `--screenshot` / `--exec` / `--demo` / `--headless` /
-//! `--list-components` 全是夹具与 CI 用途，没有用户级参数；`cli::try_run` 只认
-//! `argv[1]`，任何裸位置子命令都会打印 USAGE 并 `exit(2)`。所以透传白名单
-//! ([`FORWARDABLE`]) **为空**：全丢弃。将来真要透传某条 flag，必须显式加进白名单
+//! `main.rs` 的 `--screenshot` / `--demo` / `--list-components` 全是夹具与 CI
+//! 用途，没有用户级参数；`--headless` / `--exec` 已显式报错退出（ADR-0030）。
+//! `cli::try_run` 只认 `argv[1]`，任何裸位置子命令都会打印 USAGE 并 `exit(2)`。
+//! 所以透传白名单 ([`FORWARDABLE`]) **为空**：全丢弃。将来真要透传某条 flag，
+//! 必须显式加进白名单
 //! 并补测试——别把「白名单为空」改写成「全透传」。
 //!
 //! # 环境变量：夹具态清，配置态留
@@ -64,15 +65,14 @@ const FORWARDABLE: &[&str] = &[];
 
 /// 带一个值的夹具 flag：丢弃时必须连值一起丢，否则那个值会变成孤儿的
 /// `argv[1]`，被 `cli::try_run` 当成未知子命令 → `exit(2)`。
-const FLAGS_WITH_VALUE: &[&str] = &["--screenshot", "--exec", "--demo"];
+const FLAGS_WITH_VALUE: &[&str] = &["--screenshot", "--demo"];
 
 /// 不带值的夹具 flag。
-const FLAGS_ALONE: &[&str] = &["--headless", "--list-components"];
+const FLAGS_ALONE: &[&str] = &["--list-components"];
 
 /// 无窗口位置子命令（`cli::try_run` 认的就是这些）。
 const SUBCOMMANDS: &[&str] = &[
-    "doctor", "capability", "serve", "script", "version", "-V", "--version", "help", "-h",
-    "--help",
+    "doctor", "capability", "version", "-V", "--version", "help", "-h", "--help",
 ];
 
 /// 子进程必须清掉的**夹具态**环境变量，恰好两个（见模块头的分类表）。
@@ -176,7 +176,7 @@ impl SpawnPlan {
     }
 }
 
-/// 收集本进程的信息，造一份计划。**不 spawn**，所以能在无头单测里直接调。
+/// 收集本进程的信息，造一份计划。**不 spawn**，所以能在单测里直接调。
 pub fn new_window_plan() -> SpawnPlan {
     let raw: Vec<OsString> = std::env::args_os().collect();
     SpawnPlan {
@@ -230,7 +230,7 @@ mod tests {
         assert!(out.is_empty(), "夹具 flag 与它的值都不许进新进程：{out:?}");
         // 配对规则本身也要钉住：漏了它，值就会变成孤儿 argv[1]。
         assert!(takes_value(OsStr::new("--screenshot")));
-        assert!(!takes_value(OsStr::new("--headless")));
+        assert!(!takes_value(OsStr::new("--list-components")));
     }
 
     #[test]
@@ -246,22 +246,15 @@ mod tests {
     }
 
     #[test]
-    fn exec_headless_and_list_components_are_dropped() {
-        let out = child_args(&argv(&[
-            "--exec",
-            "printf hello",
-            "--headless",
-            "--list-components",
-        ]));
-        assert!(out.is_empty(), "这四条全是夹具：{out:?}");
-        assert!(takes_value(OsStr::new("--exec")));
-        assert!(is_fixture_token(OsStr::new("--headless")));
+    fn list_components_is_dropped() {
+        let out = child_args(&argv(&["--list-components"]));
+        assert!(out.is_empty(), "夹具 flag 不许进新进程：{out:?}");
         assert!(is_fixture_token(OsStr::new("--list-components")));
     }
 
     #[test]
     fn positional_subcommands_are_dropped() {
-        for sub in ["doctor", "capability", "serve", "script", "version", "help"] {
+        for sub in ["doctor", "capability", "version", "help"] {
             assert!(
                 child_args(&argv(&[sub])).is_empty(),
                 "{sub} 会打印 USAGE 并 exit(2)"
@@ -272,7 +265,7 @@ mod tests {
 
     #[test]
     fn a_trailing_screenshot_without_a_value_does_not_panic() {
-        let out = child_args(&argv(&["--headless", "--screenshot"]));
+        let out = child_args(&argv(&["--list-components", "--screenshot"]));
         assert!(out.is_empty(), "末尾无值也不能 panic 或造出孤儿 argv");
     }
 
@@ -281,7 +274,7 @@ mod tests {
     #[test]
     fn non_utf8_argv_is_dropped_without_panicking() {
         use std::os::unix::ffi::OsStringExt;
-        let mut raw = argv(&["--headless"]);
+        let mut raw = argv(&["--list-components"]);
         raw.push(OsString::from_vec(vec![b'-', b'-', 0xFF, 0xFE]));
         raw.push(OsString::from_vec(vec![0xFF, 0x80]));
         assert!(child_args(&raw).is_empty());

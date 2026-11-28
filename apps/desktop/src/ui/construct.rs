@@ -33,7 +33,7 @@ fn global_proxy_from_prefs(prefs: &Prefs) -> Option<term_core::session::GlobalPr
 impl TerminalWindow {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         // 控制面先建：下面每一条 tab 都要经它开会话（ADR-0019 档 1.1）。
-        // 一个窗口一个池——`desk serve` 是另一个进程、另一个池（ADR-0022 §决策 7）。
+        // 前台 GUI 独持会话池；`api` / `mcp` 只是它的控制端点客户端（ADR-0030）。
         let pool = std::sync::Arc::new(term_session::SessionPool::new());
         // Before* 事件先入队，设置页规则在下一帧的 draw 里求值——构造期还没有规则表。
         let lifecycle_events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));

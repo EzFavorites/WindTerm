@@ -10,8 +10,7 @@ edition = "2021"
 # 依赖表就是 ADR-0016 的判据，而且**只有 term-core 一个**：
 # - 没有 egui / eframe；
 # - 没有 term-runtime——这一层**拿不到 PTY**，所以「界面层偷偷起进程」这种错误
-#   在编译期就不成立；任何无窗口消费者（`--headless --exec`、将来的 API 层）
-#   也因此可以直接复用它；
+#   在编译期就不成立；前台应用的其它消费者也因此可以直接复用它；
 # - 也没有 term-import。2026-11-13 之前它是首次启动引导引进来的：
 #   引导要把 `~/.ssh/config` 的文本变成「探测到的主机」。但 term-import 带
 #   `std::fs` / `dirs` / `current_exe()`，一旦进来，「副作用只能以 `Effect`
@@ -32,11 +31,9 @@ regex = "1"
 default = []
 # 已实现、已测试，但**没有生产读者**的模块：现在只剩 `structure`。
 #
-# 2026-11-12 审查时 `trigger` / `trigger_regex` 也在清单里，但那个结论后来过期：
-# `apps/desktop` 把触发器接进了会话执行、规则编辑与 hover 检测等真实路径，
-# 桌面端甚至一度必须显式开 `planned` 才能编过。有真读者就回默认编译面——
-# 与 `folds` / `tmux_layout` 同一规矩；`trigger_regex` 作为 `trigger` 的内部
-# 依赖跟着一起回默认面。`apps/desktop` 因此不再需要显式开本 feature。
+# 2026-11-12 审查时这里还有别的候选模块，后来各有去处：触发器内核统一到
+# `term-core::automation`（ADR-0030），其它有真读者的模块回到默认编译面——
+# 与 `folds` / `tmux_layout` 同一规矩。`apps/desktop` 因此不再需要显式开本 feature。
 #
 # `structure` 的 `ScopeStack` / `StructureModel` 仍零读者，默认不编译不跑，
 # `--features planned` 时回来。`verify.sh` 第 1 项会编一次防烂。

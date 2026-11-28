@@ -13,8 +13,8 @@
 //!
 //! # 窗口：为什么放在这里
 //!
-//! `window` / `app_quit` / `selection` 都只能由**界面**回答；无头宿主必须
-//! 显式 `Unsupported`。它们与剪贴板同属「脚本碰不到、只能问宿主」的那类，
+//! `window` / `app_quit` / `selection` 都只能由**界面**回答；未接线的宿主
+//! 必须显式 `Unsupported`。它们与剪贴板同属「脚本碰不到、只能问宿主」的那类，
 //! 放一个文件里是为了让「谁有界面谁实现」一眼看清。
 
 use std::fmt;
@@ -26,7 +26,7 @@ use term_core::session_runtime::SessionId;
 pub enum ClipError {
     /// 没有 `clipboard` 授权（只针对读）。
     Denied(String),
-    /// 宿主没有剪贴板（无头 / CLI 没装系统命令）。
+    /// 宿主没有剪贴板（未接线 / 没装系统命令）。
     Unsupported(String),
     /// 被取消（等用户从别的 App 复制回来时）。
     Cancelled,
@@ -72,7 +72,7 @@ impl Clipboard for NoClipboard {
 pub enum UiError {
     /// 没有 `ui` 授权。
     Denied(String),
-    /// 没有界面（无头 / CLI）。
+    /// 没有界面端口（未接线）。
     Unsupported(String),
     /// 用户取消了（退出确认里点了「取消」）。
     Cancelled,

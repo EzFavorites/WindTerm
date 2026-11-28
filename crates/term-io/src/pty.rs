@@ -36,7 +36,7 @@ pub struct PtySession {
 /// 其余（`" stopped"`、连接超时）没有退出码。
 ///
 /// 生成与解析放在同一个文件里：状态文本是给人看的（状态栏那一行），
-/// 而 `desk --headless --exec` 需要的是数字——两处措辞必须一起改。
+/// 退出码是给调用方判成败的数字——两处措辞必须一起改。
 pub fn exit_code_of(status: &str) -> Option<i32> {
     let text = status.trim();
     if text == "exited" {
@@ -52,8 +52,8 @@ impl PtySession {
         Self::spawn_with(config, cols, rows, plan)
     }
 
-    /// Same as `spawn`, but with an explicit plan. This is used for the headless
-    /// runner: a one-shot `/bin/sh -c <command>` needs no SessionConfig entry.
+    /// Same as `spawn`, but with an explicit plan. This is used for a direct
+    /// one-shot command run: `/bin/sh -c <command>` needs no SessionConfig entry.
     pub fn spawn_with(
         config: SessionConfig,
         cols: usize,

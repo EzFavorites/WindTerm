@@ -5,8 +5,8 @@
 //! 也不属于 `ui`（`ui` 管的是窗口显隐 / 退出 / 取选区，见 `clip_ui.rs`）。
 //! 所以单独一个端口，与 `HumanChannel` / `LocalFs` / `Process` 同一套形状：
 //!
-//! - **默认实现全 `Unsupported`**。无头宿主（`desk serve` / `desk script run`）
-//!   显式报不支持，**绝不返回空快照冒充成功**——那会让脚本把「这里没有界面」
+//! - **默认实现全 `Unsupported`**。未接线的宿主显式报不支持，
+//!   **绝不返回空快照冒充成功**——那会让脚本把「这里没有界面」
 //!   当成「界面是空的」。
 //! - **方法只认纯数据**：入参与返回都是 `term_core::app_state` 里的类型，
 //!   本 crate 不认识 `ViewState` / `DockLayout` / `egui`（`term-script` 不依赖 UI）。
@@ -32,7 +32,7 @@ use term_core::app_state::{AppSnapshot, PanelState};
 pub enum AppError {
     /// 授权不足（`Capabilities.app` 档不够）。文案带 requested / granted。
     Denied(String),
-    /// 宿主没有界面（无头进程）。**不是**「界面是空的」。
+    /// 宿主没有界面端口。**不是**「界面是空的」。
     Unsupported(String),
     /// 参数本身不合法（可见性不是 bool、布局序号越界这类**形状**问题）。
     BadArgument(String),
@@ -176,15 +176,15 @@ pub trait AppControl: Send + Sync {
     /// 按命令 ID 派发一条应用命令（2026-11-25）。
     ///
     /// 宿主负责把 ID 转给 `Action::parse`——`term-script` 不认识 `term-app`，
-    /// 也绝不在本层抄一份命令 ID 表。默认实现显式报不支持，无头宿主不会
-    /// 返回 `dispatched: true` 冒充执行过。
+    /// 也绝不在本层抄一份命令 ID 表。默认实现显式报不支持，未接线的宿主
+    /// 不会返回 `dispatched: true` 冒充执行过。
     fn command(&self, _id: &str) -> Result<CommandAck, AppError> {
         Err(AppError::Unsupported("没有界面可执行命令".to_string()))
     }
 
     /// 合并后的命令 / 动词清单，供脚本自省。
     ///
-    /// 默认同样是显式降级：无头宿主不该返回空清单冒充「这个应用没有命令」。
+    /// 默认同样是显式降级：未接线的宿主不该返回空清单冒充「这个应用没有命令」。
     fn catalog(&self) -> Result<Vec<CatalogEntry>, AppError> {
         Err(AppError::Unsupported("没有界面可列命令".to_string()))
     }
@@ -192,7 +192,7 @@ pub trait AppControl: Send + Sync {
 
 /// 未接线的宿主：两个方法都 `Unsupported`。
 ///
-/// 无头进程（`desk serve` / `desk script run`）与单测默认用它——
+/// 未接线的宿主与单测默认用它——
 /// 与 `NoUi` / `NoFiles` / `NoProcess` 同一条规矩。
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoApp;

@@ -110,9 +110,10 @@ WINDTERM_PROFILE_DIR=/tmp/wt-profile ./windterm
 
 - 大多数页面改的是**默认参数**：只对新开的会话生效，已开的标签不追溯；
   相关页面底部有说明，避免"改完没反应"被当成控件坏了。
-- 触发器规则（事件 → 匹配 → 动作）与 OneKeys 凭据管理器（SSH / Account /
-  Sessions 三标签）**不在左栏树里**，由 `Terminal › Manage Triggers` /
-  `Manage OneKeys` 独立命令直接打开，编辑结果立即写回偏好并在后续连接中生效。
+- 自动化规则（automation rule：信号 → 匹配 → Effect → 派发）与 OneKeys 凭据
+  管理器（SSH / Account / Sessions 三标签）**不在左栏树里**，由
+  `Terminal › Manage Triggers` / `Manage OneKeys` 独立命令直接打开，编辑结果
+  立即写回偏好并在后续连接中生效。「触发器」只是这条规则功能的界面产品名。
 - 改完立即生效，不需要重启应用。
 
 命令面板（搜索框）把动作与菜单项拉平到一处检索，分两种模式：**Command**
@@ -121,20 +122,23 @@ WINDTERM_PROFILE_DIR=/tmp/wt-profile ./windterm
 
 ## 脚本
 
-`term-desk script run file.rhai` 在独立会话里执行脚本。脚本引擎在
-[`scripting.md`](scripting.md) 里说明。
+脚本在**前台窗口**里运行：脚本窗口选文件点「运行」，或在脚本编辑器里打开后
+运行；脚本开的会话就在窗口里可见。脚本引擎在 [`scripting.md`](scripting.md) 里说明。
 
 无窗口子命令适合排障与自动化：
 
 ```sh
-term-desk doctor          # 环境体检
-term-desk capability      # 能力面统计
-term-desk serve --port 0  # 把能力面暴露到 127.0.0.1（需 token 文件）
+term-desk doctor                                  # 环境体检
+term-desk capability                              # 能力面统计
+term-desk api describe                            # 问前台要动词清单（需前台已运行）
+term-desk api call <method> '{"json":"params"}'    # 调前台一个方法
+term-desk mcp                                     # stdio MCP server（tools 来自 describe）
 term-desk --version
 ```
 
-`serve` 只监听回环地址；连接后的第一条请求必须完成 token 握手，锁屏时返回
-`Locked` 错误而不是数据。脚本与桥接共用同一张能力面动词表（详见
+`api` / `mcp` 只连前台 UDS 控制端点（`~/.zterm/control.sock`，0600 + peercred）；
+前台未运行时明确报错退出，不自建会话池，也没有 token 握手。锁屏时返回
+`Locked` 错误而不是数据。脚本与 API 共用同一张能力面动词表（详见
 [`scripting.md`](scripting.md)）。
 
 ## 常见问题
