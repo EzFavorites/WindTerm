@@ -342,6 +342,24 @@ impl TerminalWindow {
             .unwrap_or_default()
     }
 
+    /// OneKey 方案的键盘交互应答（vault 锁着 / 没存都返回空表）。
+    ///
+    /// 条目 id 固定为 `onekey:<name>:ki`（见 `term_core::onekey::ki_vault_id`），
+    /// 内容是按提示行序排列的 JSON 字符串数组。**这是应答的唯一读取口**：
+    /// `OneKey` / `prefs.json` 里没有任何可回落的明文，锁着就只能拿到空表，
+    /// 不能拿空答案去连（白多一次握手还可能触发服务器侧计数）。
+    pub(in crate::ui) fn onekey_ki_answers(&self, name: &str) -> Vec<String> {
+        let Some(vault) = self.vault.as_ref() else {
+            return Vec::new();
+        };
+        let id = onekey::ki_vault_id(name);
+        vault
+            .find(&id)
+            .and_then(|e| e.secret())
+            .map(onekey::decode_ki_answers)
+            .unwrap_or_default()
+    }
+
     /// 把 OneKeys 编辑页的改动落盘：方案列表写 `prefs.onekeys`，密码草稿
     ///（若 vault 解锁）写进 vault 条目 `onekey:<name>`。锁着时草稿**丢失**
     /// ——页脚已写清「credentials not saved」。
@@ -407,6 +425,10 @@ impl TerminalWindow {
         // 方案名改过之后，vault 里的条目 id 也要跟着改（旧 id 变成孤儿）。
         // 简单而诚实：只写 prefs；旧 id 残留由 `onekey_password` 的
         //「找不到就当空密码」自然兜住，不悄悄删 vault 条目。
+        //
+        // 这里的无条件 save_prefs 曾经把含明文 `response` 的整份 OneKey 写回
+        // prefs.json（P0）。现在 `ChallengeHint` 没有 `response` 字段，答案只
+        // 经上面的 `onekey:<name>:ki` 条目进 vault——写方案表不再写凭据。
         save_prefs(|p| p.onekeys = self.onekeys.clone());
         // 控制面持有的是方案表的**副本**（连接时读的是它，不是 `Prefs`）。
         // 不在这里推一份，用户改完方案之后已开的窗口仍然按旧方案连接——
@@ -510,5 +532,86 @@ impl TerminalWindow {
         if let Some(error) = &self.vault_form.error {
             ui.colored_label(egui::Color32::from_rgb(220, 90, 90), error);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ui::lifecycle_test_support::{window_with, with_temp_profile};
+    use term_core::onekey::{ki_vault_id, ChallengeHint, OneKey};
+    use term_vault::KdfParams;
+
+    const PW: &str = "onekey-test-password";
+    const ANSWER: &str = "plain-text-kbi-answer-9f51d4bc";
+
+    fn window_with_unlocked_vault(ctx: &egui::Context) -> TerminalWindow {
+        let mut win = window_with(
+            std::sync::Arc::new(term_session::SessionPool::new()),
+            ctx,
+            vec![],
+        );
+        win.vault = Some(
+            Vault::create_with(PW, KdfParams::fast_for_tests(), None).expect("造保险库"),
+        );
+        win
+    }
+
+    /// P0 的落盘端判据：`save_onekeys()` 里那句无条件 `save_prefs` 曾把明文
+    /// `response` 随整份 OneKey 写进 `prefs.json`。现在走完整个保存流程后，
+    /// 盘上只有公开提示，答案只在 vault 的 `onekey:<name>:ki` 条目里。
+    #[test]
+    fn saving_onekeys_never_writes_answer_text_to_prefs() {
+        with_temp_profile(|| {
+            let ctx = egui::Context::default();
+            let mut win = window_with_unlocked_vault(&ctx);
+            win.onekeys = vec![OneKey {
+                name: "prod".to_string(),
+                username: "ops".to_string(),
+                keyboard_interactive: vec![ChallengeHint {
+                    challenge: "OTP:".to_string(),
+                }],
+                ..OneKey::default()
+            }];
+            // 编辑页交进来的答案草稿：保存后必须只出现在保险库里。
+            win.onekeys_ki_draft = Some(("prod".to_string(), vec![ANSWER.to_string()]));
+
+            win.save_onekeys();
+
+            let dir = std::env::var("WINDTERM_PROFILE_DIR").expect("临时 profile 目录");
+            let text = std::fs::read_to_string(
+                std::path::Path::new(&dir).join(term_profile::prefs::PREFS_FILE),
+            )
+            .expect("prefs.json 必须真的落盘");
+            assert!(text.contains("OTP:"), "公开提示仍要落盘: {text}");
+            assert!(!text.contains(ANSWER), "prefs.json 不许有 KBI 明文: {text}");
+            assert!(!text.contains("response"), "response 字段已删除: {text}");
+
+            let vault = win.vault.as_ref().expect("保险库仍解锁");
+            let entry = vault.find(&ki_vault_id("prod")).expect("应答必须进 vault");
+            assert_eq!(
+                onekey::decode_ki_answers(entry.secret().expect("条目有 secret")),
+                vec![ANSWER.to_string()]
+            );
+        });
+    }
+
+    /// 展示端判据：编辑页从 vault 读答案；锁着 / 没条目时只能拿到空表，
+    /// 不存在「旧明文回落」这条路。
+    #[test]
+    fn ki_answers_are_read_only_from_the_vault() {
+        let ctx = egui::Context::default();
+        let mut win = window_with_unlocked_vault(&ctx);
+        let answers = vec!["token".to_string(), "yes".to_string()];
+        win.vault.as_mut().unwrap().upsert(Entry::password(
+            &ki_vault_id("prod"),
+            "prod",
+            &onekey::encode_ki_answers(&answers),
+        )).expect("写保险库");
+
+        assert_eq!(win.onekey_ki_answers("prod"), answers);
+        assert!(win.onekey_ki_answers("other").is_empty());
+        win.lock_vault();
+        assert!(win.onekey_ki_answers("prod").is_empty(), "锁着不许读到答案");
     }
 }

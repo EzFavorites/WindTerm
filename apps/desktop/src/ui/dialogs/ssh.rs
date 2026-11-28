@@ -542,26 +542,75 @@ impl TerminalWindow {
 /// **在第一个空应答处停**：`term-ssh` 是按下标取答案的，空串会被原样发出去
 /// （服务端只会拒绝一次），截断比乱填诚实。
 ///
-/// 只读保险库：应答存在 `onekey:<name>:ki`（JSON 数组），锁着或没有条目时
-/// 回落方案里的旧明文答复，兼容还没迁移的会话。
+/// 只读保险库：应答存在 `onekey:<name>:ki`（JSON 数组）。**凭据只从 vault
+/// 取**——锁着或没有条目就返回空表，没有旧明文回落，也不做历史兼容
+/// （ADR-0030 §5 / §8）。`OneKey` 里连 `response` 字段都没有了。
 fn onekey_answers(scheme: &OneKey, vault: Option<&term_vault::Vault>) -> Vec<String> {
-    if let Some(vault) = vault {
-        let id = term_core::onekey::ki_vault_id(&scheme.name);
-        if let Some(answers) = vault
-            .find(&id)
-            .and_then(|e| e.secret())
-            .map(term_core::onekey::decode_ki_answers)
-        {
-            if !answers.is_empty() {
-                return answers;
-            }
-        }
-    }
-    scheme
-        .keyboard_interactive
-        .iter()
-        .map(|pair| pair.response.as_str())
+    let Some(vault) = vault else {
+        return Vec::new();
+    };
+    let id = term_core::onekey::ki_vault_id(&scheme.name);
+    vault
+        .find(&id)
+        .and_then(|e| e.secret())
+        .map(term_core::onekey::decode_ki_answers)
+        .unwrap_or_default()
+        .into_iter()
         .take_while(|response| !response.is_empty())
-        .map(str::to_string)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use term_vault::{Entry, KdfParams};
+
+    /// 连接期判据：答案从 `onekey:<name>:ki` 正确取出；vault 锁着 / 没条目 /
+    /// 别的方案的条目都不能凭空变出答案（明文回落在这一刀里被彻底删掉）。
+    #[test]
+    fn keyboard_interactive_answers_come_only_from_the_vault() {
+        let mut vault = term_vault::Vault::create_with(
+            "onekey-test-password",
+            KdfParams::fast_for_tests(),
+            None,
+        )
+        .expect("造保险库");
+        let answers = vec!["token".to_string(), "yes".to_string()];
+        vault
+            .upsert(Entry::password(
+                &term_core::onekey::ki_vault_id("prod"),
+                "prod",
+                &term_core::onekey::encode_ki_answers(&answers),
+            ))
+            .expect("写保险库");
+
+        let scheme = OneKey {
+            name: "prod".to_string(),
+            ..OneKey::default()
+        };
+        assert_eq!(onekey_answers(&scheme, Some(&vault)), answers);
+
+        // 没解锁 / 没条目：空表，不许回落任何明文。
+        assert!(onekey_answers(&scheme, None).is_empty());
+        let other = OneKey {
+            name: "other".to_string(),
+            ..OneKey::default()
+        };
+        assert!(onekey_answers(&other, Some(&vault)).is_empty());
+
+        // 中间夹空串时按第一个空串截断，不给 term-ssh 送空答案。
+        let with_gap = vec!["first".to_string(), String::new(), "later".to_string()];
+        vault
+            .upsert(Entry::password(
+                &term_core::onekey::ki_vault_id("gapped"),
+                "gapped",
+                &term_core::onekey::encode_ki_answers(&with_gap),
+            ))
+            .expect("写保险库");
+        let gapped = OneKey {
+            name: "gapped".to_string(),
+            ..OneKey::default()
+        };
+        assert_eq!(onekey_answers(&gapped, Some(&vault)), vec!["first".to_string()]);
+    }
 }

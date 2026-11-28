@@ -6,7 +6,7 @@
 use super::dialog_chrome::{fill_field, labeled_field, place, rgb, table_frame, tiny_button, FIELD_HH};
 use super::settings_live_onekeys::{OneKeysEdit, FIELD_W};
 use crate::ui::*;
-use term_core::onekey::{ChallengeResponse, OneKey, SYSTEM_NAMES};
+use term_core::onekey::{ChallengeHint, OneKey, SYSTEM_NAMES};
 
 // ── 右栏各元素的相对 y（相对主体顶，实测） ──
 const Y_USER_LABEL: f32 = 2.0;
@@ -240,9 +240,9 @@ pub(in crate::ui) fn ssh_editor(
         edit.key_editing = !edit.key_editing;
     }
 
-    // `Keyboard Interactive:` 标签 + 行增删。这张表**可编辑**：连接时学到的
-    // 挑战/应答会落在这里，也允许手动预置（2026-11-17 之前它永远空着，
-    // 且没有任何添加入口——一整块死区）。
+    // `Keyboard Interactive:` 标签 + 行增删。Challenge 列是可公开的提示（落
+    // prefs），Response 列是凭据：**只从 vault 读、只往 vault 写**，明文既不
+    // 进 `OneKey` 也不进 `onekeys_ki_draft` 之外的任何落盘结构。
     label_at(ui, o + egui::vec2(0.0, Y_KI_LABEL), "Keyboard Interactive:");
     // 视觉基线默认态没有 `+ / -`，只有表下方的 `Modify`；进入编辑态才露出按钮。
     let mut add = false;
@@ -259,21 +259,33 @@ pub(in crate::ui) fn ssh_editor(
             |ui| tiny_button(ui, "-").clicked(),
         );
     }
+    // 应答**只从 vault 取**。窗口的 `onekeys_ki_draft`（方案名 → 答案数组）是
+    // 本页的跨帧编辑缓冲：正在编辑这一方案时复用它，其余时候从 vault 读回。
+    // 这样 `TextEdit` 的缓冲跨帧稳定，而 prefs 侧没有任何能装答案的字段。
+    let mut answers = match win.onekeys_ki_draft.as_ref() {
+        Some((name, cached)) if name == &key.name => cached.clone(),
+        _ => win.onekey_ki_answers(&key.name),
+    };
     if add {
-        key.keyboard_interactive.push(ChallengeResponse {
-            challenge: String::new(),
-            response: String::new(),
-        });
+        key.keyboard_interactive.push(ChallengeHint::default());
+        answers.push(String::new());
     } else if del {
         key.keyboard_interactive.pop();
+        answers.pop();
+    }
+    // 提示表是行结构的正本：答案不足补空串（连接时按第一个空串截断，语义安全），
+    // 多出来的答案保留在数组里——不静默丢用户的凭据。
+    let ki_n = key.keyboard_interactive.len();
+    if answers.len() < ki_n {
+        answers.resize(ki_n, String::new());
     }
 
     let ki_tbl = egui::Rect::from_min_size(
         o + egui::vec2(0.0, Y_KI_TABLE),
         egui::vec2(FIELD_W, Y_KI_TABLE_H),
     );
-    let ki_n = key.keyboard_interactive.len();
     let ki_editing = edit.ki_editing;
+    let scheme_name = key.name.clone();
     table_frame(ui, ki_tbl, ki_n, "Challenge", "Response", |ui, row_rect, r| {
         if r >= ki_n {
             return;
@@ -290,20 +302,15 @@ pub(in crate::ui) fn ssh_editor(
             egui::vec2(half, row_rect.height()),
         );
         if ki_editing {
-            dark_cell(ui, rr, &mut key.keyboard_interactive[r].response);
+            dark_cell(ui, rr, &mut answers[r]);
         } else {
-            readonly_cell(ui, rr, &key.keyboard_interactive[r].response);
+            readonly_cell(ui, rr, &answers[r]);
         }
     });
-    if ki_editing {
-        // 应答是凭据：草稿只在内存里，保存时由 `save_onekeys` 写进保险库。
-        win.onekeys_ki_draft = Some((
-            key.name.clone(),
-            key.keyboard_interactive
-                .iter()
-                .map(|c| c.response.clone())
-                .collect(),
-        ));
+    if edit.ki_editing {
+        // 应答是凭据：草稿只在内存里，保存时由 `save_onekeys` 写进 vault。
+        // 这一赋值绝不写进 `key`（draft of OneKey），因此落不到 prefs.json。
+        win.onekeys_ki_draft = Some((scheme_name, answers));
     }
     if modify_link(
         ui,
