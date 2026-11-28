@@ -42,6 +42,7 @@ use serde_json::{json, Value};
 use term_bridge::error::SurfaceError;
 use term_bridge::handler::Surface;
 use term_bridge::jsonrpc::ErrorObject;
+use term_script::ScriptSessions;
 use term_session::SessionPool;
 
 /// 握手方法名。**不在** `term_core::surface::METHODS` 里（见模块文档）。
@@ -145,6 +146,9 @@ const MAX_CONSECUTIVE_ACCEPT_ERRORS: u32 = 128;
 /// `wait` 上」——不能让一个卡住的脚本挡掉其他客户端。
 pub fn serve_on(bound: Bound, probe: Arc<dyn lock::LockProbe>) -> Result<(), ServeError> {
     let pool = Arc::new(SessionPool::new());
+    // ADR-0030：这条服务进程只造一份游标登记处；每条连接拿到的 DeskSurface
+    // 都是同一张表的句柄，所以两个客户端先后读同一会话时续的是同一个读点。
+    let sessions = ScriptSessions::new();
     // `desk serve` 是无窗口的，内置 SSH 会话只能靠控制面自己的
     // 通道工厂开起来（没有对话框可以问凭据，所以工厂只认 Agent / 私钥）。
     crate::session_open::install_channel_factory(&pool);
@@ -168,6 +172,7 @@ pub fn serve_on(bound: Bound, probe: Arc<dyn lock::LockProbe>) -> Result<(), Ser
         let token = bound.token.clone();
         let probe = Arc::clone(&probe);
         let pool = Arc::clone(&pool);
+        let sessions = sessions.handle();
         // **先鉴权再 spawn**：以前一条连接一 accept 就起线程，任意本机进程
         // 可以只连上来不说话，把 accept 循环变成线程工厂（DoS）。token 不对
         // 或握不上手的连接在 accept 这条串行路径上就被关掉，根本不占线程。
@@ -184,7 +189,7 @@ pub fn serve_on(bound: Bound, probe: Arc<dyn lock::LockProbe>) -> Result<(), Ser
         };
         std::thread::spawn(move || {
             let gated = LockedGate {
-                inner: surface::DeskSurface::new(pool),
+                inner: surface::DeskSurface::with_sessions(pool, sessions),
                 probe,
             };
             let _ = term_bridge::transport::serve_stdio(&gated, reader, &mut writer);

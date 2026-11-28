@@ -117,6 +117,13 @@ pub struct ScriptSession {
     inner: Arc<Mutex<dyn Session>>,
     /// `read` / `read_until` / `wait_any` 的共享捕获游标（所有克隆共享同一份）。
     capture: Arc<Mutex<Capture>>,
+    /// 消费式读原语的**逐会话序列化门**（所有克隆共享同一把）。
+    ///
+    /// 脚本与 API 两个前端共用一份游标后，两次 `read_until` 若并发推进同一个
+    /// `ScanCursor`，两段文本会被谁先醒来谁拿走，调用方无法预测自己读到哪一段。
+    /// 这里把「检查未消费段 → 等新数据 → 推进游标」整段串成一次临界区：
+    /// 第二个前端排队等第一个取完（或超时）再读。不排队、不抢占，语义确定。
+    read_gate: Arc<Mutex<()>>,
     /// **绝对**墙钟截止点（构造时 = 现在 + 预算）。所有阻塞原语都把请求的
     /// 超时收成 `deadline - now`，于是多次等待共享同一份预算——一次等掉多少，
     /// 后面的就少多少（不再是每次都按整份预算重新钳一遍）。
@@ -177,6 +184,23 @@ impl ScriptSession {
         Self {
             inner: session,
             capture: Arc::new(Mutex::new(Capture::with_reader(reader))),
+            read_gate: Arc::new(Mutex::new(())),
+            deadline,
+            cancel,
+        }
+    }
+
+    /// 共享同一会话与同一份捕获游标，只把墙钟截止点与取消令牌换成这次运行的。
+    ///
+    /// 登记处里的那份 `ScriptSession` 长期驻留（远程前端也在用），不能替某一次
+    /// 脚本运行背一个会过期的截止点；工作区每次取句柄时用本方法派生一份带
+    /// 本次运行策略的视图。`inner` / `capture` / `read_gate` 都是 `Arc` 克隆，
+    /// 所以换的只是策略，游标仍是同一份实例。
+    pub(crate) fn for_run(&self, deadline: Instant, cancel: Option<CancelToken>) -> Self {
+        Self {
+            inner: Arc::clone(&self.inner),
+            capture: Arc::clone(&self.capture),
+            read_gate: Arc::clone(&self.read_gate),
             deadline,
             cancel,
         }
@@ -269,6 +293,9 @@ impl ScriptSession {
         timeout_secs: f64,
         filter: Option<&LineFilter>,
     ) -> Result<(String, term_core::automation::Span), PrimitiveError> {
+        // 两个前端共用同一份游标：整段读要串行，否则「谁先拿到哪段文本」
+        // 取决于线程调度。门在整个等待期间持有，第二个调用自然排队。
+        let _gate = lock_or_recover(&self.read_gate);
         if delimiter.is_empty() {
             return Err(PrimitiveError::EmptyPattern);
         }
@@ -332,6 +359,8 @@ impl ScriptSession {
         timeout_secs: f64,
         filter: Option<&LineFilter>,
     ) -> Result<(WaitAnyHit, term_core::automation::Span), PrimitiveError> {
+        // 与 read_until 同一把门：两个前端不会同时推进同一个游标。
+        let _gate = lock_or_recover(&self.read_gate);
         if patterns.is_empty() || patterns.iter().any(|p| p.is_empty()) {
             return Err(PrimitiveError::EmptyPattern);
         }
@@ -401,6 +430,7 @@ impl ScriptSession {
         timeout_secs: f64,
         filter: Option<&LineFilter>,
     ) -> Result<String, PrimitiveError> {
+        let _gate = lock_or_recover(&self.read_gate);
         let timeout = self.effective_timeout(timeout_secs);
         let mut cap = self.capture_guard();
         self.ensure_reader(&mut cap)?;
@@ -504,6 +534,7 @@ impl ScriptSession {
         quiet_secs: f64,
         timeout_secs: f64,
     ) -> Result<String, PrimitiveError> {
+        let _gate = lock_or_recover(&self.read_gate);
         let quiet = self.effective_timeout(quiet_secs);
         let timeout = self.effective_timeout(timeout_secs);
         let deadline = Instant::now() + timeout;
@@ -542,6 +573,8 @@ impl ScriptSession {
     /// 尽力而为：安静窗口等不到就返回（写已经成功了，等不到安静不是写的失败），
     /// 会话结束也直接返回。上限 [`SETTLE_CAP`] 保证不会把脚本卡在这里。
     pub(crate) fn settle(&self, quiet: Duration) {
+        // 收下的文本留在未消费段里；若此时另一前端正在读，先把门让给它。
+        let _gate = lock_or_recover(&self.read_gate);
         let mut cap = self.capture_guard();
         // 收尾也不能把脚本推过总截止点：取「固定收尾上限」与「剩余预算」的较小者。
         let cap_secs = self.deadline.saturating_duration_since(Instant::now());

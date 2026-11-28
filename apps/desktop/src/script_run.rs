@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use term_core::session::SessionConfig;
 use term_core::session_runtime::SessionId;
-use term_script::{CancelToken, ScriptBudget, ScriptEngine, ScriptWorkspace};
+use term_script::{CancelToken, ScriptBudget, ScriptEngine, ScriptSessions, ScriptWorkspace};
 use term_session::SessionPool;
 
 use crate::script_clip::{DeskClipboard, DeskUi, SelectionSlot};
@@ -274,6 +274,9 @@ pub struct RunOptions {
     pub budget: ScriptBudget,
     /// 同会话互斥登记簿。`None` = 不做互斥（CLI 单跑、单元测试）。
     pub registry: Option<Arc<ScriptRunRegistry>>,
+    /// 与 API 前端共用的按会话游标登记处（ADR-0030）。缺省取宿主构造的
+    /// 那一份，所以界面、CLI 与单测不必各自接线就已经共用同一个读点。
+    pub sessions: ScriptSessions,
     /// 这个脚本叫什么（进了「谁在跑」的提示）。空串时按「未命名脚本」。
     pub who: String,
     /// `true` = 前台运行（面板 / 编辑器 / 运行窗口），同一会话只许一条；
@@ -307,6 +310,7 @@ impl Default for RunOptions {
             script_path: None,
             budget: ScriptBudget::of(term_script::BudgetKind::Interactive),
             registry: None,
+            sessions: ScriptSessions::shared().handle(),
             who: String::new(),
             foreground: true,
         }
@@ -324,6 +328,12 @@ impl RunOptions {
     pub fn with_registry(mut self, registry: Arc<ScriptRunRegistry>, who: impl Into<String>) -> Self {
         self.registry = Some(registry);
         self.who = who.into();
+        self
+    }
+
+    /// 显式指定与 API 前端共用的游标登记处（装配点与回归测试用）。
+    pub fn with_sessions(mut self, sessions: ScriptSessions) -> Self {
+        self.sessions = sessions;
         self
     }
 
@@ -513,10 +523,13 @@ impl ScriptRun {
             .name("desk-script".to_string())
             .spawn(move || {
                 let sandbox = options.budget.sandbox();
-                let workspace = Arc::new(ScriptWorkspace::new(
+                // 与 API 前端（外部 Python 的 DeskSurface）共用同一份读游标：
+                // 脚本 read_until 消费过的文本，API read_until 从同一读点续。
+                let workspace = Arc::new(ScriptWorkspace::with_sessions(
                     env,
                     session,
                     sandbox.execution_timeout,
+                    options.sessions.handle(),
                 ));
                 let outcome = match ScriptEngine::new(sandbox).run_in_workspace(&spec.source, workspace)
                 {
@@ -602,6 +615,7 @@ impl ScriptRun {
         let script_path = path.to_string();
         let args = options.args.clone();
         let wall = options.budget.wall;
+        let sessions = options.sessions.handle();
         let (tx, rx) = mpsc::channel();
         let run_cancel = cancel.clone();
         let spawned = std::thread::Builder::new()
@@ -616,6 +630,7 @@ impl ScriptRun {
                     wall,
                     run_cancel,
                     caps,
+                    sessions,
                 ) {
                     Ok(value) => Outcome::Done(value),
                     Err(message) => Outcome::Failed {
