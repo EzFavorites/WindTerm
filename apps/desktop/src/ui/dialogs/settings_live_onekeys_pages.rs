@@ -140,7 +140,9 @@ fn credential_group(
                 *show = !*show;
             }
         }
-        None => dark_field(ui, rect, value),
+        None => {
+            dark_field(ui, rect, value);
+        }
     }
 }
 

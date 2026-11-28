@@ -91,7 +91,7 @@ fn ordinary_paste_never_carries_the_restore_flag() {
 #[test]
 fn a_bad_escape_note_from_the_ip_hit_reaches_the_foreground_notice() {
     let mut win = fixture(false);
-    win.pending_ip_hit = Some(crate::ui::dialogs::triggers::model::Hit {
+    win.pending_ip_hit = Some(crate::ui::dialogs::triggers::model::ViewHit {
         rule_id: "ip-hit".into(),
         actions: vec![crate::ui::dialogs::triggers::model::UiAction::SendText(r"\x0".into())],
         matched: String::new(),

@@ -8,7 +8,8 @@
 
 use std::time::Duration;
 
-use serde::{Deserialize, Serialize};
+// 投影只在内存里用：落盘 / 传输的形状是 `term_core::automation::Rule`，
+// 这里不派生 serde，也不给桌面端引入 serde 依赖（`json!` 只生成参数值）。
 use serde_json::json;
 use term_core::automation::{
     Action, AlertKind, AppAction, Filter, Guard, Invocation, LinkSpec, MarkSpec, MenuItemSpec,
@@ -16,7 +17,7 @@ use term_core::automation::{
 };
 
 /// 类型下拉的 11 项。只是**预设工厂的入口**，不是规则字段。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum TriggerKind {
     CustomLink,
     CustomMenu,
@@ -79,7 +80,7 @@ impl TriggerKind {
 }
 
 /// 六条求值信号通道（对应 `When` 的六个分支）。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) enum Channel {
     #[default]
     Output,
@@ -115,7 +116,7 @@ impl Channel {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) enum ColorChoice {
     #[default]
     Empty,
@@ -123,7 +124,7 @@ pub(in crate::ui) enum ColorChoice {
     Custom(String),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum LineStyle {
     #[default]
     None,
@@ -180,7 +181,7 @@ impl LineStyle {
     ];
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum ActionKind {
     #[default]
     RunCommand,
@@ -207,24 +208,21 @@ impl ActionKind {
     ];
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct OsCommand {
-    #[serde(default)]
     pub command: String,
-    #[serde(default)]
     pub arguments: String,
-    #[serde(default)]
     pub working_directory: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum SendMode {
     #[default]
     Text,
     Script,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub(in crate::ui) enum SendCondition {
     #[default]
     AfterMatchAndPrompt,
@@ -248,41 +246,28 @@ impl SendCondition {
     ];
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct MatchFlags {
-    #[serde(default)]
     pub dot_all: bool,
-    #[serde(default)]
     pub whole_word: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct MarkConfig {
-    #[serde(default)]
     pub mark_style: LineStyle,
-    #[serde(default)]
     pub mark_color: ColorChoice,
-    #[serde(default)]
     pub text_color: ColorChoice,
-    #[serde(default)]
     pub background_color: ColorChoice,
-    #[serde(default)]
     pub line_style: LineStyle,
-    #[serde(default)]
     pub line_color: ColorChoice,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) struct SendConfig {
-    #[serde(default)]
     pub text: String,
-    #[serde(default)]
     pub mode: SendMode,
-    #[serde(default)]
     pub capture: String,
-    #[serde(default)]
     pub condition: SendCondition,
-    #[serde(default = "default_later")]
     pub later_secs: String,
 }
 
@@ -302,21 +287,14 @@ impl Default for SendConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub(in crate::ui) struct ActionConfig {
-    #[serde(default)]
     pub kind: ActionKind,
-    #[serde(default = "default_os")]
     pub os: [OsCommand; 3],
-    #[serde(default)]
     pub hyperlink: String,
-    #[serde(default)]
     pub mode: SendMode,
-    #[serde(default)]
     pub sound: String,
-    #[serde(default)]
     pub sound_secs: f32,
-    #[serde(default)]
     pub hide_console: bool,
 }
 
@@ -338,67 +316,48 @@ impl Default for ActionConfig {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct MenuItem {
-    #[serde(default)]
     pub label: String,
-    #[serde(default)]
     pub action: ActionKind,
-    #[serde(default)]
     pub separator: bool,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct MenuConfig {
-    #[serde(default)]
     pub items: Vec<MenuItem>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct TooltipConfig {
-    #[serde(default)]
     pub text: String,
-    #[serde(default)]
     pub mode: SendMode,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(in crate::ui) struct TargetConfig {
-    #[serde(default)]
     pub systems: Vec<String>,
-    #[serde(default)]
     pub sessions: Vec<String>,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::ui) struct RuleConfig {
-    #[serde(default)]
     pub flags: MatchFlags,
-    #[serde(default)]
     pub mark: MarkConfig,
-    #[serde(default)]
     pub action: ActionConfig,
-    #[serde(default)]
     pub send: SendConfig,
-    #[serde(default)]
     pub targets: TargetConfig,
-    #[serde(default)]
     pub menu: MenuConfig,
-    #[serde(default)]
     pub tooltip: TooltipConfig,
 }
 
 /// 编辑器里的规则投影。字段与 11 种类型的面板一一对应；落盘前展开成正交规则。
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(in crate::ui) struct ViewRule {
     pub id: RuleId,
-    #[serde(default)]
     pub name: String,
-    #[serde(default)]
     pub description: String,
-    #[serde(default)]
     pub kind: TriggerKind,
-    #[serde(default)]
     pub config: RuleConfig,
     pub on: Channel,
     pub pattern: String,
@@ -423,7 +382,7 @@ pub(in crate::ui) struct ViewHit {
 }
 
 /// 命中后做什么。派发由宿主按 [`Action`] 的四类落点完成。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) enum UiAction {
     SendText(String),
     SendLine(String),

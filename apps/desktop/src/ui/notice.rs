@@ -282,17 +282,27 @@ mod tests {
         let mut rule = Rule::default();
         rule.id = "bad-escape".into();
         rule.enabled = true;
-        rule.on = term_core::automation::Lifecycle::BeforeConnect;
+        rule.on = Channel::BeforeConnect;
         rule.actions = vec![UiAction::SendText(r"\x0".into())];
         win.triggers = vec![rule];
+        // 与真实帧一样先把窗口规则装进标签的求值器：draw 里由
+        // `Tab::poll_with_policy` 每帧 reload，生命周期事件才看得到新规则。
+        let core: Vec<_> = win
+            .triggers
+            .iter()
+            .map(crate::ui::dialogs::triggers::model::ViewRule::to_core)
+            .collect();
+        win.tabs[0].triggers.reload(&core);
         win.lifecycle_events
             .lock()
             .expect("事件队列")
             .push(term_core::automation::Lifecycle::BeforeConnect);
 
-        // 与 `mod.rs::draw` / `lifecycle_events::poll` 同一形态。
+        // 与 `mod.rs::draw` 同一形态：poll 只排队意图，帧末还要 drain 才落地。
         let mut note = None;
-        crate::ui::lifecycle_events::poll(&mut win, 100, &mut Vec::new(), &mut note);
+        let mut cmds = Vec::new();
+        crate::ui::lifecycle_events::poll(&mut win, 100, &mut cmds, &mut note);
+        crate::ui::trigger_intents::drain(&mut win, &mut cmds, &mut note);
         win.commit_note(note.take());
 
         let reported = win.log_note.as_deref().expect("错误不能被旧提示吃掉");
@@ -389,15 +399,23 @@ mod tests {
             let mut rule = Rule::default();
             rule.id = "frame-end-escape".into();
             rule.enabled = true;
-            rule.on = term_core::automation::Lifecycle::BeforeConnect;
+            rule.on = Channel::BeforeConnect;
             rule.actions = vec![UiAction::SendText(r"\x0".into())];
             win.triggers = vec![rule];
+            let core: Vec<_> = win
+                .triggers
+                .iter()
+                .map(crate::ui::dialogs::triggers::model::ViewRule::to_core)
+                .collect();
+            win.tabs[0].triggers.reload(&core);
             win.lifecycle_events
                 .lock()
                 .expect("事件队列")
                 .push(term_core::automation::Lifecycle::BeforeConnect);
             let mut note = None;
-            crate::ui::lifecycle_events::poll(&mut win, 100, &mut Vec::new(), &mut note);
+            let mut cmds = Vec::new();
+            crate::ui::lifecycle_events::poll(&mut win, 100, &mut cmds, &mut note);
+            crate::ui::trigger_intents::drain(&mut win, &mut cmds, &mut note);
             win.commit_note(note.take());
 
             let merged = win

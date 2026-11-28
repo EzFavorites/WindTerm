@@ -110,7 +110,9 @@ mod script;
 /// 不一致迟早出现，而根因藏在两份 `.rhai` 判定里。
 pub(in crate::ui) mod script_library;
 mod select;
-mod session;
+// `pub(in crate::ui)`：帧末派发层（`ui/trigger_intents.rs`）要复用这里的
+// 转义解码与写 PTY 闸门，两点必须在同一个入口，不能各写一份编码规则。
+pub(in crate::ui) mod session;
 pub(in crate::ui) mod trigger_dispatch;
 /// ④-0：新窗格身份铸造逻辑集中在 `crate::ui::layout::mint_pane_identity`
 /// （定义在 `layout/split.rs`，与 `PaneId` 同处）。`setup` 模块放开给 `crate::ui`
