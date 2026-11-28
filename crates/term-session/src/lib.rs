@@ -37,6 +37,7 @@ pub mod sysmon_parse;
 use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -143,11 +144,19 @@ struct Entry {
     tap: RawControl,
 }
 
+/// 仲裁 scope 号的进程内分配源。单调、不回收——与 `Arc::as_ptr` 相反，
+/// 池释放后地址可被下一个池复用，号不会（见 [`SessionPool::scope_id`]）。
+static NEXT_SCOPE_ID: AtomicU64 = AtomicU64::new(1);
+
 /// 会话控制面：`SessionId → Arc<Mutex<dyn Session>>` 的唯一登记处。
 ///
 /// `&self` 的方法 + 内部 `Mutex`：一个 [`SessionPool`] 可以被 UI 线程、
 /// 脚本线程、桥接线程同时持有（各持 `Arc`），无需外部加锁。
 pub struct SessionPool {
+    /// 进程内唯一的池身份，供上层把会话 id 抬到全局唯一的仲裁键。
+    /// 不是地址：地址在池释放后会被复用，历史上正是这一点让跨测试的
+    /// owner 串台（旧池的 P3 owner 压住新池同号会话的写）。
+    scope_id: u64,
     sessions: Mutex<HashMap<SessionId, Entry>>,
     /// 应用层注册的通道工厂，只装一次、装完只读（无需表锁）。
     factory: OnceLock<Arc<ChannelFactory>>,
@@ -207,12 +216,23 @@ fn lock_or_recover<T: ?Sized>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 impl SessionPool {
     pub fn new() -> Self {
         Self {
+            scope_id: NEXT_SCOPE_ID.fetch_add(1, Ordering::Relaxed),
             sessions: Mutex::new(HashMap::new()),
             factory: OnceLock::new(),
             onekeys: Mutex::new(Vec::new()),
             global_proxy: Mutex::new(None),
             event_sink: Mutex::new(None),
         }
+    }
+
+    /// 本池的进程内唯一 scope 号（单调分配，释放后不回收）。
+    ///
+    /// 仲裁器按会话隔离状态，而会话 id 只保证池内寻址；把本号与会话 id
+    /// 混成仲裁键，不同池 / 不同会话互不串，同一池同一会话仍稳定。
+    /// 绝不用 `Arc::as_ptr`：地址在池 drop 后可被新池复用，旧池残留的
+    /// owner 会压住新池同 id 会话——测试中已观察到这种跨测试串台。
+    pub fn scope_id(&self) -> u64 {
+        self.scope_id
     }
 
     /// 灌入登录方案表（OneKeys）。**可重复调用**，后一次覆盖前一次。
@@ -725,6 +745,11 @@ mod tests {
         // 前只有 resolve / name 两条能穿过它，其余 13 处会把 GUI
         // 一起带走。这里把表侧 / 会话侧 / 写路径各走一遍，钉死收口后的行为。
         let pool = Arc::new(SessionPool::new());
+        // 仲裁 scope 号必须跨池唯一、同池稳定：地址会在池释放后被复用，
+        // 单调号不会（正是旧实现跨测试 owner 串台的成因）。
+        let other = SessionPool::new();
+        assert_ne!(pool.scope_id(), other.scope_id(), "不同池必须拿到不同 scope");
+        assert_eq!(pool.scope_id(), pool.scope_id(), "同一池的 scope 必须稳定");
         let mut cfg = SessionConfig::new(Protocol::Shell);
         cfg.name = "poison-me".to_string();
         let id = pool.open(&cfg, 80, 24).expect("起 shell 会话");
