@@ -421,6 +421,7 @@ step "4n. ADR-0030 改版：控制端点全平台唯一 loopback TCP + key/HMAC 
 #     ACL）+ 传输级 `auth.challenge` → HMAC-SHA256 证明 → `auth.key` 三帧；
 #   · 对端必须 loopback（127/8 或 ::1）；首请求 30 秒超时；单行 1 MiB，超限
 #     回解析错误并关连接；
+#   · 请求行一旦写出就绝不重发（非注释代码里的 `ClientError::PossiblyExecuted`）；
 #   · 挑战帧没有 `jsonrpc` / `id`，不进 METHODS / describe；token 握手与
 #     serve / script run / headless 三个自建会话池入口必须消失。
 # **别把「有 TCP」当通过**：旧 ADR-0022 也有 TCP，但那是 token 握手；这里逐项
@@ -449,11 +450,21 @@ line_limit=$(grep -cE 'LINE_LIMIT|1024 \* 1024' "$CONTROL_RS" 2>/dev/null || tru
 timeout=$(grep -cE 'FIRST_REQUEST_TIMEOUT|from_secs\(30\)|set_read_timeout' "$CONTROL_RS" 2>/dev/null || true)
 auth_method=$(grep -rEnE 'name:[[:space:]]*"auth"|method:[[:space:]]*"auth"|"method":"auth"|call\("auth"' crates/term-core/src/surface.rs $BRIDGE_RS apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
 auth_old=$(grep -rEnE 'AUTH_METHOD|auth_reply|token::|bridge[.]token' $BRIDGE_RS apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
-# 只看真正会打印给用户的用法文本；「不再提 socket 路径」这类注释与断言
+# 只看真正会打印给用户的文本；「不再提 socket 路径」这类注释与断言
 # 本来就该提到旧名字，拿它们判红是自摆乌龙。
-socket_words=$(grep -rEn 'control\.sock|Unix domain socket|命名管道' apps/desktop/src/cli --include='*.rs' 2>/dev/null \
-  | grep -vE ':[[:space:]]*//' | grep -vE 'assert!|\.contains\(' || true)
-at_most_once=$(grep -cE 'PossiblyExecuted|不重发' apps/desktop/src/bridge/client.rs 2>/dev/null || true)
+# 扫描面从 cli/ 扩到 main.rs 与随发布包分发的用户文档：旧口径只查 cli，
+# README 把 `control.sock` / peercred 写进发布包也照样绿。词表只收「具体旧
+# 端点/机制」——正确文档里的「不是 UDS / 命名管道」是反例说明，本来就该留，
+# 因此不把裸 `UDS` / `命名管道` 当命中词（那会逼人删掉解释新形态的句子）。
+socket_words=$(grep -nE 'control\.sock|Unix domain socket|peercred' \
+  apps/desktop/src/main.rs apps/desktop/src/cli/*.rs \
+  README.md docs/user-guide.md docs/security.md docs/scripting.md docs/building.md 2>/dev/null \
+  | grep -vE ':[[:space:]]*(//|/\*|\*)' | grep -vE 'assert!|\.contains\(' || true)
+# 旧判据 `grep -c 'PossiblyExecuted|不重发'` 连注释都算：把两处真返回点注释掉、
+# 只在文档里留一句「不重发」照样绿。只数**非注释代码**里的
+# `ClientError::PossiblyExecuted`（错误类型 + 两个返回点 + 行为测试断言）。
+at_most_once=$(grep -nE 'ClientError::PossiblyExecuted' apps/desktop/src/bridge/client.rs 2>/dev/null \
+  | grep -vE ':[[:space:]]*//' | grep -c . || true)
 headless_code=$(grep -rEn 'run_headless|headless_exec|"serve"[[:space:]]*=>|"script"[[:space:]]*=>' apps/desktop/src/main.rs apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
 stale_files=""
 for f in apps/desktop/src/bridge/platform apps/desktop/src/bridge/token.rs apps/desktop/src/cli/serve.rs apps/desktop/src/cli/script.rs; do
@@ -469,7 +480,7 @@ if [ "${bind_control:-0}" -ne 1 ] || [ -n "$bind_fixed" ] \
    || [ "${timeout:-0}" -lt 1 ] || [ "${at_most_once:-0}" -lt 1 ] \
    || [ -n "$auth_method" ] || [ -n "$auth_old" ] || [ -n "$socket_words" ] \
    || [ -n "$headless_code" ] || [ -n "$stale_files" ]; then
-  bad "控制端点形态不符：loopback bind=${bind_control}（应 1） 别处固定端口绑定=[${bind_fixed}] 平台残留=[${platform_left}] UDS/管道=[${uds_win}] windows-sys=${winsys_dep} key文件=${key_name} 0600=${key_mode} 熵源=${key_entropy} 端口env=${port_env} 挑战帧=${challenge_text}/${challenge_field} HMAC=${hmac_code} loopback校验=${peer_check} 行限=${line_limit} 超时=${timeout} 一次性=${at_most_once} 能力面auth=[${auth_method}] 旧token=[${auth_old}] socket文案=[${socket_words}] 无头入口=[${headless_code}] 旧文件=[${stale_files}]"
+  bad "控制端点形态不符：loopback bind=${bind_control}（应 1） 别处固定端口绑定=[${bind_fixed}] 平台残留=[${platform_left}] UDS/管道=[${uds_win}] windows-sys=${winsys_dep} key文件=${key_name} 0600=${key_mode} 熵源=${key_entropy} 端口env=${port_env} 挑战帧=${challenge_text}/${challenge_field} HMAC=${hmac_code} loopback校验=${peer_check} 行限=${line_limit} 超时=${timeout} 一次性=${at_most_once}（非注释代码） 能力面auth=[${auth_method}] 旧token=[${auth_old}] socket文案=[${socket_words}] 无头入口=[${headless_code}] 旧文件=[${stale_files}]"
 else
   ok "全仓唯一 loopback 绑定（127.0.0.1:47653 / WINDTERM_CONTROL_PORT）；UDS/管道/windows-sys 清零；key 文件 0600 + HMAC-SHA256 挑战证明 + loopback 对端校验 + 1 MiB 行限 + 30s 首请求超时齐备；无能力面 auth / token / 无头入口"
 fi
@@ -496,8 +507,8 @@ step "4o. 测试与验收不得抢占前台（自动化调用一律 --screenshot
 #      `cli::try_run` / `--list-components` / `api` / `mcp` 这几条在 `eframe`
 #      之前 return 的无窗口出口。无头执行 / 进程级脚本入口已删除，不再是豁免。
 #      只查 `scripts/`：这是自动化唯一会拉起 GUI 的地方。`apps/desktop/tests/` 里
-#      的进程级用例走无窗口子命令或用 UDS，不会开真窗口，用 grep 去猜 Rust 的
-#      参数数组只会误报。
+#      的进程级用例走无窗口子命令或 TCP loopback 控制端点，不会开真窗口，用
+#      grep 去猜 Rust 的参数数组只会误报。
 main_rs=apps/desktop/src/main.rs
 fs_flags=""
 grep -q 'with_visible(false)' "$main_rs" 2>/dev/null || fs_flags="${fs_flags}with_visible(false) "
@@ -1185,15 +1196,23 @@ else
   ok "全仓库 0 命中（docs 可读，$(ls docs | wc -l | tr -d ' ') 份文档）"
 fi
 
-step "8. 截图基准存档"
-# 六张整窗 + 每组件一张：整窗管位置，组件管外观（见 8c）。
-shots=apps/desktop/tests/baseline/screenshot-*.png
-n_shots=$(ls $shots 2>/dev/null | wc -l | tr -d ' ')
+step "8. 截图基准存档（张数以 docs/facts.txt 的 baselines 为准）"
+# 旧判据写死「整窗 ≥6 / 组件 ≥2」：facts.txt 与 check-docs.sh 记的是 16 张
+# 整窗基线，这里却只查 6——删掉 10 张照样绿。改成读同一份机器认的账本，
+# 等值才算齐；账本缺失/没写 baselines 即判红，不让判据静默失效。
+baselines_want=$(grep -E '^baselines=' docs/facts.txt 2>/dev/null | head -1 | sed 's/^baselines=//' | tr -d '[:space:]')
+baselines_valid=1
+case "$baselines_want" in ''|*[!0-9]*) baselines_valid=0 ;; esac
+n_shots=$(ls apps/desktop/tests/baseline/screenshot-*.png 2>/dev/null | wc -l | tr -d ' ')
 n_comp=$(ls apps/desktop/tests/baseline/components/*.png 2>/dev/null | wc -l | tr -d ' ')
-if [ "${n_shots:-0}" -ge 6 ] && [ "${n_comp:-0}" -ge 2 ]; then
-  ok "基线齐备：整窗 ${n_shots} 张（贴底 / 回看 / 查找 / 选词 / 列选 / 弹窗）+ 组件 ${n_comp} 张"
+if [ "$baselines_valid" -eq 0 ]; then
+  bad "docs/facts.txt 里没有合法的 baselines（当前=[${baselines_want}]）——基线判据失效，不许判绿"
+elif [ "${n_shots:-0}" -ne "$baselines_want" ]; then
+  bad "整窗截图 ${n_shots:-0} 张 ≠ docs/facts.txt 的 baselines=${baselines_want}（少一张就是基线被删）"
+elif [ "${n_comp:-0}" -lt 2 ]; then
+  bad "组件截图 ${n_comp:-0} 张（应 ≥2）"
 else
-  bad "截图基准缺失：整窗 ${n_shots:-0} 张（应 ≥6）、组件 ${n_comp:-0} 张（应 ≥2）"
+  ok "基线齐备：整窗 ${n_shots} 张 = docs/facts.txt baselines(${baselines_want})；组件 ${n_comp} 张"
 fi
 
 step "8c. 视觉回归（可选，VERIFY_SCREENSHOT=1）：整窗十五张（含中文）+ 组件若干"

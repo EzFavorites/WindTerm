@@ -57,14 +57,15 @@ term-desk mcp                     # stdio MCP server（tools 来自 describe）
 term-desk --version
 ```
 
-## 完整门禁（可选）
+## 完整门禁（发布前置）
 
 `scripts/verify.sh` 是项目自己的验收脚本：分层与依赖边界、能力注册、冻结基线、
 单测、金样本、可选的视觉回归都在里面。CI 只跑 `cargo build` 与 `cargo test`；
-完整门禁在发布前跑：
+**发布 workflow 把它作为打包前的 `verify` job 跑一遍**（`SKIP_GIT_CHECK=1`），
+且不启用需要 GUI 的截图回归（`VERIFY_SCREENSHOT=0`，默认值）。本地提交前照常手动跑：
 
 ```sh
-bash scripts/verify.sh                    # 常规验收
+bash scripts/verify.sh                    # 常规验收（需干净树）
 SKIP_GIT_CHECK=1 bash scripts/verify.sh   # 提交前跑（跳过工作树干净检查）
 VERIFY_CLIPPY=1 bash scripts/verify.sh    # 额外跑 clippy（-D warnings）
 ```
@@ -92,17 +93,21 @@ bash scripts/package-release.sh <target-triple> <version> <binary> [out-dir]
 
 `.github/workflows/ci.yml`：每次 push 到 `main` 或 PR 时，在 `ubuntu-22.04` 上
 跑 `cargo build --workspace --locked` 与 `cargo test --workspace --locked`。
+完整门禁（`verify.sh` / `check-docs.sh`）由发布 workflow 的 `verify` job 负责，
+CI 与发布 workflow 都不跑需要 GUI 的截图回归。
 
 ## 发布
 
 `.github/workflows/release.yml`：
 
 1. 推 `v*` 标签（或手动派发）触发。
-2. `meta` job 从 `apps/desktop/Cargo.toml` 读版本号；tag 与版本不一致只告警。
-3. `build` job 四平台矩阵：macOS arm64 / macOS x86_64（交叉编译）/ Linux
+2. `meta` job 从 `apps/desktop/Cargo.toml` 读版本号；tag 与版本不一致即硬失败。
+3. `verify` job 先跑 `SKIP_GIT_CHECK=1 VERIFY_SCREENSHOT=0 bash scripts/verify.sh`；
+   失败则 `build` 不启动。workflow 里不跑需要 GUI 的截图回归。
+4. `build` job 四平台矩阵：macOS arm64 / macOS x86_64（交叉编译）/ Linux
    x86_64 / Windows MSVC。
-4. 每个平台构建、打包、校验包内结构、上传 artifact。
-5. tag 触发时创建 **draft** Release（先人工看一眼再发布）。
+5. 每个平台构建、打包、校验包内结构、上传 artifact。
+6. tag 触发时创建 **Pre-release**（`prerelease: true`、`draft: false`），正式版另行人工发布。
 
 版本号的唯一来源是 `apps/desktop/Cargo.toml` 的 `version`，不要在 workflow 里
 另写一份。

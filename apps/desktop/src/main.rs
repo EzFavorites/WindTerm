@@ -164,7 +164,8 @@ fn main() {
     }
 
     // ADR-0030：`--headless --exec` 那条无头执行路径已删除（上面的参数解析
-    // 直接报错退出）。会话只由前台窗口持有，远程一律走 UDS 控制端点。
+    // 直接报错退出）。会话只由前台窗口持有，远程一律走 TCP loopback 控制端点
+    //（默认 47653 / `WINDTERM_CONTROL_PORT`）。
 
     // 默认窗口的逻辑尺寸对齐 WindTerm 视觉基线主窗口（1280×760 @2×
     // 之前用框架默认的 800×600：底部快捷命令栏 4 组 15 项有一半被裁在
@@ -258,7 +259,7 @@ impl WindTermApp {
         shot: Option<std::path::PathBuf>,
     ) -> Self {
         let is_shot = shot.is_some();
-        // 夹具运行只画一帧/一个组件，不是「前台」：不去占固定 socket，
+        // 夹具运行只画一帧/一个组件，不是「前台」：不去占固定控制端口，
         // 免得把用户真窗口的控制端点顶掉。
         let is_fixture = demo.is_some() || comp_demo.is_some();
         let prefs = term_runtime::prefs::load().unwrap_or_default();
@@ -267,7 +268,7 @@ impl WindTermApp {
             shot: shot.map(shot::Shot::new),
         };
         app.ui.init(cc);
-        // UDS 控制端点只在真正的 GUI 启动路径里起：`api` / `mcp` 在
+        // TCP loopback 控制端点只在真正的 GUI 启动路径里起：`api` / `mcp` 在
         // `cli::try_run` 那一侧已经先返回，根本走不到这里。端点与窗口共用
         // 同一个池（`window.pool.clone()`），不再自建第二个 SessionPool。
         if !is_shot && !is_fixture {

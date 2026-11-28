@@ -8,11 +8,11 @@
 //!
 //! # 控制端点的边界
 //!
-//! ADR-0030 之后前台控制面走 UDS（`~/.zterm/control.sock`）：没有 TCP 端口、
-//! 没有 token 文件，准入靠 socket 权限 `0600` + peercred（同 uid）+ 锁屏门。
-//! 这一页只显示固定端点路径与准入口径，不连接、不探测、不产生任何句柄。
-
-use std::path::PathBuf;
+//! ADR-0030 之后前台控制面走 TCP loopback（默认端口 `47653`，可用
+//! `WINDTERM_CONTROL_PORT` 覆盖）：没有 UDS / 命名管道，也没有 token 文件；
+//! 准入靠 0600 的 `~/.zterm/control-key.local-<port>` + 传输级 HMAC 挑战 +
+//! loopback 对端校验 + 锁屏门。这一页只显示端点与准入口径，不连接、不探测、
+//! 不产生任何句柄。
 
 use super::settings_pages_view::{
     field_row, group_box, label_col, read_only, set_row_rhythm, Deco, Slot,
@@ -67,14 +67,14 @@ struct Status {
     recent: usize,
     library: usize,
     triggers: usize,
-    /// 固定端点路径；只从家目录推导，不连接、不建 socket。
-    endpoint: Option<PathBuf>,
+    /// 控制端点描述：loopback 地址 + 端口 + 准入口径，不连接、不建 socket。
+    endpoint: String,
     python: PythonSource,
 }
 
 fn collect() -> Status {
     let prefs = term_profile::prefs::load().unwrap_or_default();
-    let endpoint = crate::bridge::default_socket_path();
+    let endpoint = crate::bridge::endpoint_description();
     let env = std::env::var("WINDTERM_PYTHON").ok();
     Status {
         registered: prefs.scripts.len(),
@@ -116,11 +116,10 @@ pub(in crate::ui) fn script_api(win: &mut TerminalWindow, ui: &mut egui::Ui) {
     // 说明挂在字段悬停上，不另占一行——末页的四组内容已接近内容区底边。
     let note = win.tr(NOTE);
 
-    let endpoint = match s.endpoint {
-        Some(path) => path.display().to_string(),
-        None => win.tr("Home directory unavailable").to_string(),
-    };
-    let peer_gate = win.tr("Same uid + unlocked screen (UDS 0600)").to_string();
+    let endpoint = s.endpoint;
+    let peer_gate = win
+        .tr("Loopback peer + 0600 key file + HMAC challenge + unlocked screen")
+        .to_string();
     let python = match s.python {
         PythonSource::Env => win.tr("Environment override").to_string(),
         PythonSource::Path(name) => format!("{} ({name})", win.tr("PATH fallback")),
