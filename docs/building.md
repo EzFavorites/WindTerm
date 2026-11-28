@@ -45,7 +45,8 @@ cargo build -p term-desk --release
 ## 无窗口子命令
 
 `term-desk` 在窗口起来之前先处理这些子命令，适合 CI 与排障现场；它们不建
-会话池，`api` / `mcp` 只是前台 UDS 控制端点的薄客户端：
+会话池，`api` / `mcp` 只是前台 TCP loopback 控制端点的薄客户端（默认端口
+`47653`，可由 `WINDTERM_CONTROL_PORT` 覆盖）：
 
 ```sh
 term-desk doctor                  # 环境体检（shell / profile / 主题 / 能力面）

@@ -47,12 +47,15 @@
 ## 网络面
 
 - 程序只主动连接用户配置的主机（SSH / Telnet / SFTP / 隧道目标）。本地控制
-  端点不是 TCP 服务，而是 Unix domain socket `~/.zterm/control.sock`
-  （Windows 用命名管道），权限 0600 并校验 peercred，只接受同用户连接。
+  端点在所有平台统一绑 TCP loopback 端口（默认 `47653`，`WINDTERM_CONTROL_PORT`
+  覆盖），不是 UDS / 命名管道；对端必须是回环地址，不暴露到本机之外。
 - 没有遥测上报，也没有自动更新外联；网络活动面板把程序自身的连接列出来，
   便于核对。
 - CLI / MCP 客户端连不上控制端点时明确报错退出，绝不自己起一个会话池；
-  锁屏时拒绝接入与调用。没有 token 文件与 `auth` 握手（ADR-0030）。
+  锁屏时拒绝接入与调用。没有 token 文件，也没有能力面 `auth` 动词；准入是
+  0600 的 `~/.zterm/control-key.local-<port>` + 传输级 `auth.challenge`（key +
+  HMAC）、首请求超时与 1 MiB 行限（ADR-0030）。同用户任意代码能读 key 文件或
+  直接跑 CLI，这层防护不应被高估。
 
 ## 报告问题
 
