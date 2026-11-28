@@ -147,8 +147,10 @@ fn the_audit_line_is_greppable_and_states_the_platform_decision() {
         "必须写明是放行：{on_supported}"
     );
     assert!(
-        on_supported.contains("UDS 0600 + peercred") && on_supported.contains("DACL + SID"),
-        "token 已随 ADR-0030 删除；必须写清真正的主闸门：{on_supported}"
+        on_supported.contains("loopback 对端")
+            && on_supported.contains("0600 key 文件")
+            && on_supported.contains("HMAC-SHA256 挑战证明"),
+        "UDS / 命名管道已随 ADR-0030 改版删除；必须写清真正的主闸门：{on_supported}"
     );
     assert!(
         !on_supported.contains("主闸门仍是 token"),
@@ -169,7 +171,7 @@ fn the_audit_line_is_greppable_and_states_the_platform_decision() {
         "未实现的平台必须说清「本平台未做锁屏探测」：{off_supported}"
     );
     assert!(
-        off_supported.contains("UDS 0600 + peercred"),
+        off_supported.contains("HMAC-SHA256 挑战证明"),
         "未实现的平台也要写清主闸门：{off_supported}"
     );
 }

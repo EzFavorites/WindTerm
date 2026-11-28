@@ -5,7 +5,8 @@
 //! 所以必须在 `eframe` 起来之前处理掉——一旦进了 `main` 后半段，就会要求显示
 //! 环境，CI 与排障现场都跑不了。
 //!
-//! `api` / `mcp` 都只是前台 UDS 的薄客户端：连固定 socket、发请求、映射错误。
+//! `api` / `mcp` 都只是前台 loopback TCP 的薄客户端：连 `127.0.0.1:<port>`、
+//! 跑 key + HMAC 挑战证明、发请求、映射错误。
 //! 它们**没有** `serve` / `script run` / `--headless` 这些自建会话池的入口——
 //! 那些入口会让「远程操作窗口里的会话」变成「操作另一个池里的另一批会话」。
 //!
@@ -33,7 +34,9 @@ term-desk 无窗口子命令
   term-desk --version                         打印版本号（WindTerm x.y.z）
   term-desk --help                            这份说明
 
-无窗口入口不建会话池：api / mcp 要求前台窗口已经在跑，连 ~/.zterm/control.sock。
+无窗口入口不建会话池：api / mcp 要求前台窗口已经在跑，连 127.0.0.1:<port>
+（默认 47653，WINDTERM_CONTROL_PORT 可覆盖；key 文件
+~/.zterm/control-key.local-<port>，准入为 HMAC-SHA256 挑战证明）。
 窗口参数（--screenshot / --demo / --list-components）不经过这里，仍由 main 解析。";
 
 /// 若 `argv` 是一条无窗口子命令，执行并返回退出码；否则返回 `None`，

@@ -1,13 +1,13 @@
-//! `api` / `mcp` 的**二进制级**验收：真进程、无窗口、真 UDS 客户端。
+//! `api` / `mcp` 的**二进制级**验收：真进程、无窗口、真 loopback TCP 客户端。
 //!
 //! 前台控制端点只在 GUI 启动路径里起，所以本文件不试图在测试里拉起窗口
 //! （那会触发 GUI 全量构建与抢前台）。它钉住的是这条边界的另一半：
 //! **前台没运行时，薄客户端必须明确报错退出，绝不自建会话池**。
 //!
-//! 每个用例把 `HOME` 指向独立临时目录，因此固定路径 `~/.zterm/control.sock`
+//! 每个用例把 `HOME` 指向独立临时目录，因此 `~/.zterm/control-key.local-<port>`
 //! 一定不存在，也不会碰到开发者真窗口的端点。
-//! 真 UDS 上的一问一答由 `apps/desktop/src/bridge/mod_tests.rs` 用真 socket
-//! 在进程内覆盖（`0600` / peercred / 首条普通方法 / 锁屏静默关）。
+//! 真 TCP 上的挑战证明与一问一答由 `apps/desktop/src/bridge/mod_tests.rs`
+//! 在进程内覆盖（key 0600 / HMAC / loopback / 首条普通方法 / 行限 / 锁屏静默关）。
 
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
@@ -16,7 +16,7 @@ use std::process::{Command, Output, Stdio};
 fn run_in_empty_home(args: &[&str]) -> (Output, PathBuf) {
     static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let home = std::env::temp_dir().join(format!(
-        "zterm-uds-client-{}-{}",
+        "zterm-tcp-client-{}-{}",
         std::process::id(),
         SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     ));
@@ -40,10 +40,10 @@ fn api_reports_a_missing_front_end_instead_of_starting_a_pool() {
     assert_eq!(out.status.code(), Some(1), "前台不在必须非零退出：{out:?}");
     let text = stderr(&out);
     assert!(text.contains("前台未运行"), "诊断要说清原因：{text}");
-    assert!(text.contains("control.sock"), "诊断要点名端点路径：{text}");
+    assert!(text.contains("127.0.0.1:"), "诊断要点名 loopback 端口：{text}");
     assert!(
-        !home.join(".zterm/control.sock").exists(),
-        "客户端绝不能自己造一个端点"
+        std::fs::read_dir(home.join(".zterm")).is_err(),
+        "客户端绝不能自己造一个端点 / key 文件"
     );
 }
 
@@ -60,15 +60,27 @@ fn mcp_reports_a_missing_front_end_before_speaking_mcp() {
 }
 
 #[test]
-fn the_thin_client_help_paths_never_touch_the_socket() {
+fn the_thin_client_help_paths_never_touch_the_endpoint() {
+    help_text_speaks_port_and_key_not_socket_paths();
     for sub in ["api", "mcp"] {
         let (out, _home) = run_in_empty_home(&[sub, "--help"]);
         assert_eq!(out.status.code(), Some(0), "{sub} --help 应成功：{out:?}");
         assert!(
             !stderr(&out).contains("前台未运行"),
-            "help 不该去连 socket：{}",
+            "help 不该去连端点：{}",
             stderr(&out)
         );
+    }
+}
+
+fn help_text_speaks_port_and_key_not_socket_paths() {
+    for sub in ["api", "mcp"] {
+        let (out, _home) = run_in_empty_home(&[sub, "--help"]);
+        let text = String::from_utf8_lossy(&out.stdout);
+        assert!(text.contains("127.0.0.1:"), "{sub} 用法要点名端口：{text}");
+        assert!(text.contains("control-key.local"), "{sub} 用法要点名 key 文件：{text}");
+        assert!(!text.contains("control.sock"), "{sub} 不许再提 socket 路径：{text}");
+        assert!(!text.contains("命名管道"), "{sub} 不许再提命名管道：{text}");
     }
 }
 
