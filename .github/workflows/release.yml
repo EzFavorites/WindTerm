@@ -1,4 +1,4 @@
-# 发布：推 v* 标签时构建三个平台的安装包，并直接发布为 Pre-release。
+# 发布：推 v* 标签时构建三个平台的安装包，按 tag 判定正式版 / Pre-release。
 # 产物：macOS .dmg / Linux .deb + .zip / Windows .msi + .zip，各带 .sha256。
 #
 # 版本号的唯一来源是 apps/desktop/Cargo.toml 的 `version`；tag 只用于触发，
@@ -26,6 +26,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       tag: ${{ steps.v.outputs.tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
       - id: v
@@ -46,8 +47,15 @@ jobs:
               fi
               ;;
           esac
+          # 正式版 / 预发布由 tag 名判定：含 beta / alpha / rc 才是 Pre-release，
+          # v0.0.1 这类正式版本号发布为正式版；无 tag 的手动派发也按正式版处理。
+          PRERELEASE=false
+          case "$TAG" in
+            *beta*|*alpha*|*rc*) PRERELEASE=true ;;
+          esac
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
 
   # 发布前的验收门禁：verify.sh 默认跳过截图回归（VERIFY_SCREENSHOT=0），
   # 不拉起 GUI；SKIP_GIT_CHECK=1 跳过第 9 步的工作树检查——CI 检出由 GitHub
@@ -233,9 +241,9 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          # 直接发布为 Pre-release：正式版在手动验证通过后再单独发。
+          # tag 含 beta / alpha / rc 才标 Pre-release，其余（如 v0.0.1）为正式版。
           draft: false
-          prerelease: true
+          prerelease: ${{ needs.meta.outputs.prerelease == 'true' }}
           generate_release_notes: false
           body_path: CHANGELOG.md
           name: WindTerm ${{ needs.meta.outputs.version }}

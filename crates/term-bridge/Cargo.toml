@@ -1,6 +1,6 @@
 [package]
 name = "term-bridge"
-version = "0.0.1-beta4"
+version = "0.0.1"
 rust-version = "1.94"
 edition = "2021"
 
