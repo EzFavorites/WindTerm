@@ -11,6 +11,7 @@ use crate::ui::startup_defaults::startup_defaults;
 use term_profile::prefs::Prefs;
 use crate::ui::layout::{PaneGroup, PaneId};
 use crate::ui::layout::mint_pane_identity;
+use super::construct_tools::default_tools;
 
 /// prefs 里的全局代理 → 控制面能认的类型；0 档 / 缺主机 / 缺端口都当没配。
 fn global_proxy_from_prefs(prefs: &Prefs) -> Option<term_core::session::GlobalProxy> {
@@ -625,52 +626,6 @@ impl TerminalWindow {
         let enabled = self.tunnels_enabled;
         self.set_tunnels_enabled(enabled);
     }
-}
-
-/// 工具按钮的出厂列表（图标 + 提示 + 动作）。
-fn default_tools() -> Vec<ToolButton> {
-    vec![
-        ToolButton {
-            icon: "⬜",
-            tooltip: "New Session",
-            action: ToolAction::NewSession,
-        },
-        ToolButton {
-            icon: "🔌",
-            tooltip: "Connect",
-            action: ToolAction::Connect,
-        },
-        ToolButton {
-            icon: "🚫",
-            tooltip: "Disconnect",
-            action: ToolAction::Disconnect,
-        },
-        ToolButton {
-            icon: "🔄",
-            tooltip: "Refresh",
-            action: ToolAction::Refresh,
-        },
-        ToolButton {
-            icon: "⚙",
-            tooltip: "Settings",
-            action: ToolAction::Settings,
-        },
-        ToolButton {
-            icon: "⌨",
-            tooltip: "Terminal",
-            action: ToolAction::Terminal,
-        },
-        ToolButton {
-            icon: "📁",
-            tooltip: "SFTP",
-            action: ToolAction::Sftp,
-        },
-        ToolButton {
-            icon: "📡",
-            tooltip: "Serial",
-            action: ToolAction::Serial,
-        },
-    ]
 }
 
 impl TerminalWindow {

@@ -290,7 +290,10 @@ mod tests {
         let core: Vec<_> = win
             .triggers
             .iter()
-            .map(crate::ui::dialogs::triggers::model::ViewRule::to_core)
+            .map(|r| {
+                crate::ui::dialogs::triggers::model::ViewRule::to_core(r)
+                    .expect("测试规则的模式有效")
+            })
             .collect();
         win.tabs[0].triggers.reload(&core);
         win.lifecycle_events
@@ -405,7 +408,10 @@ mod tests {
             let core: Vec<_> = win
                 .triggers
                 .iter()
-                .map(crate::ui::dialogs::triggers::model::ViewRule::to_core)
+                .map(|r| {
+                    crate::ui::dialogs::triggers::model::ViewRule::to_core(r)
+                        .expect("测试规则的模式有效")
+                })
                 .collect();
             win.tabs[0].triggers.reload(&core);
             win.lifecycle_events

@@ -521,10 +521,17 @@ fn apply(win: &mut TerminalWindow, view: &mut View, mut act: Actions) {
     }
     if act.save {
         // 11 种类型的编辑投影在此展开成正交规则，落盘的唯一真相是 automation::Rule。
-        let snapshot: Vec<term_core::automation::Rule> =
+        // 无效模式不能被空模式顶替：那会让这条规则匹配每一行。宁可整批不落盘，
+        // 并把原因留在状态栏，也不写一条语义已经变形的规则。
+        let snapshot: Result<Vec<term_core::automation::Rule>, String> =
             win.triggers.iter().map(|r| r.to_core()).collect();
-        super::settings_live::save_prefs(|p| p.triggers = snapshot);
-        win.reload_triggers();
+        match snapshot {
+            Ok(snapshot) => {
+                super::settings_live::save_prefs(|p| p.triggers = snapshot);
+                win.reload_triggers();
+            }
+            Err(msg) => win.log_note = Some(format!("触发器未保存：{msg}")),
+        }
     }
     if act.close {
         win.view.show_triggers = false;

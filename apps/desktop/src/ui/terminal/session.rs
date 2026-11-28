@@ -158,8 +158,16 @@ impl Tab {
         let now = now_secs();
         // 编辑投影 → 内核规则。每帧 reload 不会清运行态：`Evaluator::reload`
         // 按规则 id 保留冷却 / once 记账，只更新规则本体。
-        let core_rules: Vec<term_core::automation::Rule> =
-            rules.iter().map(model::ViewRule::to_core).collect();
+        // 无效模式的规则不能退化成「匹配每一行」的空模式：跳过它，并把原因
+        // 交给状态栏。其余规则照常 reload，一条坏规则不至于拖垮整帧事件泵。
+        let mut core_rules = Vec::with_capacity(rules.len());
+        for rule in rules {
+            match model::ViewRule::to_core(rule) {
+                Ok(core) => core_rules.push(core),
+                Err(msg) if note.is_none() => *note = Some(msg),
+                Err(_) => {}
+            }
+        }
         self.triggers.reload(&core_rules);
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
         // 此刻看到的顶部绝对行，末尾再按新的 history 钉回去。
