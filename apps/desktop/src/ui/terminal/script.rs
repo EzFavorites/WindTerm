@@ -866,6 +866,7 @@ mod tests {
         d.outcome = Some(Outcome::Failed {
             message: "第 3 行：超时".to_string(),
             at: Some((3, 1)),
+            kind: crate::script_run::FailureKind::Failed,
         });
         assert!(d.status().starts_with("Failed"), "{}", d.status());
         assert!(d.status().contains("第 3 行"), "{}", d.status());

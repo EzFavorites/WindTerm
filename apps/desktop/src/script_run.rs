@@ -13,12 +13,10 @@
 //! 结果直接出现在同一个屏幕上。两者共用引擎，但会话来源不同，所以不合并。
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use term_core::script_caps::{parse_allow, Capabilities};
 use term_core::session::SessionConfig;
 use term_core::session_runtime::SessionId;
 use term_script::{CancelToken, ScriptBudget, ScriptEngine, ScriptWorkspace};
@@ -42,6 +40,8 @@ pub enum Outcome {
     Failed {
         message: String,
         at: Option<(usize, usize)>,
+        /// 结构化分类；UI / CLI 据此分支，不靠匹配文案。
+        kind: FailureKind,
     },
 }
 
@@ -373,6 +373,41 @@ impl RunOptions {
     }
 }
 
+/// 与语言无关的失败分类。wire 端 `ErrorKind` 有十种，GUI / CLI 以前只剩一句
+/// 中文文案，连测试都靠 `message.contains("取消")` 判断——这里把 kind 一路带上来，
+/// 文案只负责显示，分支一律走 kind。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FailureKind {
+    Timeout,
+    Cancelled,
+    Denied,
+    Unsupported,
+    Closed,
+    NoSuchSession,
+    BadArgument,
+    Internal,
+    Failed,
+}
+
+impl From<&term_script::PrimitiveError> for FailureKind {
+    fn from(error: &term_script::PrimitiveError) -> Self {
+        use term_script::PrimitiveError as E;
+        match error {
+            E::Timeout => Self::Timeout,
+            E::Cancelled => Self::Cancelled,
+            E::Denied(_) => Self::Denied,
+            E::Unsupported(_) | E::NoInput => Self::Unsupported,
+            E::Closed | E::NoBinding | E::CloseCurrentSession(_) => Self::Closed,
+            E::NoSuchSession(_) => Self::NoSuchSession,
+            E::EmptyPattern | E::BadArgument(_) | E::UnknownKey(_) | E::UnknownName { .. } => {
+                Self::BadArgument
+            }
+            E::AlreadyRecording | E::NotRecording => Self::Internal,
+            E::Failed(_) => Self::Failed,
+        }
+    }
+}
+
 /// 一次正在跑的脚本。丢弃即放弃结果（线程自己会跑完，不泄漏）。
 pub struct ScriptRun {
     rx: Receiver<Outcome>,
@@ -489,6 +524,7 @@ impl ScriptRun {
                     Err(err) => Outcome::Failed {
                         at: err.line().zip(err.column()),
                         message: err.to_string(),
+                        kind: FailureKind::Failed,
                     },
                 };
                 // 界面已经关了窗口时这里会失败；不是错误，结果本来就没处放。
@@ -546,31 +582,24 @@ impl ScriptRun {
 
         let source = std::fs::read_to_string(path)
             .map_err(|e| crate::python_run::PythonRunError::from(format!("读不到 Python 脚本 {path}：{e}")))?;
-        let mut caps = Capabilities::NONE;
-        for request in parse_allow(&options.allow).map_err(|e| crate::python_run::PythonRunError::from(e.0.to_string()))? {
-            caps.grant(&request);
-        }
-        // Python 的注释头是 `#`，不是 Rhai 的 `//`；只取开头连续的注释块。
-        let header = source
-            .lines()
-            .take_while(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
-            .filter_map(|line| {
-                let trimmed = line.trim();
-                trimmed
-                    .strip_prefix("# @cap")
-                    .or_else(|| trimmed.strip_prefix("#@cap"))
-            })
-            .map(str::trim)
-            .collect::<Vec<_>>()
-            .join(",");
-        for request in parse_allow(&header).map_err(|e| crate::python_run::PythonRunError::from(e.0.to_string()))? {
-            caps.grant(&request);
-        }
-        let process_allowed = caps.check_process().is_ok();
+        // 与 Rhai 走同一个 RunSpec / envelope 构造器：头部、--allow 与运行时
+        // 增权都由它解析，Python 不再自己拼一份授权。读到的 source 同时就是
+        // 稍后写进临时文件执行的那份字节，不留检查与执行之间的窗口。
+        let spec = RunSpec::new(source.clone())
+            .with_allow(options.allow.clone())
+            .with_args(options.args.clone())
+            .with_path(Some(path.to_string()))
+            .with_budget(options.budget);
+        let caps = script_env::envelope(&spec).map_err(crate::python_run::PythonRunError::from)?;
+        // 子进程没法接运行时的 pick_file 增权，取本次信封的快照即可。
+        let caps = caps
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
 
         let notes = Arc::new(Mutex::new(Vec::new()));
         let cancel = CancelToken::new();
-        let script_path = PathBuf::from(path);
+        let script_path = path.to_string();
         let args = options.args.clone();
         let wall = options.budget.wall;
         let (tx, rx) = mpsc::channel();
@@ -582,15 +611,17 @@ impl ScriptRun {
                     pool,
                     name,
                     &script_path,
+                    &source,
                     &args,
                     wall,
                     run_cancel,
-                    process_allowed,
+                    caps,
                 ) {
                     Ok(value) => Outcome::Done(value),
                     Err(message) => Outcome::Failed {
                         message: message.to_string(),
                         at: None,
+                        kind: message.kind(),
                     },
                 };
                 let _ = tx.send(outcome);
@@ -640,6 +671,7 @@ impl ScriptRun {
             Err(TryRecvError::Disconnected) => Some(Outcome::Failed {
                 message: "脚本线程意外结束，没有留下结果".to_string(),
                 at: None,
+                kind: FailureKind::Internal,
             }),
             Err(TryRecvError::Empty) => None,
         }
@@ -789,7 +821,7 @@ mod tests {
         let mut run =
             ScriptRun::start(pool.clone(), id, "let = ;".to_string(), RunOptions::default()).expect("起脚本");
         match wait(&mut run) {
-            Outcome::Failed { message, at } => {
+            Outcome::Failed { message, at, .. } => {
                 // 引擎的措辞里带位置；别在这一层重新编一句「脚本失败」。
                 assert!(!message.is_empty(), "失败要说清原因");
                 // 之后结构化位置也一路带到这里（编辑器点错误跳行要用）。

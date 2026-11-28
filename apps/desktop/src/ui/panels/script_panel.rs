@@ -139,7 +139,7 @@ fn result_text(state: &ScriptPanelState) -> String {
     match &state.outcome {
         Some(Outcome::Done(value)) if !value.is_empty() => value.clone(),
         Some(Outcome::Done(_)) => String::new(),
-        Some(Outcome::Failed { message, at }) => match at {
+        Some(Outcome::Failed { message, at, .. }) => match at {
             Some((line, col)) => format!("{message}\n  at line {line}, column {col}"),
             None => message.clone(),
         },
@@ -525,6 +525,7 @@ mod tests {
         s.outcome = Some(Outcome::Failed {
             message: "第 3 行：超时".to_string(),
             at: Some((3, 1)),
+            kind: crate::script_run::FailureKind::Failed,
         });
         assert!(status(&s).starts_with("Failed"), "{}", status(&s));
         assert!(status(&s).contains("第 3 行"), "{}", status(&s));
@@ -543,6 +544,7 @@ mod tests {
         win.script_panel.current_mut().outcome = Some(Outcome::Failed {
             message: "第 3 行：超时".to_string(),
             at: Some((3, 1)),
+            kind: crate::script_run::FailureKind::Failed,
         });
         // 两帧：第一帧定尺寸，第二帧才是「知道宽高之后」的真实布局。
         for _ in 0..2 {

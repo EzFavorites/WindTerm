@@ -9,8 +9,7 @@
 //! 起外部进程要 `process` 授权（默认拒绝、只作用于本次运行），与 `proc_run`
 //! 同一条纪律。取消或超时会 kill 并回收子进程，不会留下孤儿。
 
-use std::io::{BufReader, Read};
-use std::path::Path;
+use std::io::BufReader;
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -24,13 +23,29 @@ use crate::bridge::surface::DeskSurface;
 const POLL: Duration = Duration::from_millis(50);
 
 /// 外部 Python 的失败边界。用类型而不是 `String`，避免给全仓的
-/// `Result<_, String>` 基线再添一条；文案仍是面向脚本作者的原话。
+/// `Result<_, String>` 基线再添一条；kind 与文案分离，UI 分支不再匹配文本。
 #[derive(Debug, Clone)]
-pub struct PythonRunError(String);
+pub struct PythonRunError {
+    message: String,
+    kind: crate::script_run::FailureKind,
+}
+
+impl PythonRunError {
+    fn new(kind: crate::script_run::FailureKind, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            kind,
+        }
+    }
+
+    pub fn kind(&self) -> crate::script_run::FailureKind {
+        self.kind
+    }
+}
 
 impl std::fmt::Display for PythonRunError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        f.write_str(&self.message)
     }
 }
 
@@ -38,7 +53,7 @@ impl std::error::Error for PythonRunError {}
 
 impl From<String> for PythonRunError {
     fn from(message: String) -> Self {
-        Self(message)
+        Self::new(crate::script_run::FailureKind::Failed, message)
     }
 }
 
@@ -95,27 +110,36 @@ exec(compile(source, path, "exec"), ns)
 "#;
 
 /// 同步跑一份 Python 脚本，返回给界面显示的结果字符串。
+///
+/// 源文本由调用方给、这里写到临时文件再执行：授权解析与真正执行的是**同一份
+/// 字节**，不存在「检查完又被改掉」的窗口。stderr 落临时文件而不是开线程读，
+/// 孙进程持有 fd 也读不完也不会把运行线程卡死。
 pub fn run_blocking(
     pool: Arc<SessionPool>,
     session: String,
-    script: &Path,
+    script_path: &str,
+    source: &str,
     args: &[String],
     wall: Duration,
     cancel: CancelToken,
-    process_allowed: bool,
+    caps: term_core::script_caps::Capabilities,
 ) -> Result<String, PythonRunError> {
-    if !process_allowed {
-        return Err(
-            "外部 Python 需要 process 授权：在脚本面板勾选「运行程序」，或用 # @cap process / --allow process"
-                .to_string().into(),
-        );
+    use crate::script_run::FailureKind as K;
+
+    if caps.check_process().is_err() {
+        return Err(PythonRunError::new(
+            K::Denied,
+            "外部 Python 需要 process 授权：在脚本面板勾选「运行程序」，或用 # @cap process / --allow process",
+        ));
     }
     if session.trim().is_empty() {
-        return Err("这条会话没有活着的目标，Python 脚本无处可跑".to_string().into());
+        return Err(PythonRunError::new(
+            K::NoSuchSession,
+            "这条会话没有活着的目标，Python 脚本无处可跑",
+        ));
     }
     let python = interpreter()?;
 
-    // 生成的形状层写到临时目录；每次运行一份，避免并发运行互相覆盖。
     let tmp = std::env::temp_dir().join(format!(
         "zterm-python-{}-{}",
         std::process::id(),
@@ -129,65 +153,65 @@ pub fn run_blocking(
     let shim = tmp.join("windterm_api.py");
     std::fs::write(&shim, term_bridge::python_api_shim())
         .map_err(|e| format!("写不了原生 API 层：{e}"))?;
+    let script_file = tmp.join("script.py");
+    std::fs::write(&script_file, source)
+        .map_err(|e| format!("写不了 Python 临时脚本：{e}"))?;
+    let err_file = tmp.join("stderr.txt");
+    let err_handle = std::fs::File::create(&err_file)
+        .map_err(|e| format!("建不了 Python 错误输出文件：{e}"))?;
 
     let mut child = Command::new(&python)
         .arg("-c")
         .arg(LAUNCHER)
-        .arg(script)
+        .arg(&script_file)
         .env("ZTERM_SHIM_DIR", &tmp)
         .env("ZTERM_SESSION", &session)
-        .env("ZTERM_SCRIPT_PATH", script)
+        .env("ZTERM_SCRIPT_PATH", script_path)
         .env("ZTERM_ARGS", serde_json::to_string(args).unwrap_or_else(|_| "[]".to_string()))
         .env("ZTERM_VERSION", env!("CARGO_PKG_VERSION"))
         .env("PYTHONUNBUFFERED", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::from(err_handle))
         .spawn()
         .map_err(|e| format!("起不了 Python（{python}）：{e}"))?;
 
-    let mut stdin = child.stdin.take().ok_or_else(|| "拿不到 Python 标准输入".to_string())?;
-    let stdout = child.stdout.take().ok_or_else(|| "拿不到 Python 标准输出".to_string())?;
-    let stderr = child.stderr.take().ok_or_else(|| "拿不到 Python 标准错误".to_string())?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| PythonRunError::new(K::Internal, "拿不到 Python 标准输入"))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| PythonRunError::new(K::Internal, "拿不到 Python 标准输出"))?;
 
-    // stderr 单独读：用户的 print() 和异常栈都在这里，失败时要带进 Outcome。
-    let err_thread = std::thread::spawn(move || {
-        let mut buf = String::new();
-        let mut reader = BufReader::new(stderr);
-        let _ = reader.read_to_string(&mut buf);
-        buf
-    });
-
-    // 看门狗：取消或墙钟到点就 kill。`Child::kill` 要 &mut，所以用 Mutex。
     let child = Arc::new(Mutex::new(child));
     let done = Arc::new(AtomicBool::new(false));
+    let timed_out = Arc::new(AtomicBool::new(false));
     let watchdog_child = Arc::clone(&child);
     let watchdog_done = Arc::clone(&done);
+    let watchdog_timeout = Arc::clone(&timed_out);
     let watchdog_cancel = cancel.clone();
     let deadline = Instant::now() + wall;
-    let watchdog = std::thread::spawn(move || {
-        loop {
-            if watchdog_done.load(Ordering::SeqCst) {
-                return;
-            }
-            let timed_out = Instant::now() >= deadline;
-            if watchdog_cancel.is_cancelled() || timed_out {
-                if let Ok(mut guard) = watchdog_child.lock() {
-                    let _ = guard.kill();
-                }
-                return;
-            }
-            std::thread::sleep(POLL);
+    let watchdog = std::thread::spawn(move || loop {
+        if watchdog_done.load(Ordering::SeqCst) {
+            return;
         }
+        if Instant::now() >= deadline {
+            watchdog_timeout.store(true, Ordering::SeqCst);
+        }
+        if watchdog_cancel.is_cancelled() || watchdog_timeout.load(Ordering::SeqCst) {
+            if let Ok(mut guard) = watchdog_child.lock() {
+                let _ = guard.kill();
+            }
+            return;
+        }
+        std::thread::sleep(POLL);
     });
 
-    // 桥接在主线程跑：一条 stdio 管道是一条串行事实流，不并发。
+    // 一条 stdio 管道是一条串行事实流，桥接不并发。
     let surface = DeskSurface::new(Arc::clone(&pool));
-    let bridge = term_bridge::transport::serve_stdio(
-        &surface,
-        BufReader::new(stdout),
-        &mut stdin,
-    );
+    let bridge = term_bridge::transport::serve_stdio(&surface, BufReader::new(stdout), &mut stdin);
     done.store(true, Ordering::SeqCst);
     let _ = watchdog.join();
 
@@ -195,24 +219,35 @@ pub fn run_blocking(
         .lock()
         .map_err(|e| format!("Python 进程状态坏了：{e}"))?;
     let status = handle.wait().map_err(|e| format!("收不了 Python 进程：{e}"))?;
-    let errors = err_thread.join().unwrap_or_default();
+    let errors = std::fs::read_to_string(&err_file).unwrap_or_default();
     let _ = std::fs::remove_dir_all(&tmp);
 
+    // 顺序有意义：墙钟到点优先报超时，不能被「进程被 kill 后的桥接 EOF」盖掉。
+    if timed_out.load(Ordering::SeqCst) {
+        return Err(PythonRunError::new(
+            K::Timeout,
+            format!("Python 脚本超过墙钟预算{}", suffix(&errors)),
+        ));
+    }
     if cancel.is_cancelled() {
-        return Err("Python 脚本已取消".to_string().into());
+        return Err(PythonRunError::new(
+            K::Cancelled,
+            format!("Python 脚本已取消{}", suffix(&errors)),
+        ));
     }
     if let Err(e) = bridge {
-        return Err(format!("桥接出错：{e}{}", suffix(&errors)).into());
+        return Err(PythonRunError::new(
+            K::Internal,
+            format!("桥接出错：{e}{}", suffix(&errors)),
+        ));
     }
     if status.success() {
         Ok(format!("Python 脚本完成{}", suffix(&errors)))
     } else {
-        Err(format!(
-            "Python 退出码 {}{}",
-            status.code().unwrap_or(-1),
-            suffix(&errors)
-        )
-        .into())
+        Err(PythonRunError::new(
+            K::Failed,
+            format!("Python 退出码 {}{}", status.code().unwrap_or(-1), suffix(&errors)),
+        ))
     }
 }
 
@@ -249,15 +284,15 @@ mod tests {
     #[test]
     fn python_requires_process_grant() {
         let pool = Arc::new(SessionPool::new());
-        let script = std::path::Path::new("/tmp/does-not-matter.py");
         let err = run_blocking(
             pool,
             "session".to_string(),
-            script,
+            "/tmp/does-not-matter.py",
+            "# @cap process\n",
             &[],
             Duration::from_secs(1),
             CancelToken::new(),
-            false,
+            term_core::script_caps::Capabilities::NONE,
         )
         .unwrap_err();
         assert!(err.to_string().contains("process"), "必须点名缺的是 process 授权：{err}");
