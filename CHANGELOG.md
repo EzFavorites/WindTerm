@@ -1,31 +1,70 @@
 # Changelog
 
 本文件记录本项目面向用户的显著变更。格式沿用 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)。
-版本号与发布日期在实际发布时写入；未发布的内容留在 `[Unreleased]`。
-发布工作流直接把本文件当发布说明，所以本节排在 beta3 之前——读者不必从 beta3 读起。
+发布工作流直接把本文件当发布说明，所以 0.0.1 节排在 beta3 之前——读者不必从 beta3 读起。
 
-## [Unreleased]
+## [0.0.1] - 2026-11-28
 
 ### Added
 
+- ADR-0030 前台单一控制面：脚本、API（CLI / MCP）与规则共用同一张动词表，
+  会话用名字寻址；脚本与 API 读写同一会话共享捕获游标，不再各持一份。
+- 无窗口 `term-desk api describe` / `api call` / `mcp` 作为前台控制端点的外部客户端：
+  前台未运行即报错退出，不自建会话池；锁屏时拒绝接入与调用（`Locked`）。
+  准入是 0600 key 文件加传输级 `auth.challenge`（key + HMAC），不设 token 文件、
+  不设能力面 `auth` 动词。
+- 只读的 Script / API 设置页；脚本面板工具条重做，锁屏界面居中并冻结视觉基线。
+- 跨平台锁屏探测：macOS 走 `ioreg`，Windows 查询 User32 输入桌面，Linux 查询
+  freedesktop `ScreenSaver.GetActive`；保持三态与 fail-open 语义。
 - `Tool ▸ Script` 子菜单：运行脚本 / 停止脚本 / 录制脚本 / 新建脚本 / 管理脚本；
   面板显隐仍归 `Window ▸ Panes ▸ Script`，两者互不带动。
 - 会话树右键 `Logon Script…`：为已存会话配置登录脚本（下次连接生效），
   不改 1:1 会话表单与视觉基线。
 - 快捷命令栏新增 `Run Script` 类型：只填路径，界面自动补 `Script.RunFile:` 前缀。
-- `docs/scripting.md` 补录制脚本与命令行边界两节。
 - 外部 Python 脚本：`.py` 走子进程 + stdio JSON-RPC 桥，提供从能力表派生的原生
   函数 API；运行需 `process` 授权，UI / CLI 均可运行，取消会 kill 子进程。
+- `docs/scripting.md` 补录制脚本与命令行边界两节。
 
 ### Changed
 
+- 触发器族统一到唯一内核 `term_core::automation`：用户规则、内置检测、OneKey
+  连接期认证、登录脚本共用 `Pattern` / `ScanCursor` / `Evaluator` 与一套仲裁；
+  用户键盘抢占、认证期独占写、多个写意图同帧排序后一次落到 PTY。
+- 规则动作装载期校验（会话动词 / 应用动作 / 凭据引用 / 运行脚本四类），
+  不合法即拒绝装载，不再命中后才变 `NoEffect`；`RunScript` 改为运行时窄授权。
+- OneKey 收敛为纯连接期凭据方案：密码与键盘交互答案只进保险库条目
+  `onekey:<name>` 与 `onekey:<name>:ki`，**键盘交互答案不再写进 `prefs.json`**；
+  需要终端层登录自动化改用带 `CredentialRef` 的普通规则。
+- 控制端点由 UDS / 命名管道改为全平台统一的 TCP loopback 端口（默认 `47653`，
+  `WINDTERM_CONTROL_PORT` 覆盖）；key 文件按端口隔离为
+  `~/.zterm/control-key.local-<port>`，并增加首请求超时与 1 MiB 行上限。
 - 已登记脚本的参数与最近列表在运行窗口 / 停靠面板 / 编辑器三个入口统一。
 - 脚本面板的录制按钮与单次授权折叠面板接入中文本地化。
 - 脚本编辑器移除冗余 `open` 标志，模态开关只由 `Option` 决定。
 - 脚本管理器的相对路径按脚本库解析，不再依赖进程当前目录。
+- 消息框补齐 CRT 的 `MB_ABORTRETRYIGNORE` / `MB_RETRYCANCEL` 两组按钮：宿主能画出
+  六个按钮组，并回传具体按下的按钮以映射到各自的 CRT ID（三按钮组不再被压成是/否）。
 
 ### Fixed
 
+- 保险库与配置文件的原子写改为 Unix 0600 临时文件、profile 目录 0700，
+  并拒绝符号链接临时名，不再短暂以 umask 默认权限落盘。
+- Telnet 子协商加长度上限与背压（收集 / 排空按帧预算限额，未取完留在队列），
+  不再让畸形协商无限占内存。
+- 命令历史 TTL 计算修正溢出，超长保留期不再回绕成立即过期。
+- X11 转发 cookie 改为随机生成，不再使用可预测值。
+- XMODEM / YMODEM / ZMODEM 接收端在握手期消毒并拒绝恶意文件名（路径成分、控制字符）。
+- SFTP 取消归入明确的错误分类，不再与其它 `Closed` 场景混同。
+- `known_hosts` 管理中 `@directive` 行、CRLF 与末行无换行的条目原样保留。
+- SFTP 续传逐块校验前缀内容，不再只比较长度就接着写。
+- 控制面：断连即取消连接级 `HostEnv`；消除 Grant 检查的 TOCTOU；
+  `Busy` / `Suppressed` 作为显式错误分类返回；后台命令执行接入统一仲裁。
+- 连接与传输资源：SSH DNS 解析移入 worker 并加超时（超时分支发取消信号 + 有界 join，
+  握后清零凭据）；隧道监听退出置 `alive=false` 并唤醒主任务释放 SSH；
+  SOCKS5 greeting 循环读满、半包逐字节不丢；会话键按唯一池作用域隔离，
+  关闭即清除。
+- `ask` 模态的 Esc / Cancel 走 `NoInput`，不再冒充 `Bool(false)`；Confirm 的
+  「否」仍是 `Ok(Bool(false))`，文件框取消仍是 `None`。
 - 移除对象门面：不再提供 CRT 对象形状，改为借鉴其设计思想（录制节奏、
   消费式/观察式等待、按名字寻址、多入口、按运行授权），全部落到原生动词。
 - 修正 `docs/scripting.md` 的偏差表：`wait` / `read_until` / `wait_any` 超时显式失败，
@@ -39,8 +78,37 @@
   （菜单命令台账，非动词表）的文档描述。
 - `Tool ▸ Script ▸ Stop Script` 叫停全部运行入口；面板重复运行不再堆积只读输出标签。
 - 重冻 Tool 菜单相关的四张组件视觉基线。
-- 消息框补齐 CRT 的 `MB_ABORTRETRYIGNORE` / `MB_RETRYCANCEL` 两组按钮：宿主能画出
-  六个按钮组，并回传具体按下的按钮以映射到各自的 CRT ID（三按钮组不再被压成是/否）。
+
+### Removed
+
+- OneKey 的 `expects` / `ExpectSend` / `ExpectFlags` / `expect_matches` 与输出帧应答块。
+- 旧触发器内核：`term_core::trigger`、`term_app::trigger::Matcher`、
+  `trigger_queue`、`trigger_regex` 与三元素 `DISPATCHABLE_METHODS`。
+- 无头入口：`term-desk script run`、`desk serve`、`desk --headless --exec`。
+- 各平台的 UDS / 命名管道控制端点及其平台专属权限复核代码。
+
+### 破坏性变更
+
+- 旧 `prefs.json`、vault 条目与规则数据**不迁移**：软件仍处于开发设计阶段，
+  明确不做历史兼容，升级后按新形状重新配置。
+- OneKey `expects` 删除；依赖它的登录自动化需改用带 `CredentialRef` 的普通规则
+  （`once = Connection` + prompt 门控）。
+- 无头入口删除；操作目标必须是前台实例持有的、用户可见的会话（不要求窗口有输入焦点）。
+- 控制端点全平台改为 TCP loopback（默认端口 `47653`，`WINDTERM_CONTROL_PORT` 覆盖）；
+  旧 UDS / 命名管道路径与 token 文件不再存在，客户端一律走 key 文件 +
+  `auth.challenge`。
+
+### 安全须知
+
+- **主机 key 由客户端自动接受**：不校验服务端身份，连接可能被中间人冒充且界面无提示。
+  这与参考版本一致，是有意取舍，**不是安全推荐**；MITM 风险由用户承担，严格校验
+  场景请走 `term_ssh` 的 `Strict` / `Tofu` 策略或脚本路径。
+- **loopback + key / HMAC 不是同用户恶意代码边界**：同用户进程能读 0600 key 文件，
+  也能直接跑 CLI；这层防护挡的是误连、跨用户与沙箱隔离，不应被高估。
+- **外部 Python 完全可信**：它是独立进程，本身就能读文件，cap 授权不构成真实约束；
+  Rhai 仍是沙箱，`// @cap` 与界面勾选的按次授权保留。
+- **`describe` 工具无推送**：MCP tools 全部由前台 `describe` 的 schema 生成，
+  没有 resources / prompts / logging / 推送 / 订阅，脚本专用动词不暴露给 API。
 
 ## [0.0.1-beta4] - 2026-11-27
 

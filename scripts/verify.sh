@@ -85,10 +85,10 @@ else
   ok "工具链 $tc_out"
 fi
 
-# 版本门禁的**软校验**，留在 step 0 内（不新增 step）：只在确实处于 tag 上下文
+# 版本门禁的本地校验，留在 step 0 内（不新增 step）：只在确实处于 tag 上下文
 # 时才比对 tag 与 Cargo 版本，本地开发 / workflow_dispatch 不误伤。
-# 硬失败由 release workflow 的 meta job 负责；这里只把不一致说清楚，不把本地
-# 验收染红——本地跑到这条时 GITHUB_REF 通常为空，故默认跳过。
+# 不一致就在这里染红，提前暴露口径漂移；release workflow 的 meta job 仍会硬失败。
+# 本地直接跑时 GITHUB_REF 通常为空，故默认跳过。
 VC_TAG="${GITHUB_REF_NAME:-${GITHUB_REF:-}}"
 case "$VC_TAG" in
   refs/tags/v*) VC_TAG="${VC_TAG#refs/tags/}" ;;
@@ -100,7 +100,7 @@ if [ -n "$VC_TAG" ]; then
   if [ -n "$VC_CARGO" ] && [ "${VC_TAG#v}" = "$VC_CARGO" ]; then
     ok "版本口径一致（tag $VC_TAG ↔ Cargo $VC_CARGO）"
   else
-    printf '  ! tag %s 与 Cargo version %s 不一致；release 工作流在 refs/tags/v* 下会硬失败\n' "$VC_TAG" "${VC_CARGO:-<未找到>}"
+    bad "tag $VC_TAG 与 Cargo version ${VC_CARGO:-<未找到>} 不一致；release 工作流在 refs/tags/v* 下也会硬失败"
   fi
 else
   ok "版本软校验跳过（无 tag 上下文）"

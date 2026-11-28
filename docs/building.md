@@ -82,9 +82,9 @@ bash scripts/package-release.sh <target-triple> <version> <binary> [out-dir]
 
 | 平台 | 产物 |
 |---|---|
-| macOS | `WindTerm-<ver>-macos-<arch>.tar.gz`，内含 `WindTerm.app/` |
-| Linux | `WindTerm-<ver>-linux-x86_64.tar.gz`，内含 `windterm`、`.desktop`、图标 |
-| Windows | `WindTerm-<ver>-windows-x86_64.zip`，内含 `WindTerm.exe` |
+| macOS（arm64 / x86_64） | `WindTerm-<ver>-macos-<arch>.dmg`，内含 `WindTerm.app` |
+| Linux（x86_64） | `WindTerm-<ver>-linux-x86_64.deb`（FHS 安装）+ `WindTerm-<ver>-linux-x86_64.zip`（便携） |
+| Windows（x86_64） | `WindTerm-<ver>-windows-x86_64.msi`（WiX v5 安装器）+ `WindTerm-<ver>-windows-x86_64.zip`（便携） |
 
 每个包旁都有 `.sha256`。macOS 的 `.app` 会做 ad-hoc 签名（`codesign -s -`），
 不做公证；首次启动需要右键 → 打开，或去掉 quarantine 属性。
@@ -107,7 +107,8 @@ CI 与发布 workflow 都不跑需要 GUI 的截图回归。
 4. `build` job 四平台矩阵：macOS arm64 / macOS x86_64（交叉编译）/ Linux
    x86_64 / Windows MSVC。
 5. 每个平台构建、打包、校验包内结构、上传 artifact。
-6. tag 触发时创建 **Pre-release**（`prerelease: true`、`draft: false`），正式版另行人工发布。
+6. tag 触发时创建 Release（`draft: false`）：tag 名含 `beta` / `alpha` / `rc`
+   时 `prerelease: true`，其余（如 `v0.0.1`）为正式版 `prerelease: false`。
 
 版本号的唯一来源是 `apps/desktop/Cargo.toml` 的 `version`，不要在 workflow 里
 另写一份。
