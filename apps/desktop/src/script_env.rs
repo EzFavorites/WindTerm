@@ -97,12 +97,29 @@ impl RunSpec {
     pub fn capabilities(&self) -> Result<Capabilities, String> {
         let mut caps = Capabilities::NONE;
         for request in parse_header(&self.source).map_err(|e| e.0)? {
-            caps.grant(&request);
+            caps.grant(&canonicalized(request));
         }
         for request in parse_allow(&self.allow).map_err(|e| e.0)? {
-            caps.grant(&request);
+            caps.grant(&canonicalized(request));
         }
         Ok(caps)
+    }
+}
+
+/// 授权根目录先规范化再记录：脚本侧的路径会经 `normalize_for` 解开软链，
+/// 若这里把 `/var/folders/...` 原样留着，就会和请求侧的 `/private/var/...` 比不上。
+/// 尚不存在的写目标保持原样（写新目录时由 `normalize_missing_write_target` 处理）。
+fn canonicalized(request: CapRequest) -> CapRequest {
+    let resolve = |path: std::path::PathBuf| {
+        let raw = path.to_string_lossy().to_string();
+        // 目标目录可能尚不存在：从最长已存在的祖先规范起再拼回来，
+        // 否则 /var/folders/... 这类软链路径会和请求侧的 /private/var/... 对不上。
+        term_script::normalize_for(&raw, true).unwrap_or(path)
+    };
+    match request {
+        CapRequest::FsRead(path) => CapRequest::FsRead(resolve(path)),
+        CapRequest::FsWrite(path) => CapRequest::FsWrite(resolve(path)),
+        other => other,
     }
 }
 
@@ -173,9 +190,13 @@ pub fn build(
         spec.script_path.clone(),
         spec.args.clone(),
     ));
+    let live_caps = Arc::clone(&caps);
     let mut env = HostEnv::new(sessions)
         .with_human(human)
         .with_caps(snapshot(&caps))
+        // 工作区与 app_* 动词也要现读共享信封：pick_file 运行时增权后，
+        // 不能出现「fs 端口放行、工作区仍拿 build 时的旧快照」。
+        .with_caps_live(move || snapshot(&live_caps))
         .with_cancel(cancel)
         .with_context(context)
         .with_size(spec.cols, spec.rows);
@@ -204,7 +225,8 @@ mod tests {
             "// @cap fs=read:/tmp\n// @cap process\nprint(1);\n",
         );
         let caps = spec.capabilities().expect("合法");
-        assert_eq!(caps.fs.roots(), vec![std::path::PathBuf::from("/tmp")]);
+        let expected = std::fs::canonicalize("/tmp").unwrap_or_else(|_| std::path::PathBuf::from("/tmp"));
+        assert_eq!(caps.fs.roots(), vec![expected]);
         assert!(!caps.fs.writable(), "只声明了 read");
         assert!(caps.process);
         assert!(!caps.clipboard);
@@ -222,8 +244,8 @@ mod tests {
         assert_eq!(
             caps.fs.roots(),
             vec![
-                std::path::PathBuf::from("/tmp"),
-                std::path::PathBuf::from("/var/tmp")
+                std::fs::canonicalize("/tmp").unwrap_or_else(|_| std::path::PathBuf::from("/tmp")),
+                std::fs::canonicalize("/var/tmp").unwrap_or_else(|_| std::path::PathBuf::from("/var/tmp"))
             ]
         );
     }

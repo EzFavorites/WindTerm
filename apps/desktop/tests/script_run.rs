@@ -115,7 +115,8 @@ fn the_log_primitives_report_a_state_that_has_actually_happened() {
         "#,
         dir = dir.display()
     );
-    let out = run_script(&source, &["--exec", "cat", "--timeout", "10"]);
+    let allow = format!("fs=write:{}", dir.display());
+    let out = run_script(&source, &["--exec", "cat", "--timeout", "10", "--allow", &allow]);
     assert_eq!(
         out.status.code(),
         Some(0),
