@@ -9,14 +9,16 @@
 //! 的 OneKeys 对话框逐项对应：
 //!
 //! - SSH：用户名 / 密码 / 公钥（每系统一份 Identity File）/
-//!   键盘交互（Challenge → Response 表）；
+//!   键盘交互（Challenge 提示表）；
 //! - Account：用户名与密码——密码只有保险库条目 `onekey:<name>`，方案本身
 //!   不存任何凭据字段；
 //! - Sessions：方案到会话的分配（会话表单里的 OneKey 下拉选的就是它）。
 //!
 //! 密码与键盘交互应答都属于凭据，**不进这份 JSON**：它们经 `term-vault`
-//! 以 `onekey:<name>` 为条目 id 加密保存（与 `SessionConfig` 的密码同一条
-//! 纪律——明文不落盘、锁着不可读）。这里只存引用字段名。
+//! 以 `onekey:<name>` / `onekey:<name>:ki` 为条目 id 加密保存（与
+//! `SessionConfig` 的密码同一条纪律——明文不落盘、锁着不可读）。这里只存
+//! 可公开的字段名与 Challenge 提示，应答连「引用字段」都不留：`Vec<String>`
+//! 按行序存在 vault 条目里，prefs 没有任何能装 answer 文本的位置。
 //!
 //! 会话期的 `expect → send` 自动应答已删除：OneKey 只在连接期生效，登录
 //! 之后的输出不再由方案回复。
@@ -36,18 +38,26 @@ pub struct OneKey {
     /// 公钥 Identity File，按下标对应 `System`（0 = Linux / 1 = macOS / 2 = Windows）。
     /// 空串 = 该系统未指定（回到会话自身的 identity_file）。
     pub identity_files: [String; 3],
-    /// SSH 键盘交互的 Challenge → Response 表（同样只存引用，明文在 vault）。
-    pub keyboard_interactive: Vec<ChallengeResponse>,
+    /// SSH 键盘交互的 Challenge **提示**表（可公开，落 prefs）。
+    ///
+    /// 应答不在这里：它按行序存在 vault 条目 `onekey:<name>:ki`（见
+    /// [`ki_vault_id`] / [`encode_ki_answers`]）。这一层没有 `response` 字段，
+    /// 因此序列化这份方案时不存在任何能写进 answer 明文的位置。
+    pub keyboard_interactive: Vec<ChallengeHint>,
     /// 本方案是否启用。关掉 = 连接时跳过（与会话没选它等价，但保留编辑内容）。
     pub enabled: bool,
 }
 
-/// 键盘交互的一对问答。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ChallengeResponse {
+/// 键盘交互的一行**公开提示**（服务端问什么）。
+///
+/// 曾经的 `response: String` 名义上是 vault 引用，实际上存的是明文答案，
+/// 跟着 `OneKey` 一起落进 `prefs.json`——这是 P0 泄密点，字段已删除。应答
+/// 只存在于 vault 的 `onekey:<name>:ki` 条目里，按行序与这张提示表对齐；
+/// 连旧文件里残留的 `response` 都会在 serde 反序列化时被丢掉，不迁移、
+/// 不回写（ADR-0030 §8）。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChallengeHint {
     pub challenge: String,
-    /// vault 条目 id（`onekey:<name>` 的键从 `challenge` 取）。
-    pub response: String,
 }
 
 /// 三个系统的显示名，与 WindTerm 视觉基线的表格列一致。
@@ -148,6 +158,30 @@ mod tests {
         assert_eq!(decode_ki_answers(&raw), answers);
         assert_eq!(decode_ki_answers("not json"), Vec::<String>::new());
         assert_eq!(ki_vault_id("prod"), "onekey:prod:ki");
+    }
+
+    #[test]
+    fn a_scheme_has_no_serialized_slot_for_a_keyboard_answer() {
+        // P0 回归：ChallengeResponse.response 曾把明文随 OneKey 写进 prefs.json。
+        // 现在这一层只有可公开的 challenge 提示，连「引用字段」都不留。
+        let scheme = OneKey {
+            name: "prod".to_string(),
+            keyboard_interactive: vec![ChallengeHint {
+                challenge: "OTP code:".to_string(),
+            }],
+            ..OneKey::default()
+        };
+        let json = serde_json::to_string(&scheme).expect("方案必须可序列化");
+        assert!(json.contains("OTP code:"), "公开提示仍要保留: {json}");
+        assert!(!json.contains("response"), "response 字段已删除: {json}");
+        assert!(!json.contains("answer"), "没有答案字段: {json}");
+
+        // 旧文件里残留的明文在反序列化时就被丢掉：不迁移、不回写（§8）。
+        let legacy = r#"{"name":"prod","username":"","identity_files":["","",""],"keyboard_interactive":[{"challenge":"OTP:","response":"old-secret-answer"}],"enabled":true}"#;
+        let back: OneKey = serde_json::from_str(legacy).expect("旧方案仍要读得进来");
+        assert_eq!(back.keyboard_interactive, vec![ChallengeHint { challenge: "OTP:".into() }]);
+        let json = serde_json::to_string(&back).unwrap();
+        assert!(!json.contains("old-secret-answer"), "重序列化后不许留明文: {json}");
     }
 
     #[test]

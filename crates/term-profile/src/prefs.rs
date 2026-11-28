@@ -579,6 +579,11 @@ pub struct Prefs {
     /// 与 `triggers` 同层纪律：类型定义在 `term_core::onekey`，`term-profile`
     /// 只依赖 `term-core`，不反向依赖 `term-app`。`#[serde(default)]` 让老
     /// 文件 / 缺键回落空集，而不是整份 `prefs` 作废。
+    ///
+    /// 凭据纪律：`OneKey` 只含可公开的 Challenge 提示，密码与键盘交互应答
+    /// 分别在 vault 的 `onekey:<name>` / `onekey:<name>:ki` 条目里。这里**不能**
+    /// 给 `keyboard_interactive` 加 `response` 字段——那会让答案以明文落进
+    /// `prefs.json`（ADR-0030 §5「凭据只从 vault 取」）。
     #[serde(default)]
     pub onekeys: Vec<OneKey>,
     /// Tunnels 设置对话框里的**命名隧道**（2026-11-17）。
@@ -1532,6 +1537,45 @@ mod tests {
         };
         assert!(save_to(&path, &prefs));
         assert_eq!(load_from(&path), Some(prefs));
+    }
+
+    /// P0：OneKey 的键盘交互答案只进 vault，绝不随 `Prefs` 落进 `prefs.json`。
+    /// 老文件里曾塞过 `response` 明文；serde 忽略未知字段把它丢掉，重读再写
+    /// 就 purge 掉（ADR-0030 §8：不做历史兼容、不迁移）。
+    #[test]
+    fn onekeys_in_prefs_never_carry_a_keyboard_answer() {
+        use term_core::onekey::{ki_vault_id, ChallengeHint};
+
+        const ANSWER: &str = "plain-text-kbi-answer-9f51d4bc";
+        let path = tmp();
+        // 模拟这一刀之前写坏的 prefs.json：response 里是明文答案。
+        std::fs::write(
+            &path,
+            format!(
+                r#"{{"onekeys":[{{"name":"prod","username":"ops","identity_files":["","",""],"keyboard_interactive":[{{"challenge":"OTP:","response":"{ANSWER}"}}],"enabled":true}}]}}"#
+            ),
+        )
+        .unwrap();
+
+        let prefs = load_from(&path).expect("老文件仍要读得回来");
+        assert_eq!(prefs.onekeys.len(), 1);
+        assert_eq!(
+            prefs.onekeys[0].keyboard_interactive,
+            vec![ChallengeHint { challenge: "OTP:".into() }]
+        );
+        assert!(save_to(&path, &prefs), "重写必须成功");
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("OTP:"), "可公开的提示仍要落盘: {text}");
+        assert!(!text.contains(ANSWER), "prefs.json 不许有 KBI 明文: {text}");
+        assert!(!text.contains("response"), "response 字段已从数据模型删除: {text}");
+        // 凭据的唯一去处是固定命名的 vault 条目。
+        assert_eq!(ki_vault_id("prod"), "onekey:prod:ki");
+        // 非凭据字段不能因为这次修复一起丢掉。
+        let back = load_from(&path).unwrap();
+        assert_eq!(back.onekeys[0].name, "prod");
+        assert_eq!(back.onekeys[0].username, "ops");
+        assert!(back.onekeys[0].enabled);
     }
 
     /// 2026-11-17 Tunnels：设置对话框按 `Ok` 写的就是这两个字段。规则本身要
