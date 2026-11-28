@@ -49,7 +49,7 @@ pub(in crate::ui) fn poll(
                 }
             };
             for effect in tab.triggers.eval(&verdict, &target) {
-                tab.dispatch_effect(&effect, run_commands, note);
+                tab.dispatch_effect(&effect, run_commands, note, false);
             }
         }
     }

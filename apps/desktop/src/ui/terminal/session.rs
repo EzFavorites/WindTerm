@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use term_core::automation::{Effect, Signal, Target, Ticks};
+use term_core::automation::{Effect, Release, Signal, Target, Ticks};
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
 use term_core::session::{backoff, effective, ReconnectPolicy};
@@ -25,7 +25,7 @@ use crate::ui::terminal::trigger_dispatch::{AppIntent, IntentKind};
 /// 宿主注入的「现在」（Unix 秒）。触发器内核不读墙钟，由这里统一提供，
 /// 冷却与空闲判定都用它。`SystemTime` 可能被 NTP 回拨，内核的 `allow()` 已对
 /// `now < last` 放行，避免规则被永久卡死。
-fn now_secs() -> u64 {
+pub(in crate::ui) fn now_secs() -> u64 {
     // 单测把时钟钉住，才能确定性地走到「静默 2s 后到期」那一帧；生产构建里
     // 这段完全不存在，仍然只读墙钟。
     #[cfg(test)]
@@ -125,15 +125,32 @@ impl Tab {
         self.poll_with_policy(rules, run_commands, &policy, note)
     }
 
-    /// 真正的事件泵。与 [`poll_with_note`](Self::poll_with_note) 同一份实现，
-    /// 但由窗口把**有效全局策略**传进来——参数（初始延迟 / 倍率 / 窗口 /
-    /// 上限）就在这一处消费，会话级覆盖在读退避时再叠上去。
+    /// 帧泵。闸门推进与即时意图落地放在所有早退路径之后，保证断线帧也补调
+    /// Send Later（与内核求值同一时基的 `now`）。
     pub(in crate::ui) fn poll_with_policy(
         &mut self,
         rules: &[Rule],
         run_commands: &mut Vec<String>,
         global_policy: &ReconnectPolicy,
         note: &mut Option<String>,
+    ) -> bool {
+        let mut output_text = None;
+        let changed = self.poll_with_policy_inner(rules, run_commands, global_policy, note, &mut output_text);
+        let now = now_secs();
+        crate::ui::trigger_intents::drain_tab(self, now, output_text.as_deref(), run_commands, note);
+        changed
+    }
+
+    /// 真正的事件泵。与 [`poll_with_note`](Self::poll_with_note) 同一份实现，
+    /// 但由窗口把**有效全局策略**传进来——参数（初始延迟 / 倍率 / 窗口 /
+    /// 上限）就在这一处消费，会话级覆盖在读退避时再叠上去。
+    fn poll_with_policy_inner(
+        &mut self,
+        rules: &[Rule],
+        run_commands: &mut Vec<String>,
+        global_policy: &ReconnectPolicy,
+        note: &mut Option<String>,
+        output_text: &mut Option<String>,
     ) -> bool {
         let now = now_secs();
         // 编辑投影 → 内核规则。每帧 reload 不会清运行态：`Evaluator::reload`
@@ -182,6 +199,8 @@ impl Tab {
                 // 落地——`SendText` / `SendLine` / `Beep` 走 `write`（PTY 唯一漏斗），
                 // `RunCommand` 收集到 `run_commands` 交给窗口层派发。
                 let text = String::from_utf8_lossy(&bytes);
+                // 本帧输出留给帧末闸门：提示符 / 换行在这里判定，不另读 tap。
+                *output_text = Some(text.to_string());
                 // Modem 自动触发：与触发器读同一份本帧输出，但只认提示符后 /
                 // 行首的 rz/sz/rx/rb。命中只记在 tab 上，落地在窗口级 modem_auto。
                 self.modem.note(&text, &self.config.modem_commands);
@@ -196,7 +215,7 @@ impl Tab {
                     at: Ticks::from_secs(now),
                 };
                 for effect in self.triggers.eval(&signal, &target) {
-                    self.dispatch_effect(&effect, run_commands, note);
+                    self.dispatch_effect(&effect, run_commands, note, true);
                 }
                 // OneKey 只在连接期生效（ADR-0030 决策 5）：会话期不再按
                 // expect → send 回复输出，登录之后的字节只进触发器 / 屏幕。
@@ -227,7 +246,7 @@ impl Tab {
                 at: Ticks::from_secs(now),
             };
             for effect in self.triggers.eval(&signal, &target) {
-                self.dispatch_effect(&effect, run_commands, note);
+                self.dispatch_effect(&effect, run_commands, note, false);
             }
         } else if !live && self.was_live {
             // 断开边沿清掉这条会话的运行时凭据：Tab.auth 里只剩引用，没有
@@ -239,7 +258,7 @@ impl Tab {
                 reason: term_core::automation::CloseReason::Normal,
             };
             for effect in self.triggers.eval(&signal, &target) {
-                self.dispatch_effect(&effect, run_commands, note);
+                self.dispatch_effect(&effect, run_commands, note, false);
             }
             // 断连边沿：未派发的意图属于这条已经不在的会话，丢掉并明确报数。
             self.discard_pending_sends(now, note, global_policy.enabled);
@@ -263,7 +282,7 @@ impl Tab {
                 at: Ticks::from_secs(now),
             };
             for effect in self.triggers.eval(&signal, &target) {
-                self.dispatch_effect(&effect, run_commands, note);
+                self.dispatch_effect(&effect, run_commands, note, false);
             }
         }
         self.was_live = live;
@@ -329,17 +348,26 @@ impl Tab {
     }
 
     /// 把一次命中翻译成待派发意图。**这里不写 PTY、不改视图状态**：四类
-    /// `Action` 各自落到 `FrameIntent`，由窗口层统一消费（仲裁器从 `ctx` 接入）。
+    /// `Action` 各自落到 `FrameIntent`，由帧末 `trigger_intents` 统一消费。
+    ///
+    /// `gated` 只对输出信号的会话写意图为真：事件类规则（Connect / Disconnect /
+    /// Idle）与 Mark / Alert / Dispatch 不排队，命中当帧就发生。
     pub(in crate::ui) fn dispatch_effect(
         &mut self,
         effect: &Effect,
         run_commands: &mut Vec<String>,
         _note: &mut Option<String>,
+        gated: bool,
     ) {
-        let Some(intent) = super::trigger_dispatch::intent_from_effect(effect) else {
+        let Some(mut intent) = super::trigger_dispatch::intent_from_effect(effect) else {
             return;
         };
-        // 命令 ID 走既有窗口级分发器，其余意图进队列等待窗口消费。
+        if gated && intent.is_write() {
+            intent.since = Ticks::from_secs(now_secs());
+        } else {
+            intent.release = Release::Immediate;
+        }
+        // 命令 ID 走既有窗口级分发器，其余意图进队列等待帧末消费。
         if let IntentKind::App(AppIntent::Dispatch(id)) = &intent.kind {
             run_commands.push(id.clone());
         }
@@ -361,16 +389,24 @@ impl Tab {
     /// 的命中能在新会话上正常落地。
     pub(in crate::ui) fn discard_pending_sends(
         &mut self,
-        _now: u64,
+        now: u64,
         note: &mut Option<String>,
         auto_reconnect: bool,
     ) {
         if self.config.allows_reconnect(&ReconnectPolicy::from_enabled(auto_reconnect)) {
             return;
         }
-        // 排队的是意图而非定时器：断线后没有会话可落地的意图一律丢弃并报数。
-        let dropped = self.pending_intents.len();
-        self.pending_intents.clear();
+        // 只丢「已到期却发不出去」的写意图：未到期的 Send Later 留给可能的
+        // 手动重连（见 `a_not_yet_due_send_later_is_kept_on_a_non_auto_reconnect_disconnect`）。
+        let mut dropped = 0;
+        self.pending_intents.retain(|intent| {
+            if intent.is_write() && !intent.release.is_immediate() && intent.ready(now, None) {
+                dropped += 1;
+                false
+            } else {
+                true
+            }
+        });
         if dropped > 0 && note.is_none() {
             *note = Some(format!("会话已断开，{dropped} 条待发送触发器已丢弃（未送达）"));
         }

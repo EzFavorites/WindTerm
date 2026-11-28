@@ -6,9 +6,15 @@
 //! - `App` → AppControl / UI 帧队列：标记、链接、菜单、提示、通知、命令；
 //! - `Credential` → 保险库取值后转成一次 `write` 意图；
 //! - `Script` → `ScriptRun` 统一入口（按次授权由 `RunConfig` 决定）。
+//!
+//! # 发送门控
+//!
+//! 内核把「何时放行」随 `Effect.release` 交出来。只有会话写意图受门控：
+//! `Prompt` / `LineBreak` 等本帧输出事件，`Later` 等注入时钟，到点才到这里
+//! 的 `invoke`。Mark / Alert / Dispatch 等一律当帧发生，绝不排进队列。
 
 use serde_json::Value;
-use term_core::automation::AlertKind;
+use term_core::automation::{AlertKind, Release, Ticks};
 
 use super::*;
 use crate::ui::terminal::session::{decode_send_text, note_escape_error, open_link_with};
@@ -90,21 +96,106 @@ fn invoke_surface(
     }
 }
 
+/// 应用面意图在本标签上落地。只需要 tab，所以帧泵与帧末走的是同一条路径。
+fn dispatch_app(
+    tab: &mut Tab,
+    app: AppIntent,
+    run_commands: &mut Vec<String>,
+    note: &mut Option<String>,
+) {
+    match app {
+        AppIntent::Mark { .. } => {
+            if let Some((row, _)) = tab.view.cursor {
+                let row = row as i64;
+                if !tab.trigger_highlight_rows.contains(&row) {
+                    tab.trigger_highlight_rows.push(row);
+                    if tab.trigger_highlight_rows.len() > 64 {
+                        tab.trigger_highlight_rows.remove(0);
+                    }
+                }
+            }
+        }
+        AppIntent::Link(url) => open_link_with(&url, crate::sysopen::open),
+        AppIntent::Menu(ids) => run_commands.extend(ids),
+        AppIntent::Dispatch(id) => run_commands.push(id),
+        AppIntent::Tooltip(text) => {
+            if note.is_none() {
+                *note = Some(text);
+            }
+        }
+        AppIntent::Alert(AlertKind::Beep) => {
+            tab.write(&[0x07]);
+        }
+        AppIntent::Alert(AlertKind::SystemNotice) => {
+            if note.is_none() {
+                *note = Some("触发器通知".to_owned());
+            }
+        }
+    }
+}
+
+/// 推进一条标签上的发送门控：本帧输出放行 Prompt / LineBreak，注入时钟放行
+/// Later，未到期的写意图原样留队。转义解码失败在这里写进本帧 `note`，
+/// 由调用方 `commit_note` 抬到前景条——不写 stderr 冒充 UI 提示。
+pub(in crate::ui) fn drain_tab(
+    tab: &mut Tab,
+    now: u64,
+    output: Option<&str>,
+    run_commands: &mut Vec<String>,
+    note: &mut Option<String>,
+) {
+    let mut pending = Vec::new();
+    for FrameIntent { ctx, kind, release, since } in std::mem::take(&mut tab.pending_intents) {
+        let intent = FrameIntent { ctx, kind, release, since };
+        if !intent.ready(now, output) {
+            pending.push(intent);
+            continue;
+        }
+        let FrameIntent { ctx, kind, release, since } = intent;
+        match kind {
+            IntentKind::Surface(call) => {
+                let rule = ctx.owner.clone().unwrap_or_default();
+                invoke_surface(tab, &ctx, &call, &rule, note);
+            }
+            IntentKind::App(app) => dispatch_app(tab, app, run_commands, note),
+            // 凭据 / 脚本要窗口上下文（保险库 / 会话池 / 运行窗口），留给窗口级 drain。
+            other => pending.push(FrameIntent { ctx, kind: other, release, since }),
+        }
+    }
+    tab.pending_intents = pending;
+}
+
 /// 把一次命中的四类意图派发出去。`note` 是本帧局部缓冲，调用方帧末交回窗口。
 pub(in crate::ui) fn drain(
     win: &mut TerminalWindow,
     run_commands: &mut Vec<String>,
     note: &mut Option<String>,
 ) {
-    let mut batches: Vec<(TabSlot, Vec<FrameIntent>)> = Vec::new();
+    let now = crate::ui::terminal::session::now_secs();
+    // 帧泵末尾已经做过一次；这里再走同一条路径，保证「帧末才入队」的
+    // 交互命中（IP 悬停 / 粘贴）也按同样规则落地，且不会重复发已取走的项。
     for tab in win.tabs.iter_mut() {
-        batches.push((TabSlot::Main(tab.identity), std::mem::take(&mut tab.pending_intents)));
+        drain_tab(tab, now, None, run_commands, note);
     }
     for tab in win.shell_tabs.iter_mut() {
-        batches.push((TabSlot::Shell(tab.identity), std::mem::take(&mut tab.pending_intents)));
+        drain_tab(tab, now, None, run_commands, note);
     }
-    if batches.is_empty() {
-        return;
+
+    let mut batches: Vec<(TabSlot, Vec<FrameIntent>)> = Vec::new();
+    for tab in win.tabs.iter_mut() {
+        let intents = std::mem::take(&mut tab.pending_intents);
+        let (deferred, for_window): (Vec<_>, Vec<_>) =
+            intents.into_iter().partition(FrameIntent::is_write);
+        // 未到期的写意图留在自己的标签上，等下一次帧泵 / 帧末再试。
+        tab.pending_intents = deferred;
+        batches.push((TabSlot::Main(tab.identity), for_window));
+    }
+    for tab in win.shell_tabs.iter_mut() {
+        let intents = std::mem::take(&mut tab.pending_intents);
+        let (deferred, for_window): (Vec<_>, Vec<_>) =
+            intents.into_iter().partition(FrameIntent::is_write);
+        tab.pending_intents = deferred;
+        batches.push((TabSlot::Shell(tab.identity), for_window));
     }
 
     // 凭据先转为 write 意图：明文只在窗口层从保险库读一次，之后不再跨层传递。
@@ -127,13 +218,15 @@ pub(in crate::ui) fn drain(
                 method: "write".into(),
                 params: serde_json::json!({ "session": "current", "text": secret }),
             });
+            // 明文已经到窗口层，不再受规则里的发送门控。
+            intent.release = Release::Immediate;
+            intent.since = Ticks::ZERO;
         }
     }
 
     let mut scripts: Vec<(TabSlot, ScriptIntent, DispatchCtx)> = Vec::new();
-    let mut delayed_note: Option<String> = None;
     for (slot, batch) in batches {
-        for FrameIntent { ctx, kind } in batch {
+        for FrameIntent { ctx, kind, .. } in batch {
             match kind {
                 IntentKind::Surface(call) => {
                     let rule = ctx.owner.clone().unwrap_or_default();
@@ -141,46 +234,15 @@ pub(in crate::ui) fn drain(
                         invoke_surface(tab, &ctx, &call, &rule, note);
                     }
                 }
-                IntentKind::App(app) => match app {
-                    AppIntent::Mark { .. } => {
-                        if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
-                            if let Some((row, _)) = tab.view.cursor {
-                                let row = row as i64;
-                                if !tab.trigger_highlight_rows.contains(&row) {
-                                    tab.trigger_highlight_rows.push(row);
-                                    if tab.trigger_highlight_rows.len() > 64 {
-                                        tab.trigger_highlight_rows.remove(0);
-                                    }
-                                }
-                            }
-                        }
+                IntentKind::App(app) => {
+                    if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
+                        dispatch_app(tab, app, run_commands, note);
                     }
-                    AppIntent::Link(url) => open_link_with(&url, crate::sysopen::open),
-                    AppIntent::Menu(ids) => run_commands.extend(ids),
-                    AppIntent::Dispatch(id) => run_commands.push(id),
-                    AppIntent::Tooltip(text) => {
-                        if delayed_note.is_none() {
-                            delayed_note = Some(text);
-                        }
-                    }
-                    AppIntent::Alert(AlertKind::Beep) => {
-                        if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
-                            tab.write(&[0x07]);
-                        }
-                    }
-                    AppIntent::Alert(AlertKind::SystemNotice) => {
-                        if delayed_note.is_none() {
-                            delayed_note = Some("触发器通知".to_owned());
-                        }
-                    }
-                },
+                }
                 IntentKind::Script(script) => scripts.push((slot, script, ctx)),
                 IntentKind::Credential(_) => unreachable!("凭据已在上面转成 write 意图"),
             }
         }
-    }
-    if note.is_none() {
-        *note = delayed_note;
     }
 
     // 脚本走与运行窗口 / 停靠面板同一个 `ScriptRun` 入口，授权按次决定。
@@ -189,7 +251,7 @@ pub(in crate::ui) fn drain(
             continue;
         };
         let (session, read_only) = (tab.session, tab.local_mode);
-        drop(tab);
+        let _ = tab;
         let Some(id) = session else {
             if note.is_none() {
                 *note = Some("触发器脚本需要一个活会话".to_owned());
