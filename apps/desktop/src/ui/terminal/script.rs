@@ -277,11 +277,12 @@ impl TerminalWindow {
         let Some(modal) = self.script_ask.as_mut() else {
             return;
         };
-        if let Some(answer) = overlays::draw_ask(ctx, modal, lang) {
+        // `outcome` 把「真实回答」与「取消」分开：取消不会被当成 Bool(false) 送回去。
+        if let Some(outcome) = overlays::draw_ask(ctx, modal, lang) {
             let Some(modal) = self.script_ask.take() else {
                 return;
             };
-            let resolved = overlays::resolve_ask(&modal, answer);
+            let resolved = overlays::resolve_ask(&modal, outcome);
             modal.deliver(resolved);
             // 还有一个在等就立刻再取一个（脚本可能连问两次）。
             self.ctx.request_repaint();
@@ -910,11 +911,14 @@ mod tests {
 
         // 用户点了「是」：把答案交回去。
         let modal = window.script_ask.take().expect("模态框");
-        let resolved = overlays::resolve_ask(&modal, term_script::Answer::Bool(true));
+        let resolved = overlays::resolve_ask(
+            &modal,
+            overlays::AskOutcome::Answer(term_script::Answer::Bool(true)),
+        );
         modal.deliver(resolved);
         assert_eq!(
             rx.recv_timeout(std::time::Duration::from_secs(1)),
-            Ok(term_script::Answer::Bool(true)),
+            Ok(Ok(term_script::Answer::Bool(true))),
             "答案要真的回到脚本线程"
         );
 
@@ -960,12 +964,14 @@ mod tests {
                 window.poll_script_ask(ctx);
             });
             let modal = window.script_ask.take().expect("模态框");
-            let resolved =
-                overlays::resolve_ask(&modal, term_script::Answer::Text(format!("答案{index}")));
+            let resolved = overlays::resolve_ask(
+                &modal,
+                overlays::AskOutcome::Answer(term_script::Answer::Text(format!("答案{index}"))),
+            );
             modal.deliver(resolved);
             assert_eq!(
                 rx.recv_timeout(std::time::Duration::from_secs(1)),
-                Ok(term_script::Answer::Text(format!("答案{index}"))),
+                Ok(Ok(term_script::Answer::Text(format!("答案{index}")))),
                 "第 {index} 个问题要拿到它自己的答案"
             );
         }

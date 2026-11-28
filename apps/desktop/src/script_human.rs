@@ -40,7 +40,11 @@ pub struct PendingAsk {
     /// 所属运行的取消令牌：界面取之前先看一眼，取消的直接丢。
     pub cancel: CancelToken,
     pub request: Ask,
-    pub reply: SyncSender<Answer>,
+    /// 回信通道带 `Result`：真实答案是 `Ok`，取消（Esc / 关窗 / Cancel）是
+    /// `Err(NoInput)`。取消绝不能伪装成 `Answer::Bool(false)` 送过去——那样
+    /// Confirm 的 Esc 与「用户点了 No」无法区分，Text/Secret/Choose 还会收到
+    /// 类型错误的 bool。
+    pub reply: SyncSender<Result<Answer, AskError>>,
 }
 
 impl PendingAsk {
@@ -148,7 +152,9 @@ impl HumanChannel for UiHuman {
                 reply: tx,
             }),
         }
-        let answer = self.wait_for_reply(&rx);
+        // 界面回 `Err(NoInput)` = 用户取消；`Ok(answer)` 才是真实回答。
+        // 两种错误（取消 / 断线）都按「没人回答」处理，branch 一致。
+        let answer = self.wait_for_reply(&rx).and_then(|reply| reply);
         if answer.is_err() {
             // 取消 / 断线时脚本已经走了；问题若不摘掉，下一帧还会弹出来。
             drop_own_ask(&self.queue, seq);
@@ -481,7 +487,10 @@ mod tests {
         };
         let pending = pop_until(&queue);
         assert!(matches!(pending.request, Ask::Text { .. }));
-        pending.reply.send(Answer::Text("abc".into())).expect("回信");
+        pending
+            .reply
+            .send(Ok(Answer::Text("abc".into())))
+            .expect("回信");
         assert_eq!(
             asker.join().expect("脚本线程").expect("有答案"),
             Answer::Text("abc".into())
@@ -508,6 +517,59 @@ mod tests {
             picker.join().expect("脚本线程").expect("有答案"),
             Some(PathBuf::from("/tmp/picked.txt"))
         );
+    }
+
+    /// 界面按了 Esc / Cancel：回 `Err(NoInput)`，脚本线程要看到「没人回答」，
+    /// 而不是 `Ok(Bool(false))`——后者会让 Confirm 的「取消」与「No」混成一件。
+    #[test]
+    fn a_cancelled_ask_reaches_the_script_as_no_input() {
+        let queue: AskQueue = Default::default();
+        let human = Arc::new(UiHuman::new(
+            Arc::clone(&queue),
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+            None,
+            CancelToken::new(),
+        ));
+        let asker = {
+            let human = Arc::clone(&human);
+            std::thread::spawn(move || {
+                human.ask(&Ask::Confirm {
+                    title: String::new(),
+                    text: "继续？".into(),
+                })
+            })
+        };
+        let pending = pop_until(&queue);
+        pending.reply.send(Err(AskError::NoInput)).expect("回信");
+        assert_eq!(asker.join().expect("脚本线程"), Err(AskError::NoInput));
+        assert!(queue.lock().expect("队列锁").is_empty());
+    }
+
+    /// 等不到回信而通道断了（窗口关掉）：同样报 NoInput，不冒充默认答案。
+    #[test]
+    fn a_disconnected_ask_channel_means_no_input() {
+        let queue: AskQueue = Default::default();
+        let human = Arc::new(UiHuman::new(
+            Arc::clone(&queue),
+            Arc::new(Mutex::new(Vec::new())),
+            None,
+            None,
+            CancelToken::new(),
+        ));
+        let asker = {
+            let human = Arc::clone(&human);
+            std::thread::spawn(move || {
+                human.ask(&Ask::Text {
+                    title: String::new(),
+                    prompt: "名字？".into(),
+                    default: String::new(),
+                })
+            })
+        };
+        let pending = pop_until(&queue);
+        drop(pending.reply);
+        assert_eq!(asker.join().expect("脚本线程"), Err(AskError::NoInput));
     }
 
     /// 等到队列里有东西再取一个（界面那一侧的动作）。
