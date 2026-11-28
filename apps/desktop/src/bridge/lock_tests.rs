@@ -38,7 +38,7 @@ fn three_states_have_explicit_allow_deny_meanings() {
 }
 
 #[test]
-fn probe_decision_covers_the_three_states() {
+fn every_platform_judge_covers_the_three_states() {
     let locked = r#"+-o Root  <class IORegistryEntry>
   {
     "IOConsoleUsers" = ({"CGSSessionScreenIsLocked" = Yes})
@@ -47,10 +47,45 @@ fn probe_decision_covers_the_three_states() {
   {
     "IOKitBuildVersion" = "..."
   }"#;
-    assert_eq!(decide(true, Some(locked)), Some(true), "锁屏中");
-    assert_eq!(decide(true, Some(unlocked)), Some(false), "没锁");
+    // 三个平台的「怎么读 OS 的答复」都是纯函数，本机（macOS）一次就能全测完，
+    // 不需要真的锁一次屏，也不需要 Windows / Linux 机器。
+    assert_eq!(decide(true, Some(locked)), Some(true), "macOS 锁屏中");
+    assert_eq!(decide(true, Some(unlocked)), Some(false), "macOS 没锁");
     assert_eq!(decide(true, None), None, "ioreg 没跑起来 = 不知道");
     assert_eq!(decide(true, Some("")), None, "空输出不算「没锁」");
+
+    // Windows：输入桌面名与 OpenInputDesktop 失败码。
+    assert_eq!(judge_windows_desktop("Winlogon"), Some(true));
+    assert_eq!(judge_windows_desktop(" screen-saver "), Some(true));
+    assert_eq!(judge_windows_desktop("Default"), Some(false));
+    assert_eq!(
+        judge_windows_desktop("SomeOtherDesktop"),
+        None,
+        "不认识的桌面名不许猜"
+    );
+    assert_eq!(
+        judge_windows_error(5),
+        Some(true),
+        "锁屏时 ERROR_ACCESS_DENIED 视为锁屏"
+    );
+    assert_eq!(judge_windows_error(0), None, "其它错误是「问不出来」");
+
+    // Linux：ScreenSaver.GetActive 的输出。
+    assert_eq!(judge_screensaver("(<true>)"), Some(true));
+    assert_eq!(judge_screensaver("(<false>)"), Some(false));
+    assert_eq!(judge_screensaver("(true)"), Some(true));
+    assert_eq!(
+        judge_screensaver("method return time=... sender=... ( <true>, )"),
+        Some(true),
+        "gdbus 的 method-return 头不影响结论"
+    );
+    assert_eq!(judge_screensaver(""), None);
+    assert_eq!(judge_screensaver("command not found"), None);
+    assert_eq!(
+        judge_screensaver("true false"),
+        None,
+        "自相矛盾的输出判「问不出来」"
+    );
 }
 
 #[test]
@@ -62,8 +97,8 @@ fn an_unsupported_platform_never_claims_locked() {
     assert_eq!(decide(false, None), None);
     assert_eq!(
         platform_has_probe(),
-        cfg!(target_os = "macos"),
-        "1.0 平台声明：锁屏探测只在 macOS 有实现"
+        cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux")),
+        "平台声明：macOS / Windows / Linux 有实现，其余平台没有"
     );
 }
 
@@ -102,37 +137,52 @@ fn known_states_are_not_counted_as_fail_open() {
 
 #[test]
 fn the_audit_line_is_greppable_and_states_the_platform_decision() {
-    let on_macos = audit_line(true, 7);
+    let on_supported = audit_line(true, 7);
     assert!(
-        on_macos.contains(UNKNOWN_MARK),
-        "审计行必须可 grep：{on_macos}"
+        on_supported.contains(UNKNOWN_MARK),
+        "审计行必须可 grep：{on_supported}"
     );
-    assert!(on_macos.contains("放行"), "必须写明是放行：{on_macos}");
     assert!(
-        on_macos.contains("token"),
-        "必须点明主闸门仍是 token：{on_macos}"
+        on_supported.contains("放行"),
+        "必须写明是放行：{on_supported}"
     );
-    assert!(on_macos.contains("7"), "必须带上判定次数：{on_macos}");
+    assert!(
+        on_supported.contains("UDS 0600 + peercred") && on_supported.contains("DACL + SID"),
+        "token 已随 ADR-0030 删除；必须写清真正的主闸门：{on_supported}"
+    );
+    assert!(
+        !on_supported.contains("主闸门仍是 token"),
+        "不得再留下过时的 token 说法：{on_supported}"
+    );
+    assert!(
+        on_supported.contains("7"),
+        "必须带上判定次数：{on_supported}"
+    );
 
-    let off_macos = audit_line(false, 1);
+    let off_supported = audit_line(false, 1);
     assert!(
-        off_macos.contains(UNKNOWN_MARK),
-        "审计行必须可 grep：{off_macos}"
+        off_supported.contains(UNKNOWN_MARK),
+        "审计行必须可 grep：{off_supported}"
     );
     assert!(
-        off_macos.contains("仅 macOS 有实现"),
-        "非 macOS 的审计行必须说清「本平台未做锁屏探测」：{off_macos}"
+        off_supported.contains("仅 macOS / Windows / Linux 有实现"),
+        "未实现的平台必须说清「本平台未做锁屏探测」：{off_supported}"
     );
     assert!(
-        off_macos.contains("token"),
-        "纵深防御只剩 token：{off_macos}"
+        off_supported.contains("UDS 0600 + peercred"),
+        "未实现的平台也要写清主闸门：{off_supported}"
     );
 }
 
 #[test]
 fn the_real_probe_audit_matches_its_own_lock_result() {
     // 真探针在任何平台上都得自洽：结论是 None 就恰好记一次 fail-open，
-    // 结论明确就一次都不记。这条同时覆盖 macOS 上 `ioreg` 挂掉的情形。
+    // 结论明确就一次都不记。本机（macOS）跑的是 `ioreg` 分支；Windows 的
+    // User32 与 Linux 的 dbus 分支未在本机运行验证，只做了 cfg 隔离与编译检查。
+    #[cfg(target_os = "windows")]
+    eprintln!("Windows 输入桌面探测：真 OS 调用未在本机（macOS）运行验证");
+    #[cfg(target_os = "linux")]
+    eprintln!("Linux ScreenSaver 探测：真 OS 调用未在本机（macOS）运行验证");
     let probe = Cached::new(Ioreg, Duration::from_secs(2));
     let value = probe.locked();
     let expected = if value.is_none() { 1 } else { 0 };
@@ -143,27 +193,34 @@ fn the_real_probe_audit_matches_its_own_lock_result() {
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[test]
-fn ioreg_probe_explicitly_returns_none_off_macos() {
+fn unsupported_platform_probe_explicitly_returns_none() {
     assert_eq!(
         Ioreg.locked(),
         None,
-        "非 macOS 的 Ioreg 探针必须明确返回 None（放行），不得返回 Some"
+        "未实现探测的平台必须明确返回 None（放行），不得返回 Some"
     );
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 #[test]
 fn the_real_probe_is_audited_when_the_platform_has_no_lock_probe() {
     let probe = Cached::new(Ioreg, Duration::from_secs(2));
     assert_eq!(probe.locked(), None);
     assert!(
         probe.unknown_hits() >= 1,
-        "非 macOS 上「本平台没做锁屏探测」必须在运行时有计数可查"
+        "未实现探测的平台上必须在运行时有 fail-open 计数可查"
     );
     assert!(
-        audit_line(platform_has_probe(), probe.unknown_hits()).contains("仅 macOS 有实现"),
+        audit_line(platform_has_probe(), probe.unknown_hits())
+            .contains("仅 macOS / Windows / Linux 有实现"),
         "审计行必须把平台事实写清楚"
     );
 }
+
+// Windows 的 User32 调用与 Linux 的 dbus 调用都整段 `#[cfg]` 隔离在 lock.rs 里，
+// 本机（macOS）不编译、也没有真实交互桌面 / 会话总线可跑，因此**未在本机运行验证**；
+// 这里只把两者的纯判据（桌面名 / 错误码 / GetActive 文本）拉到本机测死。
+// 真 OS 调用的自洽性由 `the_real_probe_audit_matches_its_own_lock_result` 在对应
+// 平台上覆盖：结论是 None 就恰好记一次 fail-open，否则一次都不记。

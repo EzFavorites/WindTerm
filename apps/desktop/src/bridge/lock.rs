@@ -14,20 +14,22 @@
 //!
 //! - `Some(true)`：锁屏中 → 关连接，不服务。
 //! - `Some(false)`：没锁 → 正常服务。
-//! - `None`：问不出来（非 macOS、`ioreg` 挂了、输出不认识）→ **放行**。
+//! - `None`：问不出来（没有桌面环境、OS 调用失败、输出不认识）→ **放行**。
 //!
 //! 放行而不是拒绝：控制端点的主要用途是给本机的 CLI / MCP 客户端用，探测
-//! 失败就整体不可用属于本末倒置；0600 + peercred 的准入仍然要求，安全性
-//! 没有归零。
+//! 失败就整体不可用属于本末倒置；UDS 0600 + peercred 的准入仍然要求，安全性
+//! 没有归零（Windows 是 DACL + SID 校验）。
 //! **这是有意的产品决策，不翻转它**：把 `None` 改成拒绝服务会让一个
-//! 探测不到的平台整体不可用，不符合 1.0 的定位。
+//! 探测不到的机器整体不可用，不符合 1.0 的定位。
 //!
-//! # 1.0 平台声明
+//! # 平台声明
 //!
-//! 锁屏探测**仅 macOS 有实现**（`ioreg`）。其他平台 [`Ioreg::locked`] 恒返回
-//! `None`，即放行；这些平台没有锁屏探测这一层，准入只剩 0600 + peercred。
-//! 因此 1.0 **不得宣称跨平台锁屏防护**：若要宣称，
-//! 必须为对应平台补实现，并另行决策「探测失败是否仍放行」。
+//! macOS（`ioreg`）、Windows（`OpenInputDesktop` + `GetUserObjectInformation`）
+//! 与 Linux（freedesktop `ScreenSaver.GetActive`，经 gdbus / dbus-send）都有实现，
+//! [`Ioreg::locked`] 按当前平台分派（名字沿用生产接线的历史命名）。其余平台恒返回
+//! `None`，即放行；那些平台没有锁屏探测这一层，准入只剩 UDS 0600 + peercred。
+//! Linux 没有桌面环境 / 桌面不暴露该接口时同样返回 `None`——这是「问不出来」，
+//! 不是「没锁」，绝不伪装成 `Some(false)`。
 //!
 //! 为了让「本平台没做锁屏探测」在运行时可见、可测，fail-open 不再是无声的：
 //! 生产路径 `Cached<Ioreg>`（见 `bridge::serve`）每次把三态过一遍 [`permits`]，
@@ -37,6 +39,7 @@
 //! 注意审计点在这个包装层：直接持有裸 [`Ioreg`] 不会有日志，生产路径恒用
 //! `Cached<Ioreg>`。审计行与计数都能在单测里钉死，见 `lock_tests.rs`。
 
+#[cfg(target_os = "macos")]
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -45,9 +48,12 @@ use std::time::{Duration, Instant};
 /// 前台控制端点 stderr 上 fail-open 审计行的固定前缀，运维按它 grep。
 pub const UNKNOWN_MARK: &str = "[desk-serve][lock-probe] UNKNOWN";
 
-/// 1.0 的平台事实：锁屏探测只在 macOS 有实现。
+/// 当前平台是否有锁屏探测实现（macOS / Windows / Linux 为真）。
+///
+/// 这是运行时可见的平台事实：审计行用它区分「探测失败」与「平台没做探测」，
+/// 单测用它断言三个平台都真正接了实现。
 pub fn platform_has_probe() -> bool {
-    cfg!(target_os = "macos")
+    cfg!(any(target_os = "macos", target_os = "windows", target_os = "linux"))
 }
 
 /// 把三态翻译成「是否放行」的判据，与 `bridge/mod.rs` 里 `handle` /
@@ -63,19 +69,20 @@ pub fn permits(value: Option<bool>) -> bool {
 /// 审计行的纯构造函数：日志内容可单测，不必捕获 stderr。
 fn audit_line(supported: bool, hits: u64) -> String {
     let reason = if supported {
-        "macOS/ioreg 探测失败"
+        "OS 调用没给出明确结论（无桌面环境 / 命令失败 / 输出不认识）"
     } else {
-        "本平台未实现锁屏探测（仅 macOS 有实现）"
+        "本平台未实现锁屏探测（仅 macOS / Windows / Linux 有实现）"
     };
     format!(
-        "{UNKNOWN_MARK} {reason}；按 1.0 产品决策放行，主闸门仍是 token；fail-open 判定次数={hits}"
+        "{UNKNOWN_MARK} {reason}；按产品决策放行，主闸门是 UDS 0600 + peercred（Windows 为 DACL + SID 校验），锁屏探测只是纵深防御；fail-open 判定次数={hits}"
     )
 }
 
-/// 探针结论的纯函数形态：让「非 macOS 恒 None」不必真的在 Linux 上跑才能证伪。
+/// macOS 探针结论的纯函数形态：让「没输出就是不知道」不必真跑 `ioreg` 才能证伪。
 ///
 /// `supported=false` 时即便喂一份「锁屏中」的 `ioreg` 文本也返回 `None`——
 /// 没实现的平台不许假装知道，更不许假装锁着。`output=None` 代表命令没跑起来。
+#[cfg(any(test, target_os = "macos"))]
 fn decide(supported: bool, output: Option<&str>) -> Option<bool> {
     if !supported {
         return None;
@@ -83,30 +90,198 @@ fn decide(supported: bool, output: Option<&str>) -> Option<bool> {
     judge(output.unwrap_or(""))
 }
 
-/// 谁来判断「现在锁屏了吗」。
+/// 谁来判断「现在锁屏了吗」。三态见文件头。
 pub trait LockProbe: Send + Sync {
     fn locked(&self) -> Option<bool>;
 }
 
-/// 真实探针：macOS 的 `ioreg`。其他平台一律 `None`（放行）。
+/// 系统探针。名字沿用生产接线（`bridge::serve` 里的 `lock::Ioreg`），
+/// 实际按平台分派：macOS 问 `ioreg`，Windows 问输入桌面，Linux 问
+/// freedesktop ScreenSaver；未实现的平台返回 `None`（放行 + 审计）。
 pub struct Ioreg;
 
 impl LockProbe for Ioreg {
+    #[cfg(target_os = "macos")]
     fn locked(&self) -> Option<bool> {
-        let supported = platform_has_probe();
-        // 非 macOS 不执行 `ioreg`：探测没实现就是没实现，别拿一份假输出去猜。
-        let output: Option<String> = if supported {
-            Command::new("ioreg")
-                .args(["-n", "Root", "-d1"])
+        let output = Command::new("ioreg")
+            .args(["-n", "Root", "-d1"])
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()
+            .map(|out| String::from_utf8_lossy(&out.stdout).into_owned());
+        decide(true, output.as_deref())
+    }
+
+    #[cfg(target_os = "windows")]
+    fn locked(&self) -> Option<bool> {
+        win32::input_desktop()
+    }
+
+    #[cfg(target_os = "linux")]
+    fn locked(&self) -> Option<bool> {
+        freedesktop::screensaver_active()
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    fn locked(&self) -> Option<bool> {
+        None
+    }
+}
+
+/// Windows 纯判据：输入桌面名 → 三态。与 OS 调用隔离，单测可在任意平台跑。
+#[cfg(any(test, target_os = "windows"))]
+fn judge_windows_desktop(name: &str) -> Option<bool> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        // 锁屏时输入桌面切到安全的 Winlogon 桌面；屏保桌面同理。
+        "winlogon" | "screen-saver" => Some(true),
+        // 普通交互桌面：明确没锁。
+        "default" => Some(false),
+        // 其它名字不认识：判「问不出来」，不猜。
+        _ => None,
+    }
+}
+
+/// Windows 纯判据：`OpenInputDesktop` 失败时的 `GetLastError` → 三态。
+///
+/// 锁屏时普通进程无权打开 Winlogon 输入桌面，会得到 ERROR_ACCESS_DENIED(5)；
+/// 其它错误（权限策略、会话已结束等）不代表锁屏，判「问不出来」。
+#[cfg(any(test, target_os = "windows"))]
+fn judge_windows_error(code: u32) -> Option<bool> {
+    const ERROR_ACCESS_DENIED: u32 = 5;
+    (code == ERROR_ACCESS_DENIED).then_some(true)
+}
+
+/// Linux 纯判据：ScreenSaver.GetActive 的返回文本 → 三态。
+///
+/// `gdbus` 打 `(<true>)`、`dbus-send` 打 `(true)`，也可能带 method-return 头；
+/// 只要文本里出现且只出现一个布尔字面量就采用，出现零个或两个（自相矛盾）
+/// 都判「问不出来」。
+#[cfg(any(test, target_os = "linux"))]
+fn judge_screensaver(text: &str) -> Option<bool> {
+    let lower = text.to_ascii_lowercase();
+    let mut seen: Option<bool> = None;
+    for token in lower.split(|c: char| !c.is_ascii_alphanumeric()) {
+        let value = match token {
+            "true" => true,
+            "false" => false,
+            _ => continue,
+        };
+        match seen {
+            None => seen = Some(value),
+            Some(prev) if prev == value => {}
+            Some(_) => return None,
+        }
+    }
+    seen
+}
+
+/// Windows 平台 API：问当前输入桌面的名字。整段 `#[cfg]` 隔离，
+/// 本机（macOS）不编译、不链接 User32，只有 Windows 构建才进编译单元。
+#[cfg(target_os = "windows")]
+mod win32 {
+    use super::{judge_windows_desktop, judge_windows_error};
+    use std::ffi::c_void;
+
+    type Handle = *mut c_void;
+    const FALSE: i32 = 0;
+    const DESKTOP_READOBJECTS: u32 = 0x0001;
+    const UOI_NAME: i32 = 2;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn OpenInputDesktop(flags: u32, inherit: i32, access: u32) -> Handle;
+        fn GetUserObjectInformationW(
+            handle: Handle,
+            index: i32,
+            info: *mut c_void,
+            length: u32,
+            needed: *mut u32,
+        ) -> i32;
+        fn CloseDesktop(handle: Handle) -> i32;
+    }
+    extern "system" {
+        fn GetLastError() -> u32;
+    }
+
+    pub(super) fn input_desktop() -> Option<bool> {
+        unsafe {
+            let desktop = OpenInputDesktop(0, FALSE, DESKTOP_READOBJECTS);
+            if desktop.is_null() {
+                return judge_windows_error(GetLastError());
+            }
+            // 256 个 UTF-16 单元足够容纳 "Winlogon" / "Screen-saver" / "Default"；
+            // 名字再长也只需前缀判三态，不认识的名字本来就返回 None。
+            let mut buf = [0u16; 256];
+            let mut needed = 0u32;
+            let ok = GetUserObjectInformationW(
+                desktop,
+                UOI_NAME,
+                buf.as_mut_ptr() as *mut c_void,
+                (buf.len() * 2) as u32,
+                &mut needed,
+            );
+            let _ = CloseDesktop(desktop);
+            if ok == 0 {
+                return None;
+            }
+            let end = buf.iter().position(|&unit| unit == 0).unwrap_or(buf.len());
+            judge_windows_desktop(&String::from_utf16_lossy(&buf[..end]))
+        }
+    }
+}
+
+/// Linux 平台 API：freedesktop ScreenSaver.GetActive。整段 `#[cfg]` 隔离，
+/// 本机（macOS）不编译；命令不存在 / 没有会话总线 / 输出不认识一律返回 None
+/// （「问不出来」），不把「没桌面」伪装成「没锁」。
+#[cfg(target_os = "linux")]
+mod freedesktop {
+    use super::judge_screensaver;
+    use std::process::{Command, Stdio};
+
+    pub(super) fn screensaver_active() -> Option<bool> {
+        // gdbus 的输出更规整，优先；dbus-send 是很多最小化发行版唯一自带的工具。
+        let attempts: [(&str, &[&str]); 2] = [
+            (
+                "gdbus",
+                &[
+                    "call",
+                    "--session",
+                    "--dest",
+                    "org.freedesktop.ScreenSaver",
+                    "--object-path",
+                    "/org/freedesktop/ScreenSaver",
+                    "--method",
+                    "org.freedesktop.ScreenSaver.GetActive",
+                ],
+            ),
+            (
+                "dbus-send",
+                &[
+                    "--session",
+                    "--print-reply",
+                    "--dest=org.freedesktop.ScreenSaver",
+                    "/org/freedesktop/ScreenSaver",
+                    "org.freedesktop.ScreenSaver.GetActive",
+                ],
+            ),
+        ];
+        for (program, args) in attempts {
+            let Ok(out) = Command::new(program)
+                .args(args)
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .output()
-                .ok()
-                .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
-        } else {
-            None
-        };
-        decide(supported, output.as_deref())
+            else {
+                continue;
+            };
+            if out.status.success() {
+                if let Some(value) = judge_screensaver(&String::from_utf8_lossy(&out.stdout)) {
+                    return Some(value);
+                }
+            }
+        }
+        None
     }
 }
 
