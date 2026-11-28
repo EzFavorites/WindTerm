@@ -440,7 +440,7 @@ fn description_counters_and_status_note_reflect_the_wire() {
 
 #[test]
 fn spawn_plan_still_builds_the_system_telnet_argv() {
-    // 只改 open_channel() 的分派；spawn_plan() 的 CLI / 无窗口路径原样保留。
+    // 只改 open_channel() 的分派；spawn_plan() 的系统客户端分支原样保留。
     let mut config = SessionConfig::new(Protocol::Telnet);
     config.host = "example.net".to_string();
     match config

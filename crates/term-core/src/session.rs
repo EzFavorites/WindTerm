@@ -773,8 +773,8 @@ impl SessionConfig {
     /// 给应用层造 `term_ssh::OutboundProxy` 用的**纯数据视图**。
     ///
     /// `term-core` 不依赖 `term-ssh`、`term-ssh` 也不认识 `SessionConfig`；
-    /// 两边都只认这个三元组。判定只写这一遍，UI 连接路径与无窗口路径
-    /// （`desk script` / `desk serve`）就不会出现「一边走代理一边直连」。
+    /// 两边都只认这个三元组。判定只写这一遍，界面、脚本与 API 的连接路径
+    /// 就不会出现「一边走代理一边直连」。
     pub fn outbound_proxy_spec(&self) -> Option<(ProxyType, &str, u16)> {
         let kind = self.effective_proxy_type();
         if !kind.is_outbound() {
@@ -1054,7 +1054,7 @@ impl Default for SessionManager {
 /// 打开一条会话的意图。字段是纯数据，不带任何凭据（凭据在保险库）。
 ///
 /// `Profile` 与 `Config` 对应 ADR-0025 决策 6 的两条路径；后两个是脚本与
-/// 测试长期在用的形态（CLI 的 `--exec` / 默认本地 shell），一并收进来是为了
+/// 测试长期在用的形态（一次性命令 / 默认本地 shell），一并收进来是为了
 /// 让「谁去起会话」只有一个入口。
 #[derive(Clone, Debug, PartialEq)]
 pub enum OpenRequest {

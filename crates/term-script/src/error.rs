@@ -47,7 +47,7 @@ pub enum PrimitiveError {
     /// 不复用 `UnknownKey`：那是键盘键名专用，文案里会拼 `known_names()`，
     /// 套到面板名上会输出「认不出的键名 "pane_filer"：可用 left shift…」。
     UnknownName { kind: &'static str, name: String },
-    /// `ask` 在这里没有可交互的输入（界面里的脚本、`desk serve` 无窗口进程）。
+    /// `ask` 在这里没有可交互的输入（没有输入队列的宿主）。
     /// 不返回空串冒充「用户按了回车」——那会让「要不要继续」这条分支静默走成
     /// 「继续」。
     NoInput,
@@ -56,7 +56,7 @@ pub enum PrimitiveError {
     Cancelled,
     /// 授权信封里没有这一项。文案里带 requested / granted。
     Denied(String),
-    /// 宿主没有该能力（无头宿主的窗口、CLI 的文件框……）。
+    /// 宿主没有该能力（未接线的窗口 / 文件框端口……）。
     Unsupported(String),
     /// 其它已有完整文案的失败（人机通道、IO、SFTP……）。**不再二次包装**，
     /// 因为这些文案已经把「缺什么 / 试了什么」写清楚了。

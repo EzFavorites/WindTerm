@@ -1,32 +1,30 @@
 # 脚本
 
 WindTerm 内建 [Rhai](https://rhai.rs) 脚本引擎（`crates/term-script`），可以在
-独立会话里驱动终端、操作会话、读写本地文件、跑外部进程。
+前台会话里驱动终端、操作会话、读写本地文件、跑外部进程。
 
 ## 入口
 
-```sh
-term-desk script run a.rhai              # 文件
-term-desk script run - < a.rhai          # 标准输入
-term-desk script run a.rhai --exec "ls"  # 用一次性命令会话代替本地 shell
-term-desk script run a.rhai --timeout 30 --quiet
-```
+脚本只在**前台 GUI 进程**里跑：脚本窗口选文件点「运行」，或在脚本编辑器里
+打开后运行。脚本 `session_open` 出来的标签就在用户眼前，与手动打开的会话
+属于同一个池。脚本用 `args(0)` 读的参数来自脚本登记项；预算档位与本次授权
+（`// @cap` 声明、脚本面板 ▸ Permissions）都在界面里选，不靠命令行开关。
 
-其余常用参数：`--batch`（批处理预算档）、`--arg X`（可重复，脚本用 `args()` 读）、
-`--allow fs=write:/tmp,process`（本次运行的额外授权）。完整列表见
-`apps/desktop/src/cli/script.rs` 的 `USAGE`，无参数打印的用法错误里也会带上它。
+命令行**不执行脚本文件**：`term-desk script run` 已删除（ADR-0030）。剩下的
+无窗口子命令只有 `doctor` / `capability` / `api describe` / `api call` / `mcp`，
+它们都是前台 UDS 控制端点的薄客户端，要求前台已经在运行，绝不自建会话池。
 
-窗口内的脚本编辑器使用同一套宿主 API，因此同一份脚本在 GUI 与 CLI 下行为
-一致（可用的宿主能力随上下文不同而收敛）。
+脚本窗口与脚本编辑器使用同一套宿主 API，因此同一份脚本在两处行为一致
+（可用的宿主能力随上下文不同而收敛）。
 
 ## 外部 Python 脚本
 
-`.py` 文件走**外部 Python 子进程 + stdio JSON-RPC 桥**，不是内嵌 Rhai：
+`.py` 文件走**外部 Python 子进程 + stdio JSON-RPC 桥**，不是内嵌 Rhai，同样
+从界面里运行。起进程必须放行 `process`：
 
 ```sh
-term-desk script run a.py --allow process          # 必须放行 process
-WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
-# @cap process                                       # 或写在 .py 文件头
+WINDTERM_PYTHON=/opt/python3.12/bin/python3        # 指定解释器（可选）
+# @cap process                                       # 写在 .py 文件头（或面板勾选）
 ```
 
 借鉴 CRT 的思路——写 Python、在会话里发命令等提示符——但机制不同：别家在进程内
@@ -35,8 +33,8 @@ WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
 
 - **解释器**：默认找 PATH 上的 `python3` / `python`（Windows 上 `python` 优先），
   可用 `WINDTERM_PYTHON` 指定绝对路径。
-- **授权**：起进程属于高风险能力，默认拒绝。脚本头写 `# @cap process`、命令行
-  用 `--allow process`，或在脚本面板勾选「运行程序」；只作用于本次运行。
+- **授权**：起进程属于高风险能力，默认拒绝。脚本头写 `# @cap process`，或在
+  脚本面板勾选「运行程序」；只作用于本次运行。
 - **原生 API**：`crates/term-bridge::python_api_shim()` 从能力表派生出与动词同名的
   Python 一等函数：`write(text)`、`read_until(pattern, timeout)`、`wait(...)`、
   `wait_any(...)`、`screen()`、`session_list()`、`session_open(...)`、`session_use(name)`、
@@ -71,7 +69,7 @@ WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
 | 本地文件 | `fs_read` `fs_list` `fs_stat` `pick_file` | 本地文件系统 |
 | 远端文件 | `sftp_list` `sftp_stat` | SFTP 读取 |
 | 偏好 | `profile_get` `profile_list` | 读用户偏好 |
-| 安全 | `secret` | 弹掩码输入框向用户要口令（不是保险库查询；无窗口宿主不支持） |
+| 安全 | `secret` | 弹掩码输入框向用户要口令（不是保险库查询；非交互宿主不支持） |
 | 交互 | `ask` `confirm` `message` `choose` `text_input` `pick_file` | 向用户提问、确认、选择 |
 | 剪贴板 | `clipboard_get` | 读剪贴板 |
 | 运行时 | `args` `version` `script_path` `script_session` `last_error` `sleep` | 脚本自身上下文 |
@@ -109,8 +107,8 @@ WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
 我们借鉴的是那套终端自动化的**节奏与语义**，不是对象形状：录「人敲的字节 +
 屏幕静默点」生成「发一段 → 等提示符 → 再发一段」的脚本；区分「消费式读取」
 与「只观察不推进游标」；按会话名寻址并钉住目标；同一个脚本能从菜单、映射键、
-按钮栏、会话登录钩子和命令行多种入口启动。实现上全部落到 WindTerm 自己的
-全局动词，没有对象门面，也不解释别家脚本语言。
+按钮栏、会话登录钩子和自动化规则（`RunScript` 动作）多种入口启动。实现上全部
+落到 WindTerm 自己的全局动词，没有对象门面，也不解释别家脚本语言。
 
 | 借鉴的设计点 | WindTerm 的原生写法 |
 |---|---|
@@ -133,12 +131,12 @@ WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
 
 - 脚本在受限预算内运行：墙钟、操作数和语法嵌套深度都有上限
   （`crates/term-script/src/sandbox.rs`；交互档 30 秒 / 100 万操作，
-  `--batch` 批处理档 600 秒 / 5000 万操作），超预算即显式失败。
+  批处理档 600 秒 / 5000 万操作），超预算即显式失败。
   **没有输出字节配额这个旋钮**：输出侧的边界只有「每次取数只返回上次消费点
   之后的文本」与固定 64 KiB 捕获窗口（超出保尾裁旧）；长输出要循环取数并当场
   消费，不要指望一次 `read` 端回几 MB。
 - `secret(prompt)` 弹一个掩码输入框，把用户输入**原文**作为字符串返回给脚本
-  （不是保险库句柄，也不从配置里读）。无窗口宿主不支持，会显式失败；
+  （不是保险库句柄，也不从配置里读）。不能提问的宿主不支持，会显式失败；
   脚本日志与错误信息不回显口令。
 - 脚本错误写进 `last_error`，不会让宿主进程崩溃。
 
@@ -158,11 +156,7 @@ session_close(info["name"]);
 随产品附带的 5 个可直接改的示例在
 [`apps/desktop/resources/scripts/`](../apps/desktop/resources/scripts/)：
 自动登录、批量巡检落盘、抓命令输出、多标签下发、自动应答。每个文件头部都写了
-怎么运行、要改哪几处占位值，以及是否需要 `// @cap` 授权。
-
-```
-term-desk script run apps/desktop/resources/scripts/03-capture-output.rhai --batch
-```
+要改哪几处占位值，以及是否需要 `// @cap` 授权；在脚本窗口打开后点「运行」即可。
 
 等一个不确定的提示语时用 `wait`（不推进游标，返回已匹配到的文本）或 `wait_any`
 （多模式取首个命中，返回 `{index, text}`，`index` 是模式在数组里的 **1 起下标**）：
@@ -174,7 +168,7 @@ let hit = wait_any(["Password:", "password:", "密码"], 15);
 write("<口令>\n");
 ```
 
-函数签名可能随版本演进；以 `describe()` / RPC `describe` 的实际输出与
+函数签名可能随版本演进；以 `describe()` / `term-desk api describe` 的实际输出与
 `crates/term-script/src/*.rs` 的注册表为准。
 
 ## 录制脚本
@@ -196,14 +190,16 @@ write("<口令>\n");
 实现位于 `apps/desktop/src/script_recorder.rs`；它的单测会把录出的源码丢回真实
 引擎跑一遍，确保生成物不是只能看的字符串。
 
-## 命令行的边界
+## 会话与凭据的边界
 
-`term-desk script run` 跑在独立进程里，**不共享**桌面窗口的会话池：
+脚本跑在前台进程里，会话就是窗口里用户可见的标签（ADR-0030）：
 
-- 它自己开、自己关会话（`--exec` 一次性命令 / `--session` 会话库引用 / 默认本地 shell）。
-- 无窗口进程不会解锁保险库，所以密码与 keyboard-interactive 认证的会话在这里
-  打不开（显式报错、退出码 1）；改用 Agent / 私钥，或到桌面里跑。
-- 脚本来自 stdin（`-`）时 `ask()` / `secret()` 不可用——输入源已被脚本占用。
+- 脚本开、关的会话都在同一个池里；不存在「自己开池、跑完就退」的脚本入口，
+  也没有 `--exec` 一次性命令或 stdin（-）脚本形态。
+- 需要密码 / keyboard-interactive 认证的会话要先在窗口里解锁保险库；脚本本身
+  不会替用户解锁，拿不到凭据就显式失败。
+- `ask()` / `secret()` 要有界面队列才能回答；不能提问的宿主显式报错，不会
+  用空串冒充用户输入。
 
 ## 与 CRT 的有意偏差
 
@@ -214,16 +210,18 @@ write("<口令>\n");
 | 无多语言解释器 | 支持 VBScript / Python 等多种语言，由两行 `#$Language` 头选定 | 只有 Rhai（另有外部 Python 子进程通道）。不解释 VBScript / Python 语句，也不提供任何对象门面 |
 | 无两行头 | 开头两行 `#$language = "VBScript"` 之类用于选语言 | 不解析两行头；脚本头只有可选的**单行** `// @cap ...`，它是本次运行的授权声明，不是语言选择 |
 | 超时显式失败 | `WaitForString` 超时给 `false`、`ReadString` 给哨兵、`WaitForStrings` / `MatchIndex` 给 0，都不抛错 | `wait` / `wait_any` / `read_until` 超时即显式失败（原因可从 `last_error()` 读），不返回哨兵；只有排水用的 `read` 在超时时返回空串。要「布尔命中」就写 `wait` 后自己判空，别指望哨兵 |
-| 无每次运行的授权 | CRT 没有 per-run capability grant：脚本能做什么取决于脚本与宿主环境，没有按次收紧的开关 | `// @cap` 与 CLI `--allow` 是刻意加的**安全增强**，只作用于本次运行；文件、外部进程、剪贴板读、窗口与应用级状态默认全拒 |
-| 无前后台模式 | CRT 不区分脚本的前台 / 后台运行模式 | 不做该区分；把脚本跑在独立会话 / 进程里只是自动化安全的实现细节，不是用户可见的模式开关 |
+| 无每次运行的授权 | CRT 没有 per-run capability grant：脚本能做什么取决于脚本与宿主环境，没有按次收紧的开关 | `// @cap` 与脚本面板 ▸ Permissions 是刻意加的**安全增强**，只作用于本次运行；文件、外部进程、剪贴板读、窗口与应用级状态默认全拒 |
+| 无前后台模式 | CRT 不区分脚本的前台 / 后台运行模式 | 不做该区分；脚本只能操作前台实例持有的可见会话（ADR-0030），不存在自持会话池的无窗口模式 |
 | 录制器形似而神不同 | 录人敲的键 + 观察到的输出，生成 `Send` / `WaitForString` 对 | 同样从**按键 + 屏幕安静锚点**录制，但生成 `write` / `read_until` 对（见「录制脚本」节） |
 | 无自定义对话框 / OLE | 支持自定义窗体与 OLE 自动化 | 不支持；交互只有 `ask` / `confirm` / `message` / `text_input` / `secret` / `pick_file` 六种固定形态 |
 
 ## JSON-RPC 桥
 
-`crates/term-bridge` 提供 JSON-RPC over stdio 的桥接，供外部工具以结构化方式
-调用能力面。`term-desk serve` 把同一套能力暴露到 `127.0.0.1`：连接后的第一条
-请求必须是 token 握手，之后按 JSON-RPC 调用。
+`crates/term-bridge` 提供 JSON-RPC over stdio 的桥接，供外部 Python 子进程以
+结构化方式调用能力面。`term-desk mcp` 也用 stdio 对接 MCP 客户端，但它连前台
+走的是本地控制端点。外部 CLI / MCP 客户端连前台 GUI 的
+`~/.zterm/control.sock`（0600 + peercred），用
+`term-desk api describe` / `term-desk api call <method> [params-json]` 发请求。
 
-token 从 `--token-file` 指定的文件读取；`serve` 不会在没有 token 的情况下
-监听端口。
+前台没运行时 `api` / `mcp` 明确报错退出，绝不自己起一个会话池。没有 token
+文件，也没有 `auth` 握手——协议第一条就是普通方法调用（ADR-0030）。

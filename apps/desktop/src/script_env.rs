@@ -2,9 +2,9 @@
 //!
 //! # 为什么要一个装配点
 //!
-//! 两个入口（`desk script run` 与界面里的「运行脚本」）用的是同一套端口、
-//! 同一套授权规则，差别只在「谁来实现人机 / 剪贴板 / 窗口」。装配写两遍的结果
-//! 一定是「命令行能 `fs_read`、界面里报 Denied」这种只在某一侧出现的怪事。
+//! 界面里的「运行脚本」与直调者（单测 / 夹具）用的是同一套端口、同一套
+//! 授权规则，差别只在「谁来实现人机 / 剪贴板 / 窗口」。装配写两遍的结果
+//! 一定是「一侧能 `fs_read`、另一侧报 Denied」这种只在某一侧出现的怪事。
 //!
 //! # 授权的两个来源
 //!
@@ -131,7 +131,7 @@ fn canonicalized(request: CapRequest) -> CapRequest {
 pub struct WindowPorts {
     pub clipboard: Option<Arc<dyn Clipboard>>,
     pub ui: Option<Arc<dyn Ui>>,
-    /// 应用控制面（ADR-0027）。`None` = 无头 / 没有窗口 → 落到 `NoApp`。
+    /// 应用控制面（ADR-0027）。`None` = 没有窗口端口 → 落到 `NoApp`。
     pub app: Option<Arc<dyn term_script::AppControl>>,
 }
 

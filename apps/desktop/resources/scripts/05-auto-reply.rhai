@@ -1,5 +1,5 @@
 // 自动应答：按首个命中的提示词回话（对应 CRT 的 WaitForStrings/MatchIndex）。
-// 运行：term-desk script run 05-auto-reply.rhai --batch
+// 运行：在脚本窗口打开本文件点「运行」（长交互可把预算档选 Batch）。
 // 改这里：prompts 与 replies 一一对应；期望三轮交互，轮数不对就显式失败，
 // 不静默跳过——否则「以为自动应答了」比直接报错更难查。
 

@@ -7,17 +7,15 @@
 | 文件 | 做什么 | 运行要点 |
 |---|---|---|
 | `00-template.rhai` | 编辑器「新建」给出的起始模板 | 不需要额外授权 |
-| `01-auto-login.rhai` | 自动登录（SSH 配置 + 口令提示应答） | `--arg <host> --arg <user>`；Agent 认证无需保险库 |
-| `02-batch-inspection.rhai` | 批量巡检落盘 | `--batch --arg <host>...`；脚本头已声明 `/tmp` 写权限 |
+| `01-auto-login.rhai` | 自动登录（SSH 配置 + 口令提示应答） | 登记项里配 `<host>` `<user>` 两个参数；Agent 认证无需保险库 |
+| `02-batch-inspection.rhai` | 批量巡检落盘 | 登记项里配 `<host>...`，预算档选 Batch；脚本头已声明 `/tmp` 写权限 |
 | `03-capture-output.rhai` | 抓一条命令的输出并存文件 | 脚本头已声明 `/tmp` 写权限 |
 | `04-multi-tab-dispatch.rhai` | 多标签逐一下发命令 | 两个本地 shell 标签，序号从 1 起 |
-| `05-auto-reply.rhai` | 按首个命中提示自动应答 | `--batch`；提示语没出现时显式失败 |
+| `05-auto-reply.rhai` | 按首个命中提示自动应答 | 预算档可选 Batch；提示语没出现时显式失败 |
 
 带本地文件操作的示例用 `// @cap fs=write:/tmp` 脚本头授权；改成别的目录时，**头和路径
-都要改**（或用 CLI `--allow fs=write:<你的目录>` 追加）。授权只对本次运行有效。
+都要改**（或在脚本面板 ▸ Permissions 里勾选本次授权）。授权只对本次运行有效。
 
-在 GUI 里：脚本库打开任一文件 →「运行」；在命令行里：
-
-```sh
-term-desk script run apps/desktop/resources/scripts/03-capture-output.rhai --batch
-```
+运行方式：在脚本窗口打开任一文件 →「运行」（需要参数时在脚本登记项里配好 `args`）。
+命令行没有执行脚本文件的入口：脚本只操作前台会话，CLI 的 `api` / `mcp` 是控制端点
+的客户端，不自建会话池（ADR-0030）。

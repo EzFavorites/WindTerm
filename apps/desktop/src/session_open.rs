@@ -23,9 +23,9 @@
 //!    是「网络/主机给不出答案」，[`OpenFailure::Unsupported`] 是「这条认证方式
 //!    内置客户端做不了，请改会话」。
 //! 2. **本层不持有保险库。** 密码与 keyboard-interactive 的答案都在
-//!    `term-vault` 里，而 `desk serve` 是无窗口的、根本没解锁过保险库
-//!    （`bridge/mod.rs` 的 `serve_on` 只有 `SessionPool`）。所以这两档在这里
-//!    只报 [`OpenFailure::NeedsVault`]，由调用方决定是提示解锁还是拒绝。
+//!    `term-vault` 里，解锁由前台窗口负责，控制面与 API 客户端不会替用户
+//!    解锁。所以这两档在这里只报 [`OpenFailure::NeedsVault`]，由调用方决定
+//!    是提示解锁还是拒绝。
 //! 3. **同步、阻塞调用线程。** `term_ssh::connect` 本身就是同步的（内部线程 +
 //!    等一个 `Result`，最多等 `connect_timeout`）。两个消费者都在各自的线程里
 //!    （脚本线程 / 桥接的连接线程），没有一帧要救。
@@ -48,7 +48,7 @@ use term_runtime::channel::TermChannel;
 use term_session::{ChannelFactory, ChannelFailure, OpenError, SessionPool};
 use term_ssh::{AuthMethod as SshAuth, HostKeyPolicy, OutboundProxy, ProxyKind, SshOptions};
 
-/// 无窗口路径的首连策略。见模块文档「与界面路径的刻意差异」。
+/// 控制面路径的首连策略。见模块文档「与界面路径的刻意差异」。
 const HEADLESS_HOST_KEY_POLICY: HostKeyPolicy = HostKeyPolicy::Tofu;
 
 /// 默认私钥的搜索顺序——照 OpenSSH 自己：同一个目录下三把都在时，先 ed25519
@@ -78,8 +78,8 @@ impl fmt::Display for OpenFailure {
         match self {
             OpenFailure::NeedsVault { session } => write!(
                 f,
-                "会话 {session} 用密码认证，需要先解锁保险库；\
-                 headless 请改用 Agent/私钥认证的会话"
+                "会话 {session} 用密码认证，需要先在前台窗口里解锁保险库；\
+                 或改用 Agent/私钥认证的会话"
             ),
             OpenFailure::Unsupported(why) => {
                 write!(f, "内置 SSH 客户端打不开这条会话：{why}")
@@ -106,8 +106,8 @@ pub(crate) fn open_session(
     if is_builtin_ssh(config) {
         install_channel_factory(pool);
     }
-    // 无窗口路径没有人替控制面灌方案表（界面在构造时灌一次、每次落盘 OneKeys
-    // 之后再灌一次）。这里读一次盘：`prefs.json` 才是这份数据的正本，
+    // 脚本 / API 路径没有人替控制面灌方案表（界面在构造时灌一次、每次落盘
+    // OneKeys 之后再灌一次）。这里读一次盘：`prefs.json` 才是这份数据的正本，
     // 内存里那一份只是界面编辑用的副本。
     // 「Auto login next time」没勾时把空表交给控制面：`SessionPool::open` 进门就
     // `resolve_onekey`，空表 = 方案不参与自动登录，用户自己登。判定与界面路径
@@ -206,7 +206,7 @@ pub(crate) const DEFAULT_SCRIPT_SESSION_NAME: &str = "script";
 
 /// 把「怎么建一条内置 SSH 通道」注册给控制面。
 ///
-/// 幂等：`desk script` / `desk serve` / 单测都可能先到，先到的那份生效，
+/// 幂等：脚本 / API 路径与单测都可能先到，先到的那份生效，
 /// 后来者忽略（工厂实现是同一份代码，换掉它没有意义）。
 /// 工厂只认 `SessionConfig` 与 `TermChannel`，控制面因此仍然零协议知识。
 pub(crate) fn install_channel_factory(pool: &SessionPool) {
@@ -227,7 +227,7 @@ pub(crate) fn install_channel_factory(pool: &SessionPool) {
 /// **OneKey 不在这里解析**：控制面（`SessionPool::open` / `open_with_channel`）
 /// 在把配置递到这两个消费者之前就已经覆盖好了用户名与私钥。这里再读一次
 /// `prefs` 就是同一件事两个出处——改了一边不会提醒另一边（之前
-/// 正是这样：只有无窗口路径吃方案，界面那条一次都没读）。
+/// 正是这样：只有脚本 / API 路径吃方案，界面那条一次都没读）。
 ///
 /// `cols` / `rows` 对 SFTP 没意义（子系统不要终端尺寸），那两处照终端尺寸传
 /// 即可——它们只影响 `pty_req`，而子系统分支根本不发 `pty_req`。
@@ -286,7 +286,7 @@ fn is_builtin_ssh(config: &SessionConfig) -> bool {
 /// 而这一层没有理由自己去猜家目录。
 fn ssh_auth(config: &SessionConfig, home: Option<&Path>) -> Result<SshAuth, OpenFailure> {
     match config.auth {
-        // agent 不需要保险库：私钥不出 `$SSH_AUTH_SOCK`，这正是 headless 的正解。
+        // agent 不需要保险库：私钥不出 `$SSH_AUTH_SOCK`，这是控制面路径的正解。
         AuthMethod::Agent => Ok(SshAuth::Agent),
         AuthMethod::PublicKey => {
             let explicit = config.identity_file.trim();
@@ -330,7 +330,7 @@ fn ssh_auth(config: &SessionConfig, home: Option<&Path>) -> Result<SshAuth, Open
 /// 能执行的方法。
 ///
 /// **只含无凭据方法**：Agent / PublicKey。密码与键盘交互的答案在保险库 / 对话框，
-/// headless 控制面拿不到——这里**跳过**它们而不是报错：回退链里勾了密码，不该让
+/// 控制面路径拿不到——这里**跳过**它们而不是报错：回退链里勾了密码，不该让
 /// 「本来能用的 Agent / PublicKey」整体失败（那等于把 OneKey 变成「多勾一个就全挂」）。
 /// GSSAPI 本客户端不支持，同样跳过。用户真要用密码，走的是界面那条 `ssh_ask` 路径。
 ///
@@ -368,7 +368,7 @@ fn ssh_fallback_chain(
                     out.push(candidate);
                 }
             }
-            // 需要凭据 / 本客户端不支持：headless 这条路上不可用，跳过。
+            // 需要凭据 / 本客户端不支持：控制面路径上不可用，跳过。
             AuthMethod::Password
             | AuthMethod::KeyboardInteractive
             | AuthMethod::GssapiWithMic => {}
@@ -389,11 +389,10 @@ fn default_identity(home: Option<&Path>) -> Option<PathBuf> {
 /// 会话配置 → `SshOptions`。
 ///
 /// 与界面那份（`ui/dialogs/ssh_ask.rs::options_for`）的差别只有主机密钥策略。
-/// `ProxyJump` / `agent_forward` / X11 三项两条路径都接了——**不能**让 headless
-/// 静默丢掉这些配置（与「无窗口路径不能与 GUI 分叉」同一条纪律）。
-/// **不**复用界面那份函数是
-/// 有意的——那一份是 `pub(in crate::ui)`，让核心路径去依赖投影层的可见性，
-/// 等于把「谁都能改界面」接成「谁都能改无窗口连接行为」。
+/// `ProxyJump` / `agent_forward` / X11 三项两条路径都接了——**不能**让控制面
+/// 路径静默丢掉这些配置（与「脚本 / API 路径不能与 GUI 分叉」同一条纪律）。
+/// **不**复用界面那份函数是有意的——那一份是 `pub(in crate::ui)`，让核心路径
+/// 去依赖投影层的可见性，等于把「谁都能改界面」接成「谁都能改控制面连接行为」。
 fn ssh_options(
     config: &SessionConfig,
     auth: SshAuth,
@@ -423,16 +422,16 @@ fn ssh_options(
     opts.rekey_data_mbytes = config.rekey_data_mbytes;
     opts.agent_forward = config.agent_forward;
     // X11 转发与 GUI 那份（`ssh_ask.rs`）读同一组字段。后端是 best-effort：
-    // 没有 $DISPLAY 时只 warn 不挂连接，所以 headless 也可以放心转发。
-    // 漏读会让「desk script / serve 里配了 X11」变成静默无效——与 GUI 分叉。
+    // 没有 $DISPLAY 时只 warn 不挂连接，所以控制面路径也可以放心转发。
+    // 漏读会让「脚本 / API 路径里配了 X11」变成静默无效——与 GUI 分叉。
     opts.x11_forward = config.x11_forward;
     opts.x11_screen = config.x11_screen;
     // 忽略 `ProxyJump` 会让「配了跳板机的会话」连到一个连不上的主机，
     // 而用户看到的是「连接失败」——那是沉默的撒谎。语法错误在碰网络之前报出来。
     opts.proxy_jump = term_ssh::parse_proxy_jump(&config.proxy_jump)
         .map_err(|e| OpenFailure::Unsupported(format!("这条会话的 ProxyJump 写不对：{e}")))?;
-    // 脚本 / 桥接这两条无窗口路径也真的走出网代理。配不全时明确报
-    // 「改会话配置」，不偷偷直连（ADR-0018 的行为分叉禁令）。
+    // 脚本 / API 路径也真的走出网代理。配不全时明确报「改会话配置」，
+    // 不偷偷直连（ADR-0018 的行为分叉禁令）。
     if let Some(why) = config.validate_proxy() {
         return Err(OpenFailure::Unsupported(why));
     }
@@ -548,7 +547,7 @@ mod tests {
     #[test]
     fn the_vault_message_names_the_way_out() {
         // 这句话是脚本作者唯一能看到的提示，两段信息缺一不可：
-        // 「去哪解锁」与「headless 该改用哪种认证」。
+        // 「去哪解锁」与「控制面路径该改用哪种认证」。
         let text = OpenFailure::NeedsVault {
             session: "prod".to_string(),
         }
@@ -584,7 +583,7 @@ mod tests {
         match err {
             OpenFailure::Unsupported(why) => {
                 assert!(why.contains("默认私钥"), "{why}");
-                // 提示里必须给出退路，否则这条会话在 headless 下是死路。
+                // 提示里必须给出退路，否则这条会话在控制面路径下是死路。
                 assert!(why.contains("系统 ssh"), "{why}");
             }
             other => panic!("{other:?}"),
@@ -617,8 +616,8 @@ mod tests {
 
 #[test]
     fn a_fallback_chain_keeps_only_credential_free_methods_deduped_in_order() {
-        // 回退链只收 Agent / PublicKey；密码 / 键盘交互 / GSSAPI 在 headless
-        // 这条路上跳过（不报错——勾了密码不该让能用的 Agent 一起挂）。
+        // 回退链只收 Agent / PublicKey；密码 / 键盘交互 / GSSAPI 在控制面
+        // 路径上跳过（不报错——勾了密码不该让能用的 Agent 一起挂）。
         let home = scratch_home("chain");
         std::fs::write(home.join(".ssh/id_ed25519"), b"x").expect("写 key");
         let mut config = ssh_config(AuthMethod::Agent, closed_port());
@@ -745,7 +744,7 @@ mod tests {
 
     #[test]
     fn headless_path_also_uses_the_outbound_proxy() {
-        // `desk script` / `desk serve` 这两条无窗口路径不能与 GUI 分叉：
+        // 脚本与 API 路径不能与 GUI 分叉：
         // 同一份会话配置，两边都得把第一段 TCP 交给代理。
         let mut config = ssh_config(AuthMethod::Agent, 22);
         config.proxy_type = ProxyType::Socks5.tag().to_string();
@@ -761,10 +760,9 @@ mod tests {
 
     #[test]
     fn headless_path_also_honours_x11_forward() {
-        // 与 `headless_path_also_uses_the_outbound_proxy` 同一条纪律：无窗口
-        // 路径不能与 GUI 分叉。GUI 的 `ssh_ask.rs::options_for` 读了这两个字段，
-        // headless 也必须读——否则在 `desk script` / `desk serve` 里配了 X11
-        // 转发会静默无效。
+        // 与前一例同一条纪律：脚本 / API 路径不能与 GUI 分叉。GUI 的
+        // `ssh_ask.rs::options_for` 读了这两个字段，控制面路径也必须读——
+        // 否则在脚本 / API 里配了 X11 转发会静默无效。
         let mut config = ssh_config(AuthMethod::Agent, 22);
         config.x11_forward = true;
         config.x11_screen = 3;

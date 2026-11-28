@@ -4,8 +4,9 @@
 //! 调用 `rfd`，其 macOS 后端把 `NSOpenPanel` 派回主线程跑模态循环。界面每帧
 //! `poll()` 一次共享槽；对话框开着时 `poll()` 返回 `None`，调用方请求重画。
 //!
-//! 截图 / 无头运行绝不弹窗：`--screenshot` / `--headless` 下 `new()` 直接返回一个
-//! 已经填好「取消」的句柄，自动化不会因为一个看不见的系统对话框挂死。
+//! 截图夹具绝不弹窗：`--screenshot` 下 `new()` 直接返回一个已经填好「取消」的
+//! 句柄，自动化不会因为一个看不见的系统对话框挂死。`--headless` 已由 `main.rs`
+//! 显式报错退出（ADR-0030），不存在这条路径。
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -74,7 +75,7 @@ impl NativePicker {
 }
 
 fn automated_run() -> bool {
-    std::env::args().any(|arg| arg == "--screenshot" || arg == "--headless")
+    std::env::args().any(|arg| arg == "--screenshot")
 }
 
 #[cfg(test)]

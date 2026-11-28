@@ -109,7 +109,7 @@ impl OneKey {
     /// 「回落会话自己的值」（与 OneKeys 编辑页的说明一致）。
     ///
     /// 凭据不在这里：密码与键盘交互应答属于保险库，而 `term-core` 不认识
-    /// 保险库。调用方（界面 / headless）各自从自己的凭据来源补。
+    /// 保险库。调用方（界面 / 脚本 / API）各自从自己的凭据来源补。
     pub fn apply_to(&self, config: &SessionConfig) -> SessionConfig {
         let mut out = config.clone();
         if !self.username.is_empty() {

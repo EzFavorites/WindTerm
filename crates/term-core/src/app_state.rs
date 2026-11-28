@@ -20,8 +20,8 @@
 //! 可见性来自 `ViewState`，透明度来自 `WindowOpacity`——三样都只有 `ui` 里拿得到。
 //! 桌面宿主的三段都在了：端口（`AppControl` → 队列）→ 采集（本文件的形状）→
 //! 动词（`surface` 的 `app_state` / `app_panel_set`，`engine.rs` 注册）。
-//! 无窗口宿主（`desk serve` / `desk script run`）落到 `NoApp`，两个动词显式报
-//! `Unsupported`——不返回空快照冒充成功。
+//! 没有界面端口的宿主落到 `NoApp`，两个动词显式报 `Unsupported`——不返回
+//! 空快照冒充成功。
 
 use serde::Serialize;
 

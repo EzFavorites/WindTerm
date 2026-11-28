@@ -8,9 +8,9 @@
 //! 2. **脚本会阻塞**。`ScriptEngine::run` 一直跑到脚本结束或沙箱超时，放在 UI
 //!    线程上就是界面假死。所以它是 `start()` 起线程、`try_outcome()` 轮询。
 //!
-//! 与 `cli/script.rs` 的关系：那边是**进程级**的一条命令（自己开池、自己开会话、
-//! 跑完就退）。这里跑在**界面已有的会话**上——脚本对用户当前看的那个终端说话，
-//! 结果直接出现在同一个屏幕上。两者共用引擎，但会话来源不同，所以不合并。
+//! 这里跑在**界面已有的会话**上——脚本对用户当前看的那个终端说话，结果直接
+//! 出现在同一个屏幕上。进程级的 `script run` 入口已删除（ADR-0030），会话
+//! 来源只有前台池这一处。
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,7 +40,7 @@ pub enum Outcome {
     Failed {
         message: String,
         at: Option<(usize, usize)>,
-        /// 结构化分类；UI / CLI 据此分支，不靠匹配文案。
+        /// 结构化分类；UI / 调用方据此分支，不靠匹配文案。
         kind: FailureKind,
     },
 }
@@ -246,7 +246,7 @@ impl Drop for Lease {
 /// 端口要么都有、要么都没有），拆成参数会让「漏传一个」变成编译能过、运行时
 /// 才发现的「脚本说没有界面」。
 pub struct RunOptions {
-    /// 脚本新开了哪些会话。`None` = 不递回（进程级 / 不想让会话出现在界面上）。
+    /// 脚本新开了哪些会话。`None` = 不递回（没有界面队列 / 不想让会话出现在界面上）。
     pub opened: Option<OpenedQueue>,
     /// 「把某条会话带到前台」的队列。`None` = 没有界面。
     pub activated: Option<ActivatedQueue>,
@@ -272,7 +272,7 @@ pub struct RunOptions {
     pub script_path: Option<String>,
     /// 墙钟 / 操作数预算。界面默认 `Interactive`。
     pub budget: ScriptBudget,
-    /// 同会话互斥登记簿。`None` = 不做互斥（CLI 单跑、单元测试）。
+    /// 同会话互斥登记簿。`None` = 不做互斥（单跑、单元测试）。
     pub registry: Option<Arc<ScriptRunRegistry>>,
     /// 这个脚本叫什么（进了「谁在跑」的提示）。空串时按「未命名脚本」。
     pub who: String,
@@ -373,7 +373,7 @@ impl RunOptions {
     }
 }
 
-/// 与语言无关的失败分类。wire 端 `ErrorKind` 有十种，GUI / CLI 以前只剩一句
+/// 与语言无关的失败分类。wire 端 `ErrorKind` 有十种，GUI 以前只剩一句
 /// 中文文案，连测试都靠 `message.contains("取消")` 判断——这里把 kind 一路带上来，
 /// 文案只负责显示，分支一律走 kind。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -678,7 +678,7 @@ impl ScriptRun {
     }
 }
 
-/// 读脚本文件。`-` 表示标准输入（与 `desk script run` 同一套约定）。
+/// 读脚本文件。`-` 表示标准输入（沿用的旧约定，不对应任何命令行入口）。
 ///
 /// 错误里必须带**路径**：只说「读不到脚本」等于让用户猜是哪个文件。
 pub fn read_source(path: &str) -> Result<String, String> {

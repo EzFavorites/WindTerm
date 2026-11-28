@@ -393,8 +393,8 @@ impl DeskSurface {
         // 名字在开会话时定下、之后不再变（ADR-0024）。
         //
         // 格式选项取设置页那一份（同一个用户在 `prefs.json` 里配的），
-        // 不另立一套无头默认值：否则同样的会话，界面里点 Start 与 agent
-        // 调 `log_start` 会写出两种格式，事后没法比对。
+        // 不另立一套客户端默认值：否则同样的会话，界面里点 Start 与 API
+        // 客户端调 `log_start` 会写出两种格式，事后没法比对。
         let opts = term_runtime::prefs::load()
             .unwrap_or_default()
             .log_options();
@@ -604,8 +604,8 @@ fn facet_name(kind: FacetKind) -> &'static str {
 /// `OpenFailure` → 线上失败。四档分开，因为客户端要做的动作不同：
 ///
 /// - `NeedsVault` → `locked`（-32003）。这不是「内部故障」，也不是「参数错了」：
-///   它是**策略**拒绝——密码在保险库里，而 `desk serve` 从来不解锁保险库
-///   （`serve_on` 只建 `SessionPool`）。与锁屏门用同一个码，客户端只需处理
+///   它是**策略**拒绝——密码在保险库里，API 客户端不会替用户解锁，得先在
+///   前台窗口里解锁。与锁屏门用同一个码，客户端只需处理
 ///   「现在做不了，等条件变了再试」这一种情形。
 /// - `Unsupported` / `Session::Spawn` / `Session::BuiltinChannelNeedsInjection`
 ///   → `invalid_request`：用户改会话配置或环境就能修。
@@ -618,8 +618,8 @@ fn facet_name(kind: FacetKind) -> &'static str {
 fn open_failure(err: OpenFailure) -> SurfaceError {
     match err {
         OpenFailure::NeedsVault { session } => SurfaceError::locked(format!(
-            "会话 {session} 需要解锁保险库才能连接；desk serve 是无窗口的，\
-             请改用 Agent / 私钥认证的会话"
+            "会话 {session} 需要解锁保险库才能连接；请在前台窗口里解锁保险库后重试，\
+             或改用 Agent / 私钥认证的会话"
         )),
         OpenFailure::Unsupported(why) => SurfaceError::invalid_request(why),
         OpenFailure::Connect(why) => SurfaceError::internal(format!("内置 SSH 连接失败：{why}")),

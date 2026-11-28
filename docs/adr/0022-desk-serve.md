@@ -1,6 +1,6 @@
 # ADR-0022 · `desk serve` 只绑回环，用 token 与锁屏门守住远程执行入口
 
-- 状态：已采纳
+- 状态：已采纳；全文被 [ADR-0030](0030-foreground-control-plane.md) 取代。
 - 关系：落地 ADR-0020 中「桥接服务」的缺口；依赖 ADR-0019（desk 是会话唯一所有者）与 ADR-0017（tokio 笼子）；不改动任何既有决策
 
 ## 背景

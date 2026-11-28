@@ -323,7 +323,7 @@ impl SupervisorHandle {
     /// 注入唤醒回调。UI 传 `ctx.request_repaint()`，让「有输出」能立刻重绘。
     ///
     /// 放在 handle 上而不是构造参数里，是因为线程先起、`Context` 后到；
-    /// 没设置时 `wake()` 是空操作（无头运行器就不需要）。
+    /// 没设置时 `wake()` 是空操作（没有需要重绘的界面消费者时就是空操作）。
     pub fn set_wakeup(&self, f: Arc<dyn Fn() + Send + Sync>) {
         self.mailbox.set_wakeup(f);
     }
@@ -805,7 +805,7 @@ pub fn spawn(
     Ok(start(config, init_cols, init_rows, ch))
 }
 
-/// 无头运行器用：执行一条一次性命令。
+/// 直接调用者用：执行一条一次性命令。
 pub fn spawn_exec(
     command: &str,
     cols: usize,
@@ -1342,9 +1342,9 @@ fn run(
         // 一槽邮箱：正常运行期间槽里还有没被取走的一份就先不生成（合并中间
         // 版本）。**退出已报告后不再合并**：线程可能就在这一轮末尾 break
         // （`ch.finished() && !had_bytes`），被推迟的那份会永远留在
-        // `pending` 里；而 `Event::Finished` 一发出，无头消费者（`desk
-        // --headless --exec`）就停，拿到的是旧空屏 —— 曾实测 120 次
-        // 里 2 次 stdout 为空。强制覆盖槽，邮箱里始终是到本轮为止的最终屏。
+        // `pending` 里；而 `Event::Finished` 一发出，只看最终屏的调用方
+        // 就停，拿到的是旧空屏 —— 曾实测 120 次里 2 次输出为空。强制覆盖槽，
+        // 邮箱里始终是到本轮为止的最终屏。
         if pending && (mailbox.is_empty() || exit_reported) {
             version += 1;
             mailbox.publish(vt.snapshot(version));
@@ -1630,8 +1630,8 @@ fn now_secs() -> u64 {
 ///
 /// `!status.alive` 只说明进程退出了，**不说明最后一屏已经到齐**：监管者可能
 /// 还有一槽快照要发（`run()` 的退出收尾），也可能输出字节在退出检测之后的
-/// 一轮才被 drain。无头消费者（`desk --headless --exec`）
-/// 看到 `Finished` 就停的话会打印旧空屏——实测 120 次里 2 次 stdout 为空。
+/// 一轮才被 drain。只看最终屏的调用方看到 `Finished` 就停的话会拿到旧空屏
+/// ——实测 120 次里 2 次输出为空。
 /// 排空到连续三轮没有新事实为止，有界（默认 100ms），不会把命令超时拖长。
 pub fn drain_final_frame(handle: &mut SupervisorHandle, budget: Duration) {
     let deadline = Instant::now() + budget;
@@ -1646,14 +1646,12 @@ pub fn drain_final_frame(handle: &mut SupervisorHandle, budget: Duration) {
     }
 }
 
-/// `--headless --exec '<cmd>'`：跑完一条命令，把最终网格文本打到 stdout。
-/// 这是端到端验收入口，不需要窗口系统。
-/// 无头跑一条命令：返回最终网格文本与退出码。
+/// 跑完一条命令：返回最终网格文本与退出码，供直接调用者与 CI 判据使用。
+/// 这一层不注册命令行入口，也不自建会话池（ADR-0030）。
 ///
-/// 退出码是**必须**的：`desk --headless --exec` 要给脚本透传它。上一版 CLI 的
-/// `local exec` 就是这么用的（`verify` 第 8b 项曾断言 `exit 7` 原样透传），
-/// 删掉 CLI 之后这条能力不能跟着消失——否则「跑一条命令」对 CI 就只剩
-/// 「看输出」，判不了成败。
+/// 退出码是**必须**的：调用方据此判断命令成败（`verify` 第 8b 项曾断言
+/// `exit 7` 原样透传）。没有退出码时「跑一条命令」就只剩「看输出」，判不了
+/// 成败。
 ///
 /// `None` 只出现在一种情况：命令没在超时内退出（`top` 之类），此刻它没有
 /// 退出码可言。调用方应当把这个 `None` 当「没拿到」而不是「成功」。
@@ -2247,10 +2245,10 @@ mod tests {
 
     #[test]
     fn exit_delivers_the_final_frame_even_with_a_full_mailbox_slot() {
-        // 复现无头执行（`desk --headless --exec`）偶发空输出（实测 120 次里 2 次）：
-        // 监管者检测到进程退出就发 `Event::Finished`，但一槽邮箱里还压着
-        // 一份没人取走的旧快照，最终屏被留在 `pending` 里；同一轮末尾线程
-        // break，那份屏永远不发。无头消费者看到 Finished 就停，只拿到旧屏。
+        // 复现一次性命令执行偶发空输出（实测 120 次里 2 次）：监管者检测到
+        // 进程退出就发 `Event::Finished`，但一槽邮箱里还压着一份没人取走的
+        // 旧快照，最终屏被留在 `pending` 里；同一轮末尾线程 break，那份屏
+        // 永远不发。只看最终屏的调用方看到 Finished 就停，只拿到旧屏。
         let (mut h, probe) = start_scripted();
         probe.feed(b"OLD\r\n");
         wait_for(|| !h.mailbox.is_empty(), "旧快照没有进槽");
@@ -2258,7 +2256,7 @@ mod tests {
         probe.feed(b"FINAL\r\n");
         probe.exit_with("exited 0");
         probe.eof();
-        // 一次 poll 同时拿快照与事件——正是无头消费者「看到退出就停」的形状。
+        // 一次 poll 同时拿快照与事件——正是「看到退出就停」的消费者的形状。
         wait_until(&mut h, |h| h.status.exit_status.is_some());
         assert!(
             h.snapshot.screen_text().contains("FINAL"),
@@ -2652,8 +2650,8 @@ mod tests {
         assert!(s.facets().is_empty());
     }
 
-    /// ADR-0020：删掉 CLI 之后，`--headless --exec` 必须接住它的退出码能力。
-    /// 判据用 `exit_code_of` 解析过的数字，不在测试里另写一套语法。
+    /// 一次性命令的退出码能力必须由 `run_headless` 直接守住，不依赖任何
+    /// 进程级入口。判据用 `exit_code_of` 解析过的数字，不在测试里另写一套语法。
     #[test]
     fn headless_reports_the_exit_code() {
         let (text, code) = run_headless("sh -c 'exit 7'", 80, 24).expect("无头会话应该能起来");

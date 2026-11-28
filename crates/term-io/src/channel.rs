@@ -33,7 +33,7 @@ pub struct LocalPty {
 
 /// 外部进程：协议 `Ssh` / `Tcp`，拉系统客户端。
 /// （`Serial` / `Telnet` 不在这里：它们各自有原生通道；`spawn_plan()` 中对应
-/// 的系统客户端分支仍保留给 CLI / 无窗口路径。）
+/// 的系统客户端分支仍保留给显式选择系统客户端的会话。）
 pub struct ExternalProc {
     inner: PtySession,
     description: String,
