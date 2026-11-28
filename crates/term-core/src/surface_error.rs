@@ -53,6 +53,15 @@ pub enum ErrorKind {
     /// 中止）。码 -32004。与 `Timeout` 分开：超时是「环境没给答案」，取消
     /// 是「有人叫停」，客户端要不要重试完全不同。
     Cancelled,
+    /// 仲裁器判定「这条会话正被更高优先级占用」（`Denied::Busy`）。码
+    /// -32005。与 `Locked` 分开：`Locked` 是**策略拒绝**（锁屏 / 保险库未
+    /// 解锁），条件不变时重试无用；`Busy` 是**时序冲突**，稍后重试就能成功。
+    /// 客户端必须能按 `kind` 把两者分开。
+    Busy,
+    /// 仲裁器判定「本次非 owner 的写被压制」（`Denied::Suppressed`），或
+    /// 许可在落地前因抢占失效。码 -32006。不是错误配置：调用方写的参数没
+    /// 问题，只是这条写没产生；留痕在服务端，客户端按这个 kind 报告即可。
+    Suppressed,
 }
 
 impl ErrorKind {
@@ -69,6 +78,8 @@ impl ErrorKind {
             ErrorKind::NotFound => "not_found",
             ErrorKind::Locked => "locked",
             ErrorKind::Cancelled => "cancelled",
+            ErrorKind::Busy => "busy",
+            ErrorKind::Suppressed => "suppressed",
         }
     }
 
@@ -86,6 +97,8 @@ impl ErrorKind {
             ErrorKind::NotFound => -32002,
             ErrorKind::Locked => -32003,
             ErrorKind::Cancelled => -32004,
+            ErrorKind::Busy => -32005,
+            ErrorKind::Suppressed => -32006,
         }
     }
 
@@ -107,6 +120,8 @@ impl ErrorKind {
             ErrorKind::NotFound,
             ErrorKind::Locked,
             ErrorKind::Cancelled,
+            ErrorKind::Busy,
+            ErrorKind::Suppressed,
         ];
         all.into_iter().find(|kind| kind.as_str() == text)
     }
@@ -173,6 +188,14 @@ impl SurfaceError {
     pub fn locked(message: impl Into<String>) -> Self {
         Self::new(ErrorKind::Locked, message)
     }
+
+    pub fn busy(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Busy, message)
+    }
+
+    pub fn suppressed(message: impl Into<String>) -> Self {
+        Self::new(ErrorKind::Suppressed, message)
+    }
 }
 
 impl fmt::Display for SurfaceError {
@@ -216,6 +239,8 @@ mod tests {
             ErrorKind::NotFound,
             ErrorKind::Locked,
             ErrorKind::Cancelled,
+            ErrorKind::Busy,
+            ErrorKind::Suppressed,
         ];
         let mut codes = HashSet::new();
         for kind in all {
@@ -245,6 +270,8 @@ mod tests {
             ErrorKind::NotFound,
             ErrorKind::Locked,
             ErrorKind::Cancelled,
+            ErrorKind::Busy,
+            ErrorKind::Suppressed,
         ] {
             assert!(
                 (-32099..=-32000).contains(&kind.code()),
@@ -261,6 +288,25 @@ mod tests {
         assert_eq!(err.kind, ErrorKind::Timeout);
         assert_eq!(err.message, "等待 3000ms 未命中 PASSWORD");
         assert_eq!(err.to_string(), "[timeout:-32000] 等待 3000ms 未命中 PASSWORD");
+    }
+
+    #[test]
+    fn arbitration_conflicts_are_not_confused_with_a_locked_front_end() {
+        // 客户端的处置不同：Busy 可以稍后重试，Suppressed 只是没产生写，
+        // Locked 是策略拒绝（重试前得先解锁）。三者必须各有自己的 kind/code。
+        let busy = SurfaceError::busy("会话被占用，稍后重试");
+        let suppressed = SurfaceError::suppressed("本次写被压制");
+        let locked = SurfaceError::locked("屏幕已锁定");
+        assert_eq!(busy.kind, ErrorKind::Busy);
+        assert_eq!(busy.code, -32005);
+        assert_eq!(busy.kind.as_str(), "busy");
+        assert_eq!(suppressed.kind, ErrorKind::Suppressed);
+        assert_eq!(suppressed.code, -32006);
+        assert_eq!(suppressed.kind.as_str(), "suppressed");
+        assert_eq!(locked.code, -32003);
+        assert_ne!(busy.kind, locked.kind);
+        assert_eq!(ErrorKind::from_wire("busy"), Some(ErrorKind::Busy));
+        assert_eq!(ErrorKind::from_wire("suppressed"), Some(ErrorKind::Suppressed));
     }
 
     #[test]

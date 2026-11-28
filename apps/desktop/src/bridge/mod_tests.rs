@@ -15,9 +15,9 @@ use term_bridge::error::ErrorKind;
 
 use super::control::{
     constant_time_eq, hmac_hex, ip_is_loopback, key_path, parse_port, proof_message, random_hex,
-    read_capped_line, read_frame, read_key, write_frame, write_key_file, LineRead, CHALLENGE_FIELD,
-    DEFAULT_CONTROL_PORT, FIRST_REQUEST_TIMEOUT, KEY_FIELD, KEY_FILE_PREFIX, LINE_LIMIT,
-    PROOF_FIELD,
+    read_capped_line, read_frame, read_key, serve_lines, write_frame, write_key_file, LineRead,
+    RequestLine, CHALLENGE_FIELD, DEFAULT_CONTROL_PORT, FIRST_REQUEST_TIMEOUT, KEY_FIELD,
+    KEY_FILE_PREFIX, LINE_LIMIT, PROOF_FIELD,
 };
 
 struct NeverLocked;
@@ -282,6 +282,54 @@ fn an_oversized_request_gets_a_parse_error_and_closes_the_connection() {
     let mut rest = Vec::new();
     let _ = fresh.read_to_end(&mut rest);
     assert!(rest.is_empty(), "回完解析错误必须关连接：{rest:?}");
+}
+
+// ---- 断连即取消（transport → surface） ----
+
+#[test]
+fn a_closed_request_channel_cancels_every_pending_wait() {
+    let cancel = term_script::CancelToken::new();
+    let (tx, rx) = std::sync::mpsc::channel();
+    drop(tx); // 读线程看见 EOF：发送端没了
+    let mut writer = Vec::new();
+    serve_lines(
+        rx,
+        &mut writer,
+        Arc::new(SessionPool::new()),
+        cancel.clone(),
+        Arc::new(NeverLocked),
+    )
+    .expect("工作线程收尾");
+    assert!(cancel.is_cancelled(), "EOF 必须请求取消，不能等 wait 的 timeout_ms 到期");
+}
+
+struct FailingWriter;
+impl Write for FailingWriter {
+    fn write(&mut self, _bytes: &[u8]) -> io::Result<usize> {
+        Err(io::Error::other("对端已断"))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::Error::other("对端已断"))
+    }
+}
+
+#[test]
+fn an_io_error_while_replying_cancels_the_connection() {
+    let cancel = term_script::CancelToken::new();
+    let (tx, rx) = std::sync::mpsc::channel();
+    tx.send(RequestLine::Line(b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"session_list\"}\n".to_vec()))
+        .expect("投递请求");
+    drop(tx);
+    let mut writer = FailingWriter;
+    let result = serve_lines(
+        rx,
+        &mut writer,
+        Arc::new(SessionPool::new()),
+        cancel.clone(),
+        Arc::new(NeverLocked),
+    );
+    assert!(result.is_err(), "写出失败必须向上传播，不能伪装成功");
+    assert!(cancel.is_cancelled(), "IO 错误同样要取消这条连接的阻塞等待");
 }
 
 fn a_real_connection_drives_a_session_on_the_gui_pool() {

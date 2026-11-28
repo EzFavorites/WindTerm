@@ -14,7 +14,7 @@ use term_core::automation::Priority;
 
 use super::TerminalWindow;
 use crate::bridge::surface::{arbiter_session, shared_arbiter, shared_arbiter_arc, DeskSurface};
-use crate::ui::terminal::trigger_dispatch::CommandCall;
+use crate::ui::terminal::trigger_dispatch::{self, CommandCall};
 
 impl TerminalWindow {
     /// 把 `full_screen` / `always_on_top` 落到窗口系统上。
@@ -51,14 +51,25 @@ impl TerminalWindow {
             self.open_script_for_path_background(path);
             return;
         }
-        let Some(action) = Action::parse(action_id) else {
-            // 触发器的 `Run Command` 不是菜单 ID 时按文档执行真实命令行：
-            // 捕获 stdout 写进当前会话，让「跑一条命令拿结果」有可观察效果。
-            // 先试菜单 ID 保证既有命令语义一字不变。
-            self.run_trigger_command(action_id);
+        if let Some(action) = Action::parse(action_id) {
+            self.dispatch_action(action);
             return;
-        };
-        self.dispatch_action(action);
+        }
+        // 只有自由文本才是命令行。形状像命令 ID 却没登记的一律显式报错——
+        // 旧实现把任何未知 ID 都丢给 /bin/sh，拼错的菜单 ID 会变成一次
+        // 静默（甚至成功）的 shell 执行，用户完全看不出差别。
+        match trigger_dispatch::classify_target(action_id) {
+            trigger_dispatch::DispatchTarget::Command => {
+                if let Err(why) = trigger_dispatch::spawn_command(action_id) {
+                    self.commit_note(Some(why));
+                }
+            }
+            trigger_dispatch::DispatchTarget::Action | trigger_dispatch::DispatchTarget::Unknown => {
+                self.commit_note(Some(format!(
+                    "未知命令 ID {action_id:?}：未登记的动作，不会当作 shell 执行"
+                )));
+            }
+        }
     }
 
     /// 菜单项携带完整 `Invocation`：有参数且 method 是会话动词时，经仲裁器
@@ -99,42 +110,16 @@ impl TerminalWindow {
         if !params.get("session").is_some_and(Value::is_string) {
             params["session"] = Value::String(name);
         }
+        // 这里**不再**在锁外做一次 is_valid 预检：那和 PTY 写入之间仍有
+        // 窗口（P0 按键 / 独占抢占正好插在中间）。唯一的判据落在
+        // `DeskSurface::send_granted` 的同一把 arbiter 锁里，失效就不写。
         let surface = DeskSurface::with_arbiter(self.pool.clone(), shared_arbiter_arc());
-        match surface.invoke_granted(&call.method, &params, &grant) {
-            Ok(_) => {
-                let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
-                arbiter.release(key, &source);
-            }
-            Err(err) => self.commit_note(Some(err.message)),
-        }
-    }
-
-    /// 触发器 `Run Command` 的命令行分支。配置里写了菜单 ID 时走不到这里；
-    /// 其余按 `/bin/sh -c`（Unix）/ `cmd /C`（Windows）执行，stdout 写回活动
-    /// 会话。失败静默但留下一条可见提示——不把失败伪装成「命令已执行」。
-    fn run_trigger_command(&mut self, command: &str) {
-        if command.trim().is_empty() {
-            return;
-        }
-        #[cfg(windows)]
-        let output = std::process::Command::new("cmd").args(["/C", command]).output();
-        #[cfg(not(windows))]
-        let output = std::process::Command::new("/bin/sh").args(["-c", command]).output();
-        match output {
-            Ok(out) if out.status.success() && !out.stdout.is_empty() => {
-                if let Some(tab) = self.tabs.get(self.active_slot()) {
-                    tab.write(&out.stdout);
-                }
-            }
-            Ok(out) => {
-                let why = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                if why.is_empty() {
-                    eprintln!("触发器命令退出码 {}：{command}", out.status);
-                } else {
-                    eprintln!("触发器命令失败：{why}");
-                }
-            }
-            Err(err) => eprintln!("触发器命令起不来：{err}"),
+        let result = surface.invoke_granted(&call.method, &params, &grant);
+        let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
+        arbiter.release(key, &source);
+        drop(arbiter);
+        if let Err(err) = result {
+            self.commit_note(Some(err.message));
         }
     }
 

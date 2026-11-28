@@ -14,7 +14,12 @@
 //! 一并带走。落地前必须用 [`DispatchCtx::may_write_pty`] 复核许可——用户按键
 //! 或独占抢占发生在排队之后时，旧许可已经失效。
 
-use std::time::Duration;
+use std::cell::RefCell;
+use std::process::{Child as RunningChild, Command as ProcessCommand, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self, Receiver as ReceiptRx, TryRecvError};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 use term_core::automation::{
@@ -216,4 +221,275 @@ pub(in crate::ui) fn intent_from_effect(effect: &Effect, ctx: DispatchCtx) -> Op
         release: effect.release,
         since: Ticks::ZERO,
     })
+}
+
+// ── 触发器 Run Command：后台执行 + 每帧回执（appdoc P1-1） ──────────
+//
+// 旧实现在 UI 线程直接 `Command::output()`：一条卡住的外部命令能把整帧
+// 拖死。现在 spawn 只登记一个句柄，真正的输出在后台线程等；UI 每帧只做
+// `try_recv` + 超时的 `kill()`，两类动作都不会阻塞。
+
+/// 单次后台命令的墙钟上限。到点由帧泵 kill，不等它自然退出。
+pub(in crate::ui) const COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+/// 工作线程检查子进程退出的切片（UI 帧泵可以在这之间拿到锁去 kill）。
+const COMMAND_POLL_SLICE: Duration = Duration::from_millis(25);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui) enum DispatchTarget {
+    /// 菜单 ID：解析成强类型 `Action` 后走 reducer。
+    Action,
+    /// 自由文本命令行：交给后台执行器。
+    Command,
+    /// 形状像命令 ID 但没登记（或空串）：显式报错，绝不降级成 shell。
+    Unknown,
+}
+
+/// 是不是「`Category.Name`」这种命令 ID 的形状（无空格 / 参数）。
+pub(in crate::ui) fn is_action_id_shaped(text: &str) -> bool {
+    !text.is_empty()
+        && text.contains('.')
+        && !text.chars().any(char::is_whitespace)
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// 分发前先分类：**只有自由文本才是命令行**。看起来像 ID 却查不到的
+/// 字符串是配置 / 输入错误，调用方必须看见一条显式错误。
+pub(in crate::ui) fn classify_target(id: &str) -> DispatchTarget {
+    if term_app::action::Action::parse(id).is_some() {
+        DispatchTarget::Action
+    } else if id.trim().is_empty() || is_action_id_shaped(id) {
+        DispatchTarget::Unknown
+    } else {
+        DispatchTarget::Command
+    }
+}
+
+#[derive(Debug)]
+pub(in crate::ui) enum CommandOutcome {
+    Finished {
+        stdout: Vec<u8>,
+        stderr: String,
+        success: bool,
+        exit: String,
+    },
+    SpawnFailed(String),
+}
+
+/// 一帧 poll 收回的一次执行结果。
+pub(in crate::ui) struct FinishedCommand {
+    command: String,
+    outcome: CommandOutcome,
+    timed_out: bool,
+}
+
+impl FinishedCommand {
+    /// 成功且有输出时，把 stdout 写回活动会话；其余情况没有可写字节。
+    pub(in crate::ui) fn stdout(&self) -> &[u8] {
+        match &self.outcome {
+            CommandOutcome::Finished { stdout, success: true, .. } if !self.timed_out => stdout,
+            _ => &[],
+        }
+    }
+
+    /// 只有失败 / 超时 / 起不来才有提示；成功且无输出不打扰用户。
+    pub(in crate::ui) fn note(&self) -> Option<String> {
+        if self.timed_out {
+            return Some(format!(
+                "{}：执行超过 {} 秒，已 kill",
+                self.command, COMMAND_TIMEOUT.as_secs()
+            ));
+        }
+        match &self.outcome {
+            CommandOutcome::SpawnFailed(why) => Some(format!("{}：起不来（{why}）", self.command)),
+            CommandOutcome::Finished { success: true, .. } => None,
+            CommandOutcome::Finished { stderr, exit, .. } => Some(format!(
+                "{}：失败（{exit}）{}",
+                self.command,
+                if stderr.is_empty() { String::new() } else { format!("：{stderr}") }
+            )),
+        }
+    }
+}
+
+struct RunningCommand {
+    command: String,
+    started: Instant,
+    timeout: Duration,
+    rx: ReceiptRx<CommandOutcome>,
+    child: Arc<Mutex<Option<RunningChild>>>,
+    killed: Arc<AtomicBool>,
+}
+
+// 注册表按**派发线程**隔离：生产里登记（dispatch）与回收（每帧 drain）
+// 都在 UI 线程，后台线程只经 Arc 句柄持有子进程。这样既没有 UI 线程上的
+// 全局锁争用，测试里各自线程的运行也不会互相污染回执。
+std::thread_local! {
+    static RUNNING: RefCell<Vec<RunningCommand>> = const { RefCell::new(Vec::new()) };
+}
+
+/// 登记一次后台执行。spawn 本身很快；慢的是等子进程，那部分在后台线程。
+pub(in crate::ui) fn spawn_command(command: &str) -> Result<(), String> {
+    spawn_command_with_timeout(command, COMMAND_TIMEOUT)
+}
+
+fn spawn_command_with_timeout(command: &str, timeout: Duration) -> Result<(), String> {
+    let command = command.trim().to_owned();
+    if command.is_empty() {
+        return Err("触发器命令行为空".to_owned());
+    }
+    let (tx, rx) = mpsc::channel::<CommandOutcome>();
+    let child: Arc<Mutex<Option<RunningChild>>> = Arc::new(Mutex::new(None));
+    let killed = Arc::new(AtomicBool::new(false));
+    let worker_child = Arc::clone(&child);
+    let worker_command = command.clone();
+    std::thread::spawn(move || {
+        #[cfg(windows)]
+        let spawned = ProcessCommand::new("cmd")
+            .args(["/C", &worker_command])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+        #[cfg(not(windows))]
+        let spawned = ProcessCommand::new("/bin/sh")
+            .args(["-c", &worker_command])
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn();
+        let process = match spawned {
+            Ok(process) => process,
+            Err(err) => {
+                let _ = tx.send(CommandOutcome::SpawnFailed(err.to_string()));
+                return;
+            }
+        };
+        {
+            let mut slot = worker_child.lock().unwrap_or_else(|e| e.into_inner());
+            *slot = Some(process);
+        }
+        loop {
+            std::thread::sleep(COMMAND_POLL_SLICE);
+            let mut slot = worker_child.lock().unwrap_or_else(|e| e.into_inner());
+            let done = slot.as_mut().is_some_and(|p| p.try_wait().unwrap_or(None).is_some());
+            if !done {
+                continue;
+            }
+            let process = match slot.take() {
+                Some(process) => process,
+                None => return,
+            };
+            drop(slot);
+            let outcome = match process.wait_with_output() {
+                Ok(out) => CommandOutcome::Finished {
+                    stdout: out.stdout,
+                    stderr: String::from_utf8_lossy(&out.stderr).trim().to_owned(),
+                    success: out.status.success(),
+                    exit: out.status.to_string(),
+                },
+                Err(err) => CommandOutcome::SpawnFailed(err.to_string()),
+            };
+            let _ = tx.send(outcome);
+            return;
+        }
+    });
+    RUNNING.with(|runs| {
+        runs.borrow_mut().push(RunningCommand {
+            command,
+            started: Instant::now(),
+            timeout,
+            rx,
+            child,
+            killed,
+        });
+    });
+    Ok(())
+}
+
+/// 每帧调用：收齐已结束的回执；到墙钟上限就 kill 子进程（UI 线程不做 wait）。
+pub(in crate::ui) fn poll_commands() -> Vec<FinishedCommand> {
+    RUNNING.with(|registry| {
+        let mut runs = registry.borrow_mut();
+        let mut finished = Vec::new();
+        let mut i = 0;
+        while i < runs.len() {
+            let run = &runs[i];
+            let mut timed_out = run.killed.load(Ordering::SeqCst);
+            if !timed_out && run.started.elapsed() >= run.timeout {
+                timed_out = true;
+                if let Some(process) = run.child.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+                    let _ = process.kill();
+                }
+                run.killed.store(true, Ordering::SeqCst);
+            }
+            let outcome = match run.rx.try_recv() {
+                Ok(outcome) => Some(outcome),
+                // 执行线程没了也要显式报，不静默当作「跑成功了」。
+                Err(TryRecvError::Disconnected) => {
+                    Some(CommandOutcome::SpawnFailed("执行线程提前退出".to_owned()))
+                }
+                Err(TryRecvError::Empty) => None,
+            };
+            if let Some(outcome) = outcome {
+                let run = runs.remove(i);
+                finished.push(FinishedCommand {
+                    command: run.command,
+                    outcome,
+                    timed_out,
+                });
+                continue;
+            }
+            i += 1;
+        }
+        finished
+    })
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    fn wait_for_finished(command: &str) -> FinishedCommand {
+        for _ in 0..200 {
+            if let Some(done) = poll_commands().into_iter().find(|d| d.command == command) {
+                return done;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        panic!("后台命令 {command:?} 没有在 2 秒内回执");
+    }
+
+    #[test]
+    fn an_unknown_action_id_is_never_silently_run_as_shell() {
+        let id = term_app::menu::context_ids::LINE_ENDINGS;
+        assert_eq!(classify_target(id), DispatchTarget::Action);
+        let unknown_id = ["Window", "NoSuchCommand"].join(".");
+        assert_eq!(classify_target(&unknown_id), DispatchTarget::Unknown);
+        assert_eq!(classify_target(""), DispatchTarget::Unknown);
+        assert_eq!(classify_target("printf bg-ok"), DispatchTarget::Command);
+        assert!(is_action_id_shaped(&unknown_id));
+        assert!(!is_action_id_shaped("printf bg-ok"));
+    }
+
+    #[test]
+    fn a_background_command_reports_stdout_on_a_later_poll() {
+        assert!(spawn_command("printf bg-ok").is_ok());
+        let done = wait_for_finished("printf bg-ok");
+        assert!(!done.timed_out);
+        assert_eq!(done.stdout(), b"bg-ok");
+        assert!(done.note().is_none());
+    }
+
+    #[test]
+    fn a_command_past_its_deadline_is_killed_and_reported() {
+        assert!(spawn_command_with_timeout("sleep 30", Duration::from_millis(150)).is_ok());
+        let done = wait_for_finished("sleep 30");
+        assert!(done.timed_out, "超时必须被帧泵标记并 kill");
+        assert!(
+            done.note().is_some_and(|n| n.contains("kill")),
+            "超时不能静默：{}",
+            done.note().unwrap_or_default()
+        );
+        assert!(done.stdout().is_empty());
+    }
 }

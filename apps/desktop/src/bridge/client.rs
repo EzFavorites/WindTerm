@@ -74,6 +74,17 @@ impl std::fmt::Display for ClientError {
 
 impl std::error::Error for ClientError {}
 
+impl ClientError {
+    /// 服务端如实带回的机器可读种类（`ErrorKind::as_str`）。没有 Rpc 错误
+    /// 时是 `None`。CLI / MCP 按它分支，绝不 match 中文 `message`。
+    pub fn rpc_kind(&self) -> Option<&str> {
+        match self {
+            ClientError::Rpc { kind, .. } => Some(kind.as_str()),
+            _ => None,
+        }
+    }
+}
+
 impl From<std::io::Error> for ClientError {
     fn from(err: std::io::Error) -> Self {
         ClientError::Io(err)
@@ -278,6 +289,22 @@ mod tests {
             }
             other => panic!("错误三元组必须逐字带回来：{other:?}"),
         }
+    }
+
+    #[test]
+    fn rpc_kinds_let_a_client_separate_busy_suppressed_and_locked() {
+        // 仲裁的 Busy（稍后重试）/ Suppressed（没产生写）与锁屏 / 保险库的
+        // Locked（重试无用）走不同的 kind，客户端拿这一位就能分支。
+        for (kind, code) in [("busy", -32005), ("suppressed", -32006), ("locked", -32003)] {
+            let err = ClientError::Rpc {
+                code,
+                message: "诊断文本".into(),
+                kind: kind.into(),
+            };
+            assert_eq!(err.rpc_kind(), Some(kind));
+            assert!(err.to_string().contains(kind));
+        }
+        assert_eq!(ClientError::NotRunning { port: 1 }.rpc_kind(), None);
     }
 
     #[test]

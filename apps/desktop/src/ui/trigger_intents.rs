@@ -21,7 +21,7 @@ mod trigger_arbiter_tests;
 
 use serde_json::Value;
 use term_core::automation::{AlertKind, CredentialField, Release, Ticks};
-use term_core::surface_error::SurfaceError;
+use term_core::surface_error::{ErrorKind, SurfaceError};
 
 use super::*;
 use crate::bridge::surface::{arbiter_session, shared_arbiter, shared_arbiter_arc, DeskSurface};
@@ -74,6 +74,9 @@ fn invoke_surface(
             return;
         }
     }
+    // 注意：上面只是早退的提示，不是判据。真正的 is_valid + pool.send 在
+    // `DeskSurface::send_granted` 的同一把 arbiter 锁里复核；这里若再拿一次
+    // 锁判完就写，仍会留下一个能被抢占插进来的 TOCTOU 窗口（P1-2）。
 
     let mut params = call.params.clone();
     let session = params
@@ -124,7 +127,14 @@ fn invoke_surface(
     if let Err(err) = result {
         let SurfaceError { kind, message, .. } = err;
         if note.is_none() {
-            *note = Some(format!("触发器 {rule} 的 {kind:?} 未落地：{message}"));
+            // Busy 是可重试的时序冲突，Suppressed 是本次没产生写，与
+            // 「锁屏 / 保险库未解锁」的 Locked 不是一回事，文案要说清。
+            *note = Some(match kind {
+                ErrorKind::Busy | ErrorKind::Suppressed => {
+                    format!("触发器 {rule} 的写入未落地：{message}（稍后重试）")
+                }
+                _ => format!("触发器 {rule} 的 {kind:?} 未落地：{message}"),
+            });
         }
     }
 }
@@ -311,6 +321,24 @@ pub(in crate::ui) fn drain(
     run_commands: &mut Vec<CommandCall>,
     note: &mut Option<String>,
 ) {
+    // Run Command 的回执每帧收一次：UI 线程只做 try_recv / kill，真正的
+    // 子进程等待在后台线程。成功输出写回活动会话，失败 / 超时升为提示。
+    for done in crate::ui::terminal::trigger_dispatch::poll_commands() {
+        if let Some(text) = done.note() {
+            if note.is_none() {
+                *note = Some(text);
+            }
+        } else {
+            let stdout = done.stdout();
+            if !stdout.is_empty() {
+                let active = win.active_slot();
+                if let Some(tab) = win.tabs.get_mut(active) {
+                    tab.write(stdout);
+                }
+            }
+        }
+    }
+
     let now = crate::ui::terminal::session::now_secs();
     // 帧泵末尾已经做过一次；这里再走同一条路径，保证「帧末才入队」的
     // 交互命中（IP 悬停 / 粘贴）也按同样规则落地，且不会重复发已取走的项。

@@ -33,7 +33,7 @@ use std::time::Duration;
 use hmac::{Hmac, KeyInit, Mac};
 use serde_json::{json, Value};
 use sha2::Sha256;
-use term_script::ScriptSessions;
+use term_script::{CancelToken, ScriptSessions};
 use term_session::SessionPool;
 
 use super::lock;
@@ -378,21 +378,28 @@ pub fn serve_bound(
         let key = Arc::clone(&key);
         let probe = Arc::clone(&probe);
         let pool = Arc::clone(&pool);
-        let sessions = sessions.handle();
+        // 宿主级登记处留在签名里（脚本侧共用）。连接游标按连接新建：只有
+        // 这样每条连接注入的 CancelToken 才会真正落到自己的 ScriptSession。
+        let _ = sessions;
         std::thread::spawn(move || {
-            let _ = serve_connection(stream, key.as_bytes(), probe, pool, sessions);
+            let _ = serve_connection(stream, key.as_bytes(), probe, pool);
         });
     }
     Ok(())
 }
 
-/// 一条连接：先跑 30 秒上限的准入 + 首请求，之后回到普通的一行一 JSON-RPC。
+/// 一条连接：准入之后**读行与派发分线程**。
+///
+/// 这是 ADR §4「连接断开即取消」的结构前提：如果读行与 `dispatch` 在同一
+/// 线程，一条 `wait` 把它卡住之后，它就再也看不见对端 EOF，取消令牌永远
+/// 等不到信号，退化成「等 timeout_ms 到期」。现在读线程一发现 EOF / IO
+/// 错误就 drop 通道并请求取消，工作线程里正在阻塞的 `wait` / `read` 会在
+/// 下一个 50ms 切片退出（未取消的旧路径仍保持原语义）。
 fn serve_connection(
     stream: TcpStream,
     key: &[u8],
     probe: Arc<dyn lock::LockProbe>,
     pool: Arc<SessionPool>,
-    sessions: ScriptSessions,
 ) -> io::Result<()> {
     stream.set_read_timeout(Some(FIRST_REQUEST_TIMEOUT))?;
     let mut writer = BufWriter::new(stream.try_clone()?);
@@ -400,30 +407,82 @@ fn serve_connection(
     if !admit(&mut reader, &mut writer, key, probe.as_ref())? {
         return Ok(());
     }
-    serve_lines(&mut reader, &mut writer, &stream, probe, pool, sessions)
+
+    let cancel = CancelToken::new();
+    let _cancel_on_return = CancelOnDrop(cancel.clone());
+    let (tx, rx) = std::sync::mpsc::channel::<RequestLine>();
+    let worker_cancel = cancel.clone();
+    let worker = std::thread::spawn(move || {
+        serve_lines(rx, &mut writer, pool, worker_cancel, probe)
+    });
+
+    let mut first = true;
+    loop {
+        let mut line = Vec::new();
+        let request = match read_capped_line(&mut reader, &mut line)? {
+            LineRead::Eof => break,
+            LineRead::TooLong => {
+                let _ = tx.send(RequestLine::TooLong);
+                break;
+            }
+            LineRead::Line => {
+                if first {
+                    first = false;
+                    // 首条请求行到手才解除 30 秒首请求上限；wait 可以等很久。
+                    stream.set_read_timeout(None)?;
+                }
+                RequestLine::Line(line)
+            }
+        };
+        if tx.send(request).is_err() {
+            break;
+        }
+    }
+    // 先 cancel 再 drop 发送端 → 工作线程里还没落地的 wait / read 会立刻
+    // 走 *_cancellable 的 Cancelled 分支，然后读完队列剩余请求自然结束。
+    // 顺序不能反：join 等的是工作线程，令牌若等 guard 在 return 时才取消，
+    // 就会在这里先卡到 wait 的 timeout_ms 到期（原 P1 的形状）。
+    cancel.cancel();
+    drop(tx);
+    let _ = worker.join();
+    Ok(())
+}
+
+/// 读线程交给工作线程的一格。超长行走专门分支：回 parse_error 后关连接。
+pub(crate) enum RequestLine {
+    Line(Vec<u8>),
+    TooLong,
+}
+
+/// 连接结束（含 EOF / IO 错误）时无条件请求取消。
+///
+/// 放在 drop 上而不是在几个 `return Ok(())` 处手工调用：新增提前返回的路径
+/// 也自动满足「断连即取消」，不会因为漏写一个分支而重新长出超时黑洞。
+struct CancelOnDrop(CancelToken);
+
+impl Drop for CancelOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
 }
 
 /// 与 `term_bridge::transport::serve_stdio` 同协议（同一份 `dispatch`），
 /// 但超长行回解析错误**并关连接**，而不是丢行继续。
-fn serve_lines<R: BufRead, W: Write>(
-    reader: &mut R,
+pub(crate) fn serve_lines<W: Write>(
+    requests: std::sync::mpsc::Receiver<RequestLine>,
     writer: &mut W,
-    timeout_handle: &TcpStream,
-    probe: Arc<dyn lock::LockProbe>,
     pool: Arc<SessionPool>,
-    sessions: ScriptSessions,
+    cancel: CancelToken,
+    probe: Arc<dyn lock::LockProbe>,
 ) -> io::Result<()> {
+    let _cancel_on_drop = CancelOnDrop(cancel.clone());
     let gated = LockedGate {
-        inner: super::surface::DeskSurface::with_sessions(pool, sessions),
+        inner: super::surface::DeskSurface::with_cancel(pool, ScriptSessions::new(), cancel),
         probe,
     };
-    let mut line = Vec::new();
-    let mut first = true;
-    loop {
-        line.clear();
-        match read_capped_line(reader, &mut line)? {
-            LineRead::Eof => return Ok(()),
-            LineRead::TooLong => {
+    for request in requests {
+        match request {
+            RequestLine::TooLong => {
                 // 空串一定解析失败 → id:null 的 parse_error，写完后关连接。
                 if let Some(reply) = term_bridge::dispatch(&gated, "") {
                     writer.write_all(reply.as_bytes())?;
@@ -432,11 +491,7 @@ fn serve_lines<R: BufRead, W: Write>(
                 }
                 return Ok(());
             }
-            LineRead::Line => {
-                if first {
-                    first = false;
-                    timeout_handle.set_read_timeout(None)?;
-                }
+            RequestLine::Line(line) => {
                 let text = String::from_utf8_lossy(&line);
                 let text = text.trim_end_matches('\n').trim_end_matches('\r');
                 if let Some(reply) = term_bridge::dispatch(&gated, text) {
@@ -447,4 +502,5 @@ fn serve_lines<R: BufRead, W: Write>(
             }
         }
     }
+    Ok(())
 }
