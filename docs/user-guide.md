@@ -136,8 +136,10 @@ term-desk mcp                                     # stdio MCP server（tools 来
 term-desk --version
 ```
 
-`api` / `mcp` 只连前台 UDS 控制端点（`~/.zterm/control.sock`，0600 + peercred）；
-前台未运行时明确报错退出，不自建会话池，也没有 token 握手。锁屏时返回
+`api` / `mcp` 只连前台 TCP loopback 控制端点（默认端口 `47653`，可由
+`WINDTERM_CONTROL_PORT` 覆盖；key 文件 `~/.zterm/control-key.local-<port>`，0600）；
+前台未运行时明确报错退出，不自建会话池。没有 token 文件，也没有能力面 `auth`
+动词——首条消息是传输级 `auth.challenge`，只做连接准入。锁屏时返回
 `Locked` 错误而不是数据。脚本与 API 共用同一张能力面动词表（详见
 [`scripting.md`](scripting.md)）。
 

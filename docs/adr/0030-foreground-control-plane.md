@@ -54,7 +54,7 @@ L2 契约   HostEnv(七端口) + invoke(method, params) + Capabilities/Cancel + 
           —— 动词只在这里实现一次；副作用只从这里出口
 L3 实现   apps/desktop 的 DeskXxx 端口实现（UI 帧队列、vault、命令派发）
 L4 装配   按前端装配 HostEnv：脚本 / API / 规则；按可见性过滤动词
-L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · MCP
+L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(TCP loopback) · CLI · MCP
 ```
 
 - `Surface` trait 与 `SurfaceError` 从 `term-bridge` 上移到 `term-core`（纯 trait + 数据，零 IO）；`term-bridge` 降级为**传输适配器**，只保留编解码、分派与管道。
@@ -67,7 +67,7 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 
 - `HostEnv` 七端口（会话 / 人机 / 本地文件 / 外部进程 / 剪贴板 / 窗口 / 应用控制）保持不变；`Capabilities` 与 `CancelToken` 属于一次运行。
 - **脚本保留 caps**：脚本是可能来自外部的文件，`// @cap` + 界面勾选 / `--allow` 的按次授权是唯一还能挡一道的门。`Rhai` 是沙箱；**Python 完全可信**——它是独立进程，本身就能读文件，给它 caps 没有实际约束。
-- **API 默认全开**：对已暴露给 API 的动词不做 caps 检查（授权边界是 UDS 连接本身）。这**不等于**把 Script-only 的本地副作用动词（`fs_*` / `proc_run` / `app_quit` / `window` / `clipboard_*`）暴露给 API；API 可见集合按 L4 显式过滤。
+- **API 默认全开**：对已暴露给 API 的动词不做 caps 检查（授权边界是控制端点这一侧：loopback 对端校验 + 0600 key 文件 + 传输级 HMAC 挑战）。这**不等于**把 Script-only 的本地副作用动词（`fs_*` / `proc_run` / `app_quit` / `window` / `clipboard_*`）暴露给 API；API 可见集合按 L4 显式过滤。
 - **API 的 HostEnv 为 per-connection**：连接建立时装配一次，连接断开即取消（`CancelToken`）。
 - `CredentialRef` 只能是宿主内部动作，**永不成为 API 动词**——否则等于提供「按方案名读密码」的接口。
 
@@ -114,12 +114,12 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 
 ### 7. 传输与安全
 
-- 本地控制端点**每个平台都必须支持**，平台实现放在 `bridge/platform/`：
-  - macOS / Linux：Unix domain socket `~/.zterm/control.sock`，权限 0600，peercred 同用户校验（macOS `getpeereid`、Linux `SO_PEERCRED`）。
-  - Windows：命名管道 `\\.\pipe\windterm-control-<用户 SID 稳定哈希>`，管道名按用户隔离；DACL 只放行当前用户 SID（等价 0600）；接入后用 `GetNamedPipeClientProcessId` → `OpenProcessToken` → `GetTokenInformation(TokenUser)` 比对对端 SID（等价 peercred）。
-  - 每个平台**恰好一处**监听绑定；其余平台显式 `Unsupported`，绝不悄悄退回 TCP。
-- **删除 token 文件与 `auth` 握手**：文件权限 / DACL 已挡住跨用户；同用户进程本来就能读 0600 token，token 不增加任何屏障。协议第一条即普通方法。
-- **保留 stdio 桥**：`python_run.rs` 用 `term_bridge::python_api_shim()` 起外部 Python 子进程，是产品功能；与本地控制端点一样只是 `invoke` 的一个传输适配器。
+- **形态：全平台统一的 TCP loopback + 端口**。本地控制端点不再按平台分叉，所有平台都绑回环地址：默认端口 `47653`，由 `WINDTERM_CONTROL_PORT` 覆盖；key 文件 `~/.zterm/control-key.local-<port>`（0600，按端口隔离，因此同一台机器上的多个端口互不串号）。全平台只有一套监听、编解码与准入实现，每平台**恰好一处**绑定；没有 UDS / 命名管道分支，也没有平台 `Unsupported` 回退。
+- **借鉴 mailcraft 的理由**：它的控制端点走 loopback 端口，跨 sandbox 可达——沙箱里看不到、连不上 UDS / 命名管道，但能连本地端口；一套协议实现覆盖 Windows / macOS / Linux，不为每平台维护独立 IPC；也就不背平台管道债——UDS 的 0600 + peercred（`getpeereid` / `SO_PEERCRED`）与 Windows 的 DACL + SID 对端复核（`GetNamedPipeClientProcessId` → `OpenProcessToken` → `GetTokenInformation`）都不再存在。
+- **代价，必须与形态一起落地**：任意本机进程都能连上 loopback 端口，端口本身不是权限门。所以必须同时具备：key 文件 0600；首条消息是传输级 `auth.challenge`，用 key 做 HMAC 挑战——它**不是能力面上的 `auth` 方法**，不进 `METHODS`、不参与可见性过滤，能力面里没有 `auth` 动词；loopback 对端校验（非回环地址直接拒绝）；连接后首请求超时；单行 1 MiB 上限（半行不许无限占内存）。少任何一项都不算按本决策落地。
+- **威胁模型（已接受风险）**：IPC 权限门防不住同用户任意代码——同用户进程能读 0600 key 文件，也能直接跑 `term-desk api`；不要高估这层防护，它挡的是误连、跨用户与沙箱隔离，不是针对同用户恶意代码的边界。
+- **删除 token 文件**：能力面与传输层都不再有 token 握手；改用 0600 key + HMAC 挑战做连接准入，key 不是 token，也不叠加第二道等价的门——同用户进程本来就能读 0600 文件。
+- **保留 stdio 桥**：`python_run.rs` 用 `term_bridge::python_api_shim()` 起外部 Python 子进程，是产品功能；与 TCP loopback 控制端点一样只是 `invoke` 的一个传输适配器。两条管道分工不同：stdio 桥是宿主**起**外部 Python 子进程的通道，控制端点是大进程从外部**连进来**的通道，互不代替。
 - 锁屏门保留：接入时与每次调用前判定，结果缓存 2 秒；macOS（`ioreg`）、Windows（`OpenInputDesktop` + `UOI_NAME`）、Linux（freedesktop `ScreenSaver.GetActive`）均有实现。探测失败或平台无桌面环境时放行并记录审计行。
 
 ### 8. 兼容
@@ -140,7 +140,8 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 - 改动面很大：`term-bridge` 的依赖方向、能力面可见性、UI 端口接入、规则数据、shell 子命令删除都互相牵连。
 - 默认 owner 为规则，意味着显式调用不声明 `exclusive` 时仍可能与规则同帧写；靠排序与留痕而非硬隔离。
 - 删除 `script run` 后，命令行批处理入口消失；CI 与排障改由单测 / 集成测试承担。
-- API 全开的前提是「连得上 UDS 即用户本人授权」；这个假设在共享同一用户账户的机器上不成立，属于已接受的风险。
+- loopback 端口对全机开放：任何本机进程都能发起连接，准入完全压在 key 与挑战上；代价由 §7 的五项约束收口，但防护上限有限。
+- API 全开的前提是「连得上 loopback 端口并通过 key 挑战即用户本人授权」；同用户任意进程能读 key 文件或直接跑 CLI，这个假设在共享同一用户账户的机器上不成立，属于已接受的风险。
 
 **判据**
 
@@ -151,13 +152,16 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 - `onekey::expects` 与输出帧 OneKey 应答块不存在；凭据只从 vault 取。
 - 同一 `password:` 提示同帧命中 OneKey 凭据规则与用户规则时，只写一次。
 - 未声明 `exclusive` 的 API 调用与用户规则同帧写时，按优先级排序且不交错。
-- `auth` 握手与 token 文件不存在；unix 端点为 0600 + peercred，Windows 端点为每用户管道名 + DACL 限当前 SID + 对端 PID→SID 复核；每平台恰好一处绑定。
+- 能力面 `METHODS` 中不存在 `auth` 方法，也没有 token 文件；传输级 `auth.challenge` 只做连接准入，不是能力面动词，不进 `describe`。
+- 全平台统一绑 loopback：默认端口 47653，`WINDTERM_CONTROL_PORT` 可覆盖；对端非回环地址被拒；无 UDS、无命名管道绑定，每平台恰好一处监听。
+- key 文件 `~/.zterm/control-key.local-<port>` 为 0600；首条消息必须是 key + HMAC 挑战；首请求超时与单行 1 MiB 上限均在；挑战不过或超限即断开。
 - 锁屏探测在 macOS / Windows / Linux 均有实现，三态与 2 秒缓存不变；无桌面环境时 fail-open 并留审计。
 
 **复查触发**
 
 - 出现第二个自持会话池的进程 → 决策 2 重写。
-- 需要跨机器访问 → 先写认证与审计方案，不得以任何形式把控制端点暴露到本机之外。
+- 需要跨机器访问 → 先写认证与审计方案，不得以任何形式把监听绑到非 loopback 地址（包括端口转发与 `--host` 类参数）。
+- 出现第二个平台专属传输分支（UDS / 命名管道 / 平台特定权限门）→ 决策 7 重写。
 - API 需要调用本地副作用动词（`fs_*` / `proc_run`）→ 决策 4 重写，不能靠放宽可见性悄悄放行。
 - 需要服务端主动推送事件 → 决策 1 与 7 重写（当前协议无订阅 / 无推送）。
 - 出现第二个需要宿主实现的自动化内核 → 决策 5 重写。
@@ -171,9 +175,10 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 | CLI / MCP 放进 `tools/cli` 独立仓库 | 同一可执行文件多模式即可，独立仓库会重新长出第二个宿主 |
 | 用 span 重叠 / 提示分类器做事后去重 | 要造第四套模式编译器；改用事前所有权开关更简单可预测 |
 | 把 OneKey expects 提到高优先级 | 泛化 `password` 模式误触发；直接废弃，改用带凭据引用的普通规则 |
-| API 与脚本统一按 caps 授权 | 客户端已由 UDS + 显式配置准入，再加一层协商只增加配置面；脚本文件仍需 caps |
+| API 与脚本统一按 caps 授权 | 客户端已由 loopback + key 挑战准入，再加一层协商只增加配置面；脚本文件仍需 caps |
 | 把 `fs_*` / `proc_run` 暴露给 API | 等于给本地控制端点开任意文件读与进程执行；API 全开只针对已暴露动词 |
-| token 文件保留 | UDS 0600 已挡跨用户；同用户进程能读 0600 token，第二道门无效 |
+| UDS / 命名管道端点 | 跨 sandbox 不可达，且每平台一套 peercred / DACL+SID，长期是平台债；mailcraft 的 loopback 端口一套实现、全平台统一 |
+| token 文件保留 | 与 0600 key 文件同质；同用户进程本来就能读它，第二道门无效；统一为 key + HMAC 挑战 |
 | 两套触发器内核长期并存 | 两个 matcher、两份规则数据、两份动作枚举必然漂移；开发阶段直接删旧 |
 | 规则里携带 `ScriptGrant` | 把宽授权写进规则文件等于持久化后门；授权只属于一次运行 |
 
@@ -183,6 +188,6 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 2. 删除旧触发器内核与 `DISPATCHABLE_METHODS`，`automation` 成为唯一内核；规则动作四类 + 装载期校验。
 3. OneKey 删 `expects`，Account 页改画已有字段；vault 条目收敛到 `onekey:<name>` / `:ki`。
 4. 仲裁器（per-session owner + 优先级）接入 PTY 写漏斗；求值与写分离。
-5. UDS 控制端点接入前台启动路径；删除 `serve` / `script run` / headless exec / token。
+5. TCP loopback 控制端点（默认 47653 / `WINDTERM_CONTROL_PORT` / 0600 key 文件 / HMAC 挑战 / 首请求超时 / 1 MiB 行限）接入前台启动路径；删除 `serve` / `script run` / headless exec / token。
 6. `apps/desktop/src/cli/` 增加 `api` / `mcp` 薄子命令；tools 由 `describe` 生成。
 7. 删旧文档与 `verify.sh` 旧检查项，更新 ADR 索引。

@@ -12,7 +12,7 @@ WindTerm 内建 [Rhai](https://rhai.rs) 脚本引擎（`crates/term-script`）�
 
 命令行**不执行脚本文件**：`term-desk script run` 已删除（ADR-0030）。剩下的
 无窗口子命令只有 `doctor` / `capability` / `api describe` / `api call` / `mcp`，
-它们都是前台 UDS 控制端点的薄客户端，要求前台已经在运行，绝不自建会话池。
+它们都是前台 TCP loopback 控制端点的薄客户端，要求前台已经在运行，绝不自建会话池。
 
 脚本窗口与脚本编辑器使用同一套宿主 API，因此同一份脚本在两处行为一致
 （可用的宿主能力随上下文不同而收敛）。
@@ -219,9 +219,11 @@ write("<口令>\n");
 
 `crates/term-bridge` 提供 JSON-RPC over stdio 的桥接，供外部 Python 子进程以
 结构化方式调用能力面。`term-desk mcp` 也用 stdio 对接 MCP 客户端，但它连前台
-走的是本地控制端点。外部 CLI / MCP 客户端连前台 GUI 的
-`~/.zterm/control.sock`（0600 + peercred），用
+走的是本地控制端点。外部 CLI / MCP 客户端连前台 GUI 的 loopback 控制端点
+（全平台统一，默认端口 `47653`，`WINDTERM_CONTROL_PORT` 覆盖），用
 `term-desk api describe` / `term-desk api call <method> [params-json]` 发请求。
 
 前台没运行时 `api` / `mcp` 明确报错退出，绝不自己起一个会话池。没有 token
-文件，也没有 `auth` 握手——协议第一条就是普通方法调用（ADR-0030）。
+文件，也没有能力面 `auth` 动词——连接首条消息是传输级 `auth.challenge`
+（key + HMAC，key 文件 `~/.zterm/control-key.local-<port>`，0600），只做连接
+准入，不进动词表；另有首请求超时、1 MiB 行限与 loopback 对端校验（ADR-0030）。
