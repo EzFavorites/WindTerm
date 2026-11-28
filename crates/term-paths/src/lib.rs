@@ -332,12 +332,16 @@ mod tests {
     /// `~/Library/Application Support/` 根（和别的应用抢目录）。
     #[test]
     fn the_default_profile_dir_sits_under_the_app_subfolder() {
-        let dir = profile_dir();
-        // 只在不设覆盖的分支上断言：`cargo test` 里若有别的用例正持锁改了
-        // 环境变量，这里就不是「默认路径」，跳过比误判成红好。
-        if std::env::var_os("WINDTERM_PROFILE_DIR").is_some() {
+        // 先拿同一把锁再判断：否则「读 env → 判空 → 再读 profile_dir」之间
+        // 可能被另一条用例插进来设覆盖，拿到的就不是默认路径了。
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        if std::env::var_os("WINDTERM_PROFILE_DIR").is_some()
+            || read_profile_dir_choice().is_some()
+        {
+            // 用户已经选过目录（或环境变量覆盖）时，默认路径分支根本不走。
             return;
         }
+        let dir = profile_dir();
         let dir = dir.expect("平台配置目录应当可得");
         assert_eq!(dir.file_name().and_then(|n| n.to_str()), Some(APP_DIR));
         assert_eq!(dir.parent(), platform_dir().as_deref());

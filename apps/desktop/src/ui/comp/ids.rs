@@ -15,6 +15,7 @@ impl CompId {
     /// 全部已登记的组件。脚本与报错信息都从这一处取，避免两处名单对不上。
     pub(in crate::ui) const ALL: &'static [CompId] = &[
         CompId::About,
+        CompId::LockScreen,
         CompId::Preferences,
         CompId::Shortcuts,
         CompId::QuickCommands,
@@ -163,6 +164,7 @@ impl CompId {
     pub(in crate::ui) fn name(self) -> &'static str {
         match self {
             CompId::About => "dialog_about",
+            CompId::LockScreen => "lock_screen",
             CompId::Preferences => "dialog_settings",
             CompId::Shortcuts => "dialog_shortcuts",
             CompId::QuickCommands => "dialog_quick_commands",
@@ -226,6 +228,7 @@ impl CompId {
     pub(in crate::ui) fn has_baseline(self) -> bool {
         match self {
             CompId::About
+            | CompId::LockScreen
             | CompId::Preferences
             | CompId::Shortcuts
             | CompId::SessionLog

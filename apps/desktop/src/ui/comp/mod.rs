@@ -26,6 +26,8 @@
 pub(in crate::ui) enum CompId {
     /// About 对话框：最小的一张弹窗，先拿它把出图链路跑通。
     About,
+    /// 锁屏遮罩：整窗暗底 + 居中蓝色标题与密码框。
+    LockScreen,
     /// Preferences（字体 / 尺寸 / 滚动缓冲）。
     Preferences,
     /// 键盘绑定表。
@@ -216,6 +218,15 @@ impl TerminalWindow {
             comp::CompId::About => {
                 self.view.show_about = true;
                 self.draw_about_dialog(ctx);
+            }
+            comp::CompId::LockScreen => {
+                // 定格空密码框 + 正常态（无红字）：夹具走与真实锁屏同一条绘制路径，
+                // 这样「输入框没居中」这类布局回归会被逐字节基线挡住。
+                self.view.lock.locked = true;
+                self.view.lock.error = false;
+                self.lock_password.clear();
+                self.show_lock_password = false;
+                self.draw_lock(ctx);
             }
             comp::CompId::Preferences => {
                 self.view.show_settings = true;
