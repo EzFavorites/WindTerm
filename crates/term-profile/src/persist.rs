@@ -38,9 +38,25 @@
 //! 这是 best-effort 的提示，**不是 CAS、也不是事务**：读指纹与 rename 之间
 //! 仍留有一个极短的窗口，恰好挤进来的写仍可能被盖掉。它挡的是「别人已经
 //! 改过盘、而我手里是陈旧快照」这类日常事故，不承诺串行化整段事务。
+//!
+//! # 落盘权限：凭据文件不能按 umask 创建
+//!
+//! `vault.ztv` 装着加密后的全部凭据，同目录的 `prefs.json` / `command_history.json`
+//! / `layout.json` 也带用户数据。此前临时文件走 `std::fs::write`，权限是
+//! `0666 & ~umask`（常见 `0644`），同机其它用户可读；`create_dir_all` 建的 profile
+//! 目录同理（`0755`，别人能列目录）。现在 [`write_atomic`] 在 Unix 上用
+//! `OpenOptionsExt::mode(0o600)` 建临时文件并显式 `set_permissions(0o600)`，
+//! `rename` 把这个权限带到目标文件；[`save_vault_to`] 把 profile 目录收紧到 `0700`。
+//! 显式 `set_permissions` 不是多余的：`mode` 只在**新建**时生效，umask 只能减权限，
+//! 预置的同名临时文件也可能带着宽松权限。
+//!
+//! Windows 没有 Unix mode：profile 目录在当前用户目录（`%APPDATA%`）下，隔离由
+//! 系统目录 ACL 承担，标准库也没有可移植的 ACL API，故此处不另做 ACL 操作。
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -99,7 +115,7 @@ pub(crate) fn unique_tmp(path: &Path) -> PathBuf {
 /// 返回 `bool` 与这一层既有的「尽力而为、失败不崩」口径一致。
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> bool {
     let tmp = unique_tmp(path);
-    if std::fs::write(&tmp, bytes).is_err() {
+    if !write_tmp_private(&tmp, bytes) {
         let _ = std::fs::remove_file(&tmp);
         return false;
     }
@@ -108,6 +124,61 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> bool {
         return false;
     }
     true
+}
+
+/// 写临时文件，并在 Unix 上把权限收紧到 `0600`。
+///
+/// `rename` 继承临时文件的权限，所以收紧临时文件即收紧最终文件。两条失败路径
+/// 仍由 [`write_atomic`] 统一清理临时文件。
+fn write_tmp_private(tmp: &Path, bytes: &[u8]) -> bool {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        let written = (|| -> std::io::Result<()> {
+            // 临时名含 pid + 纳秒 + 序号，但仍是「可预测」而不是密码学随机；
+            // 拒绝符号链接，免得攻击者预置一个链接把内容写到别处。
+            if let Ok(meta) = std::fs::symlink_metadata(tmp) {
+                if meta.file_type().is_symlink() {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::AlreadyExists,
+                        "refusing to write through a symlink",
+                    ));
+                }
+            }
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(tmp)?;
+            file.write_all(bytes)?;
+            // mode 只管新建；已存在的同名文件或更严的 umask 都要靠这一步兜底。
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+        })();
+        written.is_ok()
+    }
+    #[cfg(not(unix))]
+    {
+        // Windows 无 Unix mode，隔离靠 profile 目录的用户 ACL（见模块头）。
+        std::fs::write(tmp, bytes).is_ok()
+    }
+}
+
+/// 创建 `path` 的父目录并在 Unix 上收紧到 `0700`。
+///
+/// `create_dir_all` 给的是 `0777 & ~umask`（常见 `0755`）；已经存在的目录也收紧，
+/// 这是安全加固，不是「尊重用户原有权限」。Windows 靠 `%APPDATA%` 的用户 ACL。
+fn ensure_private_parent(path: &Path) {
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+    }
 }
 
 /// 文件当前**字节内容**的指纹；文件不存在 / 读不出来都是 `None`。
@@ -244,9 +315,8 @@ pub fn save_vault(bytes: &[u8]) -> bool {
 /// `save_vault` 的路径无关形态：留出来是为了让原子写这一段真的能被单测打到，
 /// 而不是在测试里手工模拟一遍 `write` + `rename`（那测的是测试自己）。
 fn save_vault_to(path: &Path, bytes: &[u8]) -> bool {
-    if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
+    // 保险库所在目录只许属主进入；目录里所有文件也经由 write_atomic 建成 0600。
+    ensure_private_parent(path);
     // 先写临时文件再改名：写到一半断电，用户丢的是「这次改动」，
     // 不是「整个保险库」——所有条目都在同一个文件里，这一点很重要。
     write_atomic(path, bytes)
@@ -476,6 +546,53 @@ mod tests {
         assert!(save_vault_to(&vault, b"sealed-again"));
         assert!(tmp_leftovers(vault.parent().unwrap()).is_empty());
         assert_eq!(std::fs::read(&vault).unwrap(), b"sealed-again");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_vault_file_and_its_directory_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tmp_file();
+        let parent = path.parent().unwrap();
+        // 故意先把目录放开，确认保存路径会把它收紧（不只是新建时才 0700）。
+        std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let vault = parent.join(VAULT_FILE);
+        assert!(save_vault_to(&vault, b"sealed"));
+        let mode = std::fs::metadata(&vault).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "vault 文件只能属主读写");
+        let dir_mode = std::fs::metadata(parent).unwrap().permissions().mode();
+        assert_eq!(dir_mode & 0o777, 0o700, "profile 目录只能属主进入");
+        assert!(tmp_leftovers(parent).is_empty(), "临时文件不该留下");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_preexisting_loose_tmp_file_is_tightened_to_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = tmp_file();
+        let tmp = unique_tmp(&path);
+        std::fs::write(&tmp, b"old").unwrap();
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(write_tmp_private(&tmp, b"new"), "显式 chmod 不能失败");
+        let mode = std::fs::metadata(&tmp).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600, "预置的宽松临时文件也必须收紧到 0600");
+        assert_eq!(std::fs::read(&tmp).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_tmp_file_is_refused_instead_of_followed() {
+        let path = tmp_file();
+        let tmp = unique_tmp(&path);
+        let victim = path.with_file_name("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+        assert!(!write_tmp_private(&tmp, b"overwrite"));
+        assert_eq!(
+            std::fs::read(&victim).unwrap(),
+            b"keep",
+            "不得穿透符号链接写别处"
+        );
     }
 
     /// 命名规则本身的钉子：同一进程里连着两次取临时名，必须**不同**且**同目录**。
