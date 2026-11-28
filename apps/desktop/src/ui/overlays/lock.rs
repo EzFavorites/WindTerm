@@ -36,17 +36,27 @@ impl TerminalWindow {
             .show(ctx, |ui| {
                 let size = ui.available_size();
                 let field_width = (size.x * 0.32).clamp(240.0, 580.0);
+                // 标题 + 输入框是**一组**：整组在窗口正中，而不是标题吊在上三分之一、
+                // 输入框甩到下面。先算这一组的高度，顶部留白一次给足。
+                let title_h = 24.0;
+                let gap = 28.0;
+                let field_h = 24.0;
+                let error_h = if self.view.lock.error { 24.0 } else { 0.0 };
+                let group_h = title_h + gap + field_h + error_h;
+                ui.add_space((size.y - group_h) * 0.5);
                 ui.vertical_centered(|ui| {
-                    // 标题落在窗口上三分之一处，与金图同一比例；内容不随窗口
-                    // 高度拉伸，只把留白按比例缩放。
-                    ui.add_space((size.y * 0.26).max(40.0));
                     ui.label(egui::RichText::new(title).color(TITLE_BLUE).size(18.0));
-                    ui.add_space((size.y * 0.09).max(24.0));
+                    ui.add_space(gap);
+                    // 显式水平居中：`vertical_centered` 里的嵌套 horizontal 在 egui
+                    // 下仍按整宽排布，会把输入框顶到最左。填掉两侧留白才钉得住。
+                    let field_w = field_width - 26.0;
+                    let group_w = field_w + 6.0 + 20.0; // 输入框 + 间隔 + 眼睛
                     ui.horizontal(|ui| {
+                        ui.add_space((size.x - group_w) * 0.5);
                         let field = egui::TextEdit::singleline(&mut self.lock_password)
                             .password(!self.show_lock_password)
                             .hint_text(hint)
-                            .desired_width(field_width - 26.0);
+                            .desired_width(field_w);
                         let resp = ui.add(field);
                         eye(ui, &mut self.show_lock_password);
                         if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
