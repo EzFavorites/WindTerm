@@ -7,8 +7,6 @@
 //! - `Credential` → 保险库取值后转成一次 `write` 意图；
 //! - `Script` → `ScriptRun` 统一入口（按次授权由 `RunConfig` 决定）。
 
-use std::path::Path;
-
 use serde_json::Value;
 use term_core::automation::AlertKind;
 
@@ -49,7 +47,9 @@ fn invoke_surface(
                 return;
             }
             match decode_send_text(text) {
-                Ok(bytes) => tab.write(&bytes),
+                Ok(bytes) => {
+                    tab.write(&bytes);
+                }
                 Err(err) => note_escape_error(note, rule, "Send text", &err),
             }
         }

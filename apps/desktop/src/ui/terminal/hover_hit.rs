@@ -1,7 +1,7 @@
 //! 悬停命中：把「文本里的字节 / 字符下标」换成**屏幕 cell 列**。
 //!
-//! `trigger_builtins::detect` 返回字节偏移，`trigger::match_in_line` 返回字符下标，
-//! 而指针的 `col` 是 cell 列。中文 / 全角字形一个字占两格，三者直接混用会让前缀
+//! `trigger_builtins::detect` 与 `automation::Pattern::find` 都返回字节偏移，
+//! 而指针的 `col` 是 cell 列。中文 / 全角字形一个字占两格，两者直接混用会让前缀
 //! 带中文的行上「IP 明明看得见、悬停却弹不出来」。唯一的换算表是 `glyph_columns`：
 //! 第 i 个字形的起始 cell 下标，与查找 / 软折 / 正文渲染同一口径。
 

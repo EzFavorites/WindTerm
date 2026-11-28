@@ -10,13 +10,14 @@ use super::hover_hit;
 use super::pane_pointer::GridGeom;
 use super::trigger_menu;
 use crate::ui::*;
-use crate::ui::dialogs::triggers::model::{self, Rule};
+use crate::ui::dialogs::triggers::model::Rule;
 use term_app::trigger_builtins::{self, Builtin};
 use crate::ui::dialogs::triggers::model::{ActionKind, UiAction, Channel};
+use term_core::automation::{Pattern, Syntax};
 use term_core::grid::ScreenImage;
 
-/// Custom Menu 规则在指针所在行命中了哪一段文本。复用 `feed_for` 的同一个
-/// `find_in`，所以"输出时命中"与"悬停时能点到"是同一套判据。
+/// Custom Menu 规则在指针所在行命中了哪一段文本。与求值器共用
+/// `term_core::automation::Pattern`，所以"输出时命中"与"悬停时能点到"是同一套判据。
 fn custom_menu_at_pointer<'a>(
     image: &ScreenImage,
     row: i64,
@@ -34,13 +35,18 @@ fn custom_menu_at_pointer<'a>(
                 && !rule.config.menu.items.is_empty()
         })
         .find_map(|rule| {
-            let (start, end) = trigger::match_in_line(rule, &text)?;
-            // match_in_line 给的是字符下标；中文前缀一个字占两格，必须查字形表。
-            let (from, to) = hover_hit::char_range_to_cols(&line.cells, start, end)?;
+            let syntax = if rule.literal { Syntax::Literal } else { Syntax::Regex };
+            let Ok(pattern) = Pattern::compile(&rule.pattern, syntax, rule.case_sensitive) else {
+                return None;
+            };
+            let span = pattern.find(&text, 0)?;
+            // 求值内核给的是字节区间；中文前缀一个字占两格，必须查字形表。
+            let (from, to) =
+                hover_hit::byte_range_to_cols(&text, &line.cells, span.start, span.end)?;
             if col < from || col >= to {
                 return None;
             }
-            let matched: String = text.chars().skip(start).take(end - start).collect();
+            let matched = text[span.start..span.end].to_owned();
             Some((rule, matched))
         })
 }
@@ -137,7 +143,7 @@ pub(super) fn paint(
     geom: GridGeom,
     word_wrap: bool,
     rules: &[Rule],
-) -> Option<crate::ui::dialogs::triggers::model::Hit> {
+) -> Option<crate::ui::dialogs::triggers::model::ViewHit> {
     if word_wrap {
         return None;
     }
@@ -230,7 +236,7 @@ pub(super) fn paint(
         Payload::Custom { matched, .. } => matched.clone(),
         Payload::Ip(ip) => ip.clone(),
     };
-    Some(crate::ui::dialogs::triggers::model::Hit { rule_id, actions, matched })
+    Some(crate::ui::dialogs::triggers::model::ViewHit { rule_id, actions, matched })
 }
 
 #[cfg(test)]

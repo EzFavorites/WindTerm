@@ -75,7 +75,9 @@ pub(in crate::ui) mod dialog_chrome;
 mod onekeys_dialog;
 mod triggers_dialog;
 // ：11 种触发器类型的完整复刻（主窗 + 页面 + 浮层 + 弹窗 + 取色器）。
-mod triggers;
+// `pub(in crate::ui)`：终端悬停菜单 / 夹具复用这里的 `model` 投影与 `View`；
+// 落盘与求值仍然只有 `term_core::automation::Rule` 这一个真相。
+pub(in crate::ui) mod triggers;
 // ：Tunnels 设置对话框（视觉基线 `clipboard-…-b2ab71d2.png`）。
 // `pub(in crate::ui)`：`Editor` 是窗口上的字段类型，`ui/mod.rs` 要声明它。
 pub(in crate::ui) mod tunnel_settings;

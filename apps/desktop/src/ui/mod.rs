@@ -436,7 +436,7 @@ pub struct TerminalWindow {
     /// 槽位里放的是 `Cmd`——位移（`Move`）与集合命令（`Set`）共用它，
     /// 所以「锁 / 拆分 / 反选」与「选到下一行」走的是同一条落地路径，
     /// 不会因为多开一个字段而出现两条先后顺序不明的待办。
-    pending_select: Option<Cmd>, pending_ip_hit: Option<crate::ui::dialogs::triggers::model::Hit>,
+    pending_select: Option<Cmd>, pending_ip_hit: Option<crate::ui::dialogs::triggers::model::ViewHit>,
     /// 进行中的原生 SSH 连接（`None` = 没有）。
     /// 它不在 `ViewState` 里：`ViewState` 是**领域状态**（只能由 `reduce` 写），
     /// 而这个东西是「一次副作用正在发生」，带有 `Receiver`、线程与凭据——

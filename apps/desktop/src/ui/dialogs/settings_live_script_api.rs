@@ -6,11 +6,13 @@
 //! `bridge` 配置 / `python_run` 的解释器判据）。这一页只把它们的**现状**摆出来，
 //! 要改就去点按钮开既有的管理器——这里不再造第二套编辑器，也不新增 Prefs 字段。
 //!
-//! # token 的边界
+//! # 控制端点的边界
 //!
-//! 只从 `std::fs::metadata` 取「文件在不在 / 多大」。**不调用**
-//! `bridge::token::load_or_create`（会建文件并返回明文），不读文件内容，
-//! 界面上永远不出现 token 值本身，只出现它的文件元数据。
+//! ADR-0030 之后前台控制面走 UDS（`~/.zterm/control.sock`）：没有 TCP 端口、
+//! 没有 token 文件，准入靠 socket 权限 `0600` + peercred（同 uid）+ 锁屏门。
+//! 这一页只显示固定端点路径与准入口径，不连接、不探测、不产生任何句柄。
+
+use std::path::PathBuf;
 
 use super::settings_pages_view::{
     field_row, group_box, label_col, read_only, set_row_rhythm, Deco, Slot,
@@ -65,25 +67,21 @@ struct Status {
     recent: usize,
     library: usize,
     triggers: usize,
-    port: u16,
-    /// token **文件**的字节数；只来自 `fs::metadata`，绝不读内容。
-    token_bytes: Option<u64>,
+    /// 固定端点路径；只从家目录推导，不连接、不建 socket。
+    endpoint: Option<PathBuf>,
     python: PythonSource,
 }
 
 fn collect() -> Status {
     let prefs = term_profile::prefs::load().unwrap_or_default();
-    let token_bytes = crate::bridge::token::default_path()
-        .and_then(|path| std::fs::metadata(path).ok())
-        .map(|meta| meta.len());
+    let endpoint = crate::bridge::default_socket_path();
     let env = std::env::var("WINDTERM_PYTHON").ok();
     Status {
         registered: prefs.scripts.len(),
         recent: prefs.recent_scripts.len(),
         library: crate::ui::terminal::script_library::library().len(),
         triggers: prefs.triggers.len(),
-        port: crate::bridge::DEFAULT_PORT,
-        token_bytes,
+        endpoint,
         python: python_source(env.as_deref(), on_path),
     }
 }
@@ -110,18 +108,19 @@ pub(in crate::ui) fn script_api(win: &mut TerminalWindow, ui: &mut egui::Ui) {
         win.tr("Recent runs"),
         win.tr("Library files"),
         win.tr("Trigger rules"),
-        win.tr("Bridge port"),
-        win.tr("Token file"),
+        win.tr("Control endpoint"),
+        win.tr("Peer gate"),
         win.tr("Python interpreter"),
     ];
     let col = label_col(ui, &labels);
     // 说明挂在字段悬停上，不另占一行——末页的四组内容已接近内容区底边。
     let note = win.tr(NOTE);
 
-    let token = match s.token_bytes {
-        Some(bytes) => format!("{} ({} B)", win.tr("Token file present"), bytes),
-        None => win.tr("Token file missing").to_string(),
+    let endpoint = match s.endpoint {
+        Some(path) => path.display().to_string(),
+        None => win.tr("Home directory unavailable").to_string(),
     };
+    let peer_gate = win.tr("Same uid + unlocked screen (UDS 0600)").to_string();
     let python = match s.python {
         PythonSource::Env => win.tr("Environment override").to_string(),
         PythonSource::Path(name) => format!("{} ({name})", win.tr("PATH fallback")),
@@ -161,8 +160,8 @@ pub(in crate::ui) fn script_api(win: &mut TerminalWindow, ui: &mut egui::Ui) {
 
     group_box(ui, Some(win.tr("Bridge API")), |ui| {
         set_row_rhythm(ui);
-        status_row(ui, labels[4], &s.port.to_string(), col, note);
-        status_row(ui, labels[5], &token, col, note);
+        status_row(ui, labels[4], &endpoint, col, note);
+        status_row(ui, labels[5], &peer_gate, col, note);
         ui.add_space(4.0);
         if ui.button(win.tr("Quick Commands")).clicked() {
             win.view.show_settings = false;

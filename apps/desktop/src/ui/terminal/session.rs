@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use term_core::automation::{Action, AppAction, Effect, Signal, Target, Ticks};
+use term_core::automation::{Effect, Signal, Target, Ticks};
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
 use term_core::session::{backoff, effective, ReconnectPolicy};
@@ -20,7 +20,7 @@ use term_core::session_runtime::{LogStatus, SessionId, SessionStatus};
 
 use crate::ui::*;
 use crate::ui::dialogs::triggers::model::{self, Rule};
-use crate::ui::terminal::trigger_dispatch::{DispatchCtx, FrameIntent, ScriptIntent, UiIntent};
+use crate::ui::terminal::trigger_dispatch::{AppIntent, IntentKind};
 
 /// 宿主注入的「现在」（Unix 秒）。触发器内核不读墙钟，由这里统一提供，
 /// 冷却与空闲判定都用它。`SystemTime` 可能被 NTP 回拨，内核的 `allow()` 已对
