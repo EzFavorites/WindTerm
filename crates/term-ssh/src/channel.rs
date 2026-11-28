@@ -247,10 +247,17 @@ async fn handshake(
     // 这是尽力而为：服务端若禁了 X11 转发（`x11-req` 被拒），shell 照样工作，
     // 只记一条 warn，不把整条连接搞挂。回开的通道由 `HostKeyHandler::
     // server_channel_open_x11` 接住并桥到本机 X server。
+    //
+    // 唯一不肯「尽力而为」的地方是随机数：cookie 可预测等于白送远端 X display
+    // 的访问控制，所以取不到熵时**不开 X11**（shell 照常），而不是发一个弱 cookie。
     if opts.x11_forward {
-        let payload = x11_request_payload(opts.x11_screen);
-        if let Err(e) = handle.send_global_request("x11-req", &payload, true).await {
-            log::warn!("x11-req 下发失败（服务端可能禁了 X11 转发）：{e}");
+        match x11_request_payload(opts.x11_screen) {
+            Ok(payload) => {
+                if let Err(e) = handle.send_global_request("x11-req", &payload, true).await {
+                    log::warn!("x11-req 下发失败（服务端可能禁了 X11 转发）：{e}");
+                }
+            }
+            Err(e) => log::warn!("拒绝开启 X11 转发：{e}"),
         }
     }
     Ok((handle, channel))
@@ -260,14 +267,16 @@ async fn handshake(
 ///
 /// 顺序：`boolean single_connection` + `string auth_protocol`
 /// + `string auth_cookie` + `uint32 screen_number`。
-fn x11_request_payload(screen: u32) -> Vec<u8> {
+///
+/// 随机源失败时返回错误，由 [`handshake`] 拒绝开启 X11 转发——不构造弱 cookie。
+fn x11_request_payload(screen: u32) -> Result<Vec<u8>, SshError> {
+    let cookie = x11_cookie()?;
     let mut buf = Vec::with_capacity(40);
     buf.push(0u8); // single_connection = false：一条 SSH 连接上可转发多个 X 连接
     put_ssh_string(&mut buf, b"MIT-MAGIC-COOKIE-1");
-    let cookie = x11_cookie();
-    put_ssh_string(&mut buf, cookie.as_bytes());
+    put_ssh_string(&mut buf, &cookie);
     buf.extend_from_slice(&screen.to_be_bytes());
-    buf
+    Ok(buf)
 }
 
 /// SSH 线格式字符串：`uint32` 长度前缀 + 字节。
@@ -276,24 +285,19 @@ fn put_ssh_string(buf: &mut Vec<u8>, s: &[u8]) {
     buf.extend_from_slice(s);
 }
 
-/// 16 字符十六进制 X11 认证 cookie。
+/// MIT-MAGIC-COOKIE-1：16 字节密码学随机 cookie。
 ///
 /// 它只随 `x11-req` 下发给服务端，供 sshd 在远端 xauth 登记转发显示用，
 /// **不影响本机桥接**（本机那段只是把回开通道的字节原样搬到本地 X socket）。
-/// 用「时间 + 进程内计数器」做一个会话内唯一的串，避免引入额外随机源依赖；
-/// 真正的随机性由远端 sshd 在 xauth 侧负责，这里只需形态合法（16 hex）。
-fn x11_cookie() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    // 取低 64 位与计数器混合（再乘一个奇数打乱），保证会话内唯一且形态为 16 hex。
-    // cookie 只随 `x11-req` 下发给服务端登记远端 xauth，不影响本机桥接，故无需密码学随机。
-    let mixed = (nanos as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        ^ COUNTER.fetch_add(1, Ordering::Relaxed);
-    format!("{mixed:016x}")
+/// 但它就是远端 X display 的访问凭据：可预测值让任何能连上那个 display 的人
+/// 直接通过认证。所以必须用 OS entropy，一次一密；取不到熵时返回错误，
+/// 由 [`handshake`] 拒绝开启 X11 转发——绝不退化成时间戳 / 计数器之类可猜测的值
+/// （那正是本函数早期版本的做法）。
+fn x11_cookie() -> Result<[u8; 16], SshError> {
+    let mut cookie = [0u8; 16];
+    getrandom::getrandom(&mut cookie)
+        .map_err(|e| SshError::Channel(format!("X11 cookie 随机源不可用：{e}")))?;
+    Ok(cookie)
 }
 
 /// 双向搬运，直到对端关闭或本端要求关闭。返回状态栏文本。
@@ -523,7 +527,7 @@ mod tests {
 
     #[test]
     fn x11_request_payload_is_well_formed() {
-        let payload = x11_request_payload(0);
+        let payload = x11_request_payload(0).expect("随机源在测试环境里必须可用");
         // single_connection = false
         assert_eq!(payload[0], 0);
         // auth protocol: len-prefixed "MIT-MAGIC-COOKIE-1"
@@ -531,13 +535,13 @@ mod tests {
         assert_eq!(proto_len, 18);
         let proto = &payload[5..5 + proto_len];
         assert_eq!(proto, b"MIT-MAGIC-COOKIE-1");
-        // auth cookie: 16 hex chars
+        // auth cookie: 16 字节原始二进制（MIT-MAGIC-COOKIE-1 的线上形态）
         let cookie_off = 5 + proto_len;
         let cookie_len =
             u32::from_be_bytes(payload[cookie_off..cookie_off + 4].try_into().unwrap()) as usize;
         assert_eq!(cookie_len, 16);
         let cookie = &payload[cookie_off + 4..cookie_off + 4 + cookie_len];
-        assert!(cookie.iter().all(|b| b.is_ascii_hexdigit()));
+        assert!(cookie.iter().any(|&b| b != 0), "不是全零占位：必须是随机字节");
         // screen number: trailing u32 BE
         let screen_off = cookie_off + 4 + cookie_len;
         let screen = u32::from_be_bytes(
@@ -564,11 +568,12 @@ mod tests {
     }
 
     #[test]
-    fn x11_cookie_is_sixteen_hex_digits() {
-        let c = x11_cookie();
-        assert_eq!(c.len(), 16);
-        assert!(c.chars().all(|ch| ch.is_ascii_hexdigit()));
-        // 两次调用不应撞车（计数器在起作用）
-        assert_ne!(c, x11_cookie());
+    fn x11_cookie_is_sixteen_random_bytes() {
+        let first = x11_cookie().expect("随机源必须可用");
+        let second = x11_cookie().expect("随机源必须可用");
+        assert_eq!(first.len(), 16, "MIT-MAGIC-COOKIE-1 固定 16 字节");
+        assert!(first.iter().any(|&b| b != 0), "不能是全零占位");
+        // 两次独立取样不相等：不再依赖时间戳 / 计数器这种可预测的唯一性。
+        assert_ne!(first, second);
     }
 }

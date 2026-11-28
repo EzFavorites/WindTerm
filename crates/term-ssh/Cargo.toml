@@ -23,6 +23,9 @@ russh = { version = "0.65", default-features = false, features = ["ring", "flate
 # 日志只用于「配置允许但运行时做不到」的几处（agent 转发桥接失败）：
 # 那些失败回给谁都不合适（不在这条连接的握手里），但**绝不能**静默。
 log = "0.4"
+# X11 转发的 MIT-MAGIC-COOKIE-1 必须是密码学随机数（取不到熵就拒绝开转发，
+# 绝不退化成时间戳 / 计数器这类可预测值）。0.2 已在仓库依赖图里，提成直接依赖。
+getrandom = "0.2"
 # 只为了两件事：实现 `TermChannel`（让 Supervisor 直接收这个通道），
 # 以及把 `SshError` 转成 `SpawnError`（应用层只认识后者）。
 # 2026-11-12 底层收敛：这两个类型都在 `term_core::channel`，所以这里只依赖 core。

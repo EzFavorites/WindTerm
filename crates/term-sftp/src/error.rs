@@ -1,4 +1,4 @@
-//! `term-sftp` 的错误只有两类。
+//! `term-sftp` 的错误只有三类。
 //!
 //! 分类的依据是「谁该负责」：
 //! - `Ssh` —— 连不上 / 认证不过 / 服务器不给开通道。这与终端那条连接同一类问题，
@@ -6,6 +6,9 @@
 //! - `Session` —— 连上了，但 SFTP 子系统没起来（服务器没装 `sftp-server`，
 //!   或 `Subsystem sftp` 被注释掉了）。这一条必须能和「连不上」区分开：用户看到
 //!   「连上了但没有 SFTP」才知道该找管理员要什么。
+//! - `Cancelled` —— 用户主动按了停止，传输按取消处置（分片保留或删除已在
+//!   `transfer` 层做完）。它不是「失败」：调用方要靠这个变体把它记成取消，
+//!   不能拍成一条 `Session` 字符串，否则队列会记成 `Failed`。
 
 use std::fmt;
 
@@ -16,6 +19,8 @@ pub enum SftpError {
     Ssh(term_ssh::SshError),
     /// 连上了，但 SFTP 子系统谈不起来。
     Session(String),
+    /// 用户主动取消传输（不是失败）。
+    Cancelled,
 }
 
 impl fmt::Display for SftpError {
@@ -25,6 +30,7 @@ impl fmt::Display for SftpError {
             SftpError::Session(m) => {
                 write!(f, "服务器的 SFTP 子系统用不了：{m}（sshd_config 里的 Subsystem 一行？）")
             }
+            SftpError::Cancelled => write!(f, "传输被取消"),
         }
     }
 }
@@ -33,7 +39,7 @@ impl std::error::Error for SftpError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             SftpError::Ssh(e) => Some(e),
-            SftpError::Session(_) => None,
+            SftpError::Session(_) | SftpError::Cancelled => None,
         }
     }
 }

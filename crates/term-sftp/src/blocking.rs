@@ -89,6 +89,18 @@ impl Drop for CancelBridge {
     }
 }
 
+/// 传输层的停下原因 → 脚本可见的错误分类。
+///
+/// 取消必须原样透传成 [`SftpError::Cancelled`]：它是用户按了停止，不是「传坏了」。
+/// 早先把 `Cancelled { .. }` 折成 `Session("传输被取消")` 会让脚本把取消记成一次
+/// 失败（连带重试 / 报错），而 `TransferError` 在 `transfer` 层已经把分片处置做完了。
+fn map_transfer_error(e: transfer::TransferError) -> SftpError {
+    match e {
+        transfer::TransferError::Cancelled { .. } => SftpError::Cancelled,
+        transfer::TransferError::Failed(message) => SftpError::Session(message),
+    }
+}
+
 /// 一条同步 SFTP 连接。
 pub struct Client {
     /// `current_thread` 运行时：本结构的全部 async 都跑在它上面。
@@ -102,9 +114,10 @@ pub struct Client {
 impl Client {
     /// 连上并按 SFTP 子系统握手，问到家目录。
     ///
-    /// 失败分三类（[`SftpError`]）：连不上/认证失败是 `Ssh`，连上了但子系统
-    /// 谈不起来（服务端关了 sftp、`MaxSessions` 满了）是 `Session`。脚本据此
+    /// 连接这一步的失败分两类（[`SftpError`]）：连不上/认证失败是 `Ssh`，连上了但
+    /// 子系统谈不起来（服务端关了 sftp、`MaxSessions` 满了）是 `Session`。脚本据此
     /// 决定「换个网络」还是「换个做法」，所以不合并成一句「SFTP 失败」。
+    /// 传输被取消是第三类 [`SftpError::Cancelled`]，只从传输接口产生。
     pub fn connect(opts: SshOptions) -> Result<Self, SftpError> {
         let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
@@ -224,12 +237,7 @@ impl Client {
                         .await
                     }
                 };
-                result.map_err(|e| match e {
-                    transfer::TransferError::Cancelled { .. } => {
-                        SftpError::Session("传输被取消".to_string())
-                    }
-                    transfer::TransferError::Failed(message) => SftpError::Session(message),
-                })
+                result.map_err(map_transfer_error)
             };
             bounded(timeout, action).await
         })
@@ -419,5 +427,22 @@ mod tests {
             matches!(&err, SftpError::Session(msg) if msg.contains("未完成")),
             "{err:?}"
         );
+    }
+
+    /// 脚本按「停止」是取消，不是失败：门面必须保留这个分类，不能折成 Session。
+    #[test]
+    fn cancellation_is_not_reported_as_a_failure() {
+        for pre_existing in [false, true] {
+            let err = map_transfer_error(transfer::TransferError::Cancelled { pre_existing });
+            assert!(matches!(err, SftpError::Cancelled), "{err:?}");
+            assert!(!matches!(err, SftpError::Session(_)), "取消不是 Failed");
+            assert_eq!(err.to_string(), "传输被取消");
+        }
+    }
+
+    #[test]
+    fn a_real_transfer_failure_still_maps_to_session() {
+        let err = map_transfer_error(transfer::TransferError::Failed("磁盘满了".into()));
+        assert!(matches!(&err, SftpError::Session(m) if m == "磁盘满了"), "{err:?}");
     }
 }

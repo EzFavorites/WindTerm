@@ -4,7 +4,7 @@ use crate::config::Config;
 use crate::frame::{self, CrcKind, FrameEnd, FrameType, ParsedSubpacket};
 use crate::phase::Phase;
 use crate::scan::{Scan, Scanner};
-use term_xfer::{Action, Error, Fault};
+use term_xfer::{is_plain_name, Action, Error, Fault};
 
 /// 帧头解析完之后，接下来等的是哪种数据子包。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -526,6 +526,18 @@ impl Receiver {
                 return;
             }
         };
+        // 与 X/YMODEM、SFTP 同一条口径：名字必须是单段、无分隔符、无控制字符。
+        // 脏名字不能进 `FileStart`——调用方会拿它拼落盘路径，`../evil` 就写到
+        // 目标目录之外了。
+        if !is_plain_name(&info.name) {
+            self.fail(
+                Error::BadHeader {
+                    detail: format!("文件名不是合法的单段名字：{:?}", info.name),
+                },
+                out,
+            );
+            return;
+        }
         if info.size.is_some_and(|size| size > u64::from(u32::MAX)) {
             // ZMODEM 的偏移是 32 位：比这更大的文件无法用 `ZDATA` / `ZEOF` 的
             // 4 字节偏移表达，后续一定会错位，不如现在就明确拒绝。

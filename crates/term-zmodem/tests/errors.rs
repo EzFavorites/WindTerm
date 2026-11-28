@@ -137,6 +137,23 @@ fn receiver_rejects_bad_zfile() {
     assert!(matches!(sink.errors.last(), Some(Error::BadHeader { .. })));
 }
 
+/// `ZFILE` 的文件名来自对端：`../`、分隔符与控制字符必须在 `FileStart` 之前被拒，
+/// 与 X/YMODEM 和 SFTP 的 `is_plain_name` 同口径。
+#[test]
+fn receiver_rejects_a_dirty_file_name() {
+    for name in ["../../evil", "a/b", "a\\b", "a\nb"] {
+        let mut rx = Receiver::new(hex());
+        let mut sink = Sink::default();
+        sink.apply(rx.start());
+        sink.take_out();
+
+        sink.apply(rx.feed(&zfile_frame(name, 3, 0)));
+        assert!(sink.files.is_empty(), "{name:?} 不得进 FileStart");
+        assert!(matches!(sink.errors.last(), Some(Error::BadHeader { .. })));
+        assert_eq!(rx.phase(), Phase::Aborted);
+    }
+}
+
 #[test]
 fn receiver_rejects_oversized_declared_length() {
     let mut rx = Receiver::new(hex());
