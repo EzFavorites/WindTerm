@@ -132,8 +132,9 @@ struct Tabs {
 
 struct Inner {
     env: HostEnv,
-    /// 单次阻塞的上限（沙箱墙钟预算）——新包进来的会话也要继承它。
-    max_wait: Duration,
+    /// 整段脚本共用的**绝对**墙钟截止点。新包进来的会话也继承同一个点，
+    /// 而不是各自拿到一份完整的「单次等待上限」。
+    deadline: Instant,
     tabs: Mutex<Tabs>,
     /// 同步写开关（`set_synchronous`）。整个工作区一份，是**唯一真源**：
     /// 门面的 `Screen.Synchronous` 属性与全局 `set_synchronous` 都读写这一位。
@@ -167,14 +168,20 @@ impl ScriptWorkspace {
     /// 池级工作区：调用方给一整套宿主接缝（[`HostEnv`]），`current` 是脚本
     /// 一开始就在用的那条会话。
     pub fn new(env: HostEnv, current: Arc<Mutex<dyn Session>>, max_wait: Duration) -> Self {
-        let session = ScriptSession::with_cancel(current, max_wait, Some(env.cancel.clone()));
+        let now = Instant::now();
+        // 溢出即视为预算耗尽（不在生产路径用 panic 表达异常配置）。
+        let deadline = match now.checked_add(max_wait) {
+            Some(when) => when,
+            None => now,
+        };
+        let session = ScriptSession::with_deadline(current, deadline, Some(env.cancel.clone()));
         let id = session.id();
         let mut map = HashMap::new();
         map.insert(id, session);
         Self {
             inner: Arc::new(Inner {
                 env,
-                max_wait,
+                deadline,
                 tabs: Mutex::new(Tabs { map, current: id }),
                 synchronous: AtomicBool::new(false),
                 log_template: Mutex::new(None),
@@ -217,9 +224,9 @@ impl ScriptWorkspace {
         let Some(session) = self.inner.env.sessions.attach(id) else {
             return Err(PrimitiveError::NoSuchSession(name()));
         };
-        let wrapped = ScriptSession::with_cancel(
+        let wrapped = ScriptSession::with_deadline(
             session,
-            self.inner.max_wait,
+            self.inner.deadline,
             Some(self.inner.env.cancel.clone()),
         );
         // `or_insert` 而不是 `insert`：另一条线程可能刚好抢先包好了同一
@@ -275,9 +282,16 @@ impl ScriptWorkspace {
         &self.inner.env.cancel
     }
 
-    /// 本次运行的授权信封。
-    pub fn caps(&self) -> &term_core::script_caps::Capabilities {
-        &self.inner.env.caps
+    /// 整段脚本共用的绝对墙钟截止点（`on_progress` 与所有等待同源）。
+    pub fn deadline(&self) -> Instant {
+        self.inner.deadline
+    }
+
+    /// 本次运行的**当前**授权信封。不再返回 build 时的快照引用：宿主可能在
+    /// 运行中追加授权（`pick_file`），判定必须现读 live 闭包（见
+    /// [`HostEnv::current_caps`]）。
+    pub fn caps(&self) -> term_core::script_caps::Capabilities {
+        self.inner.env.current_caps()
     }
 
     /// 取消检查点（长循环 / 大文件前调它）。
@@ -356,9 +370,9 @@ impl ScriptWorkspace {
             ))
             .into());
         };
-        let wrapped = ScriptSession::with_cancel(
+        let wrapped = ScriptSession::with_deadline(
             session,
-            self.inner.max_wait,
+            self.inner.deadline,
             Some(self.inner.env.cancel.clone()),
         );
         self.tabs().map.insert(info.id, wrapped);
@@ -477,9 +491,9 @@ impl ScriptWorkspace {
             ))
             .into());
         };
-        let wrapped = ScriptSession::with_cancel(
+        let wrapped = ScriptSession::with_deadline(
             session,
-            self.inner.max_wait,
+            self.inner.deadline,
             Some(self.inner.env.cancel.clone()),
         );
         {
@@ -685,15 +699,27 @@ impl ScriptWorkspace {
     }
 
     /// `sleep(ms)`：可取消的等待；**不消费输出**（与 CRT 同语义）。
+    ///
+    /// 同样受总墙钟截止点约束：睡到一半预算耗尽就显式报 `Timeout`，绝不
+    /// 静默当成「睡满了」——否则两段各 25s 的 sleep 在 30s 预算下仍会跑 50s。
     pub fn sleep(&self, millis: u64) -> Result<(), PrimitiveError> {
-        let deadline = Instant::now() + Duration::from_millis(millis);
+        let requested = Duration::from_millis(millis);
+        let now = Instant::now();
+        let budget = self.inner.deadline.saturating_duration_since(now);
+        let target = match now.checked_add(requested.min(budget)) {
+            Some(when) => when,
+            None => now,
+        };
         loop {
             self.check_cancel()?;
             let now = Instant::now();
-            if now >= deadline {
+            if now >= target {
+                if requested > budget {
+                    return Err(PrimitiveError::Timeout);
+                }
                 return Ok(());
             }
-            std::thread::sleep((deadline - now).min(Duration::from_millis(50)));
+            std::thread::sleep((target - now).min(Duration::from_millis(50)));
         }
     }
 
@@ -777,7 +803,7 @@ impl ScriptWorkspace {
     /// 结果也与绑定无关。授权判定仍在这里做（与 `selection` / `window` 同一层），
     /// 端口实现不重复判。
     pub fn app_state(&self) -> Result<term_core::app_state::AppSnapshot, PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_app_view() {
+        if let Err(e) = self.inner.env.current_caps().check_app_view() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
@@ -797,7 +823,7 @@ impl ScriptWorkspace {
         panel: &str,
         visible: bool,
     ) -> Result<crate::app_ui::AppDelta, PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_app_view() {
+        if let Err(e) = self.inner.env.current_caps().check_app_view() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
@@ -815,7 +841,7 @@ impl ScriptWorkspace {
         &self,
         op: &crate::app_ui::LayoutOp,
     ) -> Result<crate::app_ui::AppDelta, PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_app_configure() {
+        if let Err(e) = self.inner.env.current_caps().check_app_configure() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
@@ -842,6 +868,11 @@ impl ScriptWorkspace {
         host: Option<&str>,
         mut opts: LogOptions,
     ) -> Result<(), PrimitiveError> {
+        // 脚本给的目录就是**落盘目录**：必须和 fs_write 走同一条规范化 + 写
+        // 授权（.. / 软链 escapes 在这里就被拒），不能因为「只是个目录参数」
+        // 绕过白名单。拿规范后的路径下发，避免判定与落点之间被换掉。
+        let authorized = self.inner.env.files.authorize_write(dir)?;
+        let dir = authorized.to_string_lossy();
         let session_name = match name {
             Some(name) if !name.trim().is_empty() => name.to_string(),
             _ => self.current_name()?,
@@ -860,7 +891,7 @@ impl ScriptWorkspace {
             let id = self.bound_id();
             self.inner.env.sessions.host(id)
         });
-        session.log_start_full(dir, &session_name, host.as_deref().unwrap_or(""), &opts)
+        session.log_start_full(&dir, &session_name, host.as_deref().unwrap_or(""), &opts)
     }
 
     /// 记下日志文件名模板。
@@ -901,14 +932,14 @@ impl ScriptWorkspace {
     fn caps_clipboard(&self) -> Result<(), PrimitiveError> {
         self.inner
             .env
-            .caps
+            .current_caps()
             .check_clipboard()
             .map_err(|e| PrimitiveError::Denied(e.to_string()))
     }
 
     /// `selection()`：当前会话的选区文本（无界面 = 显式 Unsupported）。
     pub fn selection(&self) -> Result<String, PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_ui() {
+        if let Err(e) = self.inner.env.current_caps().check_ui() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
@@ -920,7 +951,7 @@ impl ScriptWorkspace {
 
     /// `window(#{visible})`。
     pub fn set_window_visible(&self, visible: bool) -> Result<(), PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_ui() {
+        if let Err(e) = self.inner.env.current_caps().check_ui() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.inner.env.ui.set_visible(visible)?;
@@ -929,7 +960,7 @@ impl ScriptWorkspace {
 
     /// `app_quit(#{save})`。
     pub fn app_quit(&self, save: bool) -> Result<(), PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_ui() {
+        if let Err(e) = self.inner.env.current_caps().check_ui() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.inner.env.ui.quit(save)?;
@@ -972,7 +1003,7 @@ impl ScriptWorkspace {
     }
 
     pub fn proc_run(&self, request: &ProcRun) -> Result<ProcOutput, PrimitiveError> {
-        if let Err(e) = self.inner.env.caps.check_process() {
+        if let Err(e) = self.inner.env.current_caps().check_process() {
             return Err(PrimitiveError::Denied(e.to_string()));
         }
         self.check_cancel()?;
@@ -1090,10 +1121,17 @@ impl ScriptWorkspace {
     }
 
     /// 覆盖保存同名的哪一条（没有就追加）。返回保存后的整表条数。
+    ///
+    /// 这是脚本面唯一会写**持久** `sessions.db` 的路：与 `app_layout` 同档，
+    /// 必须 `app=configure`。拒绝走与 `app_state` / `app_command` 相同的
+    /// `PrimitiveError::Denied` 通道，错误里点名所需能力。
     pub fn profile_save(
         &self,
         config: term_core::session::SessionConfig,
     ) -> Result<usize, SessionError> {
+        if let Err(e) = self.inner.env.current_caps().check_app_configure() {
+            return Err(PrimitiveError::Denied(format!("profile_set 需要 app=configure：{e}")).into());
+        }
         let mut all = self.profile_list()?;
         match all.iter_mut().find(|existing| existing.name == config.name) {
             Some(slot) => *slot = config,
@@ -1210,6 +1248,36 @@ mod tests {
             }
             other => panic!("未知面板名应报 UnknownName，实得 {other:?}"),
         }
+    }
+
+    #[test]
+    fn authorization_reads_the_live_envelope_not_the_build_snapshot() {
+        let fake = FakeSessions::new();
+        fake.mount(1, "one");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let current = sessions.attach(1).expect("预挂的会话 1");
+        let live = Arc::new(Mutex::new(Capabilities::NONE));
+        let reader = Arc::clone(&live);
+        let env = HostEnv::new(sessions)
+            .with_app(Arc::new(FakeApp::new()))
+            .with_caps(Capabilities::NONE)
+            .with_caps_live(move || match reader.lock() {
+                Ok(guard) => guard.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            });
+        let ws = ScriptWorkspace::new(env, current, Duration::from_secs(2));
+        assert!(
+            matches!(ws.app_state(), Err(PrimitiveError::Denied(_))),
+            "build 快照全拒时要拒"
+        );
+        *live.lock().expect("信封锁") = Capabilities {
+            app: AppScope::Tune,
+            ..Capabilities::NONE
+        };
+        assert!(
+            ws.app_state().is_ok(),
+            "运行中往信封里追加的授权必须立刻被工作区看见"
+        );
     }
 
     #[test]
@@ -1485,6 +1553,80 @@ mod tests {
             Err(PrimitiveError::UnknownName { .. })
         ));
         assert_eq!(app.layouts().len(), 1, "只有过了名字校验的那次到达端口");
+    }
+
+    // ── 日志目录：和 fs_write 同一条写授权 ────────────────────────
+
+    fn log_workspace(root: &Path, write: bool) -> ScriptWorkspace {
+        let fake = FakeSessions::new();
+        fake.mount(1, "one");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let (session, _manip) = fake_session(1);
+        let mut caps = Capabilities::NONE;
+        caps.grant(&CapRequest::FsRead(root.to_path_buf()));
+        if write {
+            caps.grant(&CapRequest::FsWrite(root.to_path_buf()));
+        }
+        let env = HostEnv::new(sessions).with_files(Arc::new(TestFiles { caps }));
+        ScriptWorkspace::new(env, session, Duration::from_secs(2))
+    }
+
+    #[test]
+    fn log_start_accepts_a_directory_under_the_write_root() {
+        let root = sftp_sandbox("log-allowed");
+        let ws = log_workspace(&root, true);
+        ws.log_start(&root.to_string_lossy())
+            .expect("写根内应放行");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn log_start_refuses_a_directory_outside_the_write_root() {
+        let root = sftp_sandbox("log-root");
+        let outside = sftp_sandbox("log-outside");
+        let ws = log_workspace(&root, true);
+        match ws.log_start(&outside.to_string_lossy()) {
+            Err(PrimitiveError::Denied(why)) => {
+                assert!(why.contains("fs.write"), "拒绝要写明缺的能力：{why}")
+            }
+            other => panic!("写根外的目录必须拒，实得 {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    fn log_start_refuses_a_read_only_root_and_dotdot_paths() {
+        let root = sftp_sandbox("log-readonly");
+        let read_only = log_workspace(&root, false);
+        match read_only.log_start(&root.to_string_lossy()) {
+            Err(PrimitiveError::Denied(why)) => assert!(why.contains("fs.write"), "{why}"),
+            other => panic!("只读根不能当日志落点，实得 {other:?}"),
+        }
+        // `..` 在规范之前就被拒（否则 logs/../../etc 会在根下蒙混过关）。
+        let writable = log_workspace(&root, true);
+        let bad = format!("{}/../escape", root.display());
+        let err = writable.log_start(&bad).expect_err(".. 必须拒");
+        assert!(err.to_string().contains(".."), "要指出是哪段路径不合法：{err}");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn log_start_refuses_a_symlink_that_escapes_the_write_root() {
+        let root = sftp_sandbox("log-symlink");
+        let outside = sftp_sandbox("log-symlink-outside");
+        let link = root.join("escape");
+        std::os::unix::fs::symlink(&outside, &link).expect("软链");
+        let ws = log_workspace(&root, true);
+        match ws.log_start(&link.to_string_lossy()) {
+            Err(PrimitiveError::Denied(why)) => {
+                assert!(why.contains("fs.write"), "软链规范到根外仍要拒：{why}")
+            }
+            other => panic!("指向根外的软链必须拒，实得 {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 
     // ── SFTP 的本地端点授权与取消 ──────────────────────────────────

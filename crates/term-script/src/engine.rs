@@ -86,15 +86,16 @@ impl ScriptEngine {
         script: &str,
         workspace: Arc<ScriptWorkspace>,
     ) -> Result<String, ScriptError> {
-        let start = Instant::now();
-        let budget = self.sandbox.execution_timeout;
+        // 墙钟截止点取自工作区（每个 ScriptSession 也拿的同一个 Instant），
+        // 不是这里再算一份：等待与语句间检查必须同一条时间线。
+        let deadline = workspace.deadline();
         let mut engine = Engine::new();
         engine.set_max_operations(self.sandbox.max_operations);
         engine.set_max_expr_depths(self.sandbox.max_expr_depth, self.sandbox.max_global_depth);
-        // 墙钟超时：进度回调在语句之间查钟，到期即中断执行。
-        // （中断不了已阻塞的 wait——单次等待上限由 with_max_wait 钳住。）
+        // 墙钟超时：进度回调在语句之间查同一个绝对截止点，到期即中断执行。
+        // 阻塞中的 wait 不需要它救场——每个等待自己按 deadline - now 收口。
         engine.on_progress(move |_ops| {
-            if start.elapsed() >= budget {
+            if Instant::now() >= deadline {
                 Some(Dynamic::UNIT)
             } else {
                 None
@@ -1673,6 +1674,117 @@ mod tests {
         }
     }
 
+    // ── 绝对墙钟截止点：等待 / sleep / 语句间检查共用同一条时间线 ────────
+
+    #[test]
+    fn a_single_oversized_wait_stops_at_the_absolute_deadline() {
+        let (session, _manip) = fake_session(1);
+        let engine = ScriptEngine::new(SandboxConfig {
+            execution_timeout: Duration::from_millis(250),
+            ..fast_sandbox()
+        });
+        let start = Instant::now();
+        let err = engine
+            .run(r#"wait("never", 30.0)"#, session)
+            .expect_err("预算到期必须显式失败");
+        let elapsed = start.elapsed();
+        assert!(matches!(err, ScriptError::Runtime(..)), "实得 {err:?}");
+        assert!(
+            elapsed < Duration::from_millis(1500),
+            "30s 的等待应被收成 250ms 预算：实际 {elapsed:?}"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(150),
+            "也不该提前失败：实际 {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn two_long_waits_share_one_deadline_and_fail_instead_of_returning_partial_text() {
+        let (session, manip) = fake_session(1);
+        let budget = Duration::from_millis(400);
+        let ws = Arc::new(ScriptWorkspace::single(session, budget));
+        let engine = ScriptEngine::new(SandboxConfig {
+            execution_timeout: budget,
+            ..fast_sandbox()
+        });
+        // FIRST 在预算内到达，SECOND 故意落在整份预算之外：旧实现会给第二次
+        // 等待重新算一份满额上限，于是它照样等得到，脚本返回半截成功结果。
+        let producer = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(150));
+            manip.push_output("FIRST\n");
+            thread::sleep(Duration::from_millis(350));
+            manip.push_output("SECOND\n");
+        });
+        let start = Instant::now();
+        let err = engine
+            .run_in_workspace(
+                r#"let a = wait("FIRST", 30.0); let b = wait("SECOND", 30.0); a + "|" + b"#,
+                Arc::clone(&ws),
+            )
+            .expect_err("第二次等待必须因总预算到期而显式失败");
+        let elapsed = start.elapsed();
+        producer.join().expect("生产者");
+        assert!(
+            elapsed < budget + Duration::from_millis(500),
+            "两段 30s 等待不得累计超过总预算：实际 {elapsed:?}"
+        );
+        match err {
+            ScriptError::Runtime(msg, _) => assert!(
+                msg.contains("超时"),
+                "失败原因要写清是墙钟超时，实得 {msg}"
+            ),
+            other => panic!("应是运行时错误：{other:?}"),
+        }
+        assert!(
+            ws.env().context.last_error().contains("超时"),
+            "last_error 要记下这次失败，不能留空让调用方以为只是没输出"
+        );
+    }
+
+    #[test]
+    fn a_deadline_expiry_never_returns_partial_captured_text() {
+        let (session, manip) = fake_session(1);
+        let engine = ScriptEngine::new(SandboxConfig {
+            execution_timeout: Duration::from_millis(250),
+            ..fast_sandbox()
+        });
+        let producer = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(40));
+            manip.push_output("PARTIAL only\n");
+        });
+        let err = engine
+            .run(r#"read_until("NEVER", 30.0)"#, session)
+            .expect_err("没有分隔符就必须在截止点显式失败");
+        producer.join().expect("生产者");
+        match err {
+            ScriptError::Runtime(msg, _) => {
+                assert!(msg.contains("超时"), "失败要显式：{msg}");
+                assert!(!msg.contains("PARTIAL"), "半截输出不能当结果返回：{msg}");
+            }
+            other => panic!("应是运行时错误：{other:?}"),
+        }
+    }
+
+    #[test]
+    fn sleep_is_clamped_by_the_same_deadline() {
+        let (session, _manip) = fake_session(1);
+        let engine = ScriptEngine::new(SandboxConfig {
+            execution_timeout: Duration::from_millis(200),
+            ..fast_sandbox()
+        });
+        let start = Instant::now();
+        let err = engine
+            .run("sleep(5000);", session)
+            .expect_err("超出剩余预算的 sleep 必须显式失败");
+        let elapsed = start.elapsed();
+        assert!(matches!(err, ScriptError::Runtime(..)), "实得 {err:?}");
+        assert!(
+            elapsed < Duration::from_millis(1200),
+            "sleep 不能按脚本给的 5s 睡满：实际 {elapsed:?}"
+        );
+    }
+
     /// ADR-0023 §决策 3 的脚本侧防线：**注册了什么，就必须等于表上投影出来的**。
     ///
     /// 为什么不是「从表里自动生成注册」：Rhai 的闭包是手写的类型适配
@@ -2139,8 +2251,11 @@ mod tests {
         }
     }
 
-    fn workspace_with_catalog() -> (Arc<ScriptWorkspace>, Arc<TestCatalog>) {
+    fn workspace_with_catalog(
+        scope: term_core::script_caps::AppScope,
+    ) -> (Arc<ScriptWorkspace>, Arc<TestCatalog>) {
         use crate::HostEnv;
+        use term_core::script_caps::Capabilities;
 
         let fake = crate::testutil::FakeSessions::new();
         fake.mount(1, "one");
@@ -2150,13 +2265,66 @@ mod tests {
             catalog: Arc::clone(&catalog),
         });
         let current = sessions.attach(1).expect("会话 1");
-        let ws = ScriptWorkspace::new(HostEnv::new(sessions), current, Duration::from_secs(2));
+        let env = HostEnv::new(sessions).with_caps(Capabilities {
+            app: scope,
+            ..Capabilities::NONE
+        });
+        let ws = ScriptWorkspace::new(env, current, Duration::from_secs(2));
         (Arc::new(ws), catalog)
     }
 
     #[test]
+    fn profile_set_requires_app_configure_before_touching_the_persistent_catalog() {
+        use term_core::session::Protocol;
+
+        // 没授权：必须显式 Denied，点名 app=configure，且不能留下任何写盘。
+        let (denied, catalog) = workspace_with_catalog(term_core::script_caps::AppScope::Deny);
+        let engine = ScriptEngine::new(fast_sandbox());
+        let err = engine
+            .run_in_workspace(
+                r#"profile_set("new", #{host: "h"}).value.to_string()"#,
+                denied,
+            )
+            .expect_err("没有 app=configure 必须拒");
+        let msg = match err {
+            ScriptError::Runtime(msg, _) => msg,
+            other => panic!("应是运行时错误：{other:?}"),
+        };
+        assert!(msg.contains("app=configure"), "要点名所需能力：{msg}");
+        assert!(
+            catalog.0.lock().expect("catalog 锁").is_empty(),
+            "拒绝不能留下半截写盘"
+        );
+
+        // Tune 只够读 / 改内存态，仍然不够写 sessions.db。
+        let (tuned, _) = workspace_with_catalog(term_core::script_caps::AppScope::Tune);
+        assert!(
+            ScriptEngine::new(fast_sandbox())
+                .run_in_workspace(r#"profile_set("new", #{host: "h"})"#, tuned)
+                .is_err(),
+            "app=Tune 不该能写持久配置"
+        );
+
+        // 给了 Configure：同样一句脚本必须成功落库。
+        let (allowed, catalog) =
+            workspace_with_catalog(term_core::script_caps::AppScope::Configure);
+        let engine = ScriptEngine::new(fast_sandbox());
+        let out = engine
+            .run_in_workspace(
+                r#"profile_set("new", #{host: "h"}).value.to_string()"#,
+                allowed,
+            )
+            .expect("app=configure 放行");
+        assert_eq!(out, "1");
+        let rows = catalog.0.lock().expect("catalog 锁");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].name, "new");
+        assert_eq!(rows[0].protocol, Protocol::Ssh);
+    }
+
+    #[test]
     fn profile_set_rejects_unknown_keys_instead_of_silently_ignoring() {
-        let (ws, catalog) = workspace_with_catalog();
+        let (ws, catalog) = workspace_with_catalog(term_core::script_caps::AppScope::Configure);
         let engine = ScriptEngine::new(fast_sandbox());
         let err = engine
             .run_in_workspace(
@@ -2179,7 +2347,7 @@ mod tests {
     fn profile_set_only_creates_a_new_config_when_not_found() {
         use term_core::session::{Protocol, SessionConfig};
 
-        let (ws, catalog) = workspace_with_catalog();
+        let (ws, catalog) = workspace_with_catalog(term_core::script_caps::AppScope::Configure);
         catalog.0.lock().expect("catalog 锁").push(SessionConfig {
             name: "keep".to_string(),
             host: "old-host".to_string(),

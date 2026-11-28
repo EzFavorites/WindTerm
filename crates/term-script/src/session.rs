@@ -117,28 +117,24 @@ pub struct ScriptSession {
     inner: Arc<Mutex<dyn Session>>,
     /// `read` / `read_until` / `wait_any` 的共享捕获游标（所有克隆共享同一份）。
     capture: Arc<Mutex<Capture>>,
-    /// 单次阻塞（wait / read_until 等新数据）的钳制上限（沙箱墙钟预算）。
-    max_wait: Duration,
+    /// **绝对**墙钟截止点（构造时 = 现在 + 预算）。所有阻塞原语都把请求的
+    /// 超时收成 `deadline - now`，于是多次等待共享同一份预算——一次等掉多少，
+    /// 后面的就少多少（不再是每次都按整份预算重新钳一遍）。
+    deadline: Instant,
     /// 取消令牌（ADR-0027）。`None` = 这次运行没接取消（老 API 与单测）；
     /// 有它时每个阻塞点都走 `*_cancellable`，50ms 切片看一次。
     cancel: Option<CancelToken>,
 }
 
 impl ScriptSession {
-    /// 包装一个会话。单次等待上限取 [`DEFAULT_MAX_WAIT`]；
-    /// 引擎执行时会用 [`ScriptSession::with_max_wait`] 收紧到沙箱预算。
+    /// 包装一个会话。预算取 [`DEFAULT_MAX_WAIT`]，截止点从现在起算。
     pub fn new(session: Arc<Mutex<dyn Session>>) -> Self {
         Self::with_max_wait(session, DEFAULT_MAX_WAIT)
     }
 
-    /// 同 [`new`](Self::new)，但显式指定单次等待上限。由
-    /// [`crate::ScriptEngine`] 在执行前构造：上限 = 沙箱执行超时。
-    ///
-    /// **构造即登记**捕获器（§B.13「先登记后消费」的最早时点）：脚本在任何
-    /// `write` 之前就已挂到输出流上。若延迟到首次 `read` / `read_until` 才登记，
-    /// `write("ls\n")` 与首次读取之间到达的输出会落在登记点之前而永久丢失——
-    /// 真实脚本会因此漏数据，e2e 也曾因此偶发 10s 超时。登记失败不在这里报错
-    /// （会话可能已死），留给首次读取显式报 `Closed`。
+    /// 同 [`new`](Self::new)，但显式指定预算。截止点在**构造时**定死，不是
+    /// 每次等待重新算：这是独立 API（没有工作区）的入口，工作区走
+    /// [`with_deadline`](Self::with_deadline)，让所有会话共享同一个截止点。
     pub fn with_max_wait(session: Arc<Mutex<dyn Session>>, max_wait: Duration) -> Self {
         Self::with_cancel(session, max_wait, None)
     }
@@ -150,6 +146,30 @@ impl ScriptSession {
         max_wait: Duration,
         cancel: Option<CancelToken>,
     ) -> Self {
+        let now = Instant::now();
+        // `Instant + Duration` 在极端超长预算上会溢出 panic；生产路径不用 panic
+        // 表达「预算不合理」，溢出就当作已经到期（立即超时）。
+        let deadline = match now.checked_add(max_wait) {
+            Some(when) => when,
+            None => now,
+        };
+        Self::with_deadline(session, deadline, cancel)
+    }
+
+    /// 工作区入口：把**同一个**绝对截止点交给这条会话（新开 / 切绑的会话也
+    /// 继承它）。这样两次 25s 等待在 30s 预算下不会变成 50s——第二次只拿到
+    /// 剩下的 5s。
+    ///
+    /// **构造即登记**捕获器（§B.13「先登记后消费」的最早时点）：脚本在任何
+    /// `write` 之前就已挂到输出流上。若延迟到首次 `read` / `read_until` 才登记，
+    /// `write("ls\n")` 与首次读取之间到达的输出会落在登记点之前而永久丢失——
+    /// 真实脚本会因此漏数据，e2e 也曾因此偶发 10s 超时。登记失败不在这里报错
+    /// （会话可能已死），留给首次读取显式报 `Closed`。
+    pub(crate) fn with_deadline(
+        session: Arc<Mutex<dyn Session>>,
+        deadline: Instant,
+        cancel: Option<CancelToken>,
+    ) -> Self {
         let reader = {
             let guard = lock_or_recover(&session);
             guard.reader_register().ok()
@@ -157,7 +177,7 @@ impl ScriptSession {
         Self {
             inner: session,
             capture: Arc::new(Mutex::new(Capture::with_reader(reader))),
-            max_wait,
+            deadline,
             cancel,
         }
     }
@@ -523,7 +543,9 @@ impl ScriptSession {
     /// 会话结束也直接返回。上限 [`SETTLE_CAP`] 保证不会把脚本卡在这里。
     pub(crate) fn settle(&self, quiet: Duration) {
         let mut cap = self.capture_guard();
-        let deadline = Instant::now() + SETTLE_CAP;
+        // 收尾也不能把脚本推过总截止点：取「固定收尾上限」与「剩余预算」的较小者。
+        let cap_secs = self.deadline.saturating_duration_since(Instant::now());
+        let deadline = Instant::now() + cap_secs.min(SETTLE_CAP);
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
@@ -712,7 +734,7 @@ impl ScriptSession {
             .collect()
     }
 
-    /// 兜底登记：正常路径下 [`with_max_wait`](Self::with_max_wait) 已在构造时
+    /// 兜底登记：正常路径下 [`with_deadline`](Self::with_deadline) 已在构造时
     /// 登记成功，只有构造时会话已死（`reader = None`）才会走到这里，此时
     /// 显式报 `Closed`。锁顺序：capture → inner（唯一顺序，无反向路径）。
     fn ensure_reader(&self, cap: &mut Capture) -> Result<(), PrimitiveError> {
@@ -723,10 +745,15 @@ impl ScriptSession {
         Ok(())
     }
 
-    /// 把脚本传的超时收成合法 [`Duration`]：NaN / 负数 → 0，超上限 → 上限
-    /// （墙钟预算钳制，防单个阻塞原语击穿沙箱）。
+    /// 把脚本传的超时收成合法 [`Duration`]：NaN / 负数 → 0，超过**剩余墙钟**
+    /// → 剩余量。上限来自构造时定死的绝对截止点（每次现算 `deadline - now`），
+    /// 因此整段脚本的所有等待共享一份预算；截止点已过 → 0（显式超时，不是
+    /// 拿一份新的整预算继续等）。
     fn effective_timeout(&self, timeout_secs: f64) -> Duration {
-        let capped = self.max_wait.as_secs_f64();
+        let capped = self
+            .deadline
+            .saturating_duration_since(Instant::now())
+            .as_secs_f64();
         let secs = if timeout_secs.is_nan() {
             0.0
         } else {

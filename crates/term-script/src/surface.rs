@@ -55,6 +55,8 @@ fn fail(message: String) -> Box<EvalAltResult> {
 }
 
 fn check_app_view(ws: &ScriptWorkspace) -> Result<(), Box<EvalAltResult>> {
+    // `caps()` 现读 live 信封（缺省才退回快照），与工作区的 app_state 同一条
+    // 判定路径——不再拿装配时的快照给运行中放行的授权判死。
     ws.caps()
         .check_app_view()
         .map_err(|e| fail(PrimitiveError::Denied(e.to_string()).to_string()))

@@ -89,8 +89,15 @@ pub struct HostEnv {
     /// 应用控制面（面板 / 布局 / 偏好，ADR-0027）。缺省 [`AppControl`] 的
     /// `NoApp`：两个方法都显式 `Unsupported`，与 `NoUi` / `NoFiles` 同一条规矩。
     pub app: Arc<dyn AppControl>,
-    /// 本次运行授予的能力（缺省全拒）。
+    /// 本次运行**装配时**的能力快照（缺省全拒）。它只是 build 那一刻的值：
+    /// 运行中授权会变宽（`pick_file` 手选路径后往共享信封里加根），所以
+    /// 任何判定都应走 [`current_caps`](Self::current_caps)，不要直接读这里。
     pub caps: Capabilities,
+    /// 实时读取器：宿主把「现读共享信封」的闭包接进来时，授权判定一律问它。
+    /// 缺省 `None` = 退回 `caps` 快照（兼容尚未接线的宿主 / 单测），这会儿
+    /// 运行中新增的授权看不见——apps 侧应在 `build` 时接上
+    /// `with_caps_live(move || snapshot(&envelope))`。
+    caps_live: Option<Arc<dyn Fn() -> Capabilities + Send + Sync>>,
     /// 取消开关（界面「停止」按的就是它）。
     pub cancel: CancelToken,
     pub context: Arc<ScriptContext>,
@@ -110,6 +117,7 @@ impl HostEnv {
             ui: Arc::new(NoUi),
             app: Arc::new(NoApp),
             caps: Capabilities::NONE,
+            caps_live: None,
             cancel: CancelToken::new(),
             context: Arc::new(ScriptContext::default()),
             cols: term_core::session::OpenRequest::DEFAULT_COLS,
@@ -152,6 +160,26 @@ impl HostEnv {
         self
     }
 
+    /// 接上「现读授权信封」的闭包。fs / process 端口已经是这么读的
+    /// （apps 侧 `LocalFiles::new(move || snapshot(&caps))`）；工作区与
+    /// `app_*` 动词也走同一条路，才不会出现「端口放行、工作区仍拿着旧快照」。
+    pub fn with_caps_live<F>(mut self, live: F) -> Self
+    where
+        F: Fn() -> Capabilities + Send + Sync + 'static,
+    {
+        self.caps_live = Some(Arc::new(live));
+        self
+    }
+
+    /// 当前授权：优先问 live 闭包，没接就退回 build 时的 `caps` 快照。
+    /// 返回 owned 值——判定期间不需要持锁，也不会让调用方拿着过期引用。
+    pub fn current_caps(&self) -> Capabilities {
+        match &self.caps_live {
+            Some(live) => live(),
+            None => self.caps.clone(),
+        }
+    }
+
     pub fn with_cancel(mut self, cancel: CancelToken) -> Self {
         self.cancel = cancel;
         self
@@ -189,6 +217,37 @@ mod tests {
         assert_eq!(env.caps, Capabilities::NONE, "缺省必须全拒");
         assert!(!env.cancel.is_cancelled());
         let _ = Duration::from_secs(1);
+    }
+
+    #[test]
+    fn current_caps_prefers_the_live_envelope_and_falls_back_to_the_snapshot() {
+        use term_core::script_caps::{AppScope, CapRequest};
+
+        let mut live_caps = Capabilities::NONE;
+        live_caps.grant(&CapRequest::App(AppScope::Configure));
+        let cell = Arc::new(std::sync::Mutex::new(Capabilities::NONE));
+        let reader = Arc::clone(&cell);
+        let live_env = env()
+            .with_caps(Capabilities {
+                app: AppScope::Tune,
+                ..Capabilities::NONE
+            })
+            .with_caps_live(move || match reader.lock() {
+                Ok(guard) => guard.clone(),
+                Err(poisoned) => poisoned.into_inner().clone(),
+            });
+        *cell.lock().expect("信封锁") = live_caps.clone();
+        assert_eq!(live_env.current_caps(), live_caps, "优先读 live 信封");
+
+        let fallback = env().with_caps(Capabilities {
+            app: AppScope::Tune,
+            ..Capabilities::NONE
+        });
+        assert_eq!(
+            fallback.current_caps().app,
+            AppScope::Tune,
+            "没接 live 闭包时退回快照"
+        );
     }
 
     #[test]
