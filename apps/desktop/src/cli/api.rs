@@ -1,19 +1,23 @@
 //! `term-desk api` —— 前台控制面的薄客户端（ADR-0030 §决策 4）。
 //!
 //! 只发 `describe` / `call` 两种请求，别的都不做：**不建会话池、不装配
-//! HostEnv、没有 auth 握手**。前台没起来就明确报错退出，绝不退化成
+//! HostEnv、没有能力面的 auth 方法**。前台没起来就明确报错退出，绝不退化成
 //! 「客户端自己起一个后端」——那会让「远程操作窗口里的会话」变成
 //! 「操作另一个进程里的另一批会话」，而且静默。
 //!
 //! 失败三元组不改一字：`{code, message, kind}` 按 `bridge::client` 的映射
 //! 打到 stderr（`[kind:code] message`），退出码 1。
+//!
+//! 端点口径：连 `127.0.0.1:<port>`（默认 47653，`WINDTERM_CONTROL_PORT`
+//! 可覆盖），key 文件 `~/.zterm/control-key.local-<port>`。连接后的
+//! `auth.challenge` 是传输外壳，不是能力面动词。
 
 use serde_json::{json, Value};
 
 use crate::bridge::client::Client;
 
-/// 端点描述按平台生成：unix 是固定 UDS 路径，Windows 是按用户 SID 命名的管道。
-/// CLI 侧不硬编码任何具体路径，也不假装 Windows 上还有 `0600` 这回事。
+/// 端点描述由 bridge 统一生成：端口 / key 文件 / 挑战证明一并说明，
+/// CLI 侧不硬编码端口，也不再提 socket 路径或命名管道。
 fn usage() -> String {
     format!(
         "\
@@ -21,9 +25,9 @@ term-desk api describe
 term-desk api call <method> ['{{\"json\":\"params\"}}']
 
   连前台窗口的 {} 发一条 JSON-RPC 请求。前台未运行时
-  明确报错退出；本命令绝不自建会话池。没有 auth 子命令（准入由平台的
-  本机进程间身份校验完成：unix 为 socket 0600 + peercred 同用户，
-  Windows 为命名管道 DACL + 对端进程 SID 复核）。
+  明确报错退出；本命令绝不自建会话池。没有 auth 子命令：准入由 loopback
+  对端校验 + 0600 key 文件 + HMAC-SHA256 挑战证明完成
+  （Unix 0600 / Windows 用户目录 ACL），这三帧不进 describe。
 ",
         crate::bridge::endpoint_description()
     )
@@ -36,7 +40,7 @@ pub enum Command {
     Call { method: String, params: Value },
 }
 
-/// 参数解析是纯函数：能在不连 socket 的情况下钉住用法。
+/// 参数解析是纯函数：能在不连端点的情况下钉住用法。
 pub fn parse(rest: &[String]) -> Result<Command, String> {
     let Some(first) = rest.first() else {
         return Err("api 后面需要 describe 或 call".to_string());
@@ -98,7 +102,7 @@ pub fn run(rest: &[String]) -> i32 {
         Command::Describe => client.call("describe", &json!({})),
         Command::Call { method, params } => client.call(&method, &params),
         // Help 已在上面打印并返回；到这里只可能是调用方改了 parse 却漏改这里。
-        // 不 panic：显式当作成功退出，并且不碰 socket。
+        // 不 panic：显式当作成功退出，并且不碰端点。
         Command::Help => return 0,
     };
     match outcome {
@@ -149,8 +153,14 @@ mod tests {
     }
 
     #[test]
-    fn help_never_touches_the_socket() {
-        assert_eq!(parse(&argv(&["--help"])), Ok(Command::Help));
+    fn help_never_touches_the_endpoint() {
+        let text = usage();
+        assert!(text.contains(&format!("127.0.0.1:{}", crate::bridge::control::control_port())),
+            "用法必须点名端口：{text}");
+        assert!(text.contains("control-key.local"), "用法必须点名 key 文件：{text}");
+        assert!(text.contains("WINDTERM_CONTROL_PORT"), "用法必须说明端口覆盖：{text}");
+        assert!(!text.contains("control.sock"), "不再提 socket 路径：{text}");
+        assert!(!text.contains("命名管道"), "不再提命名管道：{text}");
         assert_eq!(run(&argv(&["--help"])), 0);
     }
 }

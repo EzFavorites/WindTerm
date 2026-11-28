@@ -4892,9 +4892,11 @@ dependencies = [
  "egui",
  "epaint",
  "getrandom 0.2.17",
+ "hmac",
  "image 0.24.9",
  "rfd",
  "serde_json",
+ "sha2",
  "term-app",
  "term-bridge",
  "term-core",
@@ -4912,7 +4914,6 @@ dependencies = [
  "term-xfer",
  "term-zmodem",
  "ttf-parser",
- "windows-sys 0.61.2",
  "winit",
 ]
 

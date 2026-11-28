@@ -28,8 +28,8 @@ use crate::bridge::client::{Client, ClientError};
 const HOST_TOOL_TIMEOUT_MS: u64 = 10_000;
 const MAX_WAIT_TIMEOUT_MS: u64 = 8_000;
 
-/// 与 `cli/api` 同一份平台端点描述：unix 是固定 UDS 路径，Windows 是按用户
-/// SID 命名的管道；CLI 侧不硬编码任何具体路径。
+/// 与 `cli/api` 同一份端点描述：端口 + key 文件 + 挑战证明，CLI 侧不硬编码
+/// 端口，也不再提 socket 路径 / 命名管道。
 fn usage() -> String {
     format!(
         "\
@@ -37,6 +37,8 @@ term-desk mcp
 
   stdio MCP server：工具由前台 describe 的 params_schema 生成，一方法一工具。
   连前台窗口的 {}；前台未运行时明确报错退出；不提供推送 / 订阅 / 其它 capability。
+  key 文件在 ~/.zterm/control-key.local-<port>，auth.challenge 是传输外壳，
+  不是能力面方法。
 ",
         crate::bridge::endpoint_description()
     )

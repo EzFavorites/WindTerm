@@ -1,8 +1,8 @@
 //! 锁屏探测：人不在机器前时，前台控制端点不该继续接受新连接。
 //!
-//! 这是**纵深防御**，不是准入本身——准入靠 0600 socket + peercred 同用户校验
-//! （ADR-0030）。锁屏探测只解决一个具体场景：用户锁屏离开，同机上的另一个
-//! 进程不该还能连上来驱动终端。
+//! 这是**纵深防御**，不是准入本身——准入靠 loopback 对端校验 + `0600` key
+//! 文件 + HMAC-SHA256 挑战证明（ADR-0030）。锁屏探测只解决一个具体场景：
+//! 用户锁屏离开，同机上的另一个进程不该还能连上来驱动终端。
 //!
 //! 探测做成 trait 而不是一个函数，是因为「锁屏」在本机**没法自动化验证**：
 //! 真正锁一次屏要人工介入。于是把「怎么问系统」和「问了之后怎么办」拆开，
@@ -17,8 +17,8 @@
 //! - `None`：问不出来（没有桌面环境、OS 调用失败、输出不认识）→ **放行**。
 //!
 //! 放行而不是拒绝：控制端点的主要用途是给本机的 CLI / MCP 客户端用，探测
-//! 失败就整体不可用属于本末倒置；UDS 0600 + peercred 的准入仍然要求，安全性
-//! 没有归零（Windows 是 DACL + SID 校验）。
+//! 失败就整体不可用属于本末倒置；loopback + key 文件 + HMAC 证明的准入仍然
+//! 要求，安全性没有归零。
 //! **这是有意的产品决策，不翻转它**：把 `None` 改成拒绝服务会让一个
 //! 探测不到的机器整体不可用，不符合 1.0 的定位。
 //!
@@ -27,7 +27,7 @@
 //! macOS（`ioreg`）、Windows（`OpenInputDesktop` + `GetUserObjectInformation`）
 //! 与 Linux（freedesktop `ScreenSaver.GetActive`，经 gdbus / dbus-send）都有实现，
 //! [`Ioreg::locked`] 按当前平台分派（名字沿用生产接线的历史命名）。其余平台恒返回
-//! `None`，即放行；那些平台没有锁屏探测这一层，准入只剩 UDS 0600 + peercred。
+//! `None`，即放行；那些平台没有锁屏探测这一层，准入只剩 loopback + key + HMAC 证明。
 //! Linux 没有桌面环境 / 桌面不暴露该接口时同样返回 `None`——这是「问不出来」，
 //! 不是「没锁」，绝不伪装成 `Some(false)`。
 //!
@@ -74,7 +74,7 @@ fn audit_line(supported: bool, hits: u64) -> String {
         "本平台未实现锁屏探测（仅 macOS / Windows / Linux 有实现）"
     };
     format!(
-        "{UNKNOWN_MARK} {reason}；按产品决策放行，主闸门是 UDS 0600 + peercred（Windows 为 DACL + SID 校验），锁屏探测只是纵深防御；fail-open 判定次数={hits}"
+        "{UNKNOWN_MARK} {reason}；按产品决策放行，主闸门是 loopback 对端 + 0600 key 文件 + HMAC-SHA256 挑战证明，锁屏探测只是纵深防御；fail-open 判定次数={hits}"
     )
 }
 

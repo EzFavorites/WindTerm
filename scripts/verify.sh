@@ -411,50 +411,67 @@ else
   ok "ui/ 之外认识 egui 的只有 5 个平台文件（窗口 / 字体 / 剪贴板 / 主题 / 截图）"
 fi
 
-step "4n. ADR-0030：控制端点每平台一处绑定（unix UDS / Windows 管道），无 auth / 无头入口"
-# ADR-0022 的 TCP + token 形态已被 ADR-0030 替换：unix 是固定 ~/.zterm/control.sock
-# + 0600 + peercred；Windows 是按用户 SID 隔离的命名管道 + 只放行该 SID 的 DACL
-# + 对端 PID→SID 复核。2026-11-28 平台拆分后，判据改成**平台中立**：
-#   · 绑定点按平台各数一处：UnixListener::bind 在 platform/unix.rs，
-#     CreateNamedPipeW 在 platform/windows.rs；
-#   · bridge/mod.rs / client.rs 里不许出现任何绑定 API（生产路径仍只有那一处）；
-#   · 两个平台的全部控制端点文件都不许有 TcpListener / TcpStream；
-#   · token 文件 / auth 握手必须从源码消失，协议第一条就是普通方法；
-#   · 三个自建会话池的无窗口入口（服务 / 进程级脚本 / 无头执行）必须消失。
-# 旧判据只在 bridge/mod.rs 里数 bind / control.sock / 0600 / peercred；平台拆分后
-# 那些 grep 会数到 0 而**假绿**，所以这里改为按平台各数一处、扫控制端点的
-# 全部生产文件，并新增 Windows 的 DACL / 对端 SID 判据（安全等价：
-# 0600 ↔ DACL，peercred ↔ PID→SID）。
-# 只扫控制端点的生产文件 + 平台实现；别处的 TcpListener 是 SSH 连接失败夹具
-# （surface_tests.rs），不是控制端点，拿它们判红是误报（沿用上一版口径）。
-BRIDGE_RS="apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs apps/desktop/src/bridge/platform/unix.rs apps/desktop/src/bridge/platform/windows.rs apps/desktop/src/bridge/platform/unsupported.rs"
-bind_unix=$(grep -c 'UnixListener::bind(path)' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
-bind_win=$(grep -c 'CreateNamedPipeW(' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
-# 只数生产形态 `bind(path)`：client.rs 测试里的 `UnixListener::bind(&path)` 是夹具，不是端点。
-bind_else=$(grep -n 'UnixListener::bind(path)\|CreateNamedPipeW(\|CreateFileW(' apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs 2>/dev/null || true)
-tcp_any=$(grep -n 'TcpListener\|TcpStream' $BRIDGE_RS 2>/dev/null || true)
-socket_fixed=$(grep -l 'control.sock' $BRIDGE_RS 2>/dev/null | wc -l | tr -d ' ')
-socket_mode=$(grep -c 'from_mode(0o600)' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
-# peercred 的实现是 peer_uid（macOS getpeereid / Linux SO_PEERCRED，std 的
-# peer_cred() 在本工具链仍是 unstable）；这里数的是判据，不是某个 API 名字。
-socket_peer=$(grep -cE 'peer_uid|peer_cred|getpeereid|SO_PEERCRED' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
-pipe_acl=$(grep -cE 'SetEntriesInAclW|SetSecurityDescriptorDacl' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
-pipe_peer=$(grep -cE 'GetNamedPipeClientProcessId|GetTokenInformation|TokenUser' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
-auth_left=$(grep -rEn 'AUTH_METHOD|auth_reply|token::|bridge[.]token' apps/desktop/src/bridge apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
+step "4n. ADR-0030 改版：控制端点全平台唯一 loopback TCP + key/HMAC 准入"
+# ADR-0022 曾是 TCP + token 握手，ADR-0030 第一版又换成 unix UDS / Windows 命名
+# 管道；本版把两者都删掉，收敛成**一条**平台中立的 loopback TCP 路：
+#   · 全仓恰好一处控制端点绑定：`TcpListener::bind((LOOPBACK_IP, cfg.port))`，
+#     默认端口 47653，`WINDTERM_CONTROL_PORT` 可覆盖；
+#   · 没有 UnixListener / CreateNamedPipe / windows-sys 的平台分支；
+#   · 准入靠 `~/.zterm/control-key.local-<port>`（unix 0600 / Windows 用户目录
+#     ACL）+ 传输级 `auth.challenge` → HMAC-SHA256 证明 → `auth.key` 三帧；
+#   · 对端必须 loopback（127/8 或 ::1）；首请求 30 秒超时；单行 1 MiB，超限
+#     回解析错误并关连接；
+#   · 挑战帧没有 `jsonrpc` / `id`，不进 METHODS / describe；token 握手与
+#     serve / script run / headless 三个自建会话池入口必须消失。
+# **别把「有 TCP」当通过**：旧 ADR-0022 也有 TCP，但那是 token 握手；这里逐项
+# 查 key 文件、HMAC 证明、loopback 对端与行限/超时，旧形态四项全缺，必然红。
+# 只扫控制端点生产文件 + CLI；crates/ 里 SSH / 隧道的临时端口 bind 是别的用途，
+# 不拿它们判红（它们的 bind 用端口 0，不会命中固定端口判据）。
+CONTROL_RS="apps/desktop/src/bridge/control.rs"
+BRIDGE_RS=$(find apps/desktop/src/bridge -name '*.rs' -type f 2>/dev/null | sort)
+bind_control=$(grep -nE '^[[:space:]]*let listener = TcpListener::bind\(\(LOOPBACK_IP, cfg\.port\)\)' "$CONTROL_RS" 2>/dev/null | wc -l | tr -d ' ')
+# 其余 TcpListener::bind 都是 SSH / 隧道 / 测试的临时端口 0，不是控制端点；
+# 判据只数「固定控制端口」那一个，避免把夹具误判成第二个绑定。
+bind_fixed=$(grep -rEn 'TcpListener::bind' apps crates --include='*.rs' 2>/dev/null | grep -E '47653|DEFAULT_CONTROL_PORT|control_port\(\)|LOOPBACK_IP, cfg\.port' | grep -v '^apps/desktop/src/bridge/control.rs:' || true)
+platform_left=$(find apps/desktop/src/bridge/platform -type f 2>/dev/null | tr '\n' ' ')
+# 查真实 API 调用，不查「为什么不是 UDS」这类文档注释与测试断言。
+uds_win=$(grep -rEn 'UnixListener::bind|CreateNamedPipeW\(|GetNamedPipeClientProcessId' $BRIDGE_RS apps/desktop/src/cli --include='*.rs' 2>/dev/null | grep -vE ':[[:space:]]*//' || true)
+winsys_dep=$(grep -cE '^windows-sys[[:space:]]*=' apps/desktop/Cargo.toml 2>/dev/null || true)
+key_name=$(grep -c 'control-key.local-' "$CONTROL_RS" 2>/dev/null || true)
+key_mode=$(grep -c 'from_mode(0o600)' "$CONTROL_RS" 2>/dev/null || true)
+key_entropy=$(grep -c 'getrandom' "$CONTROL_RS" 2>/dev/null || true)
+port_env=$(grep -c 'WINDTERM_CONTROL_PORT' "$CONTROL_RS" 2>/dev/null || true)
+challenge_text=$(grep -c 'auth.challenge' "$CONTROL_RS" 2>/dev/null || true)
+challenge_field=$(grep -c 'CHALLENGE_FIELD' "$CONTROL_RS" 2>/dev/null || true)
+hmac_code=$(grep -cE 'Hmac<Sha256>|new_from_slice' "$CONTROL_RS" 2>/dev/null || true)
+peer_check=$(grep -cE 'ip_is_loopback|is_loopback\(\)|octets\(\)\[0\] == 127' "$CONTROL_RS" 2>/dev/null || true)
+line_limit=$(grep -cE 'LINE_LIMIT|1024 \* 1024' "$CONTROL_RS" 2>/dev/null || true)
+timeout=$(grep -cE 'FIRST_REQUEST_TIMEOUT|from_secs\(30\)|set_read_timeout' "$CONTROL_RS" 2>/dev/null || true)
+auth_method=$(grep -rEnE 'name:[[:space:]]*"auth"|method:[[:space:]]*"auth"|"method":"auth"|call\("auth"' crates/term-core/src/surface.rs $BRIDGE_RS apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
+auth_old=$(grep -rEnE 'AUTH_METHOD|auth_reply|token::|bridge[.]token' $BRIDGE_RS apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
+# 只看真正会打印给用户的用法文本；「不再提 socket 路径」这类注释与断言
+# 本来就该提到旧名字，拿它们判红是自摆乌龙。
+socket_words=$(grep -rEn 'control\.sock|Unix domain socket|命名管道' apps/desktop/src/cli --include='*.rs' 2>/dev/null \
+  | grep -vE ':[[:space:]]*//' | grep -vE 'assert!|\.contains\(' || true)
+at_most_once=$(grep -cE 'PossiblyExecuted|不重发' apps/desktop/src/bridge/client.rs 2>/dev/null || true)
 headless_code=$(grep -rEn 'run_headless|headless_exec|"serve"[[:space:]]*=>|"script"[[:space:]]*=>' apps/desktop/src/main.rs apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
 stale_files=""
-# glob 写法与全名等价，只是别让「已删除文件的名字」留在判据文本里。
-for f in apps/desktop/src/bridge/*oken.rs apps/desktop/src/cli/serve.rs apps/desktop/src/cli/script.rs; do
+for f in apps/desktop/src/bridge/platform apps/desktop/src/bridge/token.rs apps/desktop/src/cli/serve.rs apps/desktop/src/cli/script.rs; do
   [ -e "$f" ] && stale_files="$stale_files$f "
 done
-if [ "${bind_unix:-0}" -ne 1 ] || [ "${bind_win:-0}" -ne 1 ] || [ -n "$bind_else" ] \
-   || [ -n "$tcp_any" ] || [ "${socket_fixed:-0}" -lt 1 ] \
-   || [ "${socket_mode:-0}" -ne 1 ] || [ "${socket_peer:-0}" -lt 1 ] \
-   || [ "${pipe_acl:-0}" -lt 1 ] || [ "${pipe_peer:-0}" -lt 1 ] \
-   || [ -n "$auth_left" ] || [ -n "$headless_code" ] || [ -n "$stale_files" ]; then
-  bad "控制端点形态不符：unix bind=$bind_unix（应 1） windows bind=$bind_win（应 1） 别处绑定=[$bind_else] TCP=[$tcp_any] 固定路径=$socket_fixed 0600=$socket_mode peercred=$socket_peer DACL=$pipe_acl 对端SID=$pipe_peer auth残留=[$auth_left] 无头入口=[$headless_code] 旧文件=[$stale_files]"
+if [ "${bind_control:-0}" -ne 1 ] || [ -n "$bind_fixed" ] \
+   || [ -n "$platform_left" ] || [ -n "$uds_win" ] \
+   || [ "${winsys_dep:-0}" -ne 0 ] || [ "${key_name:-0}" -lt 1 ] \
+   || [ "${key_mode:-0}" -lt 1 ] || [ "${key_entropy:-0}" -lt 1 ] \
+   || [ "${port_env:-0}" -lt 1 ] || [ "${challenge_text:-0}" -lt 1 ] \
+   || [ "${challenge_field:-0}" -lt 1 ] || [ "${hmac_code:-0}" -lt 1 ] \
+   || [ "${peer_check:-0}" -lt 1 ] || [ "${line_limit:-0}" -lt 1 ] \
+   || [ "${timeout:-0}" -lt 1 ] || [ "${at_most_once:-0}" -lt 1 ] \
+   || [ -n "$auth_method" ] || [ -n "$auth_old" ] || [ -n "$socket_words" ] \
+   || [ -n "$headless_code" ] || [ -n "$stale_files" ]; then
+  bad "控制端点形态不符：loopback bind=${bind_control}（应 1） 别处固定端口绑定=[${bind_fixed}] 平台残留=[${platform_left}] UDS/管道=[${uds_win}] windows-sys=${winsys_dep} key文件=${key_name} 0600=${key_mode} 熵源=${key_entropy} 端口env=${port_env} 挑战帧=${challenge_text}/${challenge_field} HMAC=${hmac_code} loopback校验=${peer_check} 行限=${line_limit} 超时=${timeout} 一次性=${at_most_once} 能力面auth=[${auth_method}] 旧token=[${auth_old}] socket文案=[${socket_words}] 无头入口=[${headless_code}] 旧文件=[${stale_files}]"
 else
-  ok "每个平台只有一处绑定：unix UDS（0600 + peercred）/ Windows 管道（DACL 仅当前 SID + PID→SID 复核）；auth / token / 三个自建会话池入口已清除"
+  ok "全仓唯一 loopback 绑定（127.0.0.1:47653 / WINDTERM_CONTROL_PORT）；UDS/管道/windows-sys 清零；key 文件 0600 + HMAC-SHA256 挑战证明 + loopback 对端校验 + 1 MiB 行限 + 30s 首请求超时齐备；无能力面 auth / token / 无头入口"
 fi
 
 step "4o. 测试与验收不得抢占前台（自动化调用一律 --screenshot）"

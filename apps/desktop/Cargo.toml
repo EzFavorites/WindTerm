@@ -52,31 +52,20 @@ image = { version = "0.24", default-features = false, features = [
 ] }
 serde_json = "1.0"
 dirs = "5.0"
-# 叶子依赖：历史上给已删除的 `bridge/token.rs` 在 Windows 上取随机数（后端是
-# `RtlGenRandom`）；token 已随 ADR-0030 删除，这里不改动依赖表形状。
+# 控制端点的 256-bit key（`bridge/control.rs::random_hex`）取随机数：unix 走
+# getrandom，Windows 后端是 `RtlGenRandom`。token 已随 ADR-0030 删除，这里留下
+# 的不是 token 依赖，而是新 key 文件的熵源。
 # 写在普通 `[dependencies]` 而不是 `[target.'cfg(not(unix))']`
-# 是**故意的**：后者会在这里新开一个 target 段，而 `scripts/verify.sh` 4j 只放行
+# 是**故意的**：后者会在这里新开一个 target 段，而 `scripts/verify.sh` 4d 只放行
 # 段内唯一那个 `winit` 键（历史上 target 段写错位置把 13 条依赖吞成 macOS-only）。
-# 代价是 unix 构建多编一个已经躺在依赖图里的叶子 crate（0.2.17）。
 getrandom = "0.2"
-# Windows 控制端点（`bridge/platform/windows.rs`）的 Win32 FFI：命名管道的
-# CreateNamedPipe / ConnectNamedPipe / CreateFile / WaitNamedPipe，以及 DACL
-# 与对端 PID→SID 校验所需的 OpenProcessToken / GetTokenInformation 等。
-# 和上面的 getrandom 同一条理由写在普通 `[dependencies]`：verify.sh 4d 对
-# `[target...]` 段只放行唯一的 `winit` 键，在这里新开 target 段会直接判红；
-# 代价只是 unix 构建多编一个已躺在依赖图里的叶子 crate（0.61.2），换来
-# Windows 代码与 unix 用同一份依赖表、编译期就能一起被 cargo 看见。
-windows-sys = { version = "0.61", features = [
-    "Win32_Foundation",
-    "Win32_Security",
-    "Win32_Security_Authorization",
-    "Win32_Storage_FileSystem",
-    "Win32_System_IO",
-    "Win32_System_Memory",
-    "Win32_System_Pipes",
-    "Win32_System_SystemServices",
-    "Win32_System_Threading",
-] }
+# 传输级挑战证明：`auth.challenge{nonce}` 之后服务端用 HMAC-SHA256 签名证明
+# 持有同一把 key，客户端验过证明才回送 key。两者都已在 Cargo.lock 里（经 SSH
+# 栈间接进来），提为直接依赖不引入新的 crate、也不给 apps 带来 async 面。
+hmac = "0.13"
+sha2 = "0.11"
+# Windows 命名管道实现已删除：控制端点改为全平台统一的 loopback TCP，
+# Windows key 文件继承用户目录 ACL，不再需要 windows-sys 的 Win32 FFI。
 # 原生 SSH 只有桌面端用（`api` / `mcp` 是薄客户端，不建会话）。这是全仓唯一
 # 把 tokio **间接**带进 apps 的地方——直接依赖 tokio / russh 仍然禁止（verify 4k），
 # 本 crate 的源码里也一个 `.await` 都没有：`term_ssh::connect` 是同步的。
