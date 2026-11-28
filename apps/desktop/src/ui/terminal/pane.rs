@@ -45,6 +45,21 @@ pub(super) fn screen_index_of(image: &term_core::grid::ScreenImage, row: i64) ->
 /// 与光标都落在这个下标上，硬画只会把它浮在相邻行上，等于指着另一行说「光标在这」。
 pub(super) fn screen_index_of_grid_row(image: &term_core::grid::ScreenImage, grid_row: usize) -> Option<usize> { screen_index_of(image, grid_row as i64) }
 
+/// 用户真实按键落到终端会话的唯一漏斗：先发 P0 抢占信号，再把字节写进 PTY。
+///
+/// 调用方只在收集到**确实要发往本会话**的 `key_bytes` 时才调它。所以 UI 自己的
+/// 焦点导航（Tab / 方向键切面板）和只读查看标签都不会被误算成终端输入抢占。
+/// 独立成函数是为了让这条生产路径能被单测直接复现，而不是只测抢占信号本身。
+pub(in crate::ui) fn send_user_key_bytes(tab: &Tab, key_bytes: &[u8]) {
+    if key_bytes.is_empty() || tab.local_mode {
+        return;
+    }
+    // ADR-0030 P0：用户按键是抢占信号（不进队列），此前排队的
+    // 规则 / API 写许可作废并被计数留痕，键盘字节随后落地。
+    crate::ui::trigger_intents::user_key_preempt(tab);
+    tab.write(key_bytes);
+}
+
 impl TerminalWindow {
     /// 单窗格路径：与分屏之前完全同一份绘制逻辑（五张视觉基线靠它守住）。
     pub(in crate::ui) fn draw_terminal_area(&mut self, ui: &mut egui::Ui) {
@@ -605,13 +620,11 @@ impl TerminalWindow {
             // 只拦 `write` 的话，只读标签上敲的字仍会进命令历史与折叠表，
             // 还会经 `broadcast_input` 漏给别的标签，那就不是只读了。
             if !key_bytes.is_empty() && !tab.local_mode {
-                // ADR-0030 P0：用户按键是抢占信号（不进队列），此前排队的
-                // 规则 / API 写许可作废并被计数留痕，键盘字节随后落地。
-                crate::ui::trigger_intents::user_key_preempt(tab);
                 // ADR-0027：录制器只在这里收字节——设备应答与粘贴都不经过
                 // 这段，所以录到的永远是「人敲的」。
                 super::script::note_recorded_input(&recorder, &key_bytes);
-                tab.write(&key_bytes);
+                // 抢占 + 写 PTY 只有这一条路；焦点导航不会产生 key_bytes。
+                send_user_key_bytes(tab, &key_bytes);
                 // 按键字节喂进输入行缓冲，回车时吐出命令行。
                 let before = completed_lines.len();
                 completed_lines.extend(tab.input_line.feed(&key_bytes));

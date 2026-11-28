@@ -63,7 +63,9 @@ mod marks;
 mod marks_paint;
 /// 叠层标记的段内夹取（软折后按段而不按 `lines` 下标）。
 mod overlay_segments;
-mod pane;
+/// 终端键盘落地：`pub(in crate::ui)` 让抢占回归测试复用生产同一条
+/// 「用户按键 → P0 抢占 → 写会话」漏斗，而不是另写一份假路径。
+pub(in crate::ui) mod pane;
 /// 正文**二选一**：字符网格（`view::paint_rows`）还是 hex 转储（`bin::paint`），
 /// 含 `Text ▸ Highlight Caret Line` 那个视口行号的算法。
 ///
