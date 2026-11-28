@@ -71,10 +71,19 @@ pub(in crate::ui) fn finish_actions(
                         rule: hit.rule_id.clone(),
                         action: core,
                         span: None,
+                        release: term_core::automation::Release::Immediate,
                     };
-                    tab.dispatch_effect(&effect, &mut run_commands, &mut note);
+                    // 交互命中不等门控：当帧落地，转义错误进本帧 note。
+                    tab.dispatch_effect(&effect, &mut run_commands, &mut note, false);
                 }
             }
+            crate::ui::trigger_intents::drain_tab(
+                tab,
+                super::session::now_secs(),
+                None,
+                &mut run_commands,
+                &mut note,
+            );
         }
     }
     flush_trigger_note(win, &mut note);

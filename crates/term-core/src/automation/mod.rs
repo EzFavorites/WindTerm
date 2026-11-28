@@ -27,6 +27,6 @@ pub use line::{apply_lines, LinePolicy};
 pub use pattern::{Pattern, PatternError, Span, Syntax, WindowHint};
 pub use rule::{
     validate_rules, Action, AlertKind, AppAction, Effect, Filter, Guard, Invocation, LinkSpec,
-    MarkSpec, MenuItemSpec, MenuSpec, OnceScope, Rule, RuleFault, RuleId, TextSpec,
+    MarkSpec, MenuItemSpec, MenuSpec, OnceScope, Release, Rule, RuleFault, RuleId, TextSpec,
 };
 pub use signal::{CloseReason, Lifecycle, Signal, Target, Ticks, When};

@@ -13,7 +13,7 @@ use std::time::Duration;
 use serde_json::json;
 use term_core::automation::{
     Action, AlertKind, AppAction, Filter, Guard, Invocation, LinkSpec, MarkSpec, MenuItemSpec,
-    MenuSpec, OnceScope, Pattern, Rule as CoreRule, RuleId, Syntax, TextSpec, When,
+    MenuSpec, OnceScope, Pattern, Release, Rule as CoreRule, RuleId, Syntax, TextSpec, When,
 };
 
 /// 类型下拉的 11 项。只是**预设工厂的入口**，不是规则字段。
@@ -483,6 +483,27 @@ impl UiAction {
     }
 }
 
+/// 编辑器里的「发送条件 + Send Later」→ 内核的正交 `Release`。
+///
+/// `Send Later` 填了正数就优先于条件；空串 / 非数字 / 负数都当不延迟，
+/// 退回条件本身（缺省 Prompt 因此仍然扣得住，不会因空串变成立即发）。
+fn release_of(cfg: &SendConfig) -> Release {
+    let later = cfg
+        .later_secs
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|v| v.is_finite() && *v > 0.0);
+    if let Some(secs) = later {
+        return Release::Later(Duration::from_secs_f64(secs));
+    }
+    match cfg.condition {
+        SendCondition::AfterMatch => Release::Immediate,
+        SendCondition::AfterMatchAndPrompt => Release::Prompt,
+        SendCondition::AfterMatchAndLineBreak => Release::LineBreak,
+    }
+}
+
 impl ViewRule {
     /// 11 种类型 → 四类正交意图。`Mark / Link / Menu / Tooltip` 都在这里带上
     /// 各自的编辑字段，派发端只认展开后的 `Action`。
@@ -560,6 +581,7 @@ impl ViewRule {
                 cooldown: (self.cooldown_secs > 0).then(|| Duration::from_secs(self.cooldown_secs)),
                 once: OnceScope::Never,
             },
+            release: release_of(&self.config.send),
             actions,
         }
     }
@@ -567,6 +589,12 @@ impl ViewRule {
     /// 内核规则 → 编辑器投影。`kind` 是按 `when` + 主动作推断的预设，
     /// 不是规则里的字段——正交规则改过之后不强行归类。
     pub(in crate::ui) fn from_core(rule: &CoreRule) -> Self {
+        let (condition, later_secs) = match rule.release {
+            Release::Immediate => (SendCondition::AfterMatch, String::new()),
+            Release::Prompt => (SendCondition::AfterMatchAndPrompt, String::new()),
+            Release::LineBreak => (SendCondition::AfterMatchAndLineBreak, String::new()),
+            Release::Later(delay) => (SendCondition::AfterMatch, delay.as_secs_f64().to_string()),
+        };
         let (on, pattern, literal, case_sensitive, idle_secs) = match &rule.when {
             When::Output(p) => (
                 Channel::Output,
@@ -624,6 +652,11 @@ impl ViewRule {
                 targets: TargetConfig {
                     systems: rule.filter.systems.clone(),
                     sessions: rule.filter.sessions.clone(),
+                },
+                send: SendConfig {
+                    condition,
+                    later_secs,
+                    ..SendConfig::default()
                 },
                 ..RuleConfig::default()
             },

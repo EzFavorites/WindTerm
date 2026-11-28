@@ -41,6 +41,30 @@ pub struct Guard {
     pub once: OnceScope,
 }
 
+/// 会话写动作的放行时机。与 `Guard` 的「要不要触发」正交：这里只回答
+/// 「命中之后什么时候可以落地」，由宿主排队并在对应事件 / 时钟到点时 invoke。
+///
+/// 不是旧的 `SendCondition` / `trigger_queue`：那是 UI 预设 + 宿主队列的两份
+/// 真相；这里只有一份数据，随 `Effect` 一起交出去，宿主不需要再回查规则表。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Release {
+    /// 命中当帧立即落地（缺省，保持旧规则 / 非写动作的行为）。
+    #[default]
+    Immediate,
+    /// 等下一个命令提示符。
+    Prompt,
+    /// 等下一个换行。
+    LineBreak,
+    /// 延迟固定时长；优先于上面三种条件。
+    Later(Duration),
+}
+
+impl Release {
+    pub fn is_immediate(self) -> bool {
+        self == Self::Immediate
+    }
+}
+
 /// 规则作用的目标。空表 = 不限。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Filter {
@@ -350,6 +374,10 @@ pub struct Rule {
     pub filter: Filter,
     #[serde(default)]
     pub guard: Guard,
+    /// 会话写动作的放行条件。只影响 `Action::SessionInvocation` 的写动词，
+    /// 其余四类动作立即派发（见宿主 `trigger_intents`）。
+    #[serde(default)]
+    pub release: Release,
     #[serde(default)]
     pub actions: Vec<Action>,
 }
@@ -375,6 +403,9 @@ pub struct Effect {
     pub action: Action,
     #[serde(default)]
     pub span: Option<Span>,
+    /// 随命中一起交出的放行条件，宿主据此决定是否排队。
+    #[serde(default)]
+    pub release: Release,
 }
 
 #[cfg(test)]
@@ -391,6 +422,7 @@ mod tests {
             when: When::Output(Pattern::compile("error", Syntax::Literal, true).unwrap()),
             filter: Filter::default(),
             guard: Guard::default(),
+            release: Release::default(),
             actions: vec![Action::SessionInvocation {
                 method: "write".into(),
                 params: serde_json::json!({ "session": "s1", "text": "hi" }),
@@ -442,6 +474,19 @@ mod tests {
         assert!(r.enabled);
         assert_eq!(r.name, "");
         assert!(r.filter.systems.is_empty());
+    }
+
+    #[test]
+    fn release_defaults_to_immediate_and_roundtrips_through_json() {
+        let json = r#"{
+            "id":"r2","when":"Connected","actions":[]
+        }"#;
+        let r: Rule = serde_json::from_str(json).unwrap();
+        assert_eq!(r.release, Release::Immediate);
+        let mut r = r;
+        r.release = Release::LineBreak;
+        let back: Rule = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
+        assert_eq!(back.release, Release::LineBreak);
     }
 
     #[test]

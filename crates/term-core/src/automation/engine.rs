@@ -127,6 +127,7 @@ impl Evaluator {
                     rule: r.id.clone(),
                     action: action.clone(),
                     span,
+                    release: r.release,
                 });
             }
         }
@@ -143,6 +144,7 @@ impl Evaluator {
 mod tests {
     use super::*;
     use crate::automation::pattern::{Pattern, Span, Syntax};
+    use crate::automation::rule::Release;
     use crate::automation::rule::{Action, Filter, Guard};
     use crate::automation::signal::{CloseReason, When};
     use std::time::Duration;
@@ -166,6 +168,7 @@ mod tests {
             when,
             filter: Filter::default(),
             guard: Guard::default(),
+            release: Release::default(),
             actions: vec![action()],
         }
     }
@@ -221,6 +224,20 @@ mod tests {
             assert_eq!(e.rule, "r1");
             assert_eq!(e.span, Some(Span { start: 7, end: 12 }));
         }
+    }
+
+    #[test]
+    fn effects_carry_the_rules_release_condition() {
+        let mut r = rule("r1", When::Output(pattern("error")));
+        r.release = Release::Later(std::time::Duration::from_secs(2));
+        let mut ev = Evaluator::new();
+        ev.reload(&[r]);
+        let effects = ev.eval(&output("error", 0), &Target::default());
+        assert_eq!(effects.len(), 1);
+        assert_eq!(
+            effects[0].release,
+            Release::Later(std::time::Duration::from_secs(2))
+        );
     }
 
     #[test]
