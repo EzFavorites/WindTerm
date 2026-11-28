@@ -28,6 +28,8 @@
 //! - `contract`：控制面契约（`Surface` trait / `invoke` 入口 / `describe` 生成与
 //!   参数读取助手；传输层从这里再导出，不再拥有契约定义）
 //! - `surface_error`：统一的 `{code, message, kind}` 失败三元组与 `WaitError` 映射
+//! - `automation`：**唯一**的规则 / 求值内核（信号 → 匹配 → 意图），动作装载期
+//!   按 `surface` 校验；旧的 `trigger` / `trigger_*` 模块已删除
 //! - `telnet`：Telnet 选项协商纯状态机（IAC 转义 / ECHO / SGA / NAWS）
 //! - `tunnel`：Tunnels 配置的纯数据与校验（一条命名隧道 → 一行 `L|R|D` 规则文本）
 //! - `auth`：OneKey 凭据回退链（有序尝试 + 全失败诊断，纯状态机）
@@ -67,10 +69,5 @@ pub mod tunnel;
 pub mod theme;
 mod theme_font;
 mod theme_json;
-pub mod trigger;
-mod trigger_expand;
-pub mod trigger_target;
-pub mod trigger_schedule;
-pub mod trigger_script;
 pub mod vt;
 pub mod width;

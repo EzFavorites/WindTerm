@@ -259,7 +259,6 @@ pub(in crate::ui) fn window_with(
         onekeys_edit: None,
         onekeys_password_draft: None,
         onekeys_ki_draft: None,
-        onekeys_autofill_draft: None,
         tab_list_filter: String::new(),
         // 测试窗口从「没话说、没崩过」开始。
         notice: None,
@@ -334,6 +333,7 @@ pub(in crate::ui) fn window_with(
         auth_exec_pending: Default::default(),
         auth_exec_fired: Default::default(),
         logon_runs: Vec::new(),
+        trigger_script_runs: Vec::new(),
         script_recent: Vec::new(),
         recorder: Default::default(),
         confirm: Default::default(),

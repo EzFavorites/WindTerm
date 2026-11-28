@@ -25,6 +25,7 @@ mod dropdowns;
 mod edit;
 mod fields;
 mod list;
+pub(in crate::ui) mod model;
 mod page_action;
 mod page_custom_menu;
 mod page_play_sound;
@@ -43,8 +44,8 @@ mod text;
 mod draft_tests;
 
 use crate::ui::*;
-use term_app::trigger::{Rule, TriggerAction};
-use term_core::trigger::{RuleConfig, TriggerKind};
+use crate::ui::dialogs::triggers::model::{Rule, UiAction};
+use crate::ui::dialogs::triggers::model::{RuleConfig, TriggerKind};
 
 /// 当前展开的浮层（同一时刻只可能有一个）。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,18 +115,18 @@ impl Picker {
     ///
     /// ANSI 色按标签在色表里查 hex；自定义色直接解析；`Empty` 没有明确色值，
     /// 取视觉基线默认白色。这样生产路径不再「改什么色都从红色重来」。
-    pub(in crate::ui) fn from_choice(choice: &term_core::trigger::ColorChoice) -> Self {
+    pub(in crate::ui) fn from_choice(choice: &crate::ui::dialogs::triggers::model::ColorChoice) -> Self {
         use crate::ui::view::trigger_spec::color as c;
         let hex = match choice {
-            term_core::trigger::ColorChoice::Custom(s) => {
+            crate::ui::dialogs::triggers::model::ColorChoice::Custom(s) => {
                 u32::from_str_radix(s.trim().trim_start_matches('#'), 16).unwrap_or(0xffffff)
             }
-            term_core::trigger::ColorChoice::Ansi(label) => c::ANSI_LABELS
+            crate::ui::dialogs::triggers::model::ColorChoice::Ansi(label) => c::ANSI_LABELS
                 .iter()
                 .position(|l| *l == label)
                 .map(|i| c::ANSI[i])
                 .unwrap_or(0xffffff),
-            term_core::trigger::ColorChoice::Empty => 0xffffff,
+            crate::ui::dialogs::triggers::model::ColorChoice::Empty => 0xffffff,
         };
         picker::from_hex(hex)
     }
@@ -191,7 +192,7 @@ pub(in crate::ui) struct View {
     /// 取色器在给哪个槽位选色。
     pub slot: ColorSlot,
     /// 取色器 `OK` 之后待写回的色值（由主循环消费）。
-    pub pending_color: Option<term_core::trigger::ColorChoice>,
+    pub pending_color: Option<crate::ui::dialogs::triggers::model::ColorChoice>,
     /// 新建弹窗的 `Type` 列表是否展开。
     pub type_menu: bool,
     /// 打开对话框那一刻的已提交规则快照。用来识别「关窗后重新打开」——
@@ -301,7 +302,7 @@ pub(in crate::ui) fn set_kind(rule: &mut Rule, kind: TriggerKind) {
 
 /// 把编辑配置投影成求值内核认识的 `actions`。
 ///
-/// 求值器只认 `TriggerAction`，编辑面板改的是 `config`；两者必须同步，
+/// 求值器只认 `UiAction`，编辑面板改的是 `config`；两者必须同步，
 /// 否则「面板上改了发送文本，跑起来还是旧内容」。
 ///
 /// # 四种 `Action` 取值各自的去向
@@ -311,27 +312,27 @@ pub(in crate::ui) fn set_kind(rule: &mut Rule, kind: TriggerKind) {
 /// `apply_trigger`）。`Open hyperlink` **目前没有执行通道**（要调平台 opener，
 /// 的待办里有记录。
 pub(in crate::ui) fn sync_actions(rule: &mut Rule) {
-    use term_core::trigger::ActionKind;
+    use crate::ui::dialogs::triggers::model::ActionKind;
     let action_of = |kind: ActionKind, cfg: &RuleConfig, text: &str| match kind {
-        ActionKind::SendText => vec![TriggerAction::SendText(text.to_owned())],
-        ActionKind::PlaySound => vec![TriggerAction::Beep],
+        ActionKind::SendText => vec![UiAction::SendText(text.to_owned())],
+        ActionKind::PlaySound => vec![UiAction::Beep],
         ActionKind::OpenHyperlink => Vec::new(),
         ActionKind::RunCommand => {
-            vec![TriggerAction::RunCommand(cfg.action.os[0].command.clone())]
+            vec![UiAction::RunCommand(cfg.action.os[0].command.clone())]
         }
     };
     rule.actions = match rule.kind {
         // 命中的行要被标出来：菜单 / 链接 / 高亮都靠它锚定。
         TriggerKind::HighlightText | TriggerKind::CustomLink | TriggerKind::CustomMenu => {
-            vec![TriggerAction::Highlight]
+            vec![UiAction::Highlight]
         }
-        TriggerKind::PlaySound => vec![TriggerAction::Beep],
-        TriggerKind::SendText => vec![TriggerAction::SendText(rule.config.send.text.clone())],
+        TriggerKind::PlaySound => vec![UiAction::Beep],
+        TriggerKind::SendText => vec![UiAction::SendText(rule.config.send.text.clone())],
         // `Show tooltip` 的提示文本只落在本地视图，**不能**当发送文本写进终端
         // （旧实现就是这么干的，选一次工具提示等于往远端敲一段 HTML）。
-        TriggerKind::ShowTooltip => vec![TriggerAction::Highlight],
+        TriggerKind::ShowTooltip => vec![UiAction::Highlight],
         TriggerKind::RunCommand => {
-            vec![TriggerAction::RunCommand(rule.config.action.os[0].command.clone())]
+            vec![UiAction::RunCommand(rule.config.action.os[0].command.clone())]
         }
         TriggerKind::AfterConnect
         | TriggerKind::AfterDisconnect
@@ -519,7 +520,9 @@ fn apply(win: &mut TerminalWindow, view: &mut View, mut act: Actions) {
         }
     }
     if act.save {
-        let snapshot = win.triggers.clone();
+        // 11 种类型的编辑投影在此展开成正交规则，落盘的唯一真相是 automation::Rule。
+        let snapshot: Vec<term_core::automation::Rule> =
+            win.triggers.iter().map(|r| r.to_core()).collect();
         super::settings_live::save_prefs(|p| p.triggers = snapshot);
         win.reload_triggers();
     }

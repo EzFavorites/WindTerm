@@ -194,7 +194,7 @@ pub(in crate::ui) fn play_sound(
 }
 
 /// 弹窗内改动指纹（`OK` 可用性判据）：覆盖 Match 的四个可改点与声音选择。
-fn ps_fingerprint(r: &term_app::trigger::Rule) -> u64 {
+fn ps_fingerprint(r: &crate::ui::dialogs::triggers::model::Rule) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     r.pattern.hash(&mut h);

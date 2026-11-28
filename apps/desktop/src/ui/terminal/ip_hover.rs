@@ -10,9 +10,9 @@ use super::hover_hit;
 use super::pane_pointer::GridGeom;
 use super::trigger_menu;
 use crate::ui::*;
-use term_app::trigger::{self, Rule};
+use crate::ui::dialogs::triggers::model::{self, Rule};
 use term_app::trigger_builtins::{self, Builtin};
-use term_core::trigger::{ActionKind, TriggerAction, TriggerOn};
+use crate::ui::dialogs::triggers::model::{ActionKind, UiAction, Channel};
 use term_core::grid::ScreenImage;
 
 /// Custom Menu 规则在指针所在行命中了哪一段文本。复用 `feed_for` 的同一个
@@ -29,7 +29,7 @@ fn custom_menu_at_pointer<'a>(
         .iter()
         .filter(|rule| {
             rule.enabled
-                && rule.on == TriggerOn::Output
+                && rule.on == Channel::Output
                 && !rule.pattern.is_empty()
                 && !rule.config.menu.items.is_empty()
         })
@@ -47,7 +47,7 @@ fn custom_menu_at_pointer<'a>(
 
 /// 菜单项 → 触发器动作。`Open hyperlink` 走投影层的 `sysopen::open`（与 Help /
 /// Search online 同一个 opener），不再画假禁用项。
-fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) -> Option<TriggerAction> {
+fn menu_action(item: &crate::ui::dialogs::triggers::model::MenuItem, rule: &Rule, matched: &str) -> Option<UiAction> {
     let expand = |text: &str| text.replace("${match}", matched);
     match item.action {
         // `RunCommand` 的载荷必须是命令 ID；配置里写的是正文时改走 SendLine，
@@ -55,8 +55,8 @@ fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) 
         ActionKind::RunCommand => Some(trigger_menu::run_command_action(&expand(
             &trigger_menu::command_of(rule, trigger_menu::host()).command,
         ))),
-        ActionKind::PlaySound => Some(TriggerAction::Beep),
-        ActionKind::SendText => Some(TriggerAction::SendText(expand(&rule.config.send.text))),
+        ActionKind::PlaySound => Some(UiAction::Beep),
+        ActionKind::SendText => Some(UiAction::SendText(expand(&rule.config.send.text))),
         ActionKind::OpenHyperlink => {
             let configured = rule.config.action.hyperlink.trim();
             let url = if configured.is_empty() {
@@ -64,7 +64,7 @@ fn menu_action(item: &term_core::trigger::MenuItem, rule: &Rule, matched: &str) 
             } else {
                 expand(configured)
             };
-            Some(TriggerAction::OpenLink(url))
+            Some(UiAction::OpenLink(url))
         }
     }
 }
@@ -137,7 +137,7 @@ pub(super) fn paint(
     geom: GridGeom,
     word_wrap: bool,
     rules: &[Rule],
-) -> Option<term_app::trigger::Hit> {
+) -> Option<crate::ui::dialogs::triggers::model::Hit> {
     if word_wrap {
         return None;
     }
@@ -167,7 +167,7 @@ pub(super) fn paint(
     };
 
     let mut picked: Option<(bool, String)> = None;
-    let mut clicked_actions: Vec<TriggerAction> = Vec::new();
+    let mut clicked_actions: Vec<UiAction> = Vec::new();
     let response = egui::Area::new(id)
         .order(egui::Order::Tooltip)
         .anchor(egui::Align2::LEFT_TOP, anchor.to_vec2())
@@ -215,9 +215,9 @@ pub(super) fn paint(
         // 内置 IP 触发器的菜单项与用户触发器共用同一条 Hit → apply_trigger 链路：
         // 远端用 SendLine，本地用 LocalSendLine，二者都由触发器执行器负责落地。
         vec![if local {
-            TriggerAction::LocalSendLine(command)
+            UiAction::LocalSendLine(command)
         } else {
-            TriggerAction::SendLine(command)
+            UiAction::SendLine(command)
         }]
     } else {
         return None;
@@ -230,7 +230,7 @@ pub(super) fn paint(
         Payload::Custom { matched, .. } => matched.clone(),
         Payload::Ip(ip) => ip.clone(),
     };
-    Some(term_app::trigger::Hit { rule_id, actions, matched })
+    Some(crate::ui::dialogs::triggers::model::Hit { rule_id, actions, matched })
 }
 
 #[cfg(test)]
@@ -260,14 +260,14 @@ mod tests {
         // 一条同样匹配这段文本的 Custom Menu 规则：IP 优先时它根本不该被读。
         let mut rule = Rule {
             enabled: true,
-            on: TriggerOn::Output,
+            on: Channel::Output,
             literal: true,
             pattern: text.to_string(),
             ..Rule::default()
         };
-        rule.config.menu.items.push(term_core::trigger::MenuItem {
+        rule.config.menu.items.push(crate::ui::dialogs::triggers::model::MenuItem {
             label: "custom".to_string(),
-            ..term_core::trigger::MenuItem::default()
+            ..crate::ui::dialogs::triggers::model::MenuItem::default()
         });
         // 同一帧只算一次：命中 IP 就直接定型，不会在分支里再扫一遍。
         assert_eq!(
@@ -306,27 +306,27 @@ mod tests {
     fn open_hyperlink_item_is_a_real_enabled_action() {
         let mut rule = Rule::default();
         rule.config.action.hyperlink = "https://e.test/${match}".into();
-        let item = term_core::trigger::MenuItem {
+        let item = crate::ui::dialogs::triggers::model::MenuItem {
             action: ActionKind::OpenHyperlink,
-            ..term_core::trigger::MenuItem::default()
+            ..crate::ui::dialogs::triggers::model::MenuItem::default()
         };
         // 菜单项现在真的产出动作 —— paint 里不再有禁用项与「无 opener」提示。
         assert_eq!(
             menu_action(&item, &rule, "42"),
-            Some(TriggerAction::OpenLink("https://e.test/42".into()))
+            Some(UiAction::OpenLink("https://e.test/42".into()))
         );
     }
 
     #[test]
     fn open_hyperlink_item_falls_back_to_the_matched_text() {
         let rule = Rule::default();
-        let item = term_core::trigger::MenuItem {
+        let item = crate::ui::dialogs::triggers::model::MenuItem {
             action: ActionKind::OpenHyperlink,
-            ..term_core::trigger::MenuItem::default()
+            ..crate::ui::dialogs::triggers::model::MenuItem::default()
         };
         assert_eq!(
             menu_action(&item, &rule, "https://fallback.test/x"),
-            Some(TriggerAction::OpenLink("https://fallback.test/x".into()))
+            Some(UiAction::OpenLink("https://fallback.test/x".into()))
         );
     }
 
@@ -337,15 +337,15 @@ mod tests {
         for (slot, text) in rule.config.action.os.iter_mut().zip(texts) {
             slot.command = text.to_string();
         }
-        let item = term_core::trigger::MenuItem {
+        let item = crate::ui::dialogs::triggers::model::MenuItem {
             action: ActionKind::RunCommand,
-            ..term_core::trigger::MenuItem::default()
+            ..crate::ui::dialogs::triggers::model::MenuItem::default()
         };
         let expected = trigger_menu::command_of(&rule, trigger_menu::host()).command.clone();
         // 命令正文不是命令 ID：必须成为 SendLine，不能塞进 RunCommand 当 ID。
         assert_eq!(
             menu_action(&item, &rule, "x"),
-            Some(TriggerAction::SendLine(expected))
+            Some(UiAction::SendLine(expected))
         );
         // 真 ID 则保持 RunCommand 契约，交给帧末窗口级 dispatch。
         let id = term_app::menu::context_ids::LINE_ENDINGS;
@@ -354,7 +354,7 @@ mod tests {
         rule.config.action.os[2].command = id.into();
         assert_eq!(
             menu_action(&item, &rule, "x"),
-            Some(TriggerAction::RunCommand(id.into()))
+            Some(UiAction::RunCommand(id.into()))
         );
     }
 }

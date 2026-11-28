@@ -19,7 +19,7 @@
 mod clipboard_policy; mod comp; pub(in crate::ui) mod script_run_config; mod ip_probe;
 mod construct;
 mod startup_defaults;
-mod dialogs; mod dispatch; mod lifecycle_events;
+mod dialogs; mod dispatch; mod lifecycle_events; mod trigger_intents;
 mod effects; mod harness;
 pub(crate) mod kit;
 pub(crate) use kit::type_scale;
@@ -288,7 +288,7 @@ pub struct TerminalWindow {
     /// 触发器规则的运行期副本（来自 `Prefs.triggers`）。每帧 `poll` 时传给各
     /// tab 的求值器；设置页改完写回 `prefs` 并 `reload_triggers` 同步到这里。
     /// 与 `caret_style` / `alt_row_bg` 同一写法：构造时读一次，设置页负责同步。
-    triggers: Vec<term_app::trigger::Rule>,
+    triggers: Vec<crate::ui::dialogs::triggers::model::Rule>,
     /// OneKey 登录方案的运行期副本（来自 `Prefs.onekeys`）。OneKeys 编辑页
     /// 读写它，保存时写回 `prefs`。
     ///
@@ -325,14 +325,13 @@ pub struct TerminalWindow {
     /// ：键从**下标**改成**方案名**。下标在删/复制方案之后会整体错位，
     /// 于是"密码存到隔壁方案上"——静默且很难发现。
     onekeys_password_draft: Option<(String, String)>,
-    /// OneKey 键盘交互应答草稿（方案名 → 按提示顺序的答案）。
-    /// Account 页 Password 组的应答草稿（方案名 → 密码），保存时写 vault。
-    onekeys_ki_draft: Option<(String, Vec<String>)>, onekeys_autofill_draft: Option<(String, String)>, tab_list_filter: String,
+    /// OneKey 键盘交互应答草稿（方案名 → 按提示顺序的答案），保存时写 vault。
+    onekeys_ki_draft: Option<(String, Vec<String>)>, tab_list_filter: String,
     /// L1/L3（O 设计稿）：一行提示条——界面内部错误 / 恢复自最近留存点。
     /// `None` = 没有话说。它是**浮层**，不进任何面板的布局计算。
     notice: Option<notice::Notice>,
     /// 控制面 Before* 事件队列；每帧由触发器求值层取走。
-    lifecycle_events: Arc<std::sync::Mutex<Vec<term_core::trigger::TriggerOn>>>,
+    lifecycle_events: Arc<std::sync::Mutex<Vec<term_core::automation::Lifecycle>>>,
     /// L1：连续「帧内 panic」次数。成功画完一帧就清零（见 `note_frame_ok`）。
     frame_panics: u32,
     /// 逐行 span 缓存，未变化的行零构建成本。
@@ -437,7 +436,7 @@ pub struct TerminalWindow {
     /// 槽位里放的是 `Cmd`——位移（`Move`）与集合命令（`Set`）共用它，
     /// 所以「锁 / 拆分 / 反选」与「选到下一行」走的是同一条落地路径，
     /// 不会因为多开一个字段而出现两条先后顺序不明的待办。
-    pending_select: Option<Cmd>, pending_ip_hit: Option<term_app::trigger::Hit>,
+    pending_select: Option<Cmd>, pending_ip_hit: Option<crate::ui::dialogs::triggers::model::Hit>,
     /// 进行中的原生 SSH 连接（`None` = 没有）。
     /// 它不在 `ViewState` 里：`ViewState` 是**领域状态**（只能由 `reduce` 写），
     /// 而这个东西是「一次副作用正在发生」，带有 `Receiver`、线程与凭据——
@@ -527,6 +526,9 @@ pub struct TerminalWindow {
     /// 正在跑的登录脚本。**句柄要留着**：丢了就等于让它在后台对着 PTY 继续
     /// 说话，而界面上没有任何「它还在跑」的痕迹，同会话互斥也会提前放行。
     logon_runs: Vec<crate::script_run::ScriptRun>,
+    /// 触发器 `RunScript` 起起来的脚本句柄：与登录脚本同样要留着，否则刚起来
+    /// 就被 drop，界面上还以为跑过。仲裁策略后续从 `DispatchCtx` 接入。
+    trigger_script_runs: Vec<crate::script_run::ScriptRun>,
     /// 最近跑过的脚本（MRU 前 10 条）的**渲染期副本**。
     ///
     /// 构造时从 `prefs.recent_scripts` 抄一次，之后每次起跑再落盘（load-modify-save，
@@ -896,9 +898,7 @@ impl TerminalWindow {
         // 统一处理（tab 层没有 `Action` 分发器）。按下标遍历而非 `&mut self.tabs`
         // 迭代器，以便同时持有一份 `&self.triggers` 不可变借用，互不打架。
         let rules = &self.triggers;
-        // Account OneKey 的密码应答在保险库里，Tab 不认识保险库；这里派生一份
-        // 「方案名 → 密码」表给本帧所有标签共用（锁着时是空表，静默跳过）。
-        let n = self.tabs.len(); let autofill = self.onekey_autofill_map();
+        let n = self.tabs.len();
         let mut run_commands: Vec<String> = Vec::new();
         // 每帧新建局部缓冲：`log_note` 长期非空，直接拿它当 &mut 传进去会让
         // note.is_none() 恒 false，转义错误就永远丢失（见 notice.rs 判据）。
@@ -906,7 +906,7 @@ impl TerminalWindow {
         for i in 0..n {
             // 泵在 tab 里：它会经控制面把本帧事件并进快照，顺带刷新状态与
             // 日志态（那两样是**事件**报上来的，不是每帧去问会话线程）。
-            if self.tabs[i].poll_with_policy(rules, &mut run_commands, &self.reconnect.global, &self.onekeys, &autofill, &mut note) {
+            if self.tabs[i].poll_with_policy(rules, &mut run_commands, &self.reconnect.global, &mut note) {
                 changed = true;
             }
         }
@@ -914,11 +914,13 @@ impl TerminalWindow {
         // 一条都不能漏。少了哪一条，它的字节环就没人搬（tap 是无界 channel），
         // 而面板这边还照旧画着上一帧——长输出等于一条静默的内存泄漏。
         for tab in &mut self.shell_tabs {
-            if tab.poll_with_note(rules, &mut run_commands, false, &[], &autofill, &mut note) {
+            if tab.poll_with_note(rules, &mut run_commands, false, &mut note) {
                 changed = true;
             }
         }
         lifecycle_events::poll(self, crate::now_secs(), &mut run_commands, &mut note);
+        // 求值与写分离：上面两处只排队 `FrameIntent`，这里统一派发到四类落点。
+        trigger_intents::drain(self, &mut run_commands, &mut note);
         // 帧末交回窗口：错误提示同时抬到前景 Notice，不被普通提示覆盖。
         self.commit_note(note.take());
         self.poll_auto_reconnect(); clipboard_policy::poll(ctx, self); modem_drop::poll(ctx, self); path_picker::draw(ctx, self); upload_picker::draw(ctx, self);

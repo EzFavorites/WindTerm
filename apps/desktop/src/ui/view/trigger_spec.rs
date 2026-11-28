@@ -397,13 +397,13 @@ pub mod color {
 /// 类型标题（`01` / `07` / `23` / `26` / `28` / `30` 实测）。带助记符下划线的
 /// 位置由 UI 层处理，这里只存纯文本。
 ///
-/// 注意它与 [`term_core::trigger::TriggerKind::label`] **不是同一批字符串**：
+/// 注意它与 [`crate::ui::dialogs::triggers::model::TriggerKind::label`] **不是同一批字符串**：
 /// 视觉基线 `21` 的 `Action` 下拉取值写 `Play sound`（句首大写），而同一张图的
 /// 页签标题写 `Play Sound`（词首大写）。四个复合词（`Play Sound` /
 /// `Run Command` / `Show Tooltip` / `Send Text`）都是词首大写，四个事件类型
 /// 反过来是句首大写（`After connection`）。
-pub fn type_title(kind: term_core::trigger::TriggerKind) -> &'static str {
-    use term_core::trigger::TriggerKind;
+pub fn type_title(kind: crate::ui::dialogs::triggers::model::TriggerKind) -> &'static str {
+    use crate::ui::dialogs::triggers::model::TriggerKind;
     match kind {
         TriggerKind::CustomLink => "Custom Link",
         TriggerKind::CustomMenu => "Custom Menu",
@@ -422,8 +422,8 @@ pub fn type_title(kind: term_core::trigger::TriggerKind) -> &'static str {
 /// 类型标题的助记符字符（视觉基线里被下划线标出的那一个字母）。
 ///
 /// `Run Command` 划线的是 `Command` 的 `C` 而不是 `Run` 的 `R`（视觉基线 `26`）。
-pub fn type_mnemonic(kind: term_core::trigger::TriggerKind) -> char {
-    use term_core::trigger::TriggerKind;
+pub fn type_mnemonic(kind: crate::ui::dialogs::triggers::model::TriggerKind) -> char {
+    use crate::ui::dialogs::triggers::model::TriggerKind;
     match kind {
         TriggerKind::CustomLink | TriggerKind::CustomMenu => 'C',
         TriggerKind::AfterConnect | TriggerKind::AfterDisconnect => 'A',
@@ -509,7 +509,7 @@ mod tests {
 
     #[test]
     fn every_kind_has_title_and_mnemonic() {
-        use term_core::trigger::TriggerKind;
+        use crate::ui::dialogs::triggers::model::TriggerKind;
         for k in TriggerKind::ALL {
             let t = type_title(k);
             assert!(!t.is_empty());

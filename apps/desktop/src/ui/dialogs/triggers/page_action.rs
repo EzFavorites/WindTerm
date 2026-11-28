@@ -15,7 +15,7 @@ use crate::ui::view::trigger_pages_spec as ps;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::{ActionKind, SendMode};
+use crate::ui::dialogs::triggers::model::{ActionKind, SendMode};
 
 /// `BODY` 左上角（窗口坐标）。
 fn origin(o: egui::Pos2) -> egui::Pos2 {
@@ -44,7 +44,7 @@ pub(in crate::ui) fn action_page(
     ui: &mut egui::Ui,
     o: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     let base = origin(o);
     action_combo(ui, base, view, rule.config.action.kind);
@@ -93,7 +93,7 @@ pub(super) fn fields(
     ui: &mut egui::Ui,
     base: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
     os: &OsLayout,
     text: (f32, f32),
     sound: (f32, f32),
@@ -123,7 +123,7 @@ pub(super) fn os_rows(
     ui: &mut egui::Ui,
     base: egui::Pos2,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
     layout: &OsLayout,
 ) {
     os_tabs(ui, base, layout.tabs_top, layout.tabs_h, view);
@@ -263,7 +263,7 @@ pub(super) fn sound_block(
     top: f32,
     bottom: f32,
     view: &mut View,
-    rule: &mut term_app::trigger::Rule,
+    rule: &mut crate::ui::dialogs::triggers::model::Rule,
 ) {
     let p = ui.painter().clone();
     let group = egui::Rect::from_min_size(
@@ -339,6 +339,6 @@ mod tests {
     fn the_script_hint_uses_syntax_the_trigger_backend_actually_evaluates() {
         assert!(!SCRIPT_HINT.contains("=>"), "占位不能是 JS 箭头函数：{SCRIPT_HINT}");
         let body = SCRIPT_HINT.lines().nth(1).expect("第二行是示例表达式");
-        assert_eq!(term_core::trigger_script::eval(body), "echo ${match}");
+        assert_eq!(crate::ui::dialogs::triggers::model::eval_script_template(body), "echo ${match}");
     }
 }

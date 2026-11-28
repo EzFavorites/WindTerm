@@ -65,7 +65,16 @@ pub(in crate::ui) fn finish_actions(
     let mut note: Option<String> = None;
     if let Some(hit) = win.pending_ip_hit.take() {
         if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
-            tab.apply_trigger(hit, &mut run_commands, &mut note);
+            for action in &hit.actions {
+                if let Some(core) = super::trigger_menu::to_core_action(action) {
+                    let effect = term_core::automation::Effect {
+                        rule: hit.rule_id.clone(),
+                        action: core,
+                        span: None,
+                    };
+                    tab.dispatch_effect(&effect, &mut run_commands, &mut note);
+                }
+            }
         }
     }
     flush_trigger_note(win, &mut note);

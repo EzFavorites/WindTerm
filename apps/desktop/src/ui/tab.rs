@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use eframe::egui;
 use term_app::selection::Selections;
-use term_app::trigger::Matcher;
+use term_core::automation::Evaluator;
 use term_app::viewport::Viewport;
 use term_core::grid::{GridSnapshot, ScreenImage};
 use term_core::session::SessionConfig;
@@ -134,8 +134,6 @@ pub struct Tab {
     pub(in crate::ui) marks: crate::ui::terminal::MarksParams,
     /// 触发器 Highlight 命中的绝对行号。投影态，重启即清；不进选区、不进复制。
     pub(in crate::ui) trigger_highlight_rows: Vec<i64>,
-    /// Account OneKey 的 `expect → send` 已触发过的条目，避免同一提示连环发送。
-    pub(in crate::ui) onekey_expects_fired: std::collections::HashSet<String>,
     /// Modem 自动触发的扫描态（跨块滚动尾 + 本帧请求）。投影态，不落盘。
     pub(in crate::ui) modem: crate::ui::modem_auto::TabState,
     /// 这条会话的**调试覆盖层**开关（`Mode ▸ Debug Mode`）。
@@ -251,7 +249,12 @@ pub struct Tab {
     /// 本 tab 的触发器求值器。与会话同生命周期（`poll` 里按 Connect/Disconnect
     /// 事件 reset），跨 chunk 的尾巴 / 冷却表 / 一次性事件都留在这里。规则本身
     /// 来自 `Prefs`（经窗口缓存成 `TerminalWindow.triggers`），不进 per-tab 状态。
-    pub(in crate::ui) triggers: Matcher,
+    pub(in crate::ui) triggers: Evaluator,
+    /// 求值器产出的副作用意图：求值与写分离，tab 只排队，窗口层统一派发。
+    /// `owner` / `priority` 随意图一起带走，仲裁器（下一任务）从同一处接入。
+    pub(in crate::ui) pending_intents: Vec<crate::ui::terminal::trigger_dispatch::FrameIntent>,
+    /// 上次收到输出的时间戳（Unix 秒），供 `Signal::Idle` 计算安静时长。
+    pub(in crate::ui) last_output_secs: Option<u64>,
     /// 上一帧会话是否存活。仅用于在 `poll` 里检测 Connect / Disconnect 跳变——
     /// 跳变时 reset 求值器，保证「重连后 Connect 再次触发、断开后 Disconnect 再次触发」。
     pub(in crate::ui) was_live: bool,

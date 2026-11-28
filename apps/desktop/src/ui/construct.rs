@@ -307,7 +307,11 @@ impl TerminalWindow {
             clipboard_ask: None,
             // 触发器规则从同一份 prefs 读（构造时一次，之后由设置页同步）。
             // 空数组 = 出厂态，求值器收不到任何规则、整条链路静默短路。
-            triggers: prefs.triggers.clone(),
+            triggers: prefs
+                .triggers
+                .iter()
+                .map(crate::ui::dialogs::triggers::model::ViewRule::from_core)
+                .collect(),
             // OneKey 登录方案：构造时从同一份 prefs 读一次，OneKeys 编辑页负责同步。
             onekeys: prefs.onekeys.clone(),
             // Tunnels 设置：与上面两条同一条纪律——构造时读一次，
@@ -400,6 +404,7 @@ impl TerminalWindow {
             auth_exec_pending: Default::default(),
             auth_exec_fired: Default::default(),
             logon_runs: Vec::new(),
+            trigger_script_runs: Vec::new(),
             script_recent: prefs.recent_scripts.clone(),
             recorder: Default::default(),
             // 关闭确认弹窗：两个「不再提示」抑制位从 prefs 读回，其余默认。
@@ -462,7 +467,6 @@ impl TerminalWindow {
             onekeys_edit: None,
             onekeys_password_draft: None,
             onekeys_ki_draft: None,
-            onekeys_autofill_draft: None,
             tab_list_filter: String::new(),
             // L1/L3：出厂没有话说、也没有崩过。两条都只由 `announce_recovery`
             // 与 `main.rs` 的 `catch_unwind` 写入。
@@ -598,7 +602,12 @@ impl TerminalWindow {
     /// 内存副本与磁盘一致。`load ` 失败回落空规则集（等于「没有规则」），不崩。
     pub(in crate::ui) fn reload_triggers(&mut self) {
         self.triggers = term_runtime::prefs::load()
-            .map(|p| p.triggers)
+            .map(|p| {
+                p.triggers
+                    .iter()
+                    .map(crate::ui::dialogs::triggers::model::ViewRule::from_core)
+                    .collect()
+            })
             .unwrap_or_default();
     }
 

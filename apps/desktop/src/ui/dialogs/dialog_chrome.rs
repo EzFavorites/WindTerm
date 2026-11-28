@@ -206,7 +206,7 @@ pub(in crate::ui) fn labeled_field(
 ///
 /// 与 [`labeled_field`] 画出来的那个框**同一套观感**——那个把「标签 + 框」一起
 /// 画，这个只画框，给「一个框不独占一行」的地方用（OneKeys 的 Public Key 表、
-/// Keyboard Interactive 表、Account 的 Expect/Send 行）。
+/// Keyboard Interactive 表、Account 的 Username / Password 行）。
 ///
 /// 2026-11-17 之前这些地方各写一份 `TextEdit::frame(false)` 且**不铺底**：同一页
 /// 里 Username 是灰底框、Identity File 是裸文字，看起来像两个软件。

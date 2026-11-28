@@ -111,6 +111,7 @@ mod script;
 pub(in crate::ui) mod script_library;
 mod select;
 mod session;
+pub(in crate::ui) mod trigger_dispatch;
 /// ④-0：新窗格身份铸造逻辑集中在 `crate::ui::layout::mint_pane_identity`
 /// （定义在 `layout/split.rs`，与 `PaneId` 同处）。`setup` 模块放开给 `crate::ui`
 /// 下兄弟模块调用，本身是终端构造入口的聚合点。

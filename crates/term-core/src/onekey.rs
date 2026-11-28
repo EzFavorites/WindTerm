@@ -5,49 +5,25 @@
 //! 编辑页（`apps/desktop`）与连接层（`session_open`）都只消费这里的类型，
 //! 分层不被破坏。
 //!
-//! OneKey 是什么：**一整套自动登录方案**——一次点击（或连接时按该方案的
-//! 期望匹配）完成 SSH 登录。三块内容与 WindTerm 2.6.1 的 OneKeys 对话框
-//! 逐项对应：
+//! OneKey 是什么：**一整套连接期自动登录方案**。三块内容与 WindTerm 2.6.1
+//! 的 OneKeys 对话框逐项对应：
 //!
 //! - SSH：用户名 / 密码 / 公钥（每系统一份 Identity File）/
 //!   键盘交互（Challenge → Response 表）；
-//! - Account：期望（prompt）→ 应答（发送文本）的自动回复对（区分大小写 /
-//!   正则 / 整词三个匹配开关）；
+//! - Account：用户名与密码——密码只有保险库条目 `onekey:<name>`，方案本身
+//!   不存任何凭据字段；
 //! - Sessions：方案到会话的分配（会话表单里的 OneKey 下拉选的就是它）。
 //!
 //! 密码与键盘交互应答都属于凭据，**不进这份 JSON**：它们经 `term-vault`
 //! 以 `onekey:<name>` 为条目 id 加密保存（与 `SessionConfig` 的密码同一条
 //! 纪律——明文不落盘、锁着不可读）。这里只存引用字段名。
+//!
+//! 会话期的 `expect → send` 自动应答已删除：OneKey 只在连接期生效，登录
+//! 之后的输出不再由方案回复。
 
 use serde::{Deserialize, Serialize};
 
 use crate::session::SessionConfig;
-
-/// 匹配开关：Account 里一条「看到什么 → 发什么」的三个可选项。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExpectFlags {
-    pub case_sensitive: bool,
-    pub regex: bool,
-    pub whole_word: bool,
-}
-
-impl Default for ExpectFlags {
-    fn default() -> Self {
-        Self {
-            case_sensitive: true,
-            regex: false,
-            whole_word: false,
-        }
-    }
-}
-
-/// 一条自动应答：匹配到 `expect` 就把 `send` 发给远端。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExpectSend {
-    pub expect: String,
-    pub send: String,
-    pub flags: ExpectFlags,
-}
 
 /// 一套登录方案（OneKey 对话框里的一行）。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -55,15 +31,13 @@ pub struct OneKey {
     /// 方案名。会话表单的 OneKey 下拉显示的就是它，连接时按名取方案。
     /// 同批内必须唯一（编辑页用 `name` 当 key，重名会互相覆盖）。
     pub name: String,
-    /// SSH 登录用户名。
+    /// SSH 登录用户名（Account 页也直接画这一格）。
     pub username: String,
     /// 公钥 Identity File，按下标对应 `System`（0 = Linux / 1 = macOS / 2 = Windows）。
     /// 空串 = 该系统未指定（回到会话自身的 identity_file）。
     pub identity_files: [String; 3],
     /// SSH 键盘交互的 Challenge → Response 表（同样只存引用，明文在 vault）。
     pub keyboard_interactive: Vec<ChallengeResponse>,
-    /// Account：自动应答对。
-    pub expects: Vec<ExpectSend>,
     /// 本方案是否启用。关掉 = 连接时跳过（与会话没选它等价，但保留编辑内容）。
     pub enabled: bool,
 }
@@ -87,7 +61,6 @@ impl Default for OneKey {
             username: String::new(),
             identity_files: Default::default(),
             keyboard_interactive: Vec::new(),
-            expects: Vec::new(),
             enabled: true,
         }
     }
@@ -108,11 +81,6 @@ pub fn ki_vault_id(name: &str) -> String {
     format!("onekey:{name}:ki")
 }
 
-/// Account 页 Password 组的 `Send` 应答（密码）也进保险库，不留在 `prefs.json`。
-pub fn autofill_vault_id(name: &str) -> String {
-    format!("onekey:{name}:autofill")
-}
-
 /// 保险库条目里应答的序列化格式：一个 JSON 字符串数组。
 /// 解析失败按空表处理——凭据读不出来时宁可不答，也不能静默发空串冒充。
 pub fn encode_ki_answers(answers: &[String]) -> String {
@@ -121,42 +89,6 @@ pub fn encode_ki_answers(answers: &[String]) -> String {
 
 pub fn decode_ki_answers(raw: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(raw).unwrap_or_default()
-}
-
-/// Account OneKey 的 `expect → send` 判据（纯函数）。
-///
-/// 三个开关语义：大小写敏感 / 正则 / 整词。正则用 `regex`  crate，
-/// 禁用大小写时统一加 `(?i)` 前缀，不改变用户写的模式本体。
-pub fn expect_matches(expect: &ExpectSend, chunk: &str) -> bool {
-    if expect.expect.is_empty() {
-        return false;
-    }
-    if expect.flags.regex {
-        let pattern = if expect.flags.case_sensitive {
-            expect.expect.clone()
-        } else {
-            format!("(?i){}", expect.expect)
-        };
-        return regex::Regex::new(&pattern)
-            .map(|re| re.is_match(chunk))
-            .unwrap_or(false);
-    }
-    let hit = if expect.flags.case_sensitive {
-        chunk.find(&expect.expect)
-    } else {
-        chunk.to_lowercase().find(&expect.expect.to_lowercase())
-    };
-    let Some(start) = hit else {
-        return false;
-    };
-    if !expect.flags.whole_word {
-        return true;
-    }
-    let bytes = chunk.as_bytes();
-    let before = start == 0 || !bytes[start - 1].is_ascii_alphanumeric() && bytes[start - 1] != b'_';
-    let end = start + expect.expect.len();
-    let after = end >= bytes.len() || !bytes[end].is_ascii_alphanumeric() && bytes[end] != b'_';
-    before && after
 }
 
 impl OneKey {
@@ -216,34 +148,6 @@ mod tests {
         assert_eq!(decode_ki_answers(&raw), answers);
         assert_eq!(decode_ki_answers("not json"), Vec::<String>::new());
         assert_eq!(ki_vault_id("prod"), "onekey:prod:ki");
-        assert_eq!(autofill_vault_id("prod"), "onekey:prod:autofill");
-    }
-
-    #[test]
-    fn expect_send_honors_case_regex_and_whole_word() {
-        let make = |expect: &str, flags: ExpectFlags| ExpectSend {
-            expect: expect.into(),
-            send: "ok".into(),
-            flags,
-        };
-        assert!(expect_matches(&make("Password", Default::default()), "Password: "));
-        assert!(!expect_matches(&make("Password", Default::default()), "password: "));
-        assert!(expect_matches(
-            &make("password", ExpectFlags { case_sensitive: false, ..Default::default() }),
-            "PASSWORD: "
-        ));
-        assert!(expect_matches(
-            &make("^pass.*:$", ExpectFlags { regex: true, ..Default::default() }),
-            "pass123:"
-        ));
-        assert!(expect_matches(
-            &make("go", ExpectFlags { whole_word: true, ..Default::default() }),
-            "please go now"
-        ));
-        assert!(!expect_matches(
-            &make("go", ExpectFlags { whole_word: true, ..Default::default() }),
-            "going now"
-        ));
     }
 
     #[test]
@@ -265,16 +169,7 @@ mod tests {
         assert!(k.username.is_empty());
         assert_eq!(k.identity_files, ["", "", ""]);
         assert!(k.keyboard_interactive.is_empty());
-        assert!(k.expects.is_empty());
         assert!(k.enabled, "新方案默认启用");
-    }
-
-    #[test]
-    fn expect_flags_default_to_case_sensitive_plain_text() {
-        let f = ExpectFlags::default();
-        assert!(f.case_sensitive);
-        assert!(!f.regex);
-        assert!(!f.whole_word);
     }
 
     /// 三列与三个系统名的对应：编辑页按 `SYSTEM_NAMES` 顺序画，连接时按这里取。

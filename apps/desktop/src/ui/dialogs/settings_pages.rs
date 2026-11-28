@@ -155,7 +155,7 @@ const WRAP_NOTE: &str = "Soft wrapping is toggled per tab with Mode ▸ Word Wra
 /// `Triggers` 页的说明。这一页**是真的接线**，不该退回到「没有配置字段」那句：
 ///
 /// 规则编辑器直接读写 `Prefs.triggers`，每帧 `poll` 把 `TerminalWindow.triggers`
-/// 喂给 `term_app::trigger::Matcher`。四种触发源（Output / Connect / Disconnect /
+/// 喂给 `term_core::automation::Evaluator`。四种触发源（Output / Connect / Disconnect /
 /// Idle）各自有消费者——`session.rs` 的 `apply_trigger` 把 `SendText` / `SendLine`
 /// 写进 PTY、`Beep` 发 BEL、`RunCommand` 走命令通道。`Highlight` 这一项因为 v0.3
 /// 才有行级高亮渲染基底，本页**不暴露**（不画也不假装画）。

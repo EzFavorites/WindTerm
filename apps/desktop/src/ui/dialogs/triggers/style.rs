@@ -7,7 +7,7 @@
 
 use super::fields::{mono, rgb};
 use crate::ui::view::trigger_spec::color as c;
-use term_core::trigger::{ColorChoice, LineStyle, MarkConfig};
+use crate::ui::dialogs::triggers::model::{ColorChoice, LineStyle, MarkConfig};
 
 /// `ColorChoice` → RGB（`Empty` = 不设色，返回 `None`）。
 pub(super) fn color_of(choice: &ColorChoice) -> Option<u32> {

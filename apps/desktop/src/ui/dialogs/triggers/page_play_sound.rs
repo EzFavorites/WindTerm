@@ -13,7 +13,7 @@ use crate::ui::view::trigger_pages_spec as ps;
 use crate::ui::view::trigger_spec as spec;
 use crate::ui::view::trigger_spec::color as c;
 use crate::ui::*;
-use term_core::trigger::TriggerKind;
+use crate::ui::dialogs::triggers::model::TriggerKind;
 
 /// 画整页（表 + 工具条）。
 pub(in crate::ui) fn page(win: &mut TerminalWindow, ui: &mut egui::Ui, o: egui::Pos2, view: &mut View) {

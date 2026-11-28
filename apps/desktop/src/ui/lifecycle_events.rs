@@ -1,39 +1,55 @@
-//! 控制面 Before* 事件的触发器求值：队列 → 规则 → 当前标签的动作落地。
+//! 控制面 Before* 事件的触发器求值：队列 → `Signal` → 当前标签的意图队列。
 //!
-//! `SessionPool` 在开/关会话时只把事件塞进一个线程安全队列；真正的规则表
-//! 在窗口上，所以求值放在每帧的 draw 里。这样构造期不必拿到规则，
-//! 也不会在会话线程上碰投影层状态。
+//! `SessionPool` 在开/关会话时只把拥有型的 `Lifecycle` 塞进线程安全队列；
+//! 规则表在窗口上，求值放在每帧 draw 里。`Tab` 的求值器已在 `poll` 中装载规则，
+//! 这里只喂事件并让 `dispatch_effect` 把四类 `Action` 翻译成待派发意图。
 
 use crate::ui::*;
-use term_core::trigger::TriggerOn;
+use term_core::automation::{Signal, Target, Ticks};
 
-/// 取走队列并按活动标签的目标上下文求值。`now` 与 Matcher 同源（秒）。
-///
-/// `note` 是调用方每帧新建的局部缓冲，不是 `win.log_note` 本身——后者长期非空，
-/// 直接拿它当缓冲会让错误提示因 `note.is_none()` 恒 false 而丢失。
-pub(in crate::ui) fn poll(win: &mut TerminalWindow, now: u64, run_commands: &mut Vec<String>, note: &mut Option<String>) {
-    let events: Vec<TriggerOn> = match win.lifecycle_events.lock() {
+/// 取走队列并按活动标签的目标上下文求值。`now` 与 Evaluator 同源（秒）。
+pub(in crate::ui) fn poll(
+    win: &mut TerminalWindow,
+    now: u64,
+    run_commands: &mut Vec<String>,
+    note: &mut Option<String>,
+) {
+    let events: Vec<term_core::automation::Lifecycle> = match win.lifecycle_events.lock() {
         Ok(mut q) => q.drain(..).collect(),
         Err(_) => return,
     };
     if events.is_empty() {
         return;
     }
-    let rules = win.triggers.clone();
     let slot = win.active_slot();
-    // 转义写错要落到本帧缓冲（帧末由调用方交回窗口），不许再静默吞掉
-    // （SendText / SendLine / LocalSendLine 同一条口径）。
     if let Some(tab) = win.tabs.get_mut(slot) {
-        let system = tab.config.system.clone();
-        let session = tab.config.name.clone();
-        let target = term_core::trigger_target::Target {
-            system: &system,
-            session: &session,
+        let target = Target {
+            system: tab.config.system.clone(),
+            session: tab.config.name.clone(),
         };
-        for on in events {
-            let hits = tab.triggers.event_for(&rules, on, now, Some(target));
-            for hit in hits {
-                tab.apply_trigger(hit, run_commands, note);
+        for event in events {
+            let stream = tab.config.name.clone();
+            let at = Ticks::from_secs(now);
+            let verdict = match event {
+                term_core::automation::Lifecycle::BeforeConnect => {
+                    Signal::BeforeConnect { stream: &stream }
+                }
+                term_core::automation::Lifecycle::Connected => {
+                    Signal::Connected { stream: &stream, at }
+                }
+                term_core::automation::Lifecycle::BeforeDisconnect => {
+                    Signal::BeforeDisconnect { stream: &stream }
+                }
+                term_core::automation::Lifecycle::Disconnected => {
+                    Signal::Disconnected {
+                        stream: &stream,
+                        at,
+                        reason: term_core::automation::CloseReason::Normal,
+                    }
+                }
+            };
+            for effect in tab.triggers.eval(&verdict, &target) {
+                tab.dispatch_effect(&effect, run_commands, note);
             }
         }
     }
