@@ -257,7 +257,19 @@ impl TerminalWindow {
             return;
         }
         let mut ran = false;
-        match ScriptRun::start(pool, id, state.doc.text().to_string(), options) {
+        let is_python = who.to_ascii_lowercase().ends_with(".py");
+        // Python 跑的是磁盘上的文件（形状层用 `__file__` 与 `# @cap` 头），
+        // 所以未保存 / 无路径的缓冲区在这里显式拒绝，不拿内存文本冒充文件。
+        let started = if is_python {
+            if who.trim().is_empty() {
+                state.error = Some(t(lang, "Save the Python script before running it").to_string());
+                return;
+            }
+            ScriptRun::start_python(pool.clone(), id, &who, options)
+        } else {
+            ScriptRun::start(pool, id, state.doc.text().to_string(), options).map_err(Into::into)
+        };
+        match started {
             Ok(run) => {
                 state.run = Some(run);
                 state.outcome = None;
@@ -265,7 +277,7 @@ impl TerminalWindow {
                 ran = true;
                 self.ctx.request_repaint();
             }
-            Err(message) => state.error = Some(message),
+            Err(message) => state.error = Some(message.to_string()),
         }
         // 编辑器也是「跑脚本」的一个入口，MRU 不该只有运行窗口和面板才记。
         // 未保存的缓冲区没有路径，跳过后由「另存为」后的下一次运行补上。
@@ -615,8 +627,9 @@ mod template_tests {
     use super::NEW_SCRIPT_TEMPLATE;
 
     #[test]
-    fn the_new_script_template_uses_the_registered_facade_spelling() {
-        assert!(NEW_SCRIPT_TEMPLATE.contains("crt().screen.send("));
-        assert!(!NEW_SCRIPT_TEMPLATE.contains("crt.Screen"), "别把旧文档的 PascalCase 带进模板");
+    fn the_new_script_template_uses_native_verbs() {
+        assert!(NEW_SCRIPT_TEMPLATE.contains("write("));
+        assert!(NEW_SCRIPT_TEMPLATE.contains("read_until("));
+        assert!(!NEW_SCRIPT_TEMPLATE.contains("crt"), "模板不得出现对象门面");
     }
 }

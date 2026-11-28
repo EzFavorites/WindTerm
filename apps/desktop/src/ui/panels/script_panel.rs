@@ -230,14 +230,6 @@ impl TerminalWindow {
         }
         self.script_panel.current_mut().output = None;
         self.script_panel.current_mut().output_session = None;
-        let source = match script_run::read_source(&path) {
-            Ok(text) => text,
-            Err(message) => {
-                self.script_panel.current_mut().error = Some(message);
-                self.script_panel.current_mut().outcome = None;
-                return;
-            }
-        };
         // 手勾授权 / 预算档经窗口上的共享 RunConfig 取：与运行对话框的
         // `Long-running` 和编辑器是同一份。兼容终端没有这两层，是我们自己的
         // 安全设计；共享构造器 `script_run_options()` 故意不碰它们。
@@ -246,7 +238,22 @@ impl TerminalWindow {
             .script_run_options(&path)
             .with_allow(allow)
             .with_budget(self.run_config.budget());
-        match ScriptRun::start(self.pool.clone(), id, source, options) {
+        // .py 走外部 Python 子进程；其余照旧是内嵌 Rhai。两条路共用同一个句柄。
+        let is_python = path.to_ascii_lowercase().ends_with(".py");
+        let started = if is_python {
+            ScriptRun::start_python(self.pool.clone(), id, &path, options)
+        } else {
+            let source = match script_run::read_source(&path) {
+                Ok(text) => text,
+                Err(message) => {
+                    self.script_panel.current_mut().error = Some(message);
+                    self.script_panel.current_mut().outcome = None;
+                    return;
+                }
+            };
+            ScriptRun::start(self.pool.clone(), id, source, options).map_err(Into::into)
+        };
+        match started {
             Ok(run) => {
                 let tab_no = self.script_panel.next_no;
                 self.script_panel.current_mut().run = Some(run);
@@ -272,7 +279,7 @@ impl TerminalWindow {
                 self.ctx.request_repaint();
                 self.note_recent_script(&path);
             }
-            Err(message) => self.script_panel.current_mut().error = Some(message),
+            Err(message) => self.script_panel.current_mut().error = Some(message.to_string()),
         }
     }
 

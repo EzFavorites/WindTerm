@@ -357,18 +357,7 @@ pub fn desk_app_command(id: &str) -> term_script::CommandAck {
     term_script::CommandAck::dispatched(parse_app_command(id).is_some())
 }
 
-/// CRT 兼容门面清单。只列顶层门面对象——它们不在 `term-core::surface`
-/// （迁移层不属于能力面），但脚本自省时应当看得见「有这一族写法」。
-const CRT_FACADE: &[(&str, &str)] = &[
-    ("crt", "SecureCRT 兼容门面根对象"),
-    ("crt.Screen", "屏幕读写 / 等待的门面子对象"),
-    ("crt.Session", "连接与会话的门面子对象"),
-    ("crt.Dialog", "交互问答的门面子对象"),
-    ("crt.Clipboard", "剪贴板的门面子对象"),
-    ("crt.Window", "窗口的门面子对象"),
-];
-
-/// `app_catalog()`：应用命令台账 + 脚本能力面 + CRT 门面，三处合一。
+/// `app_catalog()`：应用命令台账 + 脚本能力面，两处合一。
 ///
 /// 每组按 `source` 标明来源，脚本据此判断该用 `app_command(id)` 还是直接调
 /// 同名全局函数。清单是纯数据的拼接，不缓存——能力台账/动词表本来就是静态的。
@@ -390,13 +379,6 @@ pub fn desk_app_catalog() -> Vec<term_script::CatalogEntry> {
             id: spec.name.to_string(),
             summary: spec.summary.to_string(),
             source: "script".to_string(),
-        });
-    }
-    for (name, summary) in CRT_FACADE {
-        out.push(term_script::CatalogEntry {
-            id: (*name).to_string(),
-            summary: (*summary).to_string(),
-            source: "crt".to_string(),
         });
     }
     out
@@ -422,12 +404,12 @@ mod tests {
         );
     }
 
-    /// 自省清单三处都在，且脚本动词（含新加的 app_command / app_catalog
-    /// 与改为两端可见的 describe）与 CRT 门面各占一组。
+    /// 自省清单两处都在，脚本动词（含 app_command / app_catalog / describe）
+    /// 单独占一组，且与菜单命令台账不混。
     #[test]
-    fn desk_app_catalog_merges_app_script_and_crt_sources() {
+    fn desk_app_catalog_merges_app_and_script_sources() {
         let rows = desk_app_catalog();
-        for source in ["app", "script", "crt"] {
+        for source in ["app", "script"] {
             assert!(rows.iter().any(|r| r.source == source), "{source} 组缺失");
         }
         assert!(rows.iter().any(|r| r.id == "Terminal.ClearScreen" && r.source == "app"));
@@ -438,7 +420,7 @@ mod tests {
                 "自省清单漏了 {name}"
             );
         }
-        assert!(rows.iter().any(|r| r.id == "crt.Screen" && r.source == "crt"));
+        assert!(!rows.iter().any(|r| r.source == "crt"));
     }
 
     /// ADR-0025 阶段 5：界面那条路新开的会话必须**真的**被递回来。

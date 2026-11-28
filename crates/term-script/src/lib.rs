@@ -55,13 +55,13 @@
 //!   入账）：取走上次取走点以来的全部输出。有新数据即返；**超时返回空串**
 //!   （排水不是等待事实，与 `read_until` 的超时显式失败是两种承诺）；
 //!   会话死透显式报 Closed。
-//! - `wait_any([patterns], timeout_secs[, filter])`（对标 SecureCRT
+//! - `wait_any([patterns], timeout_secs[, filter])`（对标 CRT
 //!   `WaitForStrings` / `MatchIndex`）：等任意模式出现，返回最先出现者的
 //!   [`WaitAnyHit`]（`index` **1 起**、`text` 为自游标到命中串结尾的文本）。
 //!   同一位置多个模式命中时取数组靠前的。与 `read` / `read_until` **共享
 //!   捕获游标**：命中后游标推进到命中串结尾，尾部文本不丢，留给后续
 //!   `read` / `read_until` 续读。可选行级 grep 过滤器（同 `read_until`，
-//!   作用于**匹配之前**）。**超时显式失败**——这里有意偏离 SecureCRT 的
+//!   作用于**匹配之前**）。**超时显式失败**——这里有意偏离 CRT 的
 //!   「索引 0 = 超时」：0 太容易被脚本忘判而静默继续（ADR-0019 禁止静默），
 //!   显式抛错强制脚本处理超时分支。空模式列表或含空串直接拒绝。
 //! - `read_until` / `read` / `wait_any` 接受行级类 grep 过滤器（[`LineFilter`]，由全局
@@ -79,7 +79,6 @@
 
 mod cancel;
 mod clip_ui;
-mod compat;
 mod editor;
 mod engine;
 mod env;

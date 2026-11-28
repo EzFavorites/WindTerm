@@ -203,7 +203,7 @@ impl LogStamp {
 ///
 /// 注意 CRT 的 `%H` 是**主机名**、`%S` 是**会话名**，与我们的 `%H`=小时、
 /// `%S`=秒正好相反——所以这里不重定义单字母宏，只提供花括号形态，界面上
-/// 再给一个「把 CRT 模板转换过来」的按钮（`crt_template_to_ours`）。
+/// 再给一个「把旧模板格式转换过来」的按钮（`legacy_template_to_ours`）。
 pub fn expand_template(
     tpl: &str,
     session: &str,
@@ -267,7 +267,7 @@ pub fn expand_template(
 ///
 /// 只做**映射**，不做猜测：CRT 模板里我们认识的宏换成花括号扩展，不认识的
 /// 原样保留（用户能看见哪几个没转）。
-pub fn crt_template_to_ours(tpl: &str) -> String {
+pub fn legacy_template_to_ours(tpl: &str) -> String {
     let mut out = String::with_capacity(tpl.len() + 16);
     let mut it = tpl.chars();
     while let Some(c) = it.next() {
@@ -663,14 +663,14 @@ mod tests {
     }
 
     #[test]
-    fn crt_templates_are_translated_not_reinterpreted() {
+    fn legacy_templates_are_translated_not_reinterpreted() {
         // CRT：%H 主机 / %S 会话 / %M 月 / %m 分 / %h 小时 / %t 毫秒
         // 本仓：%H 小时 / %S 秒 / %M 分 / %m 月
         assert_eq!(
-            crt_template_to_ours("%H-%S_%M%m%h%t.log"),
+            legacy_template_to_ours("%H-%S_%M%m%h%t.log"),
             "%{host}-%{session}_%m%M%H%{ms}.log"
         );
         // 不认识的宏原样留着。
-        assert_eq!(crt_template_to_ours("%Q"), "%Q");
+        assert_eq!(legacy_template_to_ours("%Q"), "%Q");
     }
 }

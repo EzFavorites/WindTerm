@@ -14,6 +14,8 @@
   不改 1:1 会话表单与视觉基线。
 - 快捷命令栏新增 `Run Script` 类型：只填路径，界面自动补 `Script.RunFile:` 前缀。
 - `docs/scripting.md` 补录制脚本与命令行边界两节。
+- 外部 Python 脚本：`.py` 走子进程 + stdio JSON-RPC 桥，提供从能力表派生的原生
+  函数 API；运行需 `process` 授权，UI / CLI 均可运行，取消会 kill 子进程。
 
 ### Changed
 
@@ -24,11 +26,14 @@
 
 ### Fixed
 
-- 修正 `docs/scripting.md` 的门面速查与偏差表：`WaitForString` 返回布尔（超时 `false`）而非文本，
-  捕获文本改用 `read_until`；明确「全局动词超时显式失败、门面成员返回 CRT 风格哨兵」两套契约，
-  并补上多语言 / 两行头 / 每次运行授权 / 前后台模式 / 录制器的 CRT 对照。
-- 修正随附示例：`00-template.rhai` 与 `03-capture-output.rhai` 改用全局 `read_until` 抓文本，
-  `02-batch-inspection.rhai` 的口令提示索引改为 1 起的 3 / 4；设计文档门面类型数改为八个。
+- 移除对象门面：不再提供 CRT 对象形状，改为借鉴其设计思想（录制节奏、
+  消费式/观察式等待、按名字寻址、多入口、按运行授权），全部落到原生动词。
+- 修正 `docs/scripting.md` 的偏差表：`wait` / `read_until` / `wait_any` 超时显式失败，
+  只有排水用的 `read` 返回空串；补上多语言 / 两行头 / 每次运行授权 / 前后台模式 /
+  录制器的 CRT 对照。
+- 修正随附示例：`00-template.rhai` 与 `03-capture-output.rhai` 用 `write` + `read_until`，
+  `04-multi-tab-dispatch.rhai` 改用 `session_list` / `session_use` 原生动词；
+  `02-batch-inspection.rhai` 的口令提示索引改为 1 起的 3 / 4。
 - 修正 `wait_any` 文档与两个随附示例的索引口径（1 起下标）。
 - 修正 `secret`（交互式掩码输入，非保险库句柄）与 `term-desk capability --json`
   （菜单命令台账，非动词表）的文档描述。

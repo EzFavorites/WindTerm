@@ -812,7 +812,7 @@ pub static METHODS: &[MethodSpec] = &[
                    本表的脚本动词、CRT 兼容门面三组按 source 区分。脚本据此发现 ID，\
                    不必把菜单里的字符串抄进脚本。无界面的宿主显式报不支持。",
         params_schema: NO_PARAMS,
-        result_schema: r#"{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"summary":{"type":"string"},"source":{"type":"string","enum":["app","script","crt"]}},"required":["id","summary","source"]}}},"required":["entries"]}"#,
+        result_schema: r#"{"type":"object","properties":{"entries":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"summary":{"type":"string"},"source":{"type":"string","enum":["app","script"]}},"required":["id","summary","source"]}}},"required":["entries"]}"#,
         kind: MethodKind::Read,
         exposure: Exposure::Script,
     },

@@ -501,6 +501,7 @@ pub(super) fn zh(en: &'static str) -> &'static str {
             "这条会话处于只读查看（Local mode），脚本不会执行",
         "This tab is stopping; wait for it to finish" => "这个页签正在停止，等它结束再运行",
         "Pick a script above first" => "先在上面选一个脚本",
+        "Save the Python script before running it" => "请先保存 Python 脚本再运行",
         // 脚本面板工具条（`Record` / 单次授权折叠面板）属于 chrome，正文仍英文。
         "Record" => "录制",
         "Stop Recording" => "停止录制",

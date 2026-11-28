@@ -96,7 +96,7 @@ impl Capture {
     }
 }
 
-/// `wait_any` 的命中结果（对标 SecureCRT `WaitForStrings` / `MatchIndex`）。
+/// `wait_any` 的命中结果（对标 CRT `WaitForStrings` / `MatchIndex`）。
 ///
 /// `index` 从 **1** 起（0 保留给超时，但本项目改为显式报错，见
 /// [`ScriptSession::wait_any`]）；`text` 是过滤视图里自捕获游标到命中串
@@ -187,7 +187,7 @@ impl ScriptSession {
     }
 
     /// `write(text)`：把 `text` 的字节**原样**写入会话，不自动追加换行
-    /// （需要换行由脚本自己拼 `\n`，ZOC / SecureCRT 同款语义）。
+    /// （需要换行由脚本自己拼 `\n`，ZOC / CRT 同款语义）。
     ///
     /// 会话已结束时显式报错——脚本对着死会话发字节是 bug，不静默吞掉。
     pub fn write(&self, text: &str) -> Result<(), PrimitiveError> {
@@ -283,7 +283,7 @@ impl ScriptSession {
     }
 
     /// `wait_any([patterns], timeout_secs[, filter])`：等任意模式出现，
-    /// 返回**最先出现**的那个的索引（1 起，对标 SecureCRT
+    /// 返回**最先出现**的那个的索引（1 起，对标 CRT
     /// `WaitForStrings` / `MatchIndex`）。同一位置多个模式命中时取数组里
     /// 靠前的（先登记优先，ZOC `ZocWaitMux` 同款）。
     ///
@@ -292,7 +292,7 @@ impl ScriptSession {
     /// `read_until` 续读。`filter` 是**结果后处理**，不参与匹配。
     ///
     /// **超时显式失败**（[`PrimitiveError::Timeout`]），游标不动、文本不丢。
-    /// 这里有意偏离 SecureCRT 的「索引 0 = 超时」：0 太容易被脚本忘判而
+    /// 这里有意偏离 CRT 的「索引 0 = 超时」：0 太容易被脚本忘判而
     /// 静默继续（ADR-0019「禁止静默」），显式抛错强制脚本处理超时分支。
     /// 空模式列表、或列表中含空串，都是脚本 bug，直接拒绝。
     pub fn wait_any(

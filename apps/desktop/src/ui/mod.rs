@@ -504,7 +504,7 @@ pub struct TerminalWindow {
     script_asks: crate::script_human::AskQueue,
     /// 脚本文件框的队列（`pick_file`）。用户打的路径**当场**进授权信封。
     script_picks: std::sync::Arc<std::sync::Mutex<Vec<crate::script_human::PendingPick>>>,
-    /// 界面每帧抄进来的选区文本（`crt.GetSelection` 与 `selection ` 的事实源）。
+    /// 界面每帧抄进来的选区文本（`selection` 动词的事实源）。
     script_selection: crate::script_clip::SelectionSlot,
     /// 界面当前激活的会话（脚本 `session_active ` 的事实源）。
     script_active: std::sync::Arc<std::sync::Mutex<Option<SessionId>>>,

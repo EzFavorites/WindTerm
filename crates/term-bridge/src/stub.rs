@@ -41,6 +41,131 @@ pub fn python_stub() -> String {
     out
 }
 
+/// 在 `python_stub()` 之上生成 WindTerm 的**原生 API**：一层与能力表同名的
+/// Python 函数，会话由启动时的 `ZTERM_SESSION` 绑定。
+///
+/// 刻意不提供对象门面：借鉴成熟终端工具的设计思想（消费式等待、静默锚点、
+/// 多入口、按会话绑定），但不复刻对象形状。所有函数名与参数都从 `rpc_specs()`
+/// 的 schema 派生，改名/改参数会同步反映到生成的桩上，不会和桥接漂移。
+pub fn python_api_shim() -> String {
+    let mut out = python_stub();
+    out.push('\n');
+    out.push_str(NATIVE_API_HEAD);
+    for spec in rpc_specs() {
+        out.push_str(&native_function(spec));
+    }
+    out.push_str(NATIVE_API_TAIL);
+    out
+}
+
+const NATIVE_API_HEAD: &str = r#"
+# ---------------------------------------------------------------------------
+# WindTerm 原生 API：与能力面同名的一等函数，不提供 CRT 对象。
+# ---------------------------------------------------------------------------
+import os as _os
+import sys as _sys
+import time as _time
+
+SESSION = _os.environ.get("ZTERM_SESSION", "")
+ARGS = json.loads(_os.environ.get("ZTERM_ARGS", "[]"))
+LAST_ERROR = ""
+
+# BridgeClient 固定在 stdin / __stdout__ 上跑协议；用户的 print 改道 stderr。
+_client = BridgeClient(_sys.stdin, _sys.__stdout__)
+_sys.stdout = _sys.stderr
+
+
+def _call(method, params):
+    global LAST_ERROR
+    try:
+        return _client.call(method, params)
+    except BridgeError as exc:
+        LAST_ERROR = getattr(exc, "message", str(exc))
+        raise
+
+
+def args():
+    return list(ARGS)
+
+
+def script_path():
+    return _os.environ.get("ZTERM_SCRIPT_PATH", "")
+
+
+def version():
+    return _os.environ.get("ZTERM_VERSION", "unknown")
+
+
+def last_error():
+    return LAST_ERROR
+
+
+def sleep(seconds):
+    """秒为单位的协作式睡眠；取消由宿主 kill 子进程实现。"""
+    _time.sleep(float(seconds))
+"#;
+
+/// 为每个 RPC 可见动词生成一个绑定当前会话的模块级函数。签名与参数键
+/// 全部来自 schema 的 `required` / `optional`，不手写第二份名单。
+fn native_function(spec: &MethodSpec) -> String {
+    let (required, optional) = schema_params(spec);
+    let has_session = required.iter().chain(optional.iter()).any(|k| k == "session");
+    let mut sig: Vec<String> = required
+        .iter()
+        .chain(optional.iter())
+        .filter(|key| key.as_str() != "session")
+        .map(|key| {
+            if optional.contains(key) {
+                format!("{}=None", py_name(key))
+            } else {
+                py_name(key)
+            }
+        })
+        .collect();
+    if has_session {
+        sig.push("session=None".to_string());
+    }
+
+    let mut out = format!(
+        "\ndef {}({}):\n    {}\n",
+        py_name(&spec.name),
+        sig.join(", "),
+        json_literal(&spec.summary.replace(['\n', '\r'], " "))
+    );
+    if has_session {
+        out.push_str("    params = {\"session\": session or SESSION}\n");
+    } else {
+        out.push_str("    params = {}\n");
+    }
+    for key in required.iter().chain(optional.iter()) {
+        if key == "session" {
+            continue;
+        }
+        let argument = py_name(key);
+        if optional.contains(key) {
+            out.push_str(&format!(
+                "    if {} is not None:\n        params[{}] = {}\n",
+                argument,
+                json_literal(key),
+                argument
+            ));
+        } else {
+            out.push_str(&format!(
+                "    params[{}] = {}\n",
+                json_literal(key),
+                argument
+            ));
+        }
+    }
+    out.push_str(&format!(
+        "    return _call({}, params)\n",
+        json_literal(&spec.name)
+    ));
+    out
+}
+
+const NATIVE_API_TAIL: &str = r#"
+"#;
 /// 生成的桩的模块头：只用标准库，说明用法与错误形状。
 const PROLOGUE: &str = r#""""由 term-bridge::python_stub() 生成，不要手改。
 
@@ -272,6 +397,30 @@ mod tests {
             rpc_specs().count(),
             "METHODS 镜像的条目数与表不一致"
         );
+    }
+
+    #[test]
+    fn native_shim_exposes_every_rpc_verb_without_an_object_facade() {
+        let shim = python_api_shim();
+        assert!(!shim.contains("crt = "), "不得生成对象门面");
+        assert!(!shim.contains("class _Crt"), "不得生成对象门面类");
+        assert!(shim.contains("class BridgeClient:"));
+        assert!(shim.contains("METHODS = ["));
+        for spec in rpc_specs() {
+            assert!(
+                shim.contains(&format!("\ndef {}(", py_name(&spec.name))),
+                "原生 API 缺动词 {}",
+                spec.name
+            );
+        }
+    }
+
+    #[test]
+    fn native_functions_bind_the_session_and_pass_schema_parameters() {
+        let shim = python_api_shim();
+        assert!(shim.contains("params = {\"session\": session or SESSION}"));
+        assert!(shim.contains("params[\"delimiter\"] = delimiter"));
+        assert!(shim.contains("return _call(\"read_until\", params)"));
     }
 
     #[test]

@@ -13,10 +13,12 @@
 //! 结果直接出现在同一个屏幕上。两者共用引擎，但会话来源不同，所以不合并。
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use term_core::script_caps::{parse_allow, Capabilities};
 use term_core::session::SessionConfig;
 use term_core::session_runtime::SessionId;
 use term_script::{CancelToken, ScriptBudget, ScriptEngine, ScriptWorkspace};
@@ -401,7 +403,7 @@ impl ScriptRun {
         options: RunOptions,
     ) -> Result<Self, String> {
         let Some(session) = pool.session(id) else {
-            return Err(format!("控制面里查不到这个会话（id={id:?}）"));
+            return Err(format!("控制面里查不到这个会话（id={id:?}）").into());
         };
         // 名额先占，再干别的：读文件、起线程都要花时间，而「谁在跑」必须在
         // 第一帧就能报出来，否则连点两下会真的起来两条。
@@ -498,6 +500,106 @@ impl ScriptRun {
                 lease.release();
             }
             return Err(format!("起不了脚本线程：{e}"));
+        }
+        Ok(Self {
+            rx,
+            notes,
+            cancel,
+            _lease: lease,
+        })
+    }
+
+    /// 在 `id` 的会话上跑一份**外部 Python** 脚本。
+    ///
+    /// 与 [`Self::start`] 共用租约、取消令牌和 `Outcome` 通道，所以面板 / 运行窗口
+    /// 的「停止」「结果」逻辑一行都不用改；区别只在线程里跑的不是 Rhai 引擎，
+    /// 而是 `python_run` 起的 Python 子进程 + stdio JSON-RPC 桥。
+    ///
+    /// 授权沿两条路收：`// @cap`（Python 文件头用 `# @cap`）与界面手勾 /
+    /// `--allow` 对应的 `options.allow`。起外部进程必须拿到 `process`。
+    pub fn start_python(
+        pool: Arc<SessionPool>,
+        id: SessionId,
+        path: &str,
+        options: RunOptions,
+    ) -> Result<Self, crate::python_run::PythonRunError> {
+        let Some(session) = pool.session(id) else {
+            return Err(format!("控制面里查不到这个会话（id={id:?}）").into());
+        };
+        drop(session);
+        let name = pool
+            .name(id)
+            .ok_or_else(|| crate::python_run::PythonRunError::from(format!("控制面里查不到会话名（id={id:?}）")))?;
+        let who = if options.who.trim().is_empty() {
+            "未命名 Python 脚本"
+        } else {
+            options.who.trim()
+        };
+        let lease = match &options.registry {
+            Some(registry) if options.foreground => Some(registry.claim(id, who).map_err(crate::python_run::PythonRunError::from)?),
+            Some(registry) => match registry.claim_background(who) {
+                Some(lease) => Some(lease),
+                None => return Err(crate::python_run::PythonRunError::from(registry.background_full_error())),
+            },
+            None => None,
+        };
+
+        let source = std::fs::read_to_string(path)
+            .map_err(|e| crate::python_run::PythonRunError::from(format!("读不到 Python 脚本 {path}：{e}")))?;
+        let mut caps = Capabilities::NONE;
+        for request in parse_allow(&options.allow).map_err(|e| crate::python_run::PythonRunError::from(e.0.to_string()))? {
+            caps.grant(&request);
+        }
+        // Python 的注释头是 `#`，不是 Rhai 的 `//`；只取开头连续的注释块。
+        let header = source
+            .lines()
+            .take_while(|line| line.trim().is_empty() || line.trim_start().starts_with('#'))
+            .filter_map(|line| {
+                let trimmed = line.trim();
+                trimmed
+                    .strip_prefix("# @cap")
+                    .or_else(|| trimmed.strip_prefix("#@cap"))
+            })
+            .map(str::trim)
+            .collect::<Vec<_>>()
+            .join(",");
+        for request in parse_allow(&header).map_err(|e| crate::python_run::PythonRunError::from(e.0.to_string()))? {
+            caps.grant(&request);
+        }
+        let process_allowed = caps.check_process().is_ok();
+
+        let notes = Arc::new(Mutex::new(Vec::new()));
+        let cancel = CancelToken::new();
+        let script_path = PathBuf::from(path);
+        let args = options.args.clone();
+        let wall = options.budget.wall;
+        let (tx, rx) = mpsc::channel();
+        let run_cancel = cancel.clone();
+        let spawned = std::thread::Builder::new()
+            .name("desk-python".to_string())
+            .spawn(move || {
+                let outcome = match crate::python_run::run_blocking(
+                    pool,
+                    name,
+                    &script_path,
+                    &args,
+                    wall,
+                    run_cancel,
+                    process_allowed,
+                ) {
+                    Ok(value) => Outcome::Done(value),
+                    Err(message) => Outcome::Failed {
+                        message: message.to_string(),
+                        at: None,
+                    },
+                };
+                let _ = tx.send(outcome);
+            });
+        if let Err(e) = spawned {
+            if let Some(lease) = lease {
+                lease.release();
+            }
+            return Err(crate::python_run::PythonRunError::from(format!("起不了 Python 线程：{e}")));
         }
         Ok(Self {
             rx,

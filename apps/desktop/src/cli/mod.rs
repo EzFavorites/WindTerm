@@ -12,6 +12,7 @@
 mod align;
 mod capability;
 mod doctor;
+mod python;
 mod script;
 mod serve;
 

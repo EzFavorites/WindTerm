@@ -1,14 +1,14 @@
-//! WSH `SendKeys` 语法解析（SecureCRT `Screen.SendKeys`）。
+//! WSH `SendKeys` 语法解析（CRT `Screen.SendKeys`）。
 //!
 //! # 为什么需要它
 //!
 //! CRT 的用户手册里，`SendKeys` 是最常被复制的一行：
 //!
 //! ```text
-//! crt.Screen.SendKeys("^C")        ' Ctrl+C
-//! crt.Screen.SendKeys("{F7}")      ' F7
-//! crt.Screen.SendKeys("+{TAB}")    ' Shift+Tab
-//! crt.Screen.SendKeys("ls~")       ' 输入 ls 并回车
+//! send_keys("^C")                  ' Ctrl+C
+//! send_keys("{F7}")                ' F7
+//! send_keys("+{TAB}")              ' Shift+Tab
+//! send_keys("ls~")                 ' 输入 ls 并回车
 //! ```
 //!
 //! 我们的 `keys()` 收的是**键名**（`ctrl+c` / `f7` / `shift+tab`），

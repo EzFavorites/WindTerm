@@ -336,7 +336,7 @@ impl TerminalWindow {
             let options = self.script_run_options(&path);
             match ScriptRun::start(self.pool.clone(), id, source, options) {
                 Ok(run) => self.logon_runs.push(run),
-                Err(message) => self.log_note = Some(message),
+                Err(message) => self.log_note = Some(message.to_string()),
             }
         }
         // 收尸：结果照旧落到状态栏（失败要说原因），句柄一并丢掉——那是给
@@ -667,7 +667,7 @@ impl TerminalWindow {
     }
 
     fn open_script(&mut self, path: &str, background: bool) {
-        // SecureCRT 没有前台 / 后台，也没有「拒绝排队」这套说法——这两条都是
+        // CRT 没有前台 / 后台，也没有「拒绝排队」这套说法——这两条都是
         // 本项目额外的自动化安全设计。上一次按路径起跑的句柄还留在 `self.script`
         // 里时，直接换掉整个 `ScriptDialog` 会把 `ScriptRun` 一起丢掉：租约提前
         // 放行，而线程还在对同一条 PTY 说话。这里显式拒绝（不排队、不顶替），
@@ -744,15 +744,23 @@ impl TerminalWindow {
             dialog.outcome = None;
             return;
         }
-        let source = match script_run::read_source(&path) {
-            Ok(text) => text,
-            Err(message) => {
-                dialog.error = Some(message);
-                dialog.outcome = None;
-                return;
-            }
+        // 按扩展名选引擎：.py 走外部 Python + stdio 桥，其余照旧走内嵌 Rhai。
+        // 两条路共用同一个 ScriptRun 句柄，界面上的停止 / 结果轮询不用分叉。
+        let is_python = path.to_ascii_lowercase().ends_with(".py");
+        let started = if is_python {
+            ScriptRun::start_python(self.pool.clone(), id, &path, options)
+        } else {
+            let source = match script_run::read_source(&path) {
+                Ok(text) => text,
+                Err(message) => {
+                    dialog.error = Some(message);
+                    dialog.outcome = None;
+                    return;
+                }
+            };
+            ScriptRun::start(self.pool.clone(), id, source, options).map_err(Into::into)
         };
-        match ScriptRun::start(self.pool.clone(), id, source, options) {
+        match started {
             Ok(run) => {
                 dialog.run = Some(run);
                 dialog.outcome = None;
@@ -763,7 +771,7 @@ impl TerminalWindow {
                 self.ctx.request_repaint();
                 self.note_recent_script(&ran);
             }
-            Err(message) => dialog.error = Some(message),
+            Err(message) => dialog.error = Some(message.to_string()),
         }
     }
 }

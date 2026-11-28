@@ -603,7 +603,7 @@ impl RawControl {
 }
 
 /// 一次已登记、尚未完成的等待。`wait` 阻塞调用线程直到命中 / 超时 /
-/// 会话结束——脚本线程阻塞是设计内的（ZOC / SecureCRT 同款语义）。
+/// 会话结束——脚本线程阻塞是设计内的（ZOC / CRT 同款语义）。
 #[derive(Debug)]
 pub struct PendingWait {
     id: u64,

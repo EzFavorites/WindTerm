@@ -41,12 +41,18 @@ pub(in crate::ui) fn library() -> Vec<(String, String)> {
 
 /// `library()` 的**判据部分**（纯函数：只认路径，不碰磁盘）。
 ///
-/// 拆出来的理由与 `push_recent` 同一条：过滤规则（只认 `.rhai`）与排序可以被
-/// 没有 profile 目录的单测钉死，而"怎么拿到这些路径"不需要被测。
+/// 拆出来的理由与 `push_recent` 同一条：过滤规则（`.rhai` 走内嵌引擎，`.py`
+/// 走外部 Python 子进程）与排序可以被没有 profile 目录的单测钉死，而"怎么
+/// 拿到这些路径"不需要被测。
 fn collect<I: IntoIterator<Item = std::path::PathBuf>>(paths: I) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = paths
         .into_iter()
-        .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("rhai"))
+        .filter(|p| {
+            matches!(
+                p.extension().and_then(|x| x.to_str()),
+                Some("rhai" | "py")
+            )
+        })
         .map(|p| {
             let display = p
                 .file_name()
@@ -210,10 +216,11 @@ mod tests {
     /// 「把 `notes.rhai.bak` 也列出来」是最容易犯的错：`extension()` 只看最后一个
     /// 点，而那种文件在编辑器里打不开、运行会直接报语法错。
     #[test]
-    fn only_rhai_files_reach_the_library_list() {
+    fn only_script_files_reach_the_library_list() {
         let got = collect(vec![
             PathBuf::from("/s/b.rhai"),
             PathBuf::from("/s/a.rhai"),
+            PathBuf::from("/s/c.py"),
             PathBuf::from("/s/c.rhai.bak"),
             PathBuf::from("/s/d.txt"),
             PathBuf::from("/s/noext"),
@@ -223,8 +230,9 @@ mod tests {
             vec![
                 ("/s/a.rhai".to_string(), "a.rhai".to_string()),
                 ("/s/b.rhai".to_string(), "b.rhai".to_string()),
+                ("/s/c.py".to_string(), "c.py".to_string()),
             ],
-            "只留 .rhai，且按文件名排序"
+            "只留 .rhai / .py，且按文件名排序"
         );
     }
 

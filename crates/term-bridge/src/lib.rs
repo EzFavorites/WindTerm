@@ -93,5 +93,5 @@ pub mod transport;
 pub use error::{ErrorKind, SurfaceError};
 pub use handler::Surface;
 pub use jsonrpc::{dispatch, ErrorObject, Id, Notification, Payload, Request, Response};
-pub use stub::python_stub;
+pub use stub::{python_api_shim, python_stub};
 pub use transport::serve_stdio;

@@ -340,7 +340,15 @@ pub fn run(rest: &[String]) -> i32 {
         return 1;
     };
 
-    let outcome = {
+    let python_mode = opts.file.to_ascii_lowercase().ends_with(".py");
+    let outcome: Result<String, String> = if python_mode {
+        // 外部 Python：复用界面那套 ScriptRun（租约 / 取消 / Outcome），
+        // 只是这边同步轮询到结果再退出。授权仍按 process 收，不偷偷放行。
+        match super::python::run(Arc::clone(&pool), id, &opts.file, opts.args.clone(), opts.allow.clone(), budget) {
+            Ok(value) => Ok(value),
+            Err(message) => { eprintln!("{message}"); for (id, _, _) in pool.list() { pool.close(id); } return 1; }
+        }
+    } else {
         // 工作区 = 池级集合 + 起始会话。脚本因此能 `session_list` 看到这条会话、
         // `session_open` 再开新的（命令会话 / 本地 shell）、`session_use` 在它们之间切。
         let host = PooledSessions::new(Arc::clone(&pool));
@@ -384,7 +392,10 @@ pub fn run(rest: &[String]) -> i32 {
             session,
             sandbox.execution_timeout,
         ));
-        ScriptEngine::new(sandbox).run_in_workspace(&source, workspace)
+        ScriptEngine::new(sandbox)
+            .run_in_workspace(&source, workspace)
+            .map(|value| value.to_string())
+            .map_err(|err| err.to_string())
     };
 
     // 先收会话再看结果：脚本跑到一半失败时，会话可能还在吐输出；而脚本也可能

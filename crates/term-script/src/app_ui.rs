@@ -117,7 +117,7 @@ impl CommandAck {
 
 /// 自省清单里的一条。
 ///
-/// `source` 取 `app`（应用命令台账）、`script`（会话能力面）、`crt`（兼容门面）
+/// `source` 取 `app`（应用命令台账）或 `script`（会话能力面）
 /// 三者之一，让脚本一眼看出「这个 ID 从哪来、该用哪种写法」。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CatalogEntry {

@@ -9,7 +9,7 @@
 //! 不是墙钟（`Instant` / `SystemTime` 才是）——term-core 的「零墙钟」
 //! 指的是后者。
 //!
-//! [`wait`] 的语义（对标 ZOC `ZocWait` / SecureCRT `WaitForString`）：
+//! [`wait`] 的语义（对标 ZOC `ZocWait` / CRT `WaitForString`）：
 //! **先登记、后匹配**。登记必须先于登记点之后到达的输出被消费（实现方
 //! 用 ack 保证，见 `term-runtime` 的 Supervisor），匹配对象是清洗后的
 //! 纯文本（复用 [`crate::ansi::TextCleaner`] 的语义：剥转义序列、
@@ -128,7 +128,7 @@ pub trait Cancel: Send + Sync {
 }
 
 /// 一次已登记、尚未完成的等待。`wait` 阻塞调用线程直到命中 / 超时 /
-/// 会话结束——脚本线程阻塞是**设计内**的（ZOC / SecureCRT 同款语义），
+/// 会话结束——脚本线程阻塞是**设计内**的（ZOC / CRT 同款语义），
 /// 但 UI 线程绝不该调它。
 pub trait WaitRegistration: Send {
     fn wait(self: Box<Self>, timeout: Duration) -> Result<WaitMatch, WaitError>;

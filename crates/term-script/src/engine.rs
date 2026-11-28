@@ -102,16 +102,10 @@ impl ScriptEngine {
         });
         // 工作区是 Arc 共享的句柄，克隆一次只是加一次引用计数。
         Self::register_primitives(&mut engine, workspace.as_ref().clone());
-        // CRT 兼容门面（`crt.Screen` / `crt.Session` …）单独注册：它属于
-        // 迁移层，不是能力面的一部分，因此不参与
-        // `registered_primitives_match_the_script_projection_of_the_surface_table`
-        // 的对账，也不出现在 ADR-0019 的 schema 里。
-        crate::compat::register(&mut engine, workspace.as_ref().clone());
-
         let ast = engine.compile(script).map_err(|e| {
             let error = ScriptError::Syntax(e.to_string(), Self::position_of(e.position()));
-            // `last_error()` / `crt.GetLastErrorMessage()` 必须能看见失败原因；
-            // 两处失败都在这里落账，别让调用方只拿到一个 Err 却读不到文本。
+            // `last_error()` 必须能看见失败原因；编译与求值两处都在这里落账，
+            // 别让调用方只拿到一个 Err 却读不到文本。
             workspace.env().context.record_error(error.to_string());
             error
         })?;
@@ -2059,7 +2053,7 @@ mod tests {
         }
     }
 
-    /// `last_error()` / `crt.GetLastErrorMessage()` 的 e2e：编译失败与执行失败
+    /// `last_error()` 的 e2e：编译失败与执行失败
     /// 都要在共享 `ScriptContext` 上留一句可读文本，不能只把 Err 丢给调用方。
     #[test]
     fn compile_and_eval_failures_are_recorded_in_the_shared_context() {

@@ -6,8 +6,8 @@
 let marker = "$ ";        // 改成你的命令提示符
 let command = "uname -a"; // 改成你要执行的命令
 
-crt().screen.send(command + "\r");
-// 抓文本用全局 read_until（消费式）；门面的 wait_for_string 只返回布尔，拿不到文本。
+write(command + "\r");
+// 等待分两类：read_until 消费文本并返回到分隔符为止的内容；wait 只观察、不推进游标。
 let out = read_until(marker, 15);
 
 // 最后一条不带分号的表达式就是脚本返回值（CLI 会打印，GUI 显示在结果栏）。

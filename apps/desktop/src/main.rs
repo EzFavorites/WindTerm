@@ -30,6 +30,7 @@ mod script_env;
 mod script_fs;
 mod script_host;
 mod script_human;
+mod python_run;
 mod script_proc;
 mod script_recorder;
 mod script_run;

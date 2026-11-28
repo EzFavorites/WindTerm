@@ -19,6 +19,38 @@ term-desk script run a.rhai --timeout 30 --quiet
 窗口内的脚本编辑器使用同一套宿主 API，因此同一份脚本在 GUI 与 CLI 下行为
 一致（可用的宿主能力随上下文不同而收敛）。
 
+## 外部 Python 脚本
+
+`.py` 文件走**外部 Python 子进程 + stdio JSON-RPC 桥**，不是内嵌 Rhai：
+
+```sh
+term-desk script run a.py --allow process          # 必须放行 process
+WINDTERM_PYTHON=/opt/python3.12/bin/python3 ...     # 指定解释器
+# @cap process                                       # 或写在 .py 文件头
+```
+
+借鉴 CRT 的思路——写 Python、在会话里发命令等提示符——但机制不同：别家在进程内
+加载 Python DLL，我们把 Python 放在子进程里，靠一行一个 JSON 的桥接通信。好处是
+崩溃、GIL、第三方库都关在进程外；代价是每次 API 调用是一次 IPC。
+
+- **解释器**：默认找 PATH 上的 `python3` / `python`（Windows 上 `python` 优先），
+  可用 `WINDTERM_PYTHON` 指定绝对路径。
+- **授权**：起进程属于高风险能力，默认拒绝。脚本头写 `# @cap process`、命令行
+  用 `--allow process`，或在脚本面板勾选「运行程序」；只作用于本次运行。
+- **原生 API**：`crates/term-bridge::python_api_shim()` 从能力表派生出与动词同名的
+  Python 一等函数：`write(text)`、`read_until(pattern, timeout)`、`wait(...)`、
+  `wait_any(...)`、`screen()`、`session_list()`、`session_open(...)`、`session_use(name)`、
+  `log_start(dir)` 等。函数名与参数全部来自 `rpc_specs()` 的 schema，不会和桥接漂移。
+  返回值就是 RPC 结果对象（例如 `read_until(...)` 给 `{"text": ...}`）。
+- **上下文**：启动会话由 `ZTERM_SESSION` 注入并作为各函数的默认 `session` 参数；
+  `args()` / `script_path()` / `version()` / `last_error()` 是本地小助手，不走 RPC。
+- **不支持**：剪贴板、文件选择框等需要界面队列的能力在外部 Python 里显式失败，
+  不会返回空对象冒充成功。
+- **输出**：用户的 `print()` 被改道到 stderr（stdout 是 RPC 管道）；失败时 stderr
+  的异常栈会带进结果信息。
+- **取消与预算**：点「停止」或墙钟到点会 kill 并回收 Python 子进程，与 Rhai 脚本
+  共用同一套 `ScriptRun` 句柄。
+
 ## 宿主 API
 
 脚本动词与 JSON-RPC 桥共用**同一张能力描述表**（`term-core` 的 `surface`）：
@@ -70,42 +102,32 @@ term-desk script run a.rhai --timeout 30 --quiet
 > 重名时宿主会加后缀，返回值里带的是真名。
 
 脚本另有几个**脚本专属**原语，不在能力面上（因此不出现于 RPC 动词表）：
-`grep` / `grep_v`（标准正则的行级过滤）、`crt` 兼容门面。门面里
-`crt().get_tab(n).index()` 是标签对象的方法，不是全局函数。
+`grep` / `grep_v`（标准正则的行级过滤）。
 
-### `crt` 兼容门面与真实拼写
+### 从 CRT 借鉴的设计，以及刻意不照搬的地方
 
-门面提供 SecureCRT 的**对象形状与返回语义**，但注册名是 Rhai 的 snake_case：入口
-是函数调用 `crt()`，后面接小写属性与方法——`crt().screen.send(...)` 转发到 `write`、
-`crt().screen.get(...)` 转发到 `region`。`crt().screen.wait_for_string(...)` 内部走
-消费式 `read_until`（命中会吃掉匹配输出），但按 CRT 约定**只返回布尔**（命中
-`true`、超时 `false`），不把文本交回脚本；要捕获文本请用全局 `read_until`。对象上的
-PascalCase 别名也已注册（`crt().Screen.Send(...)`、`crt().GetTab(1)` 可用），所以照
-CRT 手册抄下来的脚本大多能直接跑；注意入口必须写成函数调用 `crt()`，不是属性
-`crt.`。下面的速查表只是风格参考，不是必改清单。门面只提供形状与返回值约定，
-不提供 VBScript / Python 解释器。
+我们借鉴的是那套终端自动化的**节奏与语义**，不是对象形状：录「人敲的字节 +
+屏幕静默点」生成「发一段 → 等提示符 → 再发一段」的脚本；区分「消费式读取」
+与「只观察不推进游标」；按会话名寻址并钉住目标；同一个脚本能从菜单、映射键、
+按钮栏、会话登录钩子和命令行多种入口启动。实现上全部落到 WindTerm 自己的
+全局动词，没有对象门面，也不解释别家脚本语言。
 
-| SecureCRT 写法 | WindTerm / Rhai 写法 | 说明 |
-|---|---|---|
-| `#$language = "VBScript"` / `#$language = "Python"` 两行头 | 无 | 只有 Rhai；授权另用单行 `// @cap ...` 头 |
-| `Sub Main() ... End Sub` / `def main():` | 无 `main()`，顶层直接写语句 | 最后一条不带分号的表达式是脚本返回值 |
-| `/SSH2 ...`（Open 会话配置行） | `session_open(#{config: #{host: "...", username: "...", auth: "agent"}})` | 也可用 `session_open(#{profile: "会话名"})` 开库里的会话 |
-| `crt.Arguments` / `crt.Arguments(0)` | `args()` / `args(0)` | 0 起，越界给空串；门面对应 `crt().arguments()` / `crt().argument(i)` |
-| `crt.GetLastErrorMessage()` | `last_error()` | 门面对应 `crt().last_error()` |
-| `crt.Screen.WaitForString(p, secs)` | `crt().screen.wait_for_string(p, secs)` | 返回**布尔**：命中 `true`、超时 `false`（对应 CRT 的 True/-1 与 False/0），命中串被消费掉；要文本改用 `read_until(p, secs)`。CRT 省略 `secs` 会一直等到取消/关闭，本门面的单参重载用缺省超时 |
-| `crt.Screen.WaitForStrings([...], secs)` / `crt.Screen.MatchIndex` | `crt().screen.wait_for_strings([...], secs)` | 返回最先命中模式在数组里的 **1 起下标**（真实 CRT 的 0 表示超时，本门面超时显式报错）；全局 `wait_any` 的 `hit["index"]` 同为 1 起 |
-| `crt.Screen.ReadString(p, secs)` | `crt().screen.read_string(p, secs)` | 命中返回分隔符**之前**的文本；超时返回**空串**（与 CRT 一致），不抛错；命中串被消费掉 |
+| 借鉴的设计点 | WindTerm 的原生写法 |
+|---|---|
+| 两行语言头 | 无；只有 Rhai，脚本头用单行 `// @cap ...` 声明本次授权 |
+| `Sub Main()` / `def main():` | 无 `main()`，顶层直接写语句；最后一条不带分号的表达式是返回值 |
+| 打开会话的配置行 | `session_open(#{config: #{host: "...", username: "...", auth: "agent"}})` 或 `session_open(#{profile: "会话名"})` |
+| 启动参数 | `args()` / `args(0)`，0 起，越界给空串 |
+| 等一个模式并取走输出 | `read_until(pattern, secs)`：命中返回到分隔符（含）为止的文本并推进游标；超时显式报错 |
+| 只等模式、不取走输出 | `wait(pattern, secs)`：返回已匹配文本，游标不动 |
+| 多模式取首个命中 | `wait_any([...], secs)`：返回 `{index, text}`，`index` 是 **1 起**下标 |
+| 取屏幕矩形 | `region(row1, col1, row2, col2)`，行列 1 起、含端点 |
+| 问用户 / 选文件 | `ask(...)` / `confirm` / `message` / `text_input` / `secret` / `pick_file` |
+| 多按钮消息框 | `ask(#{kind:"message", buttons:"abort_retry_ignore"})`，还支持 `retry_cancel` / `yes_no_cancel`；宿主回传具体按钮再映射成 ID |
 
-`crt().dialog.message_box(text, title, flags)` 支持全部六个 Win32/CRT 按钮组
-（`MB_OK` / `MB_OKCANCEL` / `MB_ABORTRETRYIGNORE` / `MB_YESNOCANCEL` / `MB_YESNO` /
-`MB_RETRYCANCEL`），返回各自的 CRT ID（`IDOK=1`、`IDCANCEL=2`、`IDABORT=3`、
-`IDRETRY=4`、`IDIGNORE=5`、`IDYES=6`、`IDNO=7`）。对应的全局 `ask` 写法是
-`ask(#{kind:"message", buttons:"abort_retry_ignore"})`，按钮名还可以写
-`retry_cancel` / `yes_no_cancel` 等。窗口与无窗口宿主都会回传**具体按了哪个按钮**，
-所以三按钮组能区分三个 ID。
-
-全局没有 `send` / `wait_for_string` 这类裸函数：要么用全局动词 `write` /
-`read_until`，要么走 `crt().screen.*` 门面。
+**刻意不同**：只支持 Rhai 一种语言，不解析别家的两行头；等待超时是显式错误，
+不返回「假装成功」的哨兵；危险能力按运行授权，不全局放行；不做对象门面，
+所以照别家手册抄来的对象链不能直接跑——按上表改成动词即可。
 
 ## 执行环境
 
@@ -189,13 +211,13 @@ write("<口令>\n");
 
 | 偏差 | CRT 的做法 | WindTerm 现在的事实 |
 |---|---|---|
-| 无多语言解释器 | 支持 VBScript / Python 等多种语言，由两行 `#$Language` 头选定 | 只有 Rhai。门面提供 CRT 的**对象形状与返回语义**，不解释 VBScript / Python，也不执行它们的语句 |
+| 无多语言解释器 | 支持 VBScript / Python 等多种语言，由两行 `#$Language` 头选定 | 只有 Rhai（另有外部 Python 子进程通道）。不解释 VBScript / Python 语句，也不提供任何对象门面 |
 | 无两行头 | 开头两行 `#$language = "VBScript"` 之类用于选语言 | 不解析两行头；脚本头只有可选的**单行** `// @cap ...`，它是本次运行的授权声明，不是语言选择 |
-| 超时是两套契约 | `WaitForString` 超时给 `false`、`ReadString` 给哨兵、`WaitForStrings` / `MatchIndex` 给 0，都不抛错 | **全局动词** `wait` / `wait_any` / `read_until` / `read` 超时即显式失败（原因可从 `last_error()` 读），不返回哨兵；**门面成员** `crt().screen.wait_for_string` / `read_string` 按 CRT 返回哨兵而不抛错。两套契约并存，别混用 |
+| 超时显式失败 | `WaitForString` 超时给 `false`、`ReadString` 给哨兵、`WaitForStrings` / `MatchIndex` 给 0，都不抛错 | `wait` / `wait_any` / `read_until` 超时即显式失败（原因可从 `last_error()` 读），不返回哨兵；只有排水用的 `read` 在超时时返回空串。要「布尔命中」就写 `wait` 后自己判空，别指望哨兵 |
 | 无每次运行的授权 | CRT 没有 per-run capability grant：脚本能做什么取决于脚本与宿主环境，没有按次收紧的开关 | `// @cap` 与 CLI `--allow` 是刻意加的**安全增强**，只作用于本次运行；文件、外部进程、剪贴板读、窗口与应用级状态默认全拒 |
 | 无前后台模式 | CRT 不区分脚本的前台 / 后台运行模式 | 不做该区分；把脚本跑在独立会话 / 进程里只是自动化安全的实现细节，不是用户可见的模式开关 |
 | 录制器形似而神不同 | 录人敲的键 + 观察到的输出，生成 `Send` / `WaitForString` 对 | 同样从**按键 + 屏幕安静锚点**录制，但生成 `write` / `read_until` 对（见「录制脚本」节） |
-| 无自定义对话框 / OLE | 支持自定义窗体与 OLE 自动化 | 不支持；`crt().dialog` 只有 `message_box` / `prompt` / `file_open_dialog` / `file_save_dialog` 四种固定形态 |
+| 无自定义对话框 / OLE | 支持自定义窗体与 OLE 自动化 | 不支持；交互只有 `ask` / `confirm` / `message` / `text_input` / `secret` / `pick_file` 六种固定形态 |
 
 ## JSON-RPC 桥
 

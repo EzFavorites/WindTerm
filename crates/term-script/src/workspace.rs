@@ -138,7 +138,7 @@ struct Inner {
     /// 同步写开关（`set_synchronous`）。整个工作区一份，是**唯一真源**：
     /// 门面的 `Screen.Synchronous` 属性与全局 `set_synchronous` 都读写这一位。
     synchronous: AtomicBool,
-    /// `LogFileName` 设置的模板（`crt` 门面用）：下一次 `log_start` 生效。
+    /// 日志文件名模板：下一次 `log_start` 生效。
     log_template: Mutex<Option<LogOptions>>,
     /// 脚本**启动时**绑定的会话（`script_session()`）：不随 `session_use` 改。
     script_session: SessionId,
@@ -152,7 +152,7 @@ pub struct ScriptWorkspace {
     /// 这个句柄**只会话**作用在哪一条会话上：`None` = 跟随全局绑定（普通
     /// 脚本句柄），`Some(id)` = 钉死在那一条。
     ///
-    /// 为什么需要它：`crt.GetTab(2).Screen.Send(…)` 必须打到 2 号标签上，
+    /// 为什么需要它：多会话脚本对 2 号标签的写入必须打到那条会话上，
     /// 而「改全局绑定再改回来」既不是原子的、也会让并发克隆看到中间的绑定。
     ///
     /// 用 `Arc<Mutex<…>>` 而不是朴素的 `Option`：门面的 getter 每次都造一个新
@@ -184,7 +184,7 @@ impl ScriptWorkspace {
         }
     }
 
-    /// 把句柄钉到某一条会话上（[`CrtTab`](crate::compat::CrtTab) 用）。
+    /// 把句柄钉到某一条会话上（多会话脚本按标签操作时用）。
     ///
     /// 与 `session_use` 的区别：`session_use` 改的是**全局绑定**，所有克隆
     /// 都跟着变；这里只改这一个句柄的视角，别处不受影响，也不需要把绑定
@@ -196,7 +196,7 @@ impl ScriptWorkspace {
         self.wrap_session(id)?;
         Ok(Self {
             inner: Arc::clone(&self.inner),
-            // 新开一格：钉住 2 号不能顺手把 `crt()` 本体也钉住。
+            // 新开一格：钉住某条会话不能顺手把全局绑定也改掉。
             scoped: Arc::new(Mutex::new(Some(id))),
         })
     }
@@ -863,7 +863,7 @@ impl ScriptWorkspace {
         session.log_start_full(dir, &session_name, host.as_deref().unwrap_or(""), &opts)
     }
 
-    /// 记下 `LogFileName` 模板（`crt` 门面用）。
+    /// 记下日志文件名模板。
     pub fn remember_log_template(&self, opts: LogOptions) {
         if let Ok(mut slot) = self.inner.log_template.lock() {
             *slot = Some(opts);

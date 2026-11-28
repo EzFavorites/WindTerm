@@ -274,7 +274,7 @@ impl GridSnapshot {
         self.cells.get(from..(from + self.cols).min(self.cells.len()))
     }
 
-    /// 屏幕上的一个矩形区域，坐标**1 起、含端点**（SecureCRT `Screen.Get` 的形状）。
+    /// 屏幕上的一个矩形区域，坐标**1 起、含端点**（CRT `Screen.Get` 的形状）。
     ///
     /// 越界坐标**裁剪**而不是报错：CRT 的 `Get` 就是这样——脚本按 `Rows`/`Columns`
     /// 拼坐标时多算一行是常事，为此中断整段脚本不值。行间用 `\r\n`（CRT 同形），
