@@ -126,6 +126,48 @@ fn a_user_keypress_preempts_and_releases_an_exclusive_api_owner() {
     guard.clear(key);
 }
 
+/// 走 pane.rs 的真实键盘落地漏斗，而不是直接调抢占信号：egui `Event::Text`
+/// 转成字节后写会话，必须先释放已有的独占 owner，字节也确实进了这个会话。
+#[test]
+fn a_key_event_sent_to_the_terminal_releases_an_exclusive_owner() {
+    let (tab, writes) = fixture("key-event-preempts-exclusive");
+    let key = key_of(&tab);
+    let grant = {
+        let mut guard = shared_arbiter().lock().expect("仲裁器锁");
+        guard
+            .request(key, "api:write", Priority::P2Explicit, true)
+            .expect("独占申请应放行")
+    };
+    assert!(grant.owner);
+    assert_eq!(
+        shared_arbiter().lock().expect("仲裁器锁").owner(key).unwrap().source,
+        "api:write"
+    );
+
+    // 与 pane.rs 的 Event::Text 分支同一套编码口径：普通字符 "x"。
+    let text = "x";
+    let bytes = term_core::keys::text_bytes_for_modifiers(
+        text,
+        false,
+        false,
+        tab.config.alt_modifier_sends,
+        tab.config.meta_modifier_sends,
+    )
+    .unwrap_or_else(|| text.as_bytes().to_vec());
+    crate::ui::terminal::pane::send_user_key_bytes(&tab, &bytes);
+
+    {
+        let guard = shared_arbiter().lock().expect("仲裁器锁");
+        assert!(guard.owner(key).is_none(), "真实按键释放已有独占 owner");
+        assert!(!guard.is_valid(key, &grant), "已排队的写许可作废");
+        assert!(guard.suppressed_count(key) >= 1, "抢占必须留痕");
+    }
+    crate::ui::lifecycle_test_support::eventually("按键字节写进会话", || {
+        writes.0.lock().expect("读写入").as_slice() == b"x"
+    });
+    shared_arbiter().lock().expect("仲裁器锁").clear(key);
+}
+
 #[test]
 fn same_frame_writes_are_sorted_by_priority_then_sequence() {
     let (mut tab, writes) = fixture("priority-order-no-interleave");

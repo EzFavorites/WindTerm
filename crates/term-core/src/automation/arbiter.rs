@@ -145,8 +145,15 @@ struct SessionState {
 }
 
 impl SessionState {
+    /// 记一条留痕并计一次压制（用于「本次请求被拒」这种一对一场景）。
     fn note(&mut self, source: &str, priority: Priority, reason: SuppressionReason, seq: u64) {
+        self.push_note(source, priority, reason, seq);
         self.suppressed += 1;
+    }
+
+    /// 只写留痕、不计数。批量作废时计数按作废的许可数算，
+    /// 一条日志不能把同一个数字再加一遍。
+    fn push_note(&mut self, source: &str, priority: Priority, reason: SuppressionReason, seq: u64) {
         if self.notes.len() >= NOTE_LIMIT {
             self.notes.remove(0);
         }
@@ -159,13 +166,14 @@ impl SessionState {
     }
 
     /// 所有者被换掉 / 按键抢占时，所有已排队许可一次性失效并留痕。
+    /// 压制数就是作废的许可条数——日志只有一条，不能重复计数。
     fn invalidate_pending(&mut self, reason: SuppressionReason) -> u64 {
         let count = self.pending;
         self.pending = 0;
         self.epoch = self.epoch.wrapping_add(1);
         if count > 0 {
             self.suppressed = self.suppressed.saturating_add(count);
-            self.note("pending", Priority::P3Rule, reason, self.seq);
+            self.push_note("pending", Priority::P3Rule, reason, self.seq);
         }
         count
     }
@@ -375,7 +383,10 @@ mod tests {
         assert!(Priority::P2Explicit > Priority::P3Rule);
         assert!(Priority::P3Rule > Priority::P4Passive);
         assert!(!Priority::P4Passive.is_write());
-        assert_eq!(Priority::P3Rule.rank(), 3);
+        // rank 只是同帧排序用的内部刻度（discriminant + 1），不是 ADR 表里的
+        // 级别号：只钉它的相对顺序，不硬编码某个具体数字。
+        assert!(Priority::P4Passive.rank() < Priority::P3Rule.rank());
+        assert!(Priority::P3Rule.rank() < Priority::P2Explicit.rank());
     }
 
     #[test]
@@ -398,17 +409,17 @@ mod tests {
         let mut arbiter = Arbitrator::new();
         let rule = arbiter.request(1, "rule", Priority::P3Rule, false).unwrap();
         let plain = arbiter.request(1, "api", Priority::P2Explicit, false).unwrap();
-        assert!(plain.owner, "显式调用默认不抢 owner");
-        assert_eq!(arbiter.owner(1).unwrap().source, "api", "owner 字段仍指向真正的 owner");
+        assert!(!plain.owner, "显式调用默认不抢 owner（ADR 决策 6）");
+        assert_eq!(arbiter.owner(1).unwrap().source, "rule", "owner 仍是默认持有者");
         assert!(arbiter.is_valid(1, &rule), "非独占不打断同帧规则写入");
 
         let mut other = Arbitrator::new();
         let rule = other.request(1, "rule", Priority::P3Rule, false).unwrap();
-        assert_eq!(
-            other.request(1, "api", Priority::P2Explicit, true).unwrap_err(),
-            Denied::Busy { owner: "rule".into(), phase: Phase::Live }
-        );
-        assert!(other.is_valid(1, &rule));
+        // 一旦显式声明 exclusive，P2 高于 P3：抢 owner 并作废此前排队的规则写。
+        let claimed = other.request(1, "api", Priority::P2Explicit, true).unwrap();
+        assert!(claimed.owner);
+        assert_eq!(other.owner(1).unwrap().source, "api");
+        assert!(!other.is_valid(1, &rule), "独占抢占让旧许可失效");
     }
 
     #[test]
@@ -464,8 +475,12 @@ mod tests {
         let grant = arbiter.request(5, "rule", Priority::P3Rule, false).unwrap();
         assert!(arbiter.is_valid(5, &grant));
         let preemption = arbiter.user_key_pressed(5);
-        assert_eq!(preemption.suppressed, 1);
+        assert_eq!(preemption.suppressed, 1, "作废一条排队写就报一条");
         assert!(!arbiter.is_valid(5, &grant));
-        assert_eq!(arbiter.suppressed_count(5), 1);
+        assert_eq!(
+            arbiter.suppressed_count(5), 1,
+            "累计口径与本次返回值一致：留痕日志不重复计数"
+        );
+        assert_eq!(arbiter.notes(5).len(), 1);
     }
 }
