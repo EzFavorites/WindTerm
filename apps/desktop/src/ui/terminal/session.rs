@@ -12,7 +12,9 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use term_core::automation::{Effect, Phase, Priority, Release, Signal, Target, Ticks};
+use term_core::automation::{
+    validate_rules, Effect, Phase, Priority, Release, Rule as CoreRule, Signal, Target, Ticks,
+};
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
 use term_core::session::{backoff, effective, ReconnectPolicy};
@@ -58,6 +60,46 @@ pub(super) fn set_test_now(now: Option<u64>) {
 pub(in crate::ui) fn open_link_with(url: &str, opener: impl FnOnce(&Path) -> std::io::Result<()>) {
     if let Err(err) = opener(Path::new(url)) {
         eprintln!("触发器 Open hyperlink 失败：{err}");
+    }
+}
+
+/// 编辑投影 → 内核规则，再过装载期校验。抽成独立函数是为了让「坏规则被拒」
+/// 不必造一个完整窗口夹具就能测（见本文件末尾的金样本）。
+fn load_core_rules(rules: &[Rule], note: &mut Option<String>) -> Vec<CoreRule> {
+    let mut core_rules = Vec::with_capacity(rules.len());
+    for rule in rules {
+        match model::ViewRule::to_core(rule) {
+            Ok(core) => core_rules.push(core),
+            Err(msg) if note.is_none() => *note = Some(msg),
+            Err(_) => {}
+        }
+    }
+    validate_core_rules(core_rules, note)
+}
+
+/// `Evaluator::reload` 只换规则本体、按 id 留运行态，不校验 method / params /
+/// 可见性。这里在 reload 之前调用内核的 `validate_rules`，把不合格的整条剔掉。
+/// 坏规则留到命中那一刻才变 NoEffect，是用户最难察觉的失败方式。
+fn validate_core_rules(
+    mut core_rules: Vec<CoreRule>,
+    note: &mut Option<String>,
+) -> Vec<CoreRule> {
+    loop {
+        match validate_rules(&core_rules) {
+            Ok(()) => return core_rules,
+            Err((id, fault)) => {
+                if note.is_none() {
+                    *note = Some(format!("规则 {id} 装载期被拒：{fault}"));
+                }
+                let before = core_rules.len();
+                core_rules.retain(|r| r.id != id);
+                if core_rules.len() == before {
+                    // 防御性出口：validate_rules 报的 id 一定来自这批规则，
+                    // 真出现不一致也不能让事件泵卡在死循环里。
+                    return core_rules;
+                }
+            }
+        }
     }
 }
 
@@ -158,16 +200,10 @@ impl Tab {
         let now = now_secs();
         // 编辑投影 → 内核规则。每帧 reload 不会清运行态：`Evaluator::reload`
         // 按规则 id 保留冷却 / once 记账，只更新规则本体。
-        // 无效模式的规则不能退化成「匹配每一行」的空模式：跳过它，并把原因
-        // 交给状态栏。其余规则照常 reload，一条坏规则不至于拖垮整帧事件泵。
-        let mut core_rules = Vec::with_capacity(rules.len());
-        for rule in rules {
-            match model::ViewRule::to_core(rule) {
-                Ok(core) => core_rules.push(core),
-                Err(msg) if note.is_none() => *note = Some(msg),
-                Err(_) => {}
-            }
-        }
+        // 无效模式的规则不能退化成「匹配每一行」的空模式；装载期校验还会挡掉
+        // method / params / 可见性不合格的动作。两类坏规则都跳过，并把原因交给
+        // 状态栏。其余规则照常 reload，一条坏规则不至于拖垮整帧事件泵。
+        let core_rules = load_core_rules(rules, note);
         self.triggers.reload(&core_rules);
         // 2026-11-19 只读查看：**先**用「上一帧的 history + 当前 scroll」算出用户
         // 此刻看到的顶部绝对行，末尾再按新的 history 钉回去。
@@ -757,5 +793,47 @@ mod tests {
             Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no opener"))
         });
         assert!(*called.borrow());
+    }
+
+    #[test]
+    fn bad_rules_are_rejected_at_load_time_not_on_hit() {
+        use term_core::automation::{Action, Evaluator, Filter, Guard, When};
+
+        fn core(id: &str, method: &str, params: serde_json::Value) -> CoreRule {
+            CoreRule {
+                id: id.into(),
+                name: id.into(),
+                enabled: true,
+                when: When::Connected,
+                filter: Filter::default(),
+                guard: Guard::default(),
+                release: Release::default(),
+                actions: vec![Action::SessionInvocation { method: method.into(), params }],
+            }
+        }
+
+        let bad_method = core("bad-method", "not_a_verb", serde_json::json!({}));
+        let bad_params = core(
+            "bad-params",
+            "write",
+            serde_json::json!({ "session": "s", "text": 42 }),
+        );
+        let good = core(
+            "good",
+            "write",
+            serde_json::json!({ "session": "s", "text": "hi" }),
+        );
+
+        // 没有这道闸门时 reload 会照单全收：先钉住问题确实存在。
+        let mut probe = Evaluator::new();
+        assert!(probe.reload(&[bad_method.clone(), bad_params.clone(), good.clone()]).is_empty());
+        assert_eq!(probe.rules().len(), 3);
+
+        let mut note = None;
+        let loaded = validate_core_rules(vec![bad_method, bad_params, good], &mut note);
+        assert_eq!(loaded.len(), 1, "两条坏规则都不得进求值器");
+        assert_eq!(loaded[0].id, "good");
+        let note = note.expect("坏规则须把原因写进状态栏");
+        assert!(note.contains("bad-method") && note.contains("能力面"), "{note}");
     }
 }

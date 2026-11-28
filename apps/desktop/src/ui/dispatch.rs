@@ -95,31 +95,36 @@ impl TerminalWindow {
         };
         let key = arbiter_session(&self.pool, id);
         let source = format!("menu:{}", call.method);
-        let grant = {
+        let request = {
             let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
             arbiter.request(key, &source, Priority::P2Explicit, false)
         };
-        let grant = match grant {
-            Ok(grant) => grant,
-            Err(denied) => {
-                self.commit_note(Some(denied.as_message()));
-                return;
+        // 申请 / 回收必须成对：Err 路径以前直接 return，漏掉 release，失败请求
+        // 可能留下一个没人敢释放的 owner（P2-4）。把「拿到 grant 之后干什么」
+        // 收进闭包，闭包只出结果、不提前 return；回收在闭包外走同一处。
+        // 注意不能把锁跨过 invoke_granted：它在 send_granted 里会再锁一次。
+        let outcome = (|| {
+            let grant = match request {
+                Ok(grant) => grant,
+                Err(denied) => return Err(denied.as_message()),
+            };
+            let mut params = call.params.clone();
+            if !params.get("session").is_some_and(Value::is_string) {
+                params["session"] = Value::String(name);
             }
-        };
-        let mut params = call.params.clone();
-        if !params.get("session").is_some_and(Value::is_string) {
-            params["session"] = Value::String(name);
+            // 这里**不再**在锁外做一次 is_valid 预检：那和 PTY 写入之间仍有
+            // 窗口（P0 按键 / 独占抢占正好插在中间）。唯一的判据落在
+            // `DeskSurface::send_granted` 的同一把 arbiter 锁里，失效就不写。
+            let surface = DeskSurface::with_arbiter(self.pool.clone(), shared_arbiter_arc());
+            surface.invoke_granted(&call.method, &params, &grant).map_err(|err| err.message)
+        })();
+        // 成功 / 失败 / 压制都落在这唯一一处回收点。
+        {
+            let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
+            let _ = arbiter.release(key, &source);
         }
-        // 这里**不再**在锁外做一次 is_valid 预检：那和 PTY 写入之间仍有
-        // 窗口（P0 按键 / 独占抢占正好插在中间）。唯一的判据落在
-        // `DeskSurface::send_granted` 的同一把 arbiter 锁里，失效就不写。
-        let surface = DeskSurface::with_arbiter(self.pool.clone(), shared_arbiter_arc());
-        let result = surface.invoke_granted(&call.method, &params, &grant);
-        let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
-        arbiter.release(key, &source);
-        drop(arbiter);
-        if let Err(err) = result {
-            self.commit_note(Some(err.message));
+        if let Err(message) = outcome {
+            self.commit_note(Some(message));
         }
     }
 

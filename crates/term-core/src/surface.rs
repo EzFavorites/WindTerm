@@ -209,8 +209,8 @@ pub static METHODS: &[MethodSpec] = &[
         name: "write",
         summary: "往会话写入**原始字节**（对提示的应答、要自己拼控制字符的场合）。\
                   只保证写进本地通道，不保证远端已处理——要确认效果就用 wait 等它的\
-                  回显。要按「键」而不是按字符输入请用 keys。",
-        params_schema: r#"{"type":"object","properties":{"session":{"type":"string","minLength":1,"description":"会话名（`session_list` 返回的 name；池内唯一）"},"text":{"type":"string","description":"要写入的文本（按 UTF-8 转字节，原样发送，不自动加换行；要发控制字符就自己带 \\u000d 之类）"}},"required":["session","text"]}"#,
+                  回显。要按「键」而不是按字符输入请用 keys。exclusive=true 时以 P2 独占抢 owner（压制同帧规则写），缺省 false 只参与帧内排序。",
+        params_schema: r#"{"type":"object","properties":{"session":{"type":"string","minLength":1,"description":"会话名（`session_list` 返回的 name；池内唯一）"},"text":{"type":"string","description":"要写入的文本（按 UTF-8 转字节，原样发送，不自动加换行；要发控制字符就自己带 \\u000d 之类）"},"exclusive":{"type":"boolean","default":false,"description":"缺省 false：只参与帧内排序；true 时以 P2 独占抢 owner 并压制同帧规则写"}},"required":["session","text"]}"#,
         result_schema: r#"{"type":"object","properties":{"written":{"type":"boolean","description":"恒为 true；失败走 error 分支"}},"required":["written"]}"#,
         kind: MethodKind::Write,
         exposure: Exposure::Both,
@@ -907,6 +907,23 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn write_params_schema_declares_exclusive_with_a_false_default() {
+        // 桥接的 write / keys 都用 `optional_bool(params, "exclusive")?.unwrap_or(false)`
+        // 读这个参数：能力面若漏写，describe 与 MCP 客户端就看不到它，规则装载期
+        // 也会把合法调用判成参数形状不符。schema 必须和派发实现同一口径。
+        let schema: serde_json::Value =
+            serde_json::from_str(find("write").expect("存在").params_schema).expect("合法 JSON");
+        let exclusive = &schema["properties"]["exclusive"];
+        assert_eq!(exclusive["type"], serde_json::json!("boolean"));
+        assert_eq!(exclusive["default"], serde_json::json!(false));
+        // 可选：required 只锁 session / text，调用方省略 exclusive 即非独占。
+        assert_eq!(
+            schema["required"],
+            serde_json::json!(["session", "text"])
+        );
     }
 
     #[test]
