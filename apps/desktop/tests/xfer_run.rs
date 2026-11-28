@@ -238,14 +238,15 @@ fn ymodem_header_gives_the_name_and_the_size() {
     pool.close(id);
 }
 
-// ── 2. 路径穿越 ───────────────────────────────────────────────────────────
+// ── 2. 脏文件名（目录穿越 / 绝对路径）──────────────────────────────────────
+// 清洗已前移到握手（YMODEM 头块解析）阶段：名字不是合法单段名就整笔拒绝，
+// 不再「洗成 basename 后落盘」。这三条例子的共同证据是：报错 + 目标目录零文件。
 
 #[test]
-fn a_traversal_name_lands_inside_the_target_directory_as_a_bare_name() {
-    let dir = unique_dir("rx-traversal");
+fn a_traversal_name_is_refused_at_handshake_and_writes_nothing() {
+    let dir = unique_dir("rx-refuse-traversal");
     let (pool, id) = session();
-    let data = b"root:x:0:0".to_vec();
-    let wire = modem_stream(Protocol::Ymodem, "../../etc/passwd", &data);
+    let wire = modem_stream(Protocol::Ymodem, "../../etc/passwd", b"root:x:0:0");
 
     let handle = XferHandle::start(
         pool.clone(),
@@ -258,14 +259,20 @@ fn a_traversal_name_lands_inside_the_target_directory_as_a_bare_name() {
     std::thread::sleep(Duration::from_millis(50));
     feed_framewise(&pool, id, &wire);
 
-    wait_until("传输结束", || handle.progress().finished);
-    assert_eq!(handle.progress().error, None);
-    // 关键：落在目标目录下、名字只有 basename；目标目录之外一个字节都没写。
-    assert_eq!(
-        std::fs::read(dir.join("passwd")).expect("应当落在目标目录下的 passwd"),
-        data
+    wait_until("驱动报错", || handle.progress().error.is_some());
+    let progress = handle.progress();
+    assert!(!progress.finished, "拒绝之后不该说成功：{progress:?}");
+    let error = progress.error.expect("应当有错误");
+    assert!(error.contains("文件名不是合法的单段名字"), "{error}");
+    assert!(
+        error.contains("../../etc/passwd"),
+        "要点名被拒绝的名字：{error}"
     );
-    assert!(!dir.join("etc").exists(), "不许把目录结构带进来");
+    assert_eq!(
+        std::fs::read_dir(&dir).expect("读目录").count(),
+        0,
+        "拒绝的文件名不许落下任何文件"
+    );
     pool.close(id);
 }
 
@@ -318,8 +325,10 @@ fn an_absolute_path_is_refused_and_writes_nothing() {
 
     wait_until("驱动报错", || handle.progress().error.is_some());
     let progress = handle.progress();
-    let error = progress.error.clone().expect("应当有错误");
-    assert!(error.contains("绝对路径"), "{error}");
+    assert!(!progress.finished, "拒绝之后不该说成功：{progress:?}");
+    let error = progress.error.expect("应当有错误");
+    assert!(error.contains("文件名不是合法的单段名字"), "{error}");
+    assert!(error.contains("/abs/passwd"), "要点名被拒绝的路径：{error}");
     assert_eq!(
         std::fs::read_dir(&dir).expect("读目录").count(),
         0,
