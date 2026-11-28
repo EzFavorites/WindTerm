@@ -95,9 +95,9 @@ pub(in crate::ui) enum CompId {
     /// Preferences 的**单页**：`--demo comp:dialog_settings_<页名>`。
     ///
     /// 理由同 New Session：整张 `dialog_settings` 只拍得到默认页（2026-11-15
-    /// 起是 Application），其余 23 页改了什么基线完全看不见。
-    /// 下标是 `SettingsPage::ALL` 的**组件夹具页序**（含 5 个不在左栏显示的
-    /// 管理页，见 `settings.rs::NAV_TOP` 注释），共 24 页。
+    /// 起是 Application），其余 21 页改了什么基线完全看不见。
+    /// 下标是 `SettingsPage::ALL` 的**组件夹具页序**（含 3 个不在左栏显示的
+    /// 隐藏页，见 `settings.rs::NAV_TOP` 注释），共 22 页。
     SettingsPage(u8),
     /// 窗口底部两条整宽横栏。整窗图里它们被终端内容包围，
     /// 单独出图才能逐字核对 4 组 15 项与状态栏右区 5 段。
@@ -587,8 +587,8 @@ mod tests {
 
     #[test]
     fn every_settings_page_has_exactly_one_registered_component() {
-        // 与 New Session 同一条契约：一页一张图。Preferences 21 页
-        // （上游 19 + Triggers / OneKeys），漏一页就没人发现内容改了。
+        // 与 New Session 同一条契约：一页一张图。Preferences 22 页
+        // （上游 19 + Triggers / OneKeys + 隐藏的 Script & API），漏一页就没人发现内容改了。
         let pages: Vec<u8> = CompId::ALL
             .iter()
             .filter_map(|c| match c {
@@ -597,8 +597,8 @@ mod tests {
             })
             .collect();
         assert_eq!(pages.len(), dialogs::SettingsPage::ALL.len());
-        assert_eq!(pages.len(), 21);
-        for n in 0..21u8 {
+        assert_eq!(pages.len(), 22);
+        for n in 0..22u8 {
             assert_eq!(
                 pages.iter().filter(|p| **p == n).count(),
                 1,
@@ -635,6 +635,7 @@ mod tests {
             "widgets",
             "filer",
             "quick_bar",
+            "script_api",
         ];
         for (i, slug) in slugs.iter().enumerate() {
             let want = format!("dialog_settings_{slug}");
@@ -657,7 +658,10 @@ mod tests {
         // Preferences 的每一页都出图并参与逐字节比对（OneKeys 已按参考图
         // Sessions 图重冻，`dialog_settings_onekeys.png` 进了 git）。
         assert!(CompId::SettingsPage(0).has_baseline());
-        assert!(CompId::SettingsPage(21).has_baseline());
+        // 断言最后一个**真实**页码：写死 22 会落到不存在的组件上，空过门禁。
+        let last = dialogs::SettingsPage::ALL.len() - 1;
+        assert_eq!(last, 21, "最后一个真实页码");
+        assert!(CompId::SettingsPage(last as u8).has_baseline());
         let onekeys = dialogs::SettingsPage::ALL
             .iter()
             .position(|p| *p == dialogs::SettingsPage::OneKeys)

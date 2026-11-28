@@ -9,7 +9,7 @@ use super::*;
     fn all_pages_round_trip_through_index() {
         // `ALL` 是组件基线的唯一页序（左栏另见 `NAV_TOP`）：`SettingsPage(i)`
         // 的下标就是它的下标，所以 index / from_index 必须是一对反函数。
-        assert_eq!(SettingsPage::ALL.len(), 21);
+        assert_eq!(SettingsPage::ALL.len(), 22);
         for (i, page) in SettingsPage::ALL.iter().enumerate() {
             assert_eq!(page.index(), i, "{page:?} 的 index 与它在 ALL 里的位置不一致");
             assert_eq!(SettingsPage::from_index(i), Some(*page));
@@ -55,6 +55,7 @@ use super::*;
             SettingsPage::AutoCompletion,
             SettingsPage::Triggers,
             SettingsPage::OneKeys,
+            SettingsPage::ScriptApi,
         ] {
             assert!(page_spec(page).is_none(), "{page:?} 不该走数据表");
         }

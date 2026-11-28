@@ -204,6 +204,7 @@ pub(in crate::ui) fn page_note(page: SettingsPage) -> &'static str {
         SettingsPage::Highlight => "", // live 页（caret line / incremental search 真，其余三行灰）
         SettingsPage::Triggers => TRIGGERS_NOTE,
         SettingsPage::OneKeys => ONEKEYS_NOTE,
+        SettingsPage::ScriptApi => "", // 手绘只读页，说明在页内
         _ => DISABLED_NOTE,
     }
 }
@@ -250,7 +251,8 @@ pub(in crate::ui) fn page_spec(page: SettingsPage) -> Option<PageSpec> {
         | SettingsPage::Triggers
         | SettingsPage::OneKeys
         | SettingsPage::Security
-        | SettingsPage::Proxy => return None,
+        | SettingsPage::Proxy
+        | SettingsPage::ScriptApi => return None,
         // Highlight 页 2026-11-19 接成真控件（settings_live_highlight）：
         // caret line 一行有完整读者（Prefs + Tab.marks + 渲染器），接真；
         // 其余三行仍按数据表画法灰显，说明跟着页搬到 live 文件

@@ -70,8 +70,8 @@ impl CompId {
         CompId::NewSessionPage(23),
         // Preferences 同理按**页**登记：整张弹窗那张 `dialog_settings` 只守住
         // 默认页（是 Application）的位置与外观。
-        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 21 页（上游 19 页 +
-        // Triggers / OneKeys 两个新增管理页）；其中 2 页不在左栏显示。
+        // 下标即 `SettingsPage::ALL` 的组件夹具页序，共 22 页（上游 19 页 +
+        // Triggers / OneKeys 两个管理页 + 隐藏的 Script & API 页）；3 页不在左栏。
         CompId::SettingsPage(0),
         CompId::SettingsPage(1),
         CompId::SettingsPage(2),
@@ -94,6 +94,8 @@ impl CompId {
         CompId::SettingsPage(18),
         CompId::SettingsPage(19),
         CompId::SettingsPage(20),
+        // 21 = 隐藏末页 Script & API（只读状态 + 既有入口）。
+        CompId::SettingsPage(21),
         CompId::QuickCommandBar,
         CompId::StatusBar,
         CompId::ConfirmCloseWindow,
@@ -254,7 +256,7 @@ impl CompId {
             // Telnet·Tcp 的 Connection）。首轮只登记不出图（否则脚本因缺 PNG
             // 直接红）；**同日已首次出图并逐张核对**，现在一起并进逐字节比对。
             CompId::NewSessionPage(_) => true,
-            // Preferences 的 24 页：首轮出图即冻结，之后「哪一页被改坏」是
+            // Preferences 的 22 页：首轮出图即冻结，之后「哪一页被改坏」是
             // 逐字节问题，不再需要在一整张默认页截图里靠肉眼找。
             CompId::SettingsPage(_) => true,
             // Mode 菜单夹具已出图并与 `mode/01-mode-menu.png`
@@ -330,5 +332,6 @@ fn settings_component(page: dialogs::SettingsPage) -> &'static str {
         SP::QuickBar => "dialog_settings_quick_bar",
         SP::Triggers => "dialog_settings_triggers",
         SP::OneKeys => "dialog_settings_onekeys",
+        SP::ScriptApi => "dialog_settings_script_api",
     }
 }

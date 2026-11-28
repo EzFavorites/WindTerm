@@ -81,6 +81,8 @@ mod triggers;
 pub(in crate::ui) mod tunnel_settings;
 mod settings_pages;
 mod settings_pages_view;
+// ：隐藏末页 `Script & API`——只读状态 + 既有管理入口，不新增任何编辑器。
+mod settings_live_script_api;
 // ：`shortcuts` 从 `mod` 提到 `pub(in crate::ui)`——两段式键的运行期表
 // 由它构造（`runtime_sequence_table`），`construct.rs` 与 `lifecycle_test_support.rs`
 // 都要在造窗口时拿到同一份（各自现算会变成两份真相）。

@@ -778,6 +778,28 @@ pub(super) fn zh(en: &'static str) -> &'static str {
         "Recent" => "最近",
         "no scripts in library" => "脚本库里还没有脚本",
         "nothing run yet" => "还没有跑过脚本",
+        // ── 隐藏末页 Preferences ▸ Script & API ──
+        // 只读状态页的页名 / 分组 / 状态行 / 按钮 / 来源说明。数值、文件名与
+        // 路径是数据（含 `PATH` / token 字节数），不翻译。
+        "Script & API" => "脚本与 API",
+        "Scripts" => "脚本",
+        "Script Panel" => "脚本面板",
+        "Bridge API" => "桥接 API",
+        "Python" => "Python 解释器",
+        "Registered scripts" => "已注册脚本",
+        "Recent runs" => "最近运行",
+        "Library files" => "库内脚本文件",
+        "Trigger rules" => "触发器规则",
+        "Bridge port" => "桥接端口",
+        "Token file" => "令牌文件",
+        "Token file present" => "令牌文件已创建",
+        "Token file missing" => "令牌文件未创建",
+        "Python interpreter" => "Python 解释器",
+        "Environment override" => "环境变量覆盖",
+        "PATH fallback" => "PATH 查找",
+        "Not found on PATH" => "PATH 中未找到",
+        "Quick Commands" => "快捷命令",
+        "Read-only. Buttons open the existing managers." => "只读。按钮会打开已有的管理器。",
         _ => en,
     }
 }

@@ -70,9 +70,9 @@
 //!
 //! # 组件基线
 //!
-//! `dialog_settings.png` 与 24 张 `dialog_settings_<页>.png` 在
-//! 这次清理后全量重冻结：默认页改 `Application`、去掉标题栏与橙色页脚、
-//! 左栏回收成 6 项 + 三个组头。
+//! `dialog_settings.png` 与 22 张 `dialog_settings_<页>.png`（末页是隐藏的
+//! 只读 `Script & API` 页）在这次清理后全量重冻结：默认页改 `Application`、
+//! 去掉标题栏与橙色页脚、左栏回收成 6 项 + 三个组头。
 
 use crate::ui::kit::window::{DialogId, DialogWindow};
 use super::settings_live;
@@ -92,6 +92,7 @@ use super::settings_live_text;
 use super::settings_live_triggers;
 use super::settings_live_wrap;
 use super::settings_live_onekeys;
+use super::settings_live_script_api;
 use super::settings_pages_view;
 use crate::ui::*;
 use term_app::i18n::Lang;
@@ -173,6 +174,9 @@ pub(in crate::ui) enum SettingsPage {
     /// `Terminal.ManageOneKeys`：凭据管理器（SSH / Account / Sessions 三标签）。
     /// 编辑结果落 `prefs` 并由 `auth_chain` 在连接时读取。
     OneKeys,
+    /// 隐藏的末页：只读的 `Script & API` 状态 + 打开既有管理器的按钮。
+    /// 不进左栏树、不进 `TOP` / 组，只为组件基线留一个槽位。
+    ScriptApi,
 }
 
 impl SettingsPage {
@@ -226,7 +230,7 @@ impl SettingsPage {
     ];
 
     /// 全部页（测试与 `settings_pages` 的覆盖断言用它枚举）。
-    pub(in crate::ui) const ALL_PAGES: [SettingsPage; 21] = [
+    pub(in crate::ui) const ALL_PAGES: [SettingsPage; 22] = [
         SettingsPage::Application,
         SettingsPage::Appearance,
         SettingsPage::Proxy,
@@ -248,17 +252,18 @@ impl SettingsPage {
         SettingsPage::QuickBar,
         SettingsPage::Triggers,
         SettingsPage::OneKeys,
+        SettingsPage::ScriptApi,
     ];
 
     /// **组件夹具的页序**（`CompId::SettingsPage(i)` 的下标就是这里的下标）：
     /// `TOP` → 三个「组头 + 子页」。
     ///
     /// 它**不再等于左栏顺序**：左栏只画 [`SettingsPage::NAV_TOP`]
-    /// 那六项，其余五页仍要有独立基线逐页验收，所以继续留在 `TOP`/`ALL` 里。
-    /// 从上面四个分组常量派生，不另抄一份名单；`[..; 21]` 的长度是最后一道
-    /// 闸——少写一行就编译不过，也不会让 24 张已冻结的 PNG 集体错位。
-    pub(in crate::ui) const ALL: [SettingsPage; 21] = {
-        let mut out = [SettingsPage::Application; 21];
+    /// 那六项，其余页仍要有独立基线逐页验收，所以继续留在 `ALL` 里。
+    /// 从上面四个分组常量派生，不另抄一份名单；`[..; 22]` 的长度是最后一道
+    /// 闸——少写一行就编译不过，也不会让 22 张已冻结的 PNG 集体错位。
+    pub(in crate::ui) const ALL: [SettingsPage; 22] = {
+        let mut out = [SettingsPage::Application; 22];
         let mut n = 0;
         let mut i = 0;
         while i < SettingsPage::TOP.len() {
@@ -279,6 +284,9 @@ impl SettingsPage {
             }
             g += 1;
         }
+        // 隐藏末页：只在 ALL 尾端追加，TOP / NAV_TOP / CHILD_PAGES 一律不动，
+        // 这样前 21 张已冻结的组件基线页序不变。
+        out[n] = SettingsPage::ScriptApi;
         out
     };
 
@@ -319,6 +327,7 @@ impl SettingsPage {
             SettingsPage::QuickBar => "Quick Bar",
             SettingsPage::Triggers => "Triggers",
             SettingsPage::OneKeys => "OneKeys",
+            SettingsPage::ScriptApi => "Script & API",
         }
     }
 }
@@ -575,6 +584,8 @@ impl TerminalWindow {
                         // `Terminal.ManageOneKeys`：凭据管理器（SSH / Account /
                         // Sessions 三标签）。编辑结果落 prefs，由 auth_chain 读取。
                         SettingsPage::OneKeys => settings_live_onekeys::onekeys(self, ui),
+                        // 隐藏末页：只读状态 + 既有管理入口，按钮先关设置再开弹窗。
+                        SettingsPage::ScriptApi => settings_live_script_api::script_api(self, ui),
                         // 只读的快捷键表也要运行期数据：覆盖表活在窗口上
                         // （`dialogs::shortcuts` 写入），数据层只给静态骨架。
                         other => {
@@ -728,13 +739,15 @@ mod tests {
         }
     }
 
-    /// 组件基线按 `ALL` 的下标登记（21 张 PNG，与上游 19 页 + 2 个新增管理页一致）。
+    /// 组件基线按 `ALL` 的下标登记（22 张 PNG：上游 19 页 + 2 个管理页 + 1 个
+    /// 隐藏只读页）。
     #[test]
     fn hidden_pages_keep_their_component_baseline_slots() {
-        assert_eq!(SettingsPage::ALL.len(), 21);
+        assert_eq!(SettingsPage::ALL.len(), 22);
         for hidden in [
             SettingsPage::Triggers,
             SettingsPage::OneKeys,
+            SettingsPage::ScriptApi,
         ] {
             assert!(
                 SettingsPage::ALL.contains(&hidden),

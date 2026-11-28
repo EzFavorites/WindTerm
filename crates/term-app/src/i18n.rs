@@ -204,6 +204,15 @@ mod tests {
         "Session not found", "Ok",
         // 消息框新增两组按钮的标签（`MessageButton::labels()`）。
         "abort", "retry", "ignore",
+        // ── 隐藏末页 Preferences ▸ Script & API（`dialogs/settings_live_script_api.rs`）──
+        // 整页只读：这些是页名 / 分组 / 状态行 / 按钮 / 来源说明，逐条登记，
+        // 中文界面不许露出英文；数值与文件名 / 路径是数据，不进词表。
+        "Script & API", "Scripts", "Script Panel", "Bridge API", "Python",
+        "Registered scripts", "Recent runs", "Library files", "Trigger rules",
+        "Bridge port", "Token file", "Token file present", "Token file missing",
+        "Python interpreter", "Environment override", "PATH fallback",
+        "Not found on PATH", "Quick Commands",
+        "Read-only. Buttons open the existing managers.",
     ];
 
     /// 有没有可翻译的字母内容。纯数字 / 纯符号标签走 `zh()` 的原样返回。
