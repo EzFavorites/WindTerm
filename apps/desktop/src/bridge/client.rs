@@ -1,16 +1,20 @@
 //! 前台控制端点的薄客户端（`cli/api` 与 `cli/mcp` 共用）。
 //!
-//! 只做三件事：连固定路径的 UDS、发一行 JSON-RPC、把 `{code, message, kind}`
+//! 只做三件事：连到平台唯一的控制端点、发一行 JSON-RPC、把 `{code, message, kind}`
 //! 错误还原成可读诊断。**不建会话池、不装配 HostEnv、不认识会话实现**。
 //! 前台没起来就明确报错退出，绝不退化成「自己起一个后端」。
+//!
+//! unix 连固定路径的 UDS；Windows 连按当前用户 SID 命名的命名管道
+//! （`CreateFile` + 有上限的 `WaitNamedPipe`）。两条路径随后都是同一套
+//! 一行一 JSON-RPC 协议，全程阻塞、零异步等待、零 tokio（4k 门禁按字面量扫
+//! 源码，包括文档注释，所以这里不写那个点加 await 的拼写）。
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
-#[cfg(unix)]
-use std::os::unix::net::UnixStream;
-
 use serde_json::{json, Value};
+
+use super::platform::{self, ClientStream};
 
 /// 客户端侧的失败。区分「前台没起」与「请求失败」：两种情况给用户的动作不同。
 #[derive(Debug)]
@@ -35,8 +39,8 @@ impl std::fmt::Display for ClientError {
             ClientError::Unsupported(why) => write!(f, "当前平台不支持控制端点：{why}"),
             ClientError::NotRunning { path } => write!(
                 f,
-                "前台未运行：{} 不存在。请先启动 WindTerm 窗口；\
-                 本命令不会自行创建会话池",
+                "前台未运行：{} 尚不可连接。请先启动 WindTerm 窗口；\
+                  本命令不会自行创建会话池",
                 path.display()
             ),
             ClientError::Io(err) => write!(f, "控制端点 IO 失败：{err}"),
@@ -56,31 +60,25 @@ impl From<std::io::Error> for ClientError {
     }
 }
 
-#[cfg(unix)]
 pub struct Client {
-    reader: BufReader<UnixStream>,
-    writer: UnixStream,
+    reader: BufReader<ClientStream>,
+    writer: ClientStream,
     next_id: u64,
 }
 
-#[cfg(not(unix))]
-pub struct Client;
-
 impl Client {
-    /// 连固定路径。socket 不存在时**明确**报「前台未运行」，不尝试别的路径。
-    #[cfg(unix)]
+    /// 连平台唯一的端点。前台不在（socket 不存在 / 管道无实例）时**明确**
+    /// 报「前台未运行」，不尝试别的路径，也不自建会话池。
     pub fn connect(path: &Path) -> Result<Self, ClientError> {
-        if !path.exists() {
-            return Err(ClientError::NotRunning {
-                path: path.to_path_buf(),
-            });
-        }
-        let writer = UnixStream::connect(path).map_err(|err| match err.kind() {
+        let writer = platform::connect_client(path).map_err(|err| match err.kind() {
             std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
                 ClientError::NotRunning {
                     path: path.to_path_buf(),
                 }
             }
+            std::io::ErrorKind::Unsupported => ClientError::Unsupported(
+                "当前平台既不是 unix 也不是 Windows，无法提供本机控制端点",
+            ),
             _ => ClientError::Io(err),
         })?;
         let reader = BufReader::new(writer.try_clone()?);
@@ -91,20 +89,12 @@ impl Client {
         })
     }
 
-    #[cfg(not(unix))]
-    pub fn connect(_path: &Path) -> Result<Self, ClientError> {
-        Err(ClientError::Unsupported(
-            "Windows 命名管道尚未实现；当前只支持 unix domain socket",
-        ))
-    }
-
     pub fn connect_default() -> Result<Self, ClientError> {
         let path = super::default_socket_path().ok_or(ClientError::NoHome)?;
         Self::connect(&path)
     }
 
     /// 发一条带 id 的请求并等它的回包。`auth` 不存在：第一条就是普通方法。
-    #[cfg(unix)]
     pub fn call(&mut self, method: &str, params: &Value) -> Result<Value, ClientError> {
         self.next_id += 1;
         let request = json!({
@@ -134,13 +124,6 @@ impl Client {
             });
         }
         Ok(reply.get("result").cloned().unwrap_or(Value::Null))
-    }
-
-    #[cfg(not(unix))]
-    pub fn call(&mut self, _method: &str, _params: &Value) -> Result<Value, ClientError> {
-        Err(ClientError::Unsupported(
-            "Windows 命名管道尚未实现；当前只支持 unix domain socket",
-        ))
     }
 }
 

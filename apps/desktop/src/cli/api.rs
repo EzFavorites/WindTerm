@@ -12,14 +12,22 @@ use serde_json::{json, Value};
 
 use crate::bridge::client::Client;
 
-const USAGE: &str = "\
+/// 端点描述按平台生成：unix 是固定 UDS 路径，Windows 是按用户 SID 命名的管道。
+/// CLI 侧不硬编码任何具体路径，也不假装 Windows 上还有 `0600` 这回事。
+fn usage() -> String {
+    format!(
+        "\
 term-desk api describe
-term-desk api call <method> ['{\"json\":\"params\"}']
+term-desk api call <method> ['{{\"json\":\"params\"}}']
 
-  连前台窗口的 ~/.zterm/control.sock 发一条 JSON-RPC 请求。前台未运行时
-  明确报错退出；本命令绝不自建会话池。没有 auth 子命令（认证由 socket
-  权限 0600 与 peercred 同用户校验完成）。
-";
+  连前台窗口的 {} 发一条 JSON-RPC 请求。前台未运行时
+  明确报错退出；本命令绝不自建会话池。没有 auth 子命令（准入由平台的
+  本机进程间身份校验完成：unix 为 socket 0600 + peercred 同用户，
+  Windows 为命名管道 DACL + 对端进程 SID 复核）。
+",
+        crate::bridge::endpoint_description()
+    )
+}
 
 #[derive(Debug, PartialEq)]
 pub enum Command {
@@ -71,12 +79,12 @@ pub fn run(rest: &[String]) -> i32 {
     let command = match parse(rest) {
         Ok(command) => command,
         Err(msg) => {
-            eprintln!("{msg}\n\n{USAGE}");
+            eprintln!("{msg}\n\n{}", usage());
             return 2;
         }
     };
     if command == Command::Help {
-        print!("{USAGE}");
+        print!("{}", usage());
         return 0;
     }
     let mut client = match Client::connect_default() {
