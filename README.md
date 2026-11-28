@@ -89,9 +89,12 @@ term-desk --version
 term-desk --help
 ```
 
-`api` / `mcp` 连前台实例的本地 UDS 控制端点（`~/.zterm/control.sock`，0600 +
-peercred），前台未运行时明确报错退出，不自建会话池。脚本与 API 共用同一张动词表，
-用会话**名字**寻址（不是进程内自增 ID），所以脚本存下来明天还能跑。
+`api` / `mcp` 只连前台 TCP loopback 控制端点（默认端口 `47653`，可由
+`WINDTERM_CONTROL_PORT` 覆盖；key 文件 `~/.zterm/control-key.local-<port>`，0600）；
+前台未运行时明确报错退出，不自建会话池。没有 token 文件，也没有能力面 `auth`
+动词——首条消息是传输级 `auth.challenge`，用 key 做 HMAC 挑战，只做连接准入；
+锁屏时返回 `Locked` 错误而不是数据。脚本与 API 共用同一张动词表，用会话**名字**
+寻址（不是进程内自增 ID），所以脚本存下来明天还能跑。
 
 ## 功能
 

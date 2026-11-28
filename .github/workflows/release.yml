@@ -49,8 +49,44 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+  # 发布前的验收门禁：verify.sh 默认跳过截图回归（VERIFY_SCREENSHOT=0），
+  # 不拉起 GUI；SKIP_GIT_CHECK=1 跳过第 9 步的工作树检查——CI 检出由 GitHub
+  # 保证是提交态，干净树由本地验收负责。
+  verify:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      RUSTUP_TOOLCHAIN: "1.94.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      # 与 ci.yml 同一份系统依赖：verify 会跑全量 cargo test，其中真
+      # sftp-server / lrzsz 握手用例与字体回落用例都依赖这些包。
+      - name: 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential pkg-config libssl-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxi-dev \
+            libxcursor-dev libxrandr-dev libgl1-mesa-dev \
+            libfontconfig1-dev \
+            fonts-dejavu-core fonts-noto-cjk \
+            openssh-server openssh-sftp-server lrzsz
+
+      - name: 安装 Rust 1.94.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.94.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: 验收门禁（不跑需 GUI 的截图回归）
+        run: |
+          set -euo pipefail
+          SKIP_GIT_CHECK=1 VERIFY_SCREENSHOT=0 bash scripts/verify.sh
+
   build:
-    needs: meta
+    needs: [meta, verify]
     timeout-minutes: 60
     strategy:
       fail-fast: false
