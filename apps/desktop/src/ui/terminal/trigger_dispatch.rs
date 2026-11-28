@@ -10,37 +10,59 @@
 //! 写意图可带内核算出的 `Release` 门控（`Prompt` / `LineBreak` / `Later`），
 //! 由帧末派发层排队到正确时机；其余三类不排队。
 //!
-//! 每条意图都带 [`DispatchCtx`]：`owner` 与 `priority` 是仲裁器的接入点。
-//! 本任务只做「谁在请求、优先级多少」的记录与 PTY 写入的单一闸门；仲裁策略
-//! 留给下一任务，不在各处写死「谁都能写 PTY」。
+//! 每条意图都带 [`DispatchCtx`]：`source` / `priority` / `owner` 与仲裁许可
+//! 一并带走。落地前必须用 [`DispatchCtx::may_write_pty`] 复核许可——用户按键
+//! 或独占抢占发生在排队之后时，旧许可已经失效。
 
 use std::time::Duration;
 
-use term_core::automation::{Action, AlertKind, AppAction, Effect, Release, RuleId, Ticks};
+use serde_json::{json, Value};
+use term_core::automation::{
+    Action, AlertKind, AppAction, CredentialField, Effect, Invocation, Priority, Release, RuleId,
+    Ticks,
+};
+use term_core::session_runtime::SessionId;
 
-/// 请求来源与优先级。仲裁器尚未接线，但闸门已经从这里读取，不允许绕过。
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+use term_core::automation::{Arbitrator, Grant};
+
+/// 谁、以什么优先级、在哪个会话上请求写入。`owner` 是请求时刻的会话 owner。
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) struct DispatchCtx {
-    /// 请求者身份（`SessionConfig.name` / `"ui"` / `"script:<path>"`）。
+    pub session: SessionId,
+    /// 请求者身份（规则 id / `api:write` / `keyboard`）。
+    pub source: String,
+    pub priority: Priority,
+    /// 请求时刻的 owner（可能不是自己）。仅用于提示，不用于判据。
     pub owner: Option<String>,
-    /// 数值越大越优先；同优先级按到达顺序。
-    pub priority: u8,
+    /// 仲裁许可。没有许可的意图根本不产生 PTY 写。
+    pub grant: Option<Grant>,
 }
 
 impl DispatchCtx {
-    pub(in crate::ui) fn for_rule(rule: &RuleId) -> Self {
+    pub(in crate::ui) fn for_rule(
+        session: SessionId,
+        rule: &RuleId,
+        owner: Option<String>,
+        grant: Option<Grant>,
+    ) -> Self {
         Self {
-            owner: Some(rule.clone()),
-            priority: 0,
+            session,
+            source: rule.clone(),
+            priority: Priority::P3Rule,
+            owner,
+            grant,
         }
     }
 
-    /// PTY 写入闸门：当前只允许「有明确 owner」的请求，匿名写入被拒。
-    /// 仲裁器接入后只需替换这一处判据，调用点一个都不用改。
-    pub(in crate::ui) fn may_write_pty(&self) -> bool {
-        self.owner
-            .as_deref()
-            .is_some_and(|owner| !owner.trim().is_empty())
+    /// PTY 写入闸门：许可必须在落地时依然有效（按键 / 独占抢占会让它失效）。
+    pub(in crate::ui) fn may_write_pty(&self, arbiter: &Arbitrator) -> bool {
+        self.grant
+            .is_some_and(|grant| arbiter.is_valid(self.session, &grant))
+    }
+
+    /// 同帧排序键：数值越大越优先，同优先级按到达序号（不交错）。
+    pub(in crate::ui) fn seq(&self) -> u64 {
+        self.grant.map_or(u64::MAX, |grant| grant.seq)
     }
 }
 
@@ -48,7 +70,7 @@ impl DispatchCtx {
 #[derive(Clone, Debug, PartialEq)]
 pub(in crate::ui) struct SurfaceIntent {
     pub method: String,
-    pub params: serde_json::Value,
+    pub params: Value,
 }
 
 /// 应用面 / UI 帧队列意图。
@@ -61,18 +83,47 @@ pub(in crate::ui) enum AppIntent {
         line_color: String,
     },
     Link(String),
-    /// 菜单动作：携带命令 ID，走既有命令通道。
-    Menu(Vec<String>),
+    /// 菜单动作：**完整 Invocation**（method + params）一起交给命令通道。
+    Menu(Vec<Invocation>),
     Tooltip(String),
     Alert(AlertKind),
     Dispatch(String),
 }
 
-/// 凭据意图：只带引用，明文在窗口层问保险库。
+/// 命令通道的一格：菜单 ID 可以没有参数，会话动词必须把 params 带来。
+#[derive(Clone, Debug, PartialEq)]
+pub(in crate::ui) struct CommandCall {
+    pub method: String,
+    pub params: Value,
+}
+
+impl CommandCall {
+    pub(in crate::ui) fn plain(id: impl Into<String>) -> Self {
+        Self {
+            method: id.into(),
+            params: json!({}),
+        }
+    }
+
+    pub(in crate::ui) fn from_invocation(inv: Invocation) -> Self {
+        Self {
+            method: inv.method,
+            params: inv.params,
+        }
+    }
+}
+
+impl From<String> for CommandCall {
+    fn from(id: String) -> Self {
+        Self::plain(id)
+    }
+}
+
+/// 凭据意图：只带引用与**类型化字段**，明文在窗口层问保险库。
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::ui) struct CredentialIntent {
     pub scheme: String,
-    pub field: String,
+    pub field: CredentialField,
 }
 
 /// 脚本意图：路径 + 参数，授权按次由统一脚本入口决定。
@@ -96,9 +147,9 @@ pub(in crate::ui) struct FrameIntent {
 }
 
 impl FrameIntent {
-    /// 只有会话写动词受发送门控；Mark / Alert / Dispatch / Script 立即发生。
+    /// 只有会话写动词受发送门控与仲裁排序；所有其它动作立即发生。
     pub(in crate::ui) fn is_write(&self) -> bool {
-        matches!(&self.kind, IntentKind::Surface(call) if call.method == "write")
+        matches!(&self.kind, IntentKind::Surface(call) if call.method == "write" || call.method == "keys")
     }
 
     /// 本帧是否该落地。等待提示符 / 换行只看这一帧的输出；
@@ -129,8 +180,7 @@ pub(in crate::ui) enum IntentKind {
 }
 
 /// `Effect` → 意图。`matched` 的文本与 span 不参与派发：动作只声明意图。
-pub(in crate::ui) fn intent_from_effect(effect: &Effect) -> Option<FrameIntent> {
-    let ctx = DispatchCtx::for_rule(&effect.rule);
+pub(in crate::ui) fn intent_from_effect(effect: &Effect, ctx: DispatchCtx) -> Option<FrameIntent> {
     let kind = match &effect.action {
         Action::SessionInvocation { method, params } => IntentKind::Surface(SurfaceIntent {
             method: method.clone(),
@@ -144,19 +194,16 @@ pub(in crate::ui) fn intent_from_effect(effect: &Effect) -> Option<FrameIntent> 
                 line_color: spec.line_color.clone(),
             },
             AppAction::Link(spec) => AppIntent::Link(spec.url.clone()),
-            AppAction::Menu(spec) => AppIntent::Menu(
-                spec.items
-                    .iter()
-                    .filter_map(|item| item.action.as_ref().map(|inv| inv.method.clone()))
-                    .collect(),
-            ),
+            AppAction::Menu(spec) => {
+                AppIntent::Menu(spec.items.iter().filter_map(|item| item.action.clone()).collect())
+            }
             AppAction::Tooltip(spec) => AppIntent::Tooltip(spec.text.clone()),
             AppAction::Alert(kind) => AppIntent::Alert(*kind),
             AppAction::Dispatch(id) => AppIntent::Dispatch(id.clone()),
         }),
         Action::CredentialRef { scheme, field } => IntentKind::Credential(CredentialIntent {
             scheme: scheme.clone(),
-            field: field.clone(),
+            field: *field,
         }),
         Action::RunScript { path, args } => IntentKind::Script(ScriptIntent {
             path: path.clone(),

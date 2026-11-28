@@ -82,6 +82,29 @@ impl Filter {
     }
 }
 
+/// 凭据引用的字段。只能是这三个值：未知字段在**装载期**由 serde 拒绝，
+/// 派发期按枚举取值，找不到 / 为空就报错，绝不猜「KBI 第一个答案」。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialField {
+    /// OneKey 方案的登录用户名（不是密码，不进 vault）。
+    Username,
+    /// vault 条目 `onekey:<name>` 里的密码。
+    Password,
+    /// vault 条目 `onekey:<name>:ki` 里第 `index` 个键盘交互答案（从 0 起）。
+    KeyboardInteractive(usize),
+}
+
+impl CredentialField {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Username => "username",
+            Self::Password => "password",
+            Self::KeyboardInteractive(_) => "keyboard_interactive",
+        }
+    }
+}
+
 /// 一次会话面调用。`method` 必须是 `surface::METHODS` 里的名字；
 /// 装载期用同一条 schema 校验参数，执行期不再做第二次形状检查。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,7 +203,7 @@ pub enum Action {
     /// 规则文件里永远不出现明文密码。
     CredentialRef {
         scheme: String,
-        field: String,
+        field: CredentialField,
     },
     /// 跑一段脚本：路径 + 参数，授权在运行时决定。
     RunScript {
@@ -318,13 +341,9 @@ impl Action {
                 Ok(())
             }
             Action::AppAction(app) => app.validate(),
-            Action::CredentialRef { scheme, field } => {
-                if scheme.trim().is_empty() || field.trim().is_empty() {
-                    return Err(RuleFault(
-                        "凭据引用的 scheme / field 不能为空".to_string(),
-                    ));
-                }
-                // 存在性与明文取值都在派发时问宿主：内核只保证形状可用。
+            Action::CredentialRef { scheme, field: _ } => {
+                if scheme.trim().is_empty() { return Err(RuleFault("凭据引用的 scheme 不能为空".to_string())); }
+                // 字段是枚举：未知值在反序列化时就已被拒，这里只剩形状可用的保证。
                 Ok(())
             }
             Action::RunScript { path, .. } => {
@@ -547,12 +566,12 @@ mod tests {
     fn credentials_and_scripts_validate_their_targets_only() {
         let cred = Action::CredentialRef {
             scheme: "prod".into(),
-            field: "password".into(),
+            field: CredentialField::Password,
         };
         assert!(cred.validate().is_ok());
         let blank = Action::CredentialRef {
             scheme: "  ".into(),
-            field: "password".into(),
+            field: CredentialField::Password,
         };
         assert!(blank.validate().is_err());
 
@@ -595,3 +614,7 @@ mod tests {
         assert!(fault.to_string().contains("能力面"));
     }
 }
+
+#[cfg(test)]
+#[path = "rule_tests.rs"]
+mod rule_tests;

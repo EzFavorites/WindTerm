@@ -14,6 +14,7 @@
 //! `ScanCursor::probe` 不消费，`ScanCursor::take` 推进游标，两者读同一个
 //! buffer 的不同指针，类型层面就不可能互相吞数据。
 
+pub mod arbiter;
 pub mod cursor;
 pub mod engine;
 pub mod line;
@@ -21,12 +22,16 @@ pub mod pattern;
 pub mod rule;
 pub mod signal;
 
+pub use arbiter::{
+    Arbitrator, Denied, Grant, Owner, Phase, Preemption, Priority, Suppression, SuppressionReason,
+};
 pub use cursor::ScanCursor;
 pub use engine::Evaluator;
 pub use line::{apply_lines, LinePolicy};
 pub use pattern::{Pattern, PatternError, Span, Syntax, WindowHint};
 pub use rule::{
-    validate_rules, Action, AlertKind, AppAction, Effect, Filter, Guard, Invocation, LinkSpec,
-    MarkSpec, MenuItemSpec, MenuSpec, OnceScope, Release, Rule, RuleFault, RuleId, TextSpec,
+    validate_rules, Action, AlertKind, AppAction, CredentialField, Effect, Filter, Guard,
+    Invocation, LinkSpec, MarkSpec, MenuItemSpec, MenuSpec, OnceScope, Release, Rule, RuleFault,
+    RuleId, TextSpec,
 };
 pub use signal::{CloseReason, Lifecycle, Signal, Target, Ticks, When};

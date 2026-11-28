@@ -141,6 +141,17 @@ pub fn optional_string(params: &Value, key: &str) -> Result<Option<String>, Surf
     }
 }
 
+/// 取可选的布尔参数。显式 `null` 与缺失同义。
+pub fn optional_bool(params: &Value, key: &str) -> Result<Option<bool>, SurfaceError> {
+    match params.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(flag)) => Ok(Some(*flag)),
+        Some(value) => Err(SurfaceError::invalid_params(format!(
+            "参数 {key} 必须是布尔值（实际：{value}）"
+        ))),
+    }
+}
+
 /// 取可选的非负整数参数。
 pub fn optional_u64(params: &Value, key: &str) -> Result<Option<u64>, SurfaceError> {
     match params.get(key) {

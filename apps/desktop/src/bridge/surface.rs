@@ -26,13 +26,15 @@
 //! 真正该合并的时机是「第二个宿主出现」——那时抽 crate，两份变一份。
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use term_core::automation::{Arbitrator, Grant, Priority};
 use term_core::contract::{
-    describe_value, optional_string, optional_u64, required_session, required_string, Surface,
+    describe_value, optional_bool, optional_string, optional_u64, required_session, required_string,
+    Surface,
 };
 use term_core::session::SessionConfig;
 use term_core::session_runtime::{FacetKind, SessionId, SessionState, WaitError};
@@ -49,9 +51,30 @@ const DEFAULT_WAIT_TIMEOUT_MS: u64 = 30_000;
 const DEFAULT_COLS: u64 = 80;
 const DEFAULT_ROWS: u64 = 24;
 
+/// 前台进程里唯一一份仲裁器：GUI 的规则 / 键盘与所有 API 连接共用它，
+/// 否则「显式调用 vs 用户规则」只会各查各的表，判据形同虚设。
+static SHARED_ARBITER: OnceLock<Arc<Mutex<Arbitrator>>> = OnceLock::new();
+
+pub fn shared_arbiter() -> &'static Mutex<Arbitrator> {
+    SHARED_ARBITER.get_or_init(|| Arc::new(Mutex::new(Arbitrator::new()))).as_ref()
+}
+
+/// 需要持有 `Arc` 的调用点（例如临时 `DeskSurface`）用这个入口。
+pub fn shared_arbiter_arc() -> Arc<Mutex<Arbitrator>> {
+    SHARED_ARBITER.get_or_init(|| Arc::new(Mutex::new(Arbitrator::new()))).clone()
+}
+
+/// 仲裁键：会话 id 在每条池里都从 1 开始，单看它会让不同 `SessionPool`
+/// 的测试 / 会话互相抢占。把池地址混进高位，UI 与桥接用同一个换算。
+pub(crate) fn arbiter_session(pool: &Arc<SessionPool>, id: SessionId) -> SessionId {
+    let scope = Arc::as_ptr(pool) as usize as u64; scope.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ id
+}
+
 /// 把 `SessionPool` 包成桥接的后端。
 pub struct DeskSurface {
     pool: Arc<SessionPool>,
+    /// ADR-0030：API 写与 UI 规则写共用同一个仲裁器。
+    arbiter: Arc<Mutex<Arbitrator>>,
     /// ADR-0023：每个会话一份 `ScriptSession`，让远程的
     /// `read` / `read_until` / `wait_any` 与脚本共享**同一套捕获游标语义**。
     ///
@@ -63,10 +86,68 @@ pub struct DeskSurface {
 
 impl DeskSurface {
     pub fn new(pool: Arc<SessionPool>) -> Self {
-        Self {
-            pool,
-            cursors: Mutex::new(HashMap::new()),
+        Self::with_arbiter(pool, shared_arbiter_arc())
+    }
+
+    /// 夹具专用：用一份独立的仲裁器，避免不同测试互相抢占。
+    pub fn with_arbiter(pool: Arc<SessionPool>, arbiter: Arc<Mutex<Arbitrator>>) -> Self {
+        Self { pool, arbiter, cursors: Mutex::new(HashMap::new()) }
+    }
+
+    /// P2 显式调用的申请 / 回收。默认非独占；只有 `exclusive: true` 才抢 owner。
+    fn arbitrate_write(&self, tab: SessionId, source: &str, exclusive: bool) -> Result<Grant, SurfaceError> {
+        let key = arbiter_session(&self.pool, tab);
+        let mut arbiter = self.arbiter.lock().unwrap_or_else(|e| e.into_inner());
+        arbiter.request(key, source, Priority::P2Explicit, exclusive).map_err(|denied| {
+            SurfaceError::new(term_core::surface_error::ErrorKind::Locked, denied.as_message())
+        })
+    }
+
+    fn consume_grant(&self, tab: SessionId, grant: &Grant) {
+        let key = arbiter_session(&self.pool, tab);
+        self.arbiter.lock().unwrap_or_else(|e| e.into_inner()).consume(key, grant);
+    }
+
+    /// 上层（规则 / 凭据）已经拿过仲裁许可的写：走同一份动词实现，但**不**
+    /// 二次申请 owner，也不把规则 owner 当成 API 独占那样释放掉。
+    pub fn invoke_granted(&self, method: &str, params: &Value, grant: &Grant) -> Result<Value, SurfaceError> {
+        match method {
+            "write" => {
+                let text = required_string(params, "text")?;
+                let (session, tab) = self.resolve(params)?;
+                self.send_granted(tab, &session, text.as_bytes(), grant, false)
+            }
+            "keys" => {
+                let names = required_string_array(params, "keys")?;
+                key_bytes(&names, false)?;
+                let (session, tab) = self.resolve(params)?;
+                let bytes = key_bytes(&names, self.app_cursor_keys(tab, &names))?;
+                self.send_granted(tab, &session, &bytes, grant, true)
+            }
+            // 非写动词本来就不进仲裁器，直接落到唯一的动词实现。
+            other => self.invoke(other, params),
         }
+    }
+
+    /// 拿到许可后的唯一写出点。`count` 只决定 `keys` 要不要回带字节数。
+    fn send_granted(
+        &self,
+        tab: SessionId,
+        session: &str,
+        bytes: &[u8],
+        grant: &Grant,
+        count: bool,
+    ) -> Result<Value, SurfaceError> {
+        let written = self.pool.send(tab, bytes);
+        self.consume_grant(tab, grant);
+        if !written {
+            return Err(SurfaceError::not_found(format!("会话 {session:?} 不存在，没有可写入的会话")));
+        }
+        Ok(if count {
+            json!({ "written": true, "bytes": bytes.len() })
+        } else {
+            json!({ "written": true })
+        })
     }
 
     /// 取（或建立）该会话的捕获游标句柄。会话不在池里 → not_found。
@@ -202,13 +283,14 @@ impl DeskSurface {
 
     fn write(&self, params: &Value) -> Result<Value, SurfaceError> {
         let text = required_string(params, "text")?;
+        let exclusive = optional_bool(params, "exclusive")?.unwrap_or(false);
         let (session, tab) = self.resolve(params)?;
-        if !self.pool.send(tab, text.as_bytes()) {
-            return Err(SurfaceError::not_found(format!(
-                "会话 {session:?} 不存在，没有可写入的会话"
-            )));
-        }
-        Ok(json!({ "written": true }))
+        let source = "api:write";
+        let grant = self.arbitrate_write(tab, source, exclusive)?;
+        let result = self.send_granted(tab, &session, text.as_bytes(), &grant, false);
+        let key = arbiter_session(&self.pool, tab);
+        self.arbiter.lock().unwrap_or_else(|e| e.into_inner()).release(key, source);
+        result
     }
 
     /// `keys`：按键名写字节（`write` 的姊妹动词）。
@@ -227,13 +309,13 @@ impl DeskSurface {
         // 方向键的编码取决于会话当前的 `DECSET 1`；其余键名与终端状态无关。
         // 只在真的出现方向键时问一次屏幕，避免每次按键都多一次往返。
         let bytes = key_bytes(&names, self.app_cursor_keys(tab, &names))?;
-        let written = self.pool.send(tab, &bytes);
-        if !written {
-            return Err(SurfaceError::not_found(format!(
-                "会话 {session:?} 不存在，没有可写入的会话"
-            )));
-        }
-        Ok(json!({ "written": true, "bytes": bytes.len() }))
+        let exclusive = optional_bool(params, "exclusive")?.unwrap_or(false);
+        let source = "api:keys";
+        let grant = self.arbitrate_write(tab, source, exclusive)?;
+        let result = self.send_granted(tab, &session, &bytes, &grant, true);
+        let key = arbiter_session(&self.pool, tab);
+        self.arbiter.lock().unwrap_or_else(|e| e.into_inner()).release(key, source);
+        result
     }
 
     /// 这条会话是否处于 `DECSET 1`（application cursor keys）模式。

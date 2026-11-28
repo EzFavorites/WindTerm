@@ -6,11 +6,15 @@
 //! 本文件不持有字段、不画任何东西——只调用 `reduce` 与 `apply_effect`（后者在
 //! `effects.rs` 的同一类型 impl 上）。
 
+use serde_json::Value;
 use eframe::egui;
 use term_app::action::{reduce, Action};
 use term_app::shell::ShellAction;
+use term_core::automation::Priority;
 
 use super::TerminalWindow;
+use crate::bridge::surface::{arbiter_session, shared_arbiter, shared_arbiter_arc, DeskSurface};
+use crate::ui::terminal::trigger_dispatch::CommandCall;
 
 impl TerminalWindow {
     /// 把 `full_screen` / `always_on_top` 落到窗口系统上。
@@ -55,6 +59,54 @@ impl TerminalWindow {
             return;
         };
         self.dispatch_action(action);
+    }
+
+    /// 菜单项携带完整 `Invocation`：有参数且 method 是会话动词时，经仲裁器
+    /// 与 `Surface::invoke` 落到活动会话；纯命令 ID 仍走原来的分发器。
+    pub(super) fn dispatch_call(&mut self, call: &CommandCall) {
+        let has_params = call
+            .params
+            .as_object()
+            .is_some_and(|fields| !fields.is_empty());
+        let remotely_callable = term_core::surface::find(&call.method)
+            .is_some_and(|spec| spec.exposure.on_rpc());
+        if !has_params || !remotely_callable {
+            // `app_*` 这类 UI 控制动词由 `Action` 通道实现（对 API 不可见），
+            // 不能误送进会话控制面；参数仍完整保留在 CommandCall 里。
+            self.dispatch(&call.method);
+            return;
+        }
+        let Some((id, name)) = self.tabs.get(self.active_slot()).map(|tab| {
+            (tab.session.unwrap_or(tab.identity), tab.config.name.clone())
+        }) else {
+            self.commit_note(Some(format!("菜单调用 {:?} 需要一个活会话", call.method)));
+            return;
+        };
+        let key = arbiter_session(&self.pool, id);
+        let source = format!("menu:{}", call.method);
+        let grant = {
+            let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
+            arbiter.request(key, &source, Priority::P2Explicit, false)
+        };
+        let grant = match grant {
+            Ok(grant) => grant,
+            Err(denied) => {
+                self.commit_note(Some(denied.as_message()));
+                return;
+            }
+        };
+        let mut params = call.params.clone();
+        if !params.get("session").is_some_and(Value::is_string) {
+            params["session"] = Value::String(name);
+        }
+        let surface = DeskSurface::with_arbiter(self.pool.clone(), shared_arbiter_arc());
+        match surface.invoke_granted(&call.method, &params, &grant) {
+            Ok(_) => {
+                let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
+                arbiter.release(key, &source);
+            }
+            Err(err) => self.commit_note(Some(err.message)),
+        }
     }
 
     /// 触发器 `Run Command` 的命令行分支。配置里写了菜单 ID 时走不到这里；

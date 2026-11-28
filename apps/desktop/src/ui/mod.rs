@@ -899,7 +899,7 @@ impl TerminalWindow {
         // 迭代器，以便同时持有一份 `&self.triggers` 不可变借用，互不打架。
         let rules = &self.triggers;
         let n = self.tabs.len();
-        let mut run_commands: Vec<String> = Vec::new();
+        let mut run_commands: Vec<terminal::trigger_dispatch::CommandCall> = Vec::new();
         // 每帧新建局部缓冲：`log_note` 长期非空，直接拿它当 &mut 传进去会让
         // note.is_none() 恒 false，转义错误就永远丢失（见 notice.rs 判据）。
         let mut note = None;
@@ -928,8 +928,8 @@ impl TerminalWindow {
         // 放在泵之后：边沿是 `poll` 置的，且此时 `SessionPool` 里那条会话
         // 已经真的在册（否则 `start_log` 的命令会发给一条不存在的会话）。
         self.poll_auto_log();
-        for id in &run_commands {
-            self.dispatch(id);
+        for call in &run_commands {
+            self.dispatch_call(call);
         }
         // Modem：传输期键盘取消 + 输出命中 rz/sz/rx/rb 后开弹层/直启；必须在 pane 吃键之前。
         modem_auto::poll(ctx, self);
@@ -1251,5 +1251,4 @@ impl TerminalWindow {
             self.drag_session = None;
         }
     }
-
 }
