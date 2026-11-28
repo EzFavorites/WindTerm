@@ -28,7 +28,8 @@
 
 use term_app::i18n::Lang;
 
-use crate::script_human::{PendingAsk, PendingPick};
+// 回信口是不透明句柄（apps 层定义）；界面既看不到通道类型，也不持有通道端。
+use crate::script_human::{AskRequest, PendingPick, PickRequest};
 use crate::ui::*;
 use term_script::{Answer, Ask, AskError, PickFile};
 
@@ -44,10 +45,10 @@ pub(in crate::ui) enum AskOutcome {
     Cancel,
 }
 
-/// 一个待答复的请求。
+/// 一个待答复的请求（回信口都是不透明句柄）。
 pub(in crate::ui) enum Pending {
-    Ask(PendingAsk),
-    Pick(PendingPick),
+    Ask(AskRequest),
+    Pick(PickRequest),
 }
 
 /// 模态框的跨帧状态（输入缓冲与选中项必须存活，否则输入法逐帧重置）。
@@ -191,7 +192,8 @@ pub(in crate::ui) fn poll(
         while !queue.is_empty() {
             let next = queue.remove(0);
             if !next.is_stale() {
-                return Some(AskModal::new(Pending::Ask(next)));
+                // 从这里起界面只碰到不透明回信句柄：转换发生在 apps 层。
+                return Some(AskModal::new(Pending::Ask(next.into())));
             }
         }
     }
@@ -199,7 +201,7 @@ pub(in crate::ui) fn poll(
         while !queue.is_empty() {
             let next = queue.remove(0);
             if !next.is_stale() {
-                return Some(AskModal::new(Pending::Pick(next)));
+                return Some(AskModal::new(Pending::Pick(next.into())));
             }
         }
     }
@@ -343,21 +345,21 @@ impl AskModal {
     pub(in crate::ui) fn deliver(self, resolved: Resolved) {
         match (self.pending, resolved) {
             (Pending::Ask(ask), Resolved::Answer(answer)) => {
-                let _ = ask.reply.send(Ok(answer));
+                let _ = ask.reply.reply(Ok(answer));
             }
             // 取消走错误通道：脚本看到 NoInput，不会把「没回答」当成答案。
             (Pending::Ask(ask), Resolved::Cancel) => {
-                let _ = ask.reply.send(Err(AskError::NoInput));
+                let _ = ask.reply.reply(Err(AskError::NoInput));
             }
             (Pending::Ask(ask), Resolved::Picked(_)) => {
-                let _ = ask.reply.send(Ok(Answer::Ack));
+                let _ = ask.reply.reply(Ok(Answer::Ack));
             }
             (Pending::Pick(pick), Resolved::Picked(path)) => {
-                let _ = pick.reply.send(path);
+                let _ = pick.reply.reply(path);
             }
             // 文件框的 Cancel / Esc：回 None（没有选中任何路径），与 CRT 一致。
             (Pending::Pick(pick), Resolved::Answer(_)) | (Pending::Pick(pick), Resolved::Cancel) => {
-                let _ = pick.reply.send(None);
+                let _ = pick.reply.reply(None);
             }
         }
     }
@@ -384,16 +386,16 @@ fn pick_help(filter: &str, lang: Lang) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::script_human::PendingAsk;
+    // 测试在 ui/ 里，但仍只经不透明句柄回信：构造句柄的口子开在 apps 层。
+    use crate::script_human::AskReply;
     use term_script::CancelToken;
 
     fn modal(request: Ask) -> AskModal {
         let (tx, _rx) = std::sync::mpsc::sync_channel(1);
-        AskModal::new(Pending::Ask(PendingAsk {
-            seq: 1,
+        AskModal::new(Pending::Ask(AskRequest {
             cancel: CancelToken::new(),
             request,
-            reply: tx,
+            reply: AskReply::new(tx),
         }))
     }
 
@@ -502,9 +504,8 @@ mod tests {
         events
     }
 
-    fn deliver_via(reply: std::sync::mpsc::SyncSender<Result<Answer, AskError>>) -> AskModal {
-        AskModal::new(Pending::Ask(PendingAsk {
-            seq: 2,
+    fn deliver_via(reply: AskReply) -> AskModal {
+        AskModal::new(Pending::Ask(AskRequest {
             cancel: CancelToken::new(),
             request: Ask::Confirm {
                 title: String::new(),
@@ -526,7 +527,7 @@ mod tests {
         assert!(matches!(resolved, Resolved::Cancel));
 
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        deliver_via(tx).deliver(resolved);
+        deliver_via(AskReply::new(tx)).deliver(resolved);
         assert_eq!(rx.try_recv(), Ok(Err(AskError::NoInput)));
     }
 
@@ -543,7 +544,7 @@ mod tests {
             assert!(matches!(resolved, Resolved::Cancel));
 
             let (tx, rx) = std::sync::mpsc::sync_channel(1);
-            deliver_via(tx).deliver(resolved);
+            deliver_via(AskReply::new(tx)).deliver(resolved);
             assert_eq!(rx.try_recv(), Ok(Err(AskError::NoInput)));
         }
     }
@@ -570,7 +571,7 @@ mod tests {
         let resolved = resolve(&m, outcome);
         assert!(matches!(&resolved, Resolved::Answer(Answer::Bool(false))));
         let (tx, rx) = std::sync::mpsc::sync_channel(1);
-        deliver_via(tx).deliver(resolved);
+        deliver_via(AskReply::new(tx)).deliver(resolved);
         assert_eq!(rx.try_recv(), Ok(Ok(Answer::Bool(false))));
     }
 
