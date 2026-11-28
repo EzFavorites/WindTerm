@@ -147,6 +147,8 @@ mod tests {
         // 脚本面板的录制按钮与单次授权折叠面板。
         "Record", "Stop Recording", "Nothing recorded (no keystrokes captured)",
         "Permissions (this run only)", "Run programs", "Read clipboard", "Control window",
+        "Pick from script library", "Browse for a script file", "Run options (this run only)",
+        "Pick a script, then press Run",
         "folder for file access", "Writable",
         "Sub-folders are included; `..` is rejected before comparing.",
         // ── 我们自己的运行配置 / 后台纪律（兼容终端没有这两层）──
