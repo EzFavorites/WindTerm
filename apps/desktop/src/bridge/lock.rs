@@ -46,7 +46,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// 前台控制端点 stderr 上 fail-open 审计行的固定前缀，运维按它 grep。
-pub const UNKNOWN_MARK: &str = "[desk-serve][lock-probe] UNKNOWN";
+pub const UNKNOWN_MARK: &str = "[desk][lock-probe] UNKNOWN";
 
 /// 当前平台是否有锁屏探测实现（macOS / Windows / Linux 为真）。
 ///
