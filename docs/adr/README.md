@@ -18,17 +18,18 @@
 | [0016](0016-app-layer-and-apps-layout.md) | 应用层独立成 `term-app`，可执行目标进 `apps/` | 已采纳 |
 | [0017](0017-backend-staging.md) | 后端分期：保险库 / 会话库 / 导入 | 已采纳 |
 | [0018](0018-single-connection-path.md) | 同一会话名只有一条连接路径 | 已采纳 |
-| [0019](0019-capability-surface-session-ownership.md) | 能力面与会话归属 | 已采纳 |
-| [0020](0020-executable-target-convergence.md) | 可执行目标收敛 | 已采纳 |
+| [0019](0019-capability-surface-session-ownership.md) | 能力面与会话归属 | 部分被取代（§5，见 0030） |
+| [0020](0020-executable-target-convergence.md) | 可执行目标收敛 | 部分被取代（§2/§5，见 0030） |
 | [0021](0021-desk-ui-layering.md) | 桌面 UI 分层 | 已采纳 |
-| [0022](0022-desk-serve.md) | 无窗口 `serve` 与回环准入 | 已采纳 |
-| [0023](0023-script-and-rpc-share-one-surface.md) | 脚本与 RPC 共用一套能力面 | 已采纳 |
+| [0022](0022-desk-serve.md) | 无窗口 `serve` 与回环准入 | 已被取代（0030） |
+| [0023](0023-script-and-rpc-share-one-surface.md) | 脚本与 RPC 共用一套能力面 | 部分被取代（前端划分，见 0030） |
 | [0024](0024-session-addressing.md) | 会话寻址 | 已采纳 |
 | [0025](0025-session-as-unit-tab-as-projection.md) | 会话为单元、标签为投影 | 已采纳 |
 | [0026](0026-per-pane-tab-groups.md) | 每窗格一组标签 | 已采纳 |
 | [0027](0027-script-platform-architecture.md) | 脚本平台目标架构 | 已采纳 |
 | [0028](0028-scrollbar-preview-window.md) | 滚动条悬停预览的第二事实窗口 | 已采纳 |
 | [0029](0029-runtime-layer-convergence.md) | 副作用会话按职责收敛：IO、档案、路径各自成层，运行时退化为兼容门面 | 已采纳（细化 0014） |
+| [0030](0030-foreground-control-plane.md) | 前台单一控制面：脚本、API 与规则共用一套动词层 | 已采纳（取代 0022） |
 
 ## 读法
 
