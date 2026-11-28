@@ -114,10 +114,13 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 
 ### 7. 传输与安全
 
-- 本地控制端点用 Unix domain socket `~/.zterm/control.sock`（Windows 用命名管道），权限 0600，加 peercred 校验。整个仓库只有一处监听绑定。
-- **删除 token 文件与 `auth` 握手**：0600 socket 已挡住跨用户；同用户进程本来就能读 0600 token，token 不增加任何屏障。协议第一条即普通方法。
-- **保留 stdio 桥**：`python_run.rs` 用 `term_bridge::python_api_shim()` 起外部 Python 子进程，是产品功能；与 UDS 一样只是 `invoke` 的一个传输适配器。
-- 锁屏门保留：接入时与每次调用前判定，结果缓存 2 秒；探测失败放行并记录审计行。
+- 本地控制端点**每个平台都必须支持**，平台实现放在 `bridge/platform/`：
+  - macOS / Linux：Unix domain socket `~/.zterm/control.sock`，权限 0600，peercred 同用户校验（macOS `getpeereid`、Linux `SO_PEERCRED`）。
+  - Windows：命名管道 `\\.\pipe\windterm-control-<用户 SID 稳定哈希>`，管道名按用户隔离；DACL 只放行当前用户 SID（等价 0600）；接入后用 `GetNamedPipeClientProcessId` → `OpenProcessToken` → `GetTokenInformation(TokenUser)` 比对对端 SID（等价 peercred）。
+  - 每个平台**恰好一处**监听绑定；其余平台显式 `Unsupported`，绝不悄悄退回 TCP。
+- **删除 token 文件与 `auth` 握手**：文件权限 / DACL 已挡住跨用户；同用户进程本来就能读 0600 token，token 不增加任何屏障。协议第一条即普通方法。
+- **保留 stdio 桥**：`python_run.rs` 用 `term_bridge::python_api_shim()` 起外部 Python 子进程，是产品功能；与本地控制端点一样只是 `invoke` 的一个传输适配器。
+- 锁屏门保留：接入时与每次调用前判定，结果缓存 2 秒；macOS（`ioreg`）、Windows（`OpenInputDesktop` + `UOI_NAME`）、Linux（freedesktop `ScreenSaver.GetActive`）均有实现。探测失败或平台无桌面环境时放行并记录审计行。
 
 ### 8. 兼容
 
@@ -148,7 +151,8 @@ L5 前端   GUI · Rhai 引擎 · 规则信号注入 · JSON-RPC(UDS) · CLI · 
 - `onekey::expects` 与输出帧 OneKey 应答块不存在；凭据只从 vault 取。
 - 同一 `password:` 提示同帧命中 OneKey 凭据规则与用户规则时，只写一次。
 - 未声明 `exclusive` 的 API 调用与用户规则同帧写时，按优先级排序且不交错。
-- `auth` 握手与 token 文件不存在；socket 为 0600 且校验 peercred。
+- `auth` 握手与 token 文件不存在；unix 端点为 0600 + peercred，Windows 端点为每用户管道名 + DACL 限当前 SID + 对端 PID→SID 复核；每平台恰好一处绑定。
+- 锁屏探测在 macOS / Windows / Linux 均有实现，三态与 2 秒缓存不变；无桌面环境时 fail-open 并留审计。
 
 **复查触发**
 
