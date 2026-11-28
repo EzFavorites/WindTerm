@@ -9,6 +9,11 @@ use super::*;
 // 只有这里的断言还按协议造夹具，所以导入落在测试模块里。
 use term_core::session::Protocol;
 use term_bridge::error::ErrorKind;
+use term_script::{HostEnv, ScriptWorkspace};
+
+use crate::script_host::PooledSessions;
+
+use std::time::Duration;
 
 fn surface() -> DeskSurface {
     DeskSurface::new(Arc::new(SessionPool::new()))
@@ -226,6 +231,44 @@ fn read_until_rejects_an_empty_delimiter() {
         .call("read_until", &json!({ "session": "ghost", "delimiter": "" }))
         .unwrap_err();
     assert_eq!(kind(&err), ErrorKind::InvalidParams);
+}
+
+#[test]
+fn script_then_api_read_until_continue_from_one_shared_cursor() {
+    // ADR-0030 回归：宿主只造一份 ScriptSessions，同时交给 ScriptWorkspace
+    // 与 DeskSurface。脚本读走第一段后，API 必须从同一个读点续读第二段；
+    // 以前两侧各持 HashMap，会各自从头读、把同一段输出重复交出去。
+    let pool = Arc::new(SessionPool::new());
+    let id = pool.open_exec("cat", 80, 24).expect("开一条 cat 会话");
+    let name = pool.name(id).expect("会话名");
+    let sessions = ScriptSessions::new();
+    let host: Arc<dyn term_script::Sessions> = Arc::new(PooledSessions::new(Arc::clone(&pool)));
+    let session = host.attach(id).expect("挂在池子里的会话");
+    let workspace = ScriptWorkspace::with_sessions(
+        HostEnv::new(host),
+        session,
+        Duration::from_secs(5),
+        sessions.clone(),
+    );
+    let surface = DeskSurface::with_sessions(Arc::clone(&pool), sessions.clone());
+
+    // 两侧共用同一条会话、只建一份 ScriptSession。
+    assert_eq!(sessions.len(), 1);
+    workspace.write("one#A#two#B#\n").expect("写入 cat 回显");
+    let first = workspace.read_until("A#", 5.0, None).expect("脚本读第一段");
+    assert!(first.contains("one#A#"), "脚本第一段：{first:?}");
+
+    let second = surface
+        .call(
+            "read_until",
+            &json!({ "session": name, "delimiter": "B#", "timeout_ms": 5000 }),
+        )
+        .expect("API 从同一游标续读");
+    let text = second["text"].as_str().unwrap_or_default();
+    assert!(text.contains("two#B#"), "API 续读到第二段：{text:?}");
+    assert!(!text.contains("one#A#"), "API 不得重读脚本已消费的段：{text:?}");
+    assert_eq!(sessions.len(), 1, "两侧没有各建一份游标");
+    assert!(pool.close(id));
 }
 
 #[test]

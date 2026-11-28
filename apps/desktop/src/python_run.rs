@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use term_script::CancelToken;
+use term_script::{CancelToken, ScriptSessions};
 use term_session::SessionPool;
 
 use crate::bridge::surface::DeskSurface;
@@ -123,6 +123,7 @@ pub fn run_blocking(
     wall: Duration,
     cancel: CancelToken,
     caps: term_core::script_caps::Capabilities,
+    sessions: ScriptSessions,
 ) -> Result<String, PythonRunError> {
     use crate::script_run::FailureKind as K;
 
@@ -209,8 +210,9 @@ pub fn run_blocking(
         std::thread::sleep(POLL);
     });
 
-    // 一条 stdio 管道是一条串行事实流，桥接不并发。
-    let surface = DeskSurface::new(Arc::clone(&pool));
+    // 一条 stdio 管道是一条串行事实流，桥接不并发。关键是把宿主那份游标
+    // 登记处交进来：同一会话若也跑过 Rhai 脚本，两侧从同一个读点续读。
+    let surface = DeskSurface::with_sessions(Arc::clone(&pool), sessions);
     let bridge = term_bridge::transport::serve_stdio(&surface, BufReader::new(stdout), &mut stdin);
     done.store(true, Ordering::SeqCst);
     let _ = watchdog.join();
@@ -293,6 +295,7 @@ mod tests {
             Duration::from_secs(1),
             CancelToken::new(),
             term_core::script_caps::Capabilities::NONE,
+            ScriptSessions::new(),
         )
         .unwrap_err();
         assert!(err.to_string().contains("process"), "必须点名缺的是 process 授权：{err}");

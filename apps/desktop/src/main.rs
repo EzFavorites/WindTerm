@@ -96,6 +96,10 @@ fn main() {
     if tidy.cleaned > 0 {
         eprintln!("清掉 {} 个上次异常退出留下的临时文件", tidy.cleaned);
     }
+    // ADR-0030：宿主只造一份按会话游标登记处。`RunOptions::default()` 给出的
+    // 句柄都来自这一份，因此界面里的 Rhai 脚本与外部 Python 的 API 前端对
+    // 同一会话共享同一个 `ScriptSession`（同一读点），而不是各持一份 map。
+    let _script_sessions = term_script::ScriptSessions::shared().handle();
     let args: Vec<String> = std::env::args().collect();
     // ADR-0020：`doctor` / `capability` 是无窗口子命令，必须在 `eframe` 起来
     // 之前处理掉。放在这里而不是解析完 flags 之后，是为了让它们连显示环境都

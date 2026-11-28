@@ -25,7 +25,6 @@
 //!
 //! 真正该合并的时机是「第二个宿主出现」——那时抽 crate，两份变一份。
 
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -39,7 +38,7 @@ use term_core::contract::{
 use term_core::session::SessionConfig;
 use term_core::session_runtime::{FacetKind, SessionId, SessionState, WaitError};
 use term_core::surface_error::SurfaceError;
-use term_script::{PrimitiveError, ScriptSession};
+use term_script::{PrimitiveError, ScriptSession, ScriptSessions};
 use term_session::{OpenError, SessionPool};
 
 use crate::session_open::{open_session, OpenFailure};
@@ -75,23 +74,32 @@ pub struct DeskSurface {
     pool: Arc<SessionPool>,
     /// ADR-0030：API 写与 UI 规则写共用同一个仲裁器。
     arbiter: Arc<Mutex<Arbitrator>>,
-    /// ADR-0023：每个会话一份 `ScriptSession`，让远程的
-    /// `read` / `read_until` / `wait_any` 与脚本共享**同一套捕获游标语义**。
-    ///
-    /// 为什么必须有状态：`read_until` 的承诺是「自上次取走点往后读到哨兵」。
-    /// 无状态实现只能每次从屏幕重读——那就是洪水输出下漏读（ADR-0019）。
-    /// 桥接是一条串行管道（`handler.rs` 硬约束 3），持游标不引入并发问题。
-    cursors: Mutex<HashMap<SessionId, ScriptSession>>,
+    /// ADR-0023/0030：按会话一份 `ScriptSession`，登记处由宿主构造并同时交给
+    /// `ScriptWorkspace`，所以脚本与 API 读写同一会话时续的是同一个读点。
+    sessions: ScriptSessions,
 }
 
 impl DeskSurface {
     pub fn new(pool: Arc<SessionPool>) -> Self {
-        Self::with_arbiter(pool, shared_arbiter_arc())
+        Self::with_sessions(pool, ScriptSessions::shared().handle())
     }
 
-    /// 夹具专用：用一份独立的仲裁器，避免不同测试互相抢占。
+    /// 夹具专用：用一份独立的仲裁器，避免不同测试互相抢占；游标登记处仍取宿主那一份。
     pub fn with_arbiter(pool: Arc<SessionPool>, arbiter: Arc<Mutex<Arbitrator>>) -> Self {
-        Self { pool, arbiter, cursors: Mutex::new(HashMap::new()) }
+        Self {
+            pool,
+            arbiter,
+            sessions: ScriptSessions::shared().handle(),
+        }
+    }
+
+    /// 显式装配：调用方把与脚本侧同一份游标登记处交进来。
+    pub fn with_sessions(pool: Arc<SessionPool>, sessions: ScriptSessions) -> Self {
+        Self {
+            pool,
+            arbiter: shared_arbiter_arc(),
+            sessions,
+        }
     }
 
     /// P2 显式调用的申请 / 回收。默认非独占；只有 `exclusive: true` 才抢 owner。
@@ -155,17 +163,13 @@ impl DeskSurface {
     /// 参数仍是 `SessionId`：游标按 id 存（它是进程内的句柄），但调用方必须
     /// 已经用名字解析过了——这里不认识名字。
     fn cursor(&self, tab: SessionId) -> Result<ScriptSession, SurfaceError> {
-        let mut map = self.cursors.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(existing) = map.get(&tab) {
-            return Ok(existing.clone());
-        }
-        let handle = self
-            .pool
-            .session(tab)
-            .ok_or_else(|| SurfaceError::not_found(format!("会话 {tab} 不在池子里")))?;
-        let session = ScriptSession::new(handle);
-        map.insert(tab, session.clone());
-        Ok(session)
+        self.sessions.get_or_try_insert(tab, || {
+            let handle = self
+                .pool
+                .session(tab)
+                .ok_or_else(|| SurfaceError::not_found(format!("会话 {tab} 不在池子里")))?;
+            Ok(ScriptSession::new(handle))
+        })
     }
 
     /// `session` 参数 → `(名字, id)`。**所有**收会话参数的动词都从这里进。
@@ -270,9 +274,9 @@ impl DeskSurface {
 
     fn session_close(&self, params: &Value) -> Result<Value, SurfaceError> {
         let (session, tab) = self.resolve(params)?;
-        // 先摘游标再关会话：否则关掉的会话会在 cursors 里留一个孤儿句柄，
+        // 先摘游标再关会话：否则关掉的会话会在登记处留一个孤儿句柄，
         // 它握着的 `Arc<Mutex<dyn Session>>` 让会话本体无法释放。
-        self.cursors.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&tab);
+        self.sessions.remove(tab);
         if !self.pool.close(tab) {
             return Err(SurfaceError::not_found(format!(
                 "会话 {session:?} 不存在（已关闭的会话不会再关一次，也不会假装成功）"

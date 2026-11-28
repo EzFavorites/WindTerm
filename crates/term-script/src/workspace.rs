@@ -3,9 +3,11 @@
 //! # 分层
 //!
 //! - [`ScriptSession`] = **单会话原语核心**：`write` / `wait` / `read*` / `log_*`，
-//!   每个实例自带一份捕获游标（`read` / `read_until` / `wait_any` 共享）。
+//!   每份带一份捕获游标（`read` / `read_until` / `wait_any` 共享）。
 //! - `ScriptWorkspace` = **全局层**：持有一个 [`HostEnv`]（六端口 + 授权 + 取消 +
-//!   上下文）+ 每会话一个 [`ScriptSession`] + 当前绑定 id，负责全部动词。
+//!   上下文）+ 当前绑定 id + 一份可共享的 [`ScriptSessions`] 句柄，负责全部动词。
+//!   游标**不在工作区自己的表里**：宿主构造的同一份登记处也交给 API 前端，
+//!   脚本与 API 对同一会话因此拿到同一份 `ScriptSession`（ADR-0030）。
 //!
 //! 为什么不是「一个 ScriptSession 内部换会话」：游标必须**按会话**独立。
 //! 换绑之后若共用一份游标，前一条会话没读完的尾巴会被记到新会话名下，
@@ -30,7 +32,6 @@
 //! 布尔）→ 每次阻塞的 50ms 切片。工作区自己的门面方法（`sleep` / `ask` /
 //! `pick_file` / `clipboard_get` / `selection`）在调用前与返回后各看一眼。
 
-use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -50,6 +51,7 @@ use crate::filter::LineFilter;
 use crate::human::{Answer, Ask, AskError, PickFile};
 use crate::localfs::{DirEntry, FileStat, FsError};
 use crate::proc::{ProcError, ProcOutput, ProcRun};
+use crate::script_sessions::ScriptSessions;
 use crate::sendkeys;
 use crate::session::{ScriptSession, WaitAnyHit};
 use crate::sessions::{FixedSessions, SessionInfo, SessionsError};
@@ -123,10 +125,11 @@ impl From<Denied> for SessionError {
     }
 }
 
-/// 工作区内部状态。`map` 与 `current` 放同一把锁：两者的一致性
-/// （当前绑定必须在表里）不需要额外约定来维护。
+/// 工作区自己的那一格状态：**只有当前绑定**。
+///
+/// 游标不再放这里——它在宿主给的 [`ScriptSessions`] 里，与 API 前端共用。
+/// 绑定仍与「换绑」动词同一把锁：同一时刻只有一个当前 id，不需要额外约定。
 struct Tabs {
-    map: HashMap<SessionId, ScriptSession>,
     current: SessionId,
 }
 
@@ -134,7 +137,12 @@ struct Inner {
     env: HostEnv,
     /// 整段脚本共用的**绝对**墙钟截止点。新包进来的会话也继承同一个点，
     /// 而不是各自拿到一份完整的「单次等待上限」。
+    ///
+    /// 注意它**不写进共享的 `ScriptSession`**：那个对象长期驻留，API 前端也
+    /// 在用它。工作区每次取句柄时用 `for_run` 派生本次运行的视图。
     deadline: Instant,
+    /// 与 API 前端共用的按会话游标登记处（同一张表的句柄）。
+    sessions: ScriptSessions,
     tabs: Mutex<Tabs>,
     /// 同步写开关（`set_synchronous`）。整个工作区一份，是**唯一真源**：
     /// 门面的 `Screen.Synchronous` 属性与全局 `set_synchronous` 都读写这一位。
@@ -166,29 +174,49 @@ pub struct ScriptWorkspace {
 
 impl ScriptWorkspace {
     /// 池级工作区：调用方给一整套宿主接缝（[`HostEnv`]），`current` 是脚本
-    /// 一开始就在用的那条会话。
+    /// 一开始就在用的那条会话。**自建一份登记处**——给无需与 API 共游标的
+    /// 独立调用方（`desk script run`、引擎单测）用。
     pub fn new(env: HostEnv, current: Arc<Mutex<dyn Session>>, max_wait: Duration) -> Self {
+        Self::with_sessions(env, current, max_wait, ScriptSessions::new())
+    }
+
+    /// 宿主装配用的入口：同一份 [`ScriptSessions`] 同时交给本工作区与 API
+    /// 前端（`DeskSurface`），于是同一会话两侧共用一份游标实例。
+    pub fn with_sessions(
+        env: HostEnv,
+        current: Arc<Mutex<dyn Session>>,
+        max_wait: Duration,
+        sessions: ScriptSessions,
+    ) -> Self {
         let now = Instant::now();
         // 溢出即视为预算耗尽（不在生产路径用 panic 表达异常配置）。
         let deadline = match now.checked_add(max_wait) {
             Some(when) => when,
             None => now,
         };
-        let session = ScriptSession::with_deadline(current, deadline, Some(env.cancel.clone()));
-        let id = session.id();
-        let mut map = HashMap::new();
-        map.insert(id, session);
+        // 登记的是中性策略的那一份：截止点与取消令牌由每次 `current()` 用
+        // `for_run` 套上本次运行的策略，不给长期驻留的共享对象留下过期预算。
+        // 闭包只在缺席时跑：若 API 前端已经建好这一条，直接复用它，连 reader
+        // 都不重复注册。
+        let id = current.lock().unwrap_or_else(|p| p.into_inner()).id();
+        sessions.get_or_insert_with(id, || ScriptSession::new(current));
         Self {
             inner: Arc::new(Inner {
                 env,
                 deadline,
-                tabs: Mutex::new(Tabs { map, current: id }),
+                sessions,
+                tabs: Mutex::new(Tabs { current: id }),
                 synchronous: AtomicBool::new(false),
                 log_template: Mutex::new(None),
                 script_session: id,
             }),
             scoped: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// 与 API 前端共用的登记处句柄（装配诊断用）。
+    pub fn sessions(&self) -> ScriptSessions {
+        self.inner.sessions.handle()
     }
 
     /// 把句柄钉到某一条会话上（多会话脚本按标签操作时用）。
@@ -208,10 +236,10 @@ impl ScriptWorkspace {
         })
     }
 
-    /// 确保 `id` 已经进到 `tabs.map`（必要时向集合要句柄包装一次）。
-    /// **只准备游标，不改绑定**。
+    /// 确保 `id` 已经进到共享登记处（必要时向集合要句柄包装一次）。
+    /// **只准备游标，不改绑定**；已登记就直接复用，不会重建 reader。
     fn wrap_session(&self, id: SessionId) -> Result<(), PrimitiveError> {
-        if self.tabs().map.contains_key(&id) {
+        if self.inner.sessions.contains(id) {
             return Ok(());
         }
         let name = || {
@@ -221,17 +249,17 @@ impl ScriptWorkspace {
                 .name(id)
                 .unwrap_or_else(|| format!("#{id}"))
         };
-        let Some(session) = self.inner.env.sessions.attach(id) else {
-            return Err(PrimitiveError::NoSuchSession(name()));
-        };
-        let wrapped = ScriptSession::with_deadline(
-            session,
-            self.inner.deadline,
-            Some(self.inner.env.cancel.clone()),
-        );
-        // `or_insert` 而不是 `insert`：另一条线程可能刚好抢先包好了同一
-        // 条会话，覆盖会把它已经推进的读游标丢掉。
-        self.tabs().map.entry(id).or_insert(wrapped);
+        // 闭包只在登记处确认缺席时执行；找不到会话仍报 NoSuchSession，
+        // 绝不拿别的会话顶上。
+        self.inner.sessions.get_or_try_insert(id, || {
+            let session = self
+                .inner
+                .env
+                .sessions
+                .attach(id)
+                .ok_or_else(|| PrimitiveError::NoSuchSession(name()))?;
+            Ok::<_, PrimitiveError>(ScriptSession::new(session))
+        })?;
         Ok(())
     }
 
@@ -329,12 +357,17 @@ impl ScriptWorkspace {
     }
 
     /// 取当前绑定的单会话核心。所有单会话原语的唯一入口。
+    ///
+    /// 从共享登记处拿到的对象换上**本次运行**的截止点与取消令牌；游标与
+    /// reader 仍是同一份（[`ScriptSession::for_run`] 只克隆 `Arc`）。
     pub fn current(&self) -> Result<ScriptSession, PrimitiveError> {
         let id = self.bound_id();
-        self.tabs()
-            .map
-            .get(&id)
-            .cloned()
+        self.inner
+            .sessions
+            .get(id)
+            .map(|session| {
+                session.for_run(self.inner.deadline, Some(self.inner.env.cancel.clone()))
+            })
             .ok_or(PrimitiveError::NoBinding)
     }
 
@@ -370,12 +403,11 @@ impl ScriptWorkspace {
             ))
             .into());
         };
-        let wrapped = ScriptSession::with_deadline(
-            session,
-            self.inner.deadline,
-            Some(self.inner.env.cancel.clone()),
-        );
-        self.tabs().map.insert(info.id, wrapped);
+        // 共享登记处可能已经有这条会话的游标：用 `get_or_try_insert` 保住
+        // 它已经推进过的读点，不为新建的会话句柄再注册一个 reader。
+        self.inner
+            .sessions
+            .get_or_try_insert(info.id, || Ok::<_, PrimitiveError>(ScriptSession::new(session)))?;
         Ok(info)
     }
 
@@ -432,7 +464,8 @@ impl ScriptWorkspace {
         // 先放锁再调集合：关会话要等监管线程收尾，攥着工作区锁会挡住
         // 同一脚本里其它克隆的读取。
         self.inner.env.sessions.close(name)?;
-        self.tabs().map.remove(&id);
+        // 只摘这一条的游标：关一条会话不能动别条的读点。
+        self.inner.sessions.remove(id);
         Ok(())
     }
 
@@ -469,7 +502,7 @@ impl ScriptWorkspace {
         // 先关再改绑：集合关不掉时就别把 scope 挪走，失败要原子。
         // 先放锁再调集合：关会话要等监管线程收尾。
         self.inner.env.sessions.close(&old_name)?;
-        self.tabs().map.remove(&old_id);
+        self.inner.sessions.remove(old_id);
         self.rebind_here(next_id);
         {
             let mut tabs = self.tabs();
@@ -491,15 +524,9 @@ impl ScriptWorkspace {
             ))
             .into());
         };
-        let wrapped = ScriptSession::with_deadline(
-            session,
-            self.inner.deadline,
-            Some(self.inner.env.cancel.clone()),
-        );
-        {
-            let mut tabs = self.tabs();
-            tabs.map.insert(info.id, wrapped);
-        }
+        self.inner
+            .sessions
+            .get_or_try_insert(info.id, || Ok::<_, PrimitiveError>(ScriptSession::new(session)))?;
         self.rebind_here(info.id);
         self.describe(info.id)
     }
@@ -581,7 +608,7 @@ impl ScriptWorkspace {
             ))
             .into());
         };
-        let session = self.tabs().map.get(&id).cloned();
+        let session = self.inner.sessions.get(id);
         let state = match session {
             Some(session) => session.state(),
             None => SessionState::Alive,
@@ -1172,6 +1199,74 @@ mod tests {
         let current = sessions.attach(1).expect("预挂的会话 1");
         let ws = ScriptWorkspace::new(fake.env(), current, Duration::from_secs(2));
         (ws, fake)
+    }
+
+    #[test]
+    fn script_and_api_frontends_continue_from_one_shared_cursor() {
+        // ADR-0030：脚本工作区与外部前端拿同一份 ScriptSessions；两边
+        // `read_until` 必须接着对方的读点走，而不是各从自己的起点重读。
+        let fake = FakeSessions::new();
+        let manip = fake.mount(1, "one");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let current = sessions.attach(1).expect("预挂的会话 1");
+        let registry = ScriptSessions::new();
+        let ws = ScriptWorkspace::with_sessions(
+            fake.env(),
+            current,
+            Duration::from_secs(2),
+            registry.clone(),
+        );
+        // API 前端从同一登记处取句柄：只有一条会话、只建一次 ScriptSession。
+        assert_eq!(registry.len(), 1);
+        let api = registry.get(1).expect("登记处里已有这条会话");
+
+        manip.push_output("first#second#");
+        assert_eq!(ws.read_until("#", 2.0, None).expect("脚本读第一段"), "first#");
+        assert_eq!(api.read_until("#", 2.0, None).expect("API 续读"), "second#");
+
+        manip.push_output("third#fourth#");
+        assert_eq!(api.read_until("#", 2.0, None).expect("API 先读"), "third#");
+        assert_eq!(ws.read_until("#", 2.0, None).expect("脚本接着读"), "fourth#");
+
+        // 找不到别的会话时不许退回 1 号那条游标。
+        assert!(registry.get(2).is_none());
+    }
+
+    #[test]
+    fn an_api_created_shared_session_does_not_extend_the_script_deadline() {
+        // 即使登记处里那条 ScriptSession 是 API 前端先建的（中性 = 24h 预算），
+        // 脚本工作区取句柄时必须套上本次运行的截止点；否则另一个前端的调用
+        // 就把 per-run 预算悄悄延长了。
+        let fake = FakeSessions::new();
+        let _one = fake.mount(1, "one");
+        let _two = fake.mount(2, "two");
+        let sessions: Arc<dyn Sessions> = fake.clone();
+        let current = sessions.attach(1).expect("预挂的会话 1");
+        let registry = ScriptSessions::new();
+        let ws = ScriptWorkspace::with_sessions(
+            fake.env(),
+            current,
+            Duration::from_millis(80),
+            registry.clone(),
+        );
+        let _api = registry
+            .get_or_try_insert(2, || {
+                Ok::<_, PrimitiveError>(ScriptSession::new(
+                    sessions.attach(2).expect("预挂的会话 2"),
+                ))
+            })
+            .expect("API 先建这条会话");
+        ws.session_use("two").expect("切到 API 已建游标的会话");
+
+        let started = Instant::now();
+        assert!(matches!(
+            ws.read_until("#", 5.0, None),
+            Err(PrimitiveError::Timeout)
+        ));
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "脚本预算必须仍是 80ms，没被 API 的 24h 默认截止点延长"
+        );
     }
 
     /// 挂上假应用端口的工作区。`scope` 决定 `capabilities.app` 档——

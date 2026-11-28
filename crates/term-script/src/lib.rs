@@ -88,6 +88,7 @@ mod human;
 mod localfs;
 mod proc;
 mod sandbox;
+mod script_sessions;
 mod sendkeys;
 mod session;
 mod sessions;
@@ -113,6 +114,7 @@ pub use human::{
 pub use localfs::{normalize_for, DirEntry, FileStat, FsError, LocalFs, NoFiles, RemoteFiles};
 pub use proc::{NoProcess, ProcError, ProcOutput, ProcRun, Process};
 pub use sandbox::{BudgetKind, SandboxConfig, ScriptBudget};
+pub use script_sessions::ScriptSessions;
 pub use sendkeys::Stroke;
 pub use session::{ScriptSession, WaitAnyHit};
 pub use sessions::{

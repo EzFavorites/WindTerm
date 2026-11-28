@@ -136,7 +136,7 @@ fn spawn_server(probe: Arc<dyn lock::LockProbe>) -> UnixStream {
     let bound = bind(&Config::new(path.clone())).expect("绑定 socket");
     let pool = Arc::new(SessionPool::new());
     std::thread::spawn(move || {
-        let _ = serve_on_with_pool(bound, probe, pool);
+        let _ = serve_on_with_pool(bound, probe, pool, term_script::ScriptSessions::new());
     });
     let stream = UnixStream::connect(&path).expect("连接 socket");
     stream

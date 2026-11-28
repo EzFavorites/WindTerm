@@ -49,6 +49,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 
 use term_core::contract::Surface;
 use term_core::surface_error::SurfaceError;
+use term_script::ScriptSessions;
 use term_session::SessionPool;
 
 /// socket 所在目录与文件名。路径固定：客户端不需要 `--socket` 参数。
@@ -190,8 +191,9 @@ pub fn start_control_endpoint(pool: Arc<SessionPool>) {
         }
     };
     let probe = Arc::new(lock::Cached::new(lock::Ioreg, std::time::Duration::from_secs(2)));
+    let sessions = ScriptSessions::shared().handle();
     std::thread::spawn(move || {
-        let _ = serve_on_with_pool(bound, probe, pool);
+        let _ = serve_on_with_pool(bound, probe, pool, sessions);
     });
 }
 
@@ -200,6 +202,7 @@ pub fn serve_on_with_pool(
     bound: Bound,
     probe: Arc<dyn lock::LockProbe>,
     pool: Arc<SessionPool>,
+    sessions: ScriptSessions,
 ) -> Result<(), ServeError> {
     #[cfg(unix)]
     {
@@ -231,6 +234,7 @@ pub fn serve_on_with_pool(
             }
             let probe = Arc::clone(&probe);
             let pool = Arc::clone(&pool);
+            let sessions = sessions.handle();
             let mut writer = std::io::BufWriter::new(stream.try_clone().map_err(ServeError::Io)?);
             let reader = std::io::BufReader::new(stream);
             std::thread::spawn(move || {
@@ -238,7 +242,7 @@ pub fn serve_on_with_pool(
                 // 同一个 SessionPool；这里不做脚本授权信封检查，port-based
                 // HostEnv 留到后续 invoke / 端口任务再接。
                 let gated = LockedGate {
-                    inner: surface::DeskSurface::new(pool),
+                    inner: surface::DeskSurface::with_sessions(pool, sessions),
                     probe,
                 };
                 let _ = term_bridge::transport::serve_stdio(&gated, reader, &mut writer);
