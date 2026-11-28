@@ -66,9 +66,11 @@ fn loopback_random_chunks() {
 
 #[test]
 fn loopback_utf8_filename() {
+    // 名字仍按字节透传，但必须是单段：`/` 这类分隔符现在在接收侧整笔拒绝
+    // （见 tests/errors.rs 的 receiver_rejects_a_dirty_file_name）。
     assert_loopback(
         hex(),
-        "固件 v1.2/说明.txt",
+        "固件 v1.2 说明.txt",
         "中文内容，需要按 UTF-8 原样透传。".as_bytes(),
         Cut::Whole,
     );

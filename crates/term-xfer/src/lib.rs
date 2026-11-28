@@ -68,6 +68,19 @@
 //!    一一对应，只是多了「从偏移重传」——那属于协议内部状态，不需要新事件。
 //! 3. CRC-32 加在 [`packet`] 里，与 `crc16` 并列。
 //!
+//! # 安全边界：接收文件名
+//!
+//! YMODEM 头块里的文件名来自对端，和 SFTP `read_dir` 返回的条目名一样**不可信**。
+//! 接收方在发出 [`Action::FileStart`] 之前按 [`is_plain_name`] 校验：必须是单段、
+//! 非空、不是 `.` / `..`、不含 `/` 或 `\`、不含 NUL 与控制字符。不合法的名字直接
+//! 判 [`Error::BadHeader`] 并中止整笔传输，**绝不把原始名字交给调用方落盘**——
+//! `../../evil` 拼进落点就写出目标目录之外（与 `term-sftp` 的 `walk::is_plain_name`
+//! 同一威胁模型，口径一致）。
+//!
+//! XMODEM 协议本身不带文件名，那条路径的 [`Action::FileStart::name`] 是空串；
+//! 调用方要自己命名，并沿用上面同一条规则。本 crate 零 IO、不拼路径，最终落点是否
+//! 留在目标根目录内仍由调用方负责（第二道闸门）。
+//!
 //! # 目录同步
 //!
 //! [`sync`] 模块是 XFER-06 的决策层与执行记账层：两份目录清单（本地 / 远端）进，
@@ -124,7 +137,7 @@ pub use config::{Checksum, Config, Protocol};
 pub use error::{Error, Fault};
 pub use queue::{Direction, FailReason, Job, JobState, Policy, Queue};
 pub use rate::{RateMeter, MIN_WINDOW_MS};
-pub use receiver::Receiver;
+pub use receiver::{is_plain_name, Receiver};
 pub use sender::Sender;
 pub use sync::{
     execution_order, plan, DeletePolicy, Progress, StepResult, SyncEntry, SyncItem, SyncOp, SyncRun,

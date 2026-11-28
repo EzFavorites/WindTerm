@@ -5,6 +5,22 @@ use crate::config::Config;
 use crate::error::{Error, Fault};
 use crate::packet::{self, Parsed};
 
+/// 对端给的文件名能不能安全地下发为 [`Action::FileStart`]。
+///
+/// 与 `term-sftp` 的 `walk::is_plain_name` 同一口径（单段、非空、非 `.` / `..`、
+/// 无 `/` 与 `\`），再额外挡掉 NUL 与控制字符。名字由对端决定，调用方随后会拿它
+/// 拼落盘路径：一条 `../evil` 就能写到目标目录之外，`\r\x1b[2J` 之类的控制字符
+/// 则会污染日志与终端。协议层先拒绝，比指望每个调用方都记得清洗可靠。
+pub fn is_plain_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains('\0')
+        && !name.chars().any(char::is_control)
+}
+
 /// 接收方：把对端发来的字节流解析成「文件内容 + 要回的应答」。
 ///
 /// # 用法
@@ -312,6 +328,17 @@ impl Receiver {
                 self.finish(out);
             }
             Ok(Some(header)) => {
+                if !is_plain_name(&header.name) {
+                    // 名字不干净就整笔拒绝：不能让 `../evil` 之类的头块走到
+                    // `FileStart`，调用方会拿它当落盘文件名。
+                    self.fail(
+                        Error::BadHeader {
+                            detail: format!("文件名不是合法的单段名字：{:?}", header.name),
+                        },
+                        out,
+                    );
+                    return;
+                }
                 self.expecting_header = false;
                 self.expected_block = 1;
                 self.accepted_blocks = 0;
@@ -436,5 +463,23 @@ impl Receiver {
         // 先通知对端别再发了，再上报失败（顺序有意义：调用方按序 flush）。
         out.push(Action::Send(packet::ABORT_SEQUENCE.to_vec()));
         out.push(Action::Error(err));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 与 `term-sftp` 的 `is_plain_name` 同口径，外加 NUL / 控制字符。
+    #[test]
+    fn only_a_single_plain_segment_is_a_safe_name() {
+        for name in ["a.txt", "中文 名", ".hidden"] {
+            assert!(is_plain_name(name), "{name} 应当合法");
+        }
+        for name in [
+            "", ".", "..", "../evil", "a/b", "a\\b", "a\0b", "a\nb", "a\u{1b}b", "a\u{7f}b",
+        ] {
+            assert!(!is_plain_name(name), "{name:?} 必须被拒绝");
+        }
     }
 }

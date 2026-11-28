@@ -180,6 +180,23 @@ fn bad_header_is_fatal() {
     assert_eq!(rx.phase(), Phase::Aborted);
 }
 
+/// 头块文件名来自对端：`../` 与控制字符必须整笔拒绝，绝不能变成 `FileStart`
+/// 交给调用方拼落盘路径（与 `term-sftp` 的 `is_plain_name` 同一口径）。
+#[test]
+fn a_dirty_header_name_is_refused_before_file_start() {
+    for name in ["../../evil", "a/b", ".", "..", "a\nb"] {
+        let mut rx = Receiver::new(cfg());
+        let mut sink = Sink::default();
+        sink.apply(rx.start());
+        sink.take_out();
+
+        sink.apply(rx.feed(&header_frame(name, 3)));
+        assert!(sink.files.is_empty(), "{name:?} 不得进 FileStart");
+        assert!(matches!(sink.last_error(), Error::BadHeader { .. }));
+        assert_eq!(rx.phase(), Phase::Aborted);
+    }
+}
+
 #[test]
 fn cancel_mid_batch() {
     let mut stream = Vec::new();
