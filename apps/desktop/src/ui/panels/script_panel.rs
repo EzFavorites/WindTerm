@@ -64,6 +64,8 @@ pub(in crate::ui) struct ScriptPanelState {
     pub output: Option<crate::script_output::ScriptOutputQueue>,
     /// 上一次输出标签的身份：下次运行时先关掉它，避免同名只读 tab 越堆越多。
     pub output_session: Option<SessionId>,
+    /// `⚙` 打开的「本次运行授权」面板是否展开（默认收起，不占结果区）。
+    pub permissions_open: bool,
 }
 
 /// 脚本库里所有 `*.rhai`：`(完整路径, 展示名)`。
@@ -288,7 +290,7 @@ impl TerminalWindow {
         &mut self,
         ui: &egui::Ui,
         cmd: ScriptCmd,
-        scripts: &[(String, String)],
+        _scripts: &[(String, String)],
         choices: &[(SessionId, String)],
     ) {
         match cmd {
@@ -304,14 +306,21 @@ impl TerminalWindow {
             ScriptCmd::NewTab => self.script_panel.add(),
             ScriptCmd::CloseTab => self.script_panel.close_active(),
             ScriptCmd::OpenConfig => self.open_script_manager(),
-            ScriptCmd::OpenScripts => ui.memory_mut(|m| m.toggle_popup(scripts_menu_id())),
-            ScriptCmd::OpenSessions => ui.memory_mut(|m| m.toggle_popup(sessions_menu_id())),
-            ScriptCmd::PickScript(i) => {
-                if let Some((full, _)) = scripts.get(i) {
-                    self.script_panel.current_mut().path = full.clone();
-                }
-                ui.memory_mut(|m| m.close_popup());
+            ScriptCmd::OpenLibrary => ui.memory_mut(|m| m.toggle_popup(scripts_menu_id())),
+            ScriptCmd::BrowsePath => {
+                let tab = self.script_panel.active.min(self.script_panel.tabs.len().saturating_sub(1));
+                let current = self.script_panel.tabs[tab].state.path.clone();
+                self.open_path_picker(crate::ui::path_picker::PathTarget::ScriptPanelPath(tab), &current);
             }
+            ScriptCmd::TogglePermissions => {
+                let tab = self
+                    .script_panel
+                    .active
+                    .min(self.script_panel.tabs.len().saturating_sub(1));
+                let state = &mut self.script_panel.tabs[tab].state;
+                state.permissions_open = !state.permissions_open;
+            }
+            ScriptCmd::OpenSessions => ui.memory_mut(|m| m.toggle_popup(sessions_menu_id())),
             ScriptCmd::PickSession(i) => {
                 // 下标 0 是 `Current Session`（= 跟随活动标签），其余对应 choices。
                 self.script_panel.current_mut().target = if i == 0 {
@@ -351,13 +360,6 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
 
     let scripts = list_scripts();
     let names = session_labels(&choices.iter().map(|(_, n)| n.clone()).collect::<Vec<_>>());
-    // 未展开那一格：库里的给展示名，库外的给 basename，只有**没选**才给占位。
-    // 取 basename 复用脚本库那一份逻辑，见 `script_panel_path::label`。
-    let script_label = super::script_panel_path::label(
-        &win.script_panel.current().path,
-        &scripts,
-        win.tr("— pick a script —"),
-    );
     // 会话格显示：显式选中 → 那个标签的名字；没选 → `Current Session`；
     // 选中的会话已经关了 → 明说「已关闭 → 当前」，不再只写「已关闭」让人以为
     // 点 Run 什么都不会发生（实际它会按 `effective_session` 退回活动标签）。
@@ -374,34 +376,30 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
         },
     };
 
-    let out = script_row(win, ui, row_rect, &script_label, &session_label);
+    // 路径输入框是脚本来源的**唯一真相**；主操作条只产出意图，不持有状态。
+    let tab = win.script_panel.active.min(win.script_panel.tabs.len().saturating_sub(1));
+    let path = std::mem::take(&mut win.script_panel.tabs[tab].state.path);
+    let out = script_row(win, ui, row_rect, tab, path, &session_label);
+    win.script_panel.tabs[tab].state.path = out.path;
     if let Some(cmd) = out.cmd {
         win.apply_script_cmd(ui, cmd, &scripts, &choices);
     }
 
-    // 脚本下拉：第一项是「还没选」的占位，所以下标要往右挪一格。
-    let script_items: Vec<String> = std::iter::once(win.tr("— pick a script —").to_string())
-        .chain(scripts.iter().map(|(_, n)| n.clone()))
-        .collect();
+    // 脚本库列表：▾ 展开，选中写回同一个路径输入框（空项 = 清空）。
+    let script_items: Vec<String> = scripts.iter().map(|(_, n)| n.clone()).collect();
     let script_sel = scripts
         .iter()
-        .position(|(full, _)| full == &win.script_panel.current_mut().path)
-        .map(|i| i + 1);
+        .position(|(full, _)| full == &win.script_panel.tabs[tab].state.path);
     if let Some(i) = list_popup(
         ui,
         scripts_menu_id(),
-        out.script_anchor,
+        out.library_anchor,
         &script_items,
         script_sel,
         win.tr("no scripts in library"),
     ) {
-        // 选回占位项 = 清空选择。
-        if i == 0 {
-            win.script_panel.current_mut().path.clear();
-            ui.memory_mut(|m| m.close_popup());
-        } else {
-            win.apply_script_cmd(ui, ScriptCmd::PickScript(i - 1), &scripts, &choices);
-        }
+        win.script_panel.tabs[tab].state.path = scripts[i].0.clone();
+        ui.memory_mut(|m| m.close_popup());
     }
 
     let session_items = std::iter::once(win.tr("Current Session").to_string())
@@ -434,16 +432,14 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
             ((full.top() + view_h).max(row_rect.bottom() + BODY_GAP + 40.0)) - strip_h,
         ),
     );
-    // 自由路径输入 + Browse：本项目自己加的入口（兼容终端只能从库里挑）。
-    // 先把它的高度扣掉，下面的录制条与结果正文才不会盖在输入框上。
-    let path_h = super::script_panel_path::draw(win, ui, body);
-    body = egui::Rect::from_min_max(egui::pos2(body.left(), body.top() + path_h), body.max);
-    // 录制器 + 单次授权条：控件与文案在 `script_panel_strip` 里，这里只留高度。
-    let toolbar_h = super::script_panel_strip::draw(win, ui, body);
-    body = egui::Rect::from_min_max(
-        egui::pos2(body.left(), body.top() + toolbar_h),
-        body.max,
-    );
+    // 授权面板只在 ⚙ 展开时画；录制不在面板里（菜单里已有）。结果区从主条
+    // 下方直接开始，不再被两排常驻控件压扁。
+    let permissions_h = if win.script_panel.tabs[tab].state.permissions_open {
+        super::script_panel_strip::draw(win, ui, body)
+    } else {
+        0.0
+    };
+    body = egui::Rect::from_min_max(egui::pos2(body.left(), body.top() + permissions_h), body.max);
     let child = ui.new_child(egui::UiBuilder::new().max_rect(body));
     let p = child.painter();
     let font = crate::ui::type_scale::body();
@@ -481,6 +477,20 @@ pub(in crate::ui) fn draw_script_panel(win: &mut TerminalWindow, ui: &mut egui::
         let c = crate::theme::chrome(CHROME_SCALE.text);
         let g = p.layout(text, font, c, body.width());
         p.galley(egui::pos2(body.left(), y), g, c);
+    }
+    // 空闲态：结果区中部给一句「下一步做什么」，而不是把 Ready 孤零零丢在空白里。
+    if win.script_panel.current().run.is_none()
+        && win.script_panel.current().outcome.is_none()
+        && win.script_panel.current().error.is_none()
+    {
+        let hint = win.tr("Pick a script, then press Run");
+        let c = crate::theme::chrome(CHROME_SCALE.hint);
+        let g = p.layout_no_wrap(hint.to_string(), crate::ui::type_scale::small(), c);
+        p.galley(
+            egui::pos2(body.left(), body.center().y - g.size().y / 2.0),
+            g,
+            c,
+        );
     }
     // 没有活会话、也没在跑：给一句为什么按不动 ▶，而不是一个死键。
     if win.script_panel.current_mut().session.is_none() && win.script_panel.current_mut().run.is_none() {

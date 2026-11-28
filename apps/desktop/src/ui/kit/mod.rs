@@ -14,6 +14,7 @@ pub(in crate::ui) mod field;
 pub(in crate::ui) mod footer;
 pub(in crate::ui) mod form;
 pub(in crate::ui) mod menu_row;
+pub(in crate::ui) mod panel_row;
 pub(in crate::ui) mod spec;
 pub(in crate::ui) mod switch;
 pub(in crate::ui) mod tabs;

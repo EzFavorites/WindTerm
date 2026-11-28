@@ -1,69 +1,66 @@
-//! Script 面板的工具行：`▶ / ■ / ×` + 脚本下拉 + 执行会话下拉（**单选**）。
+//! Script 面板的主操作条：**一排**放完「跑哪个 / 跑在哪 / 怎么选 / 本次授权」。
 //!
-//! 形态复用 Sender：同一套 `Row` 原语（`tools_sender_row`）、同样的图标尺寸与
-//! 分隔线、同样 18 点高的手绘下拉框。差别只在内容——Sender 那行是「发什么、
-//! 怎么切、发多少、多久一次、发给谁」，这里只有「跑哪个脚本、跑在哪个会话上」。
+//! 旧版把「脚本下拉」「Path 输入」「Record + 权限」堆成三排，结果区被压扁，
+//! 而下拉和输入框其实是同一个脚本来源的两份真相。现在只留一个路径输入框：
+//! `▾` 从脚本库挑、`⋯` 打开文件选择器，两者都把结果写回同一个框；录制不占
+//! 面板（菜单里已有），`⚙` 只在需要时展开本次运行授权。
 //!
-//! 用户口径（2026-11-17）：
-//!
-//! > 设计按照复用 sender，只是没有了 sender 内容控制这部分，改成脚本相关，
-//! > 执行会话也保持下拉框，默认当前会话，可以选择其他会话执行，但是只能单选，
-//! > 不能像 sender 一样多选。
-//!
-//! 所以这里**没有** Text/Hex、By Line/Char、Count、Interval，会话下拉也是
-//! 单选（圆点，不是方块勾）——多选那一套留在 Sender 里。
+//! 形态仍复用 Sender 的 `Row` 原语：同样的图标尺寸、分隔线、下拉框与 18 点高。
 
 use eframe::egui;
-
-use crate::ui::TerminalWindow;
-
-use super::tools_sender_row::{Glyph, Row, GROUP_GAP, ICON_GAP, LABEL_GAP, ROW_H, SEP_PAD};
 use term_core::theme::CHROME_SCALE;
 
-/// 运行键的绿（与 Sender 同一颗，视觉基线 `#008200`）。
+use super::tools_sender_row::{
+    Glyph, Row, GROUP_GAP, ICON_GAP, ICON_W, LABEL_GAP, ROW_H, SEP_PAD,
+};
+use crate::ui::TerminalWindow;
+
 const RUN_GREEN: u32 = 0x008200;
-/// 停止键的灰：没在跑时它比别的图标暗一档。
 const STOP_GREY: u32 = 0x646464;
-/// 工具行高。与 Sender 同一个数（`ROW_H`），两个面板并排时才是一条线。
+
 pub(super) const SCRIPT_ROW_H: f32 = ROW_H;
-/// 脚本下拉的最小可读宽。窄面板下宁可收窄到这个宽，也不画到裁剪区外。
-const SCRIPT_MIN_W: f32 = 130.0;
-/// 会话下拉的宽。它装的是标签名，比脚本名短，固定宽比按比例分更好看。
+/// 路径输入的最小可读宽；窄面板下宁可收窄会话格也不把路径切成省略号。
+const PATH_MIN_W: f32 = 140.0;
 const SESSION_W: f32 = 180.0;
 
-/// 工具行上的意图。绘制只产出它，落地统一在 `TerminalWindow::apply_script_cmd`。
+/// 主操作条上的意图。绘制只产出它，落地统一在 `TerminalWindow::apply_script_cmd`。
 pub(super) enum ScriptCmd {
     Run,
     Stop,
     NewTab,
     CloseTab,
+    /// 管理脚本（右侧的 `×` 带 tooltip）。
     OpenConfig,
-    OpenScripts,
+    /// `▾`：展开脚本库列表。
+    OpenLibrary,
+    /// `⋯`：打开系统文件选择器。
+    BrowsePath,
+    /// `⚙`：展开 / 收起本次运行授权。
+    TogglePermissions,
+    /// 点击会话下拉。
     OpenSessions,
-    /// 选中脚本列表的第 `usize` 项。
-    PickScript(usize),
     /// 选中会话列表的第 `usize` 项（下标 0 = `Current Session`）。
     PickSession(usize),
 }
 
-/// 本帧绘制结果：两个下拉的锚点 + 意图。
 pub(super) struct ScriptRowOut {
-    pub script_anchor: egui::Rect,
+    pub library_anchor: egui::Rect,
     pub session_anchor: egui::Rect,
+    /// 输入框里**规范化之后**的路径，调用方写回页签状态。
+    pub path: String,
     pub cmd: Option<ScriptCmd>,
 }
 
-/// 工具行。只读 `win`——本帧所有状态改动都攒成 `ScriptCmd`，由调用方落地。
-///
-/// `script_label` / `session_label` 是两格**未展开时**显示的文字（已由调用方
-/// 折算过：脚本给文件名、会话给标签名或 `Current Session`）。
+/// 画主操作条。`path` 是本帧的输入缓冲（调用方从页签状态里取出来）。
 pub(super) fn script_row(
     win: &TerminalWindow,
     ui: &mut egui::Ui,
     rect: egui::Rect,
-    script_label: &str,
+    tab: usize,
+    path: String,
     session_label: &str,
 ) -> ScriptRowOut {
+    let ctx = ui.ctx().clone();
     let mut row = Row::new(ui, rect);
     let mut cmd = None;
 
@@ -75,7 +72,6 @@ pub(super) fn script_row(
         cmd = Some(ScriptCmd::Stop);
     }
     row.gap(ICON_GAP);
-    row.gap(ICON_GAP);
     if row.icon("script_newtab", Glyph::Plus, crate::theme::chrome(CHROME_SCALE.icon)).clicked() {
         cmd = Some(ScriptCmd::NewTab);
     }
@@ -84,7 +80,6 @@ pub(super) fn script_row(
         cmd = Some(ScriptCmd::CloseTab);
     }
     row.gap(SEP_PAD);
-    // 与相邻 Sender 的 `×`（清除）同形却不同义：没有 tooltip 就是个陷阱。
     if row
         .icon("script_config", Glyph::Cross, crate::theme::chrome(CHROME_SCALE.icon))
         .on_hover_text(win.tr("Manage Scripts"))
@@ -100,14 +95,43 @@ pub(super) fn script_row(
     let session_word = win.tr("Session:");
     row.label(win.tr("Script:"), text_c);
     row.gap(LABEL_GAP);
-    // 两个下拉平分剩余宽度：会话那格先按固定宽预留（含它自己的标签），
-    // 剩下的全给脚本名——脚本名比标签名长得多，反过来分会让脚本名被切。
-    let reserved = LABEL_GAP + row.text_width(session_word) + GROUP_GAP + SESSION_W;
-    let avail = (rect.right() - 8.0 - row.cursor() - reserved).max(SCRIPT_MIN_W);
-    let (script_resp, script_anchor) = row.dropdown(script_label, avail, "script_pick");
-    if script_resp.clicked() {
-        cmd = Some(ScriptCmd::OpenScripts);
+
+    // 预留：会话标签 + 会话下拉 + 三个辅助图标（▾ ⋯ ⚙）与他们之间的间隔。
+    let reserved = LABEL_GAP
+        + row.text_width(session_word)
+        + GROUP_GAP
+        + SESSION_W
+        + 3.0 * (ICON_W + ICON_GAP);
+    let path_w = (rect.right() - 8.0 - row.cursor() - reserved).max(PATH_MIN_W);
+    let mut path = path;
+    let resp = row.text_field(
+        &mut path,
+        path_w,
+        egui::Id::new(("script_panel_path", tab)),
+        &win.tr("/path/to/script.rhai (relative = script library)"),
+    );
+    // 失焦 / 回车才规范化，输入中途不挪动光标。
+    if resp.lost_focus() || (resp.has_focus() && ctx.input(|i| i.key_pressed(egui::Key::Enter))) {
+        path = super::script_panel_path::normalize_with(&path, term_runtime::paths::scripts_dir().as_deref());
     }
+
+    row.gap(ICON_GAP * 0.5);
+    let lib_resp = row
+        .icon("script_library_pick", Glyph::ChevronDown, crate::theme::chrome(CHROME_SCALE.icon))
+        .on_hover_text(win.tr("Pick from script library"));
+    let library_anchor = lib_resp.rect;
+    if lib_resp.clicked() {
+        cmd = Some(ScriptCmd::OpenLibrary);
+    }
+    row.gap(ICON_GAP * 0.5);
+    if row
+        .icon("script_browse", Glyph::Ellipsis, crate::theme::chrome(CHROME_SCALE.icon))
+        .on_hover_text(win.tr("Browse for a script file"))
+        .clicked()
+    {
+        cmd = Some(ScriptCmd::BrowsePath);
+    }
+
     row.gap(GROUP_GAP);
     row.label(session_word, text_c);
     row.gap(LABEL_GAP);
@@ -117,10 +141,19 @@ pub(super) fn script_row(
     if session_resp.clicked() {
         cmd = Some(ScriptCmd::OpenSessions);
     }
+    row.gap(ICON_GAP);
+    if row
+        .icon("script_options", Glyph::Gear, crate::theme::chrome(CHROME_SCALE.icon))
+        .on_hover_text(win.tr("Run options (this run only)"))
+        .clicked()
+    {
+        cmd = Some(ScriptCmd::TogglePermissions);
+    }
 
     ScriptRowOut {
-        script_anchor,
+        library_anchor,
         session_anchor,
+        path,
         cmd,
     }
 }
@@ -130,14 +163,11 @@ pub(super) fn script_row(
 mod tests {
     use super::*;
 
-    /// 两个下拉共用工具行的行高：任何一边改了数字，另一种行就错位。
     #[test]
     fn the_script_row_reuses_the_sender_row_metrics() {
         assert_eq!(SCRIPT_ROW_H, ROW_H, "Script 行高必须等于 Sender 行高");
         assert_eq!(ROW_H, 24.0);
-        // 会话格固定宽要放得下「Current Session」这种 15 字符的名字；
-        // 脚本格在窄面板下的下限：再窄就只剩省略号了。
         const { assert!(SESSION_W >= 150.0) };
-        const { assert!(SCRIPT_MIN_W >= 120.0) };
+        const { assert!(PATH_MIN_W >= 120.0) };
     }
 }
