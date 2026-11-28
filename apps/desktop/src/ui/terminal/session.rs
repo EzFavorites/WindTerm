@@ -680,6 +680,10 @@ impl Tab {
         // 找不到会话可摘，监管者那边要等它自己发现 sink 断了才清槽位。
         self.detach_tap();
         if let Some(id) = self.session.take() {
+            // 与 DeskSurface::session_close 同一口径：会话关闭就清掉仲裁器里
+            // 它的 owner / 相位 / 留痕，别让死会话继续压制后面的写。
+            let key = arbiter_session(&self.pool, id);
+            shared_arbiter().lock().unwrap_or_else(|e| e.into_inner()).clear(key);
             self.pool.close(id);
         }
     }

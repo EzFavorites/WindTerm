@@ -48,8 +48,15 @@ fn an_unknown_method_is_method_not_found_not_an_empty_success() {
 
 #[test]
 fn an_empty_pool_lists_no_sessions() {
-    let value = surface().call("session_list", &json!({})).expect("session_list");
+    let surface = surface();
+    let value = surface.call("session_list", &json!({})).expect("session_list");
     assert_eq!(value, json!({ "sessions": [] }));
+    // 仲裁 scope 按池隔离：地址会在池释放后被复用，旧实现拿它当 scope，
+    // 于是旧池残留的 owner 会压住新池同号会话的写。单调 scope 号不会复用。
+    let other = Arc::new(SessionPool::new());
+    assert_ne!(arbiter_session(&surface.pool, 1), arbiter_session(&other, 1), "同号会话跨池必须隔离");
+    assert_eq!(arbiter_session(&surface.pool, 1), arbiter_session(&surface.pool, 1), "同池同会话必须稳定");
+    assert_ne!(arbiter_session(&surface.pool, 1), arbiter_session(&surface.pool, 2), "同池不同会话必须隔离");
 }
 
 #[test]
@@ -178,7 +185,17 @@ fn a_local_shell_still_opens_through_the_shared_entry_point() {
         surface.pool.list().iter().any(|(i, name, _)| *i == id && name == "qa-shell"),
         "会话应当在册"
     );
-    surface.pool.close(id);
+
+    // 关闭不止摘会话：仲裁器里这条会话的 owner 也得清掉，否则死会话
+    // 会一直占着 owner，压制后续同键的写。
+    let key = arbiter_session(&surface.pool, id);
+    shared_arbiter()
+        .lock()
+        .expect("仲裁器锁")
+        .request(key, "rule", Priority::P3Rule, false)
+        .expect("规则拿 owner");
+    surface.call("session_close", &json!({ "session": "qa-shell" })).expect("关闭");
+    assert!(shared_arbiter().lock().expect("仲裁器锁").owner(key).is_none(), "死会话不许留下 owner");
 }
 
 // ── ADR-0023：RPC 侧漂移防线 ──────────────────────────────

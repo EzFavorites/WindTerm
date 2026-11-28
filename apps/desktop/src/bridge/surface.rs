@@ -70,10 +70,14 @@ pub fn shared_arbiter_arc() -> Arc<Mutex<Arbitrator>> {
     SHARED_ARBITER.get_or_init(|| Arc::new(Mutex::new(Arbitrator::new()))).clone()
 }
 
-/// 仲裁键：会话 id 在每条池里都从 1 开始，单看它会让不同 `SessionPool`
-/// 的测试 / 会话互相抢占。把池地址混进高位，UI 与桥接用同一个换算。
+/// 仲裁键：把池的进程内唯一 scope 号与会话 id 混成一个键，UI 与桥接共用。
+///
+/// 不能用 `Arc::as_ptr(pool)`：池 drop 后地址会被下一个池复用，旧池残留的
+/// P3 owner 就会压住新池同号会话的写（跨测试 owner 串台的成因）。scope 号
+/// 由 `AtomicU64` 单调分配、不回收，因此不同池 / 不同会话互不串；同一池
+/// 同一会话仍拿到同一个键。
 pub(crate) fn arbiter_session(pool: &Arc<SessionPool>, id: SessionId) -> SessionId {
-    let scope = Arc::as_ptr(pool) as usize as u64; scope.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ id
+    let scope = pool.scope_id(); scope.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ id
 }
 
 /// 把 `SessionPool` 包成桥接的后端。
@@ -284,6 +288,11 @@ impl DeskSurface {
         // 先摘游标再关会话：否则关掉的会话会在登记处留一个孤儿句柄，
         // 它握着的 `Arc<Mutex<dyn Session>>` 让会话本体无法释放。
         self.sessions.remove(tab);
+        // 会话没了，仲裁器里的 owner / 相位 / 留痕一并清掉。不清的话
+        // 死会话会一直占着 owner，后续写被它压制（即便会话 id 不复用，
+        // 旧状态也会在状态行里诈尸）。
+        let key = arbiter_session(&self.pool, tab);
+        self.arbiter.lock().unwrap_or_else(|e| e.into_inner()).clear(key);
         if !self.pool.close(tab) {
             return Err(SurfaceError::not_found(format!(
                 "会话 {session:?} 不存在（已关闭的会话不会再关一次，也不会假装成功）"
