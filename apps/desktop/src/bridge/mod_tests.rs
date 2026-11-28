@@ -6,6 +6,12 @@
 
 use super::*;
 use std::io::{Read, Write};
+#[cfg(unix)]
+use std::os::unix::net::UnixStream;
+#[cfg(unix)]
+use super::platform::{admit, self_uid, same_user};
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 use serde_json::{json, Value};
@@ -40,9 +46,17 @@ fn scratch_socket() -> PathBuf {
 }
 
 #[test]
-fn the_control_socket_path_is_fixed_under_home() {
-    // 客户端没有 --socket 参数：路径是双方唯一的会合点。
-    assert!(default_socket_path().expect("有家目录").ends_with(".zterm/control.sock"));
+fn the_control_endpoint_has_one_fixed_name_per_user() {
+    // 客户端没有 --endpoint 参数：名字是双方唯一的会合点，且按用户隔离。
+    let path = default_socket_path().expect("能定位本机用户");
+    #[cfg(unix)]
+    assert!(path.ends_with(".zterm/control.sock"), "unix 路径：{path:?}");
+    #[cfg(windows)]
+    assert!(
+        path.to_string_lossy().starts_with(r"\\.\pipe\windterm-control-"),
+        "Windows 管道名：{path:?}"
+    );
+    assert!(endpoint_description().contains(&path.to_string_lossy().to_string()));
 }
 
 #[cfg(unix)]

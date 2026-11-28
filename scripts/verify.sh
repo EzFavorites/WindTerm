@@ -411,22 +411,35 @@ else
   ok "ui/ 之外认识 egui 的只有 5 个平台文件（窗口 / 字体 / 剪贴板 / 主题 / 截图）"
 fi
 
-step "4n. ADR-0030：控制端点只许 UDS（0600 + peercred），且无 auth / 无头入口"
-# ADR-0022 的 TCP + token 形态已被 ADR-0030 替换：固定 ~/.zterm/control.sock，
-# 文件权限 0600 + peercred 同用户校验就是全部准入。于是：
-#   · 生产路径只许一处 UnixListener::bind（bridge/mod.rs）；
-#   · 全仓不许再有 TcpListener（能力面不再有第二个网络入口）；
+step "4n. ADR-0030：控制端点每平台一处绑定（unix UDS / Windows 管道），无 auth / 无头入口"
+# ADR-0022 的 TCP + token 形态已被 ADR-0030 替换：unix 是固定 ~/.zterm/control.sock
+# + 0600 + peercred；Windows 是按用户 SID 隔离的命名管道 + 只放行该 SID 的 DACL
+# + 对端 PID→SID 复核。2026-11-28 平台拆分后，判据改成**平台中立**：
+#   · 绑定点按平台各数一处：UnixListener::bind 在 platform/unix.rs，
+#     CreateNamedPipeW 在 platform/windows.rs；
+#   · bridge/mod.rs / client.rs 里不许出现任何绑定 API（生产路径仍只有那一处）；
+#   · 两个平台的全部控制端点文件都不许有 TcpListener / TcpStream；
 #   · token 文件 / auth 握手必须从源码消失，协议第一条就是普通方法；
 #   · 三个自建会话池的无窗口入口（服务 / 进程级脚本 / 无头执行）必须消失。
-bind_prod=$(grep -rn 'UnixListener::bind(path)' apps/desktop/src/bridge/mod.rs 2>/dev/null | wc -l | tr -d ' ')
-# 只看控制端点的两个生产文件：别处的 TcpListener 是 SSH 连接失败夹具
-# （session_open / surface_tests），不是控制端点，拿它们判红是误报。
-tcp_any=$(grep -n 'TcpListener\|TcpStream' apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs 2>/dev/null || true)
-socket_fixed=$(grep -c 'control.sock' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
-socket_mode=$(grep -c 'from_mode(0o600)' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
+# 旧判据只在 bridge/mod.rs 里数 bind / control.sock / 0600 / peercred；平台拆分后
+# 那些 grep 会数到 0 而**假绿**，所以这里改为按平台各数一处、扫控制端点的
+# 全部生产文件，并新增 Windows 的 DACL / 对端 SID 判据（安全等价：
+# 0600 ↔ DACL，peercred ↔ PID→SID）。
+# 只扫控制端点的生产文件 + 平台实现；别处的 TcpListener 是 SSH 连接失败夹具
+# （surface_tests.rs），不是控制端点，拿它们判红是误报（沿用上一版口径）。
+BRIDGE_RS="apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs apps/desktop/src/bridge/platform/unix.rs apps/desktop/src/bridge/platform/windows.rs apps/desktop/src/bridge/platform/unsupported.rs"
+bind_unix=$(grep -c 'UnixListener::bind(path)' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
+bind_win=$(grep -c 'CreateNamedPipeW(' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
+# 只数生产形态 `bind(path)`：client.rs 测试里的 `UnixListener::bind(&path)` 是夹具，不是端点。
+bind_else=$(grep -n 'UnixListener::bind(path)\|CreateNamedPipeW(\|CreateFileW(' apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs 2>/dev/null || true)
+tcp_any=$(grep -n 'TcpListener\|TcpStream' $BRIDGE_RS 2>/dev/null || true)
+socket_fixed=$(grep -l 'control.sock' $BRIDGE_RS 2>/dev/null | wc -l | tr -d ' ')
+socket_mode=$(grep -c 'from_mode(0o600)' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
 # peercred 的实现是 peer_uid（macOS getpeereid / Linux SO_PEERCRED，std 的
 # peer_cred() 在本工具链仍是 unstable）；这里数的是判据，不是某个 API 名字。
-socket_peer=$(grep -cE 'peer_uid|peer_cred|getpeereid|SO_PEERCRED' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
+socket_peer=$(grep -cE 'peer_uid|peer_cred|getpeereid|SO_PEERCRED' apps/desktop/src/bridge/platform/unix.rs 2>/dev/null || true)
+pipe_acl=$(grep -cE 'SetEntriesInAclW|SetSecurityDescriptorDacl' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
+pipe_peer=$(grep -cE 'GetNamedPipeClientProcessId|GetTokenInformation|TokenUser' apps/desktop/src/bridge/platform/windows.rs 2>/dev/null || true)
 auth_left=$(grep -rEn 'AUTH_METHOD|auth_reply|token::|bridge[.]token' apps/desktop/src/bridge apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
 headless_code=$(grep -rEn 'run_headless|headless_exec|"serve"[[:space:]]*=>|"script"[[:space:]]*=>' apps/desktop/src/main.rs apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
 stale_files=""
@@ -434,12 +447,14 @@ stale_files=""
 for f in apps/desktop/src/bridge/*oken.rs apps/desktop/src/cli/serve.rs apps/desktop/src/cli/script.rs; do
   [ -e "$f" ] && stale_files="$stale_files$f "
 done
-if [ "${bind_prod:-0}" -ne 1 ] || [ -n "$tcp_any" ] || [ "${socket_fixed:-0}" -lt 1 ] \
+if [ "${bind_unix:-0}" -ne 1 ] || [ "${bind_win:-0}" -ne 1 ] || [ -n "$bind_else" ] \
+   || [ -n "$tcp_any" ] || [ "${socket_fixed:-0}" -lt 1 ] \
    || [ "${socket_mode:-0}" -ne 1 ] || [ "${socket_peer:-0}" -lt 1 ] \
+   || [ "${pipe_acl:-0}" -lt 1 ] || [ "${pipe_peer:-0}" -lt 1 ] \
    || [ -n "$auth_left" ] || [ -n "$headless_code" ] || [ -n "$stale_files" ]; then
-  bad "控制端点形态不符：bind=$bind_prod（应 1） TCP=[$tcp_any] 固定路径=$socket_fixed 0600=$socket_mode peercred=$socket_peer auth残留=[$auth_left] 无头入口=[$headless_code] 旧文件=[$stale_files]"
+  bad "控制端点形态不符：unix bind=$bind_unix（应 1） windows bind=$bind_win（应 1） 别处绑定=[$bind_else] TCP=[$tcp_any] 固定路径=$socket_fixed 0600=$socket_mode peercred=$socket_peer DACL=$pipe_acl 对端SID=$pipe_peer auth残留=[$auth_left] 无头入口=[$headless_code] 旧文件=[$stale_files]"
 else
-  ok "控制端点唯一出口是 UDS（0600 + peercred 同用户），auth / token / 三个自建会话池入口已清除"
+  ok "每个平台只有一处绑定：unix UDS（0600 + peercred）/ Windows 管道（DACL 仅当前 SID + PID→SID 复核）；auth / token / 三个自建会话池入口已清除"
 fi
 
 step "4o. 测试与验收不得抢占前台（自动化调用一律 --screenshot）"

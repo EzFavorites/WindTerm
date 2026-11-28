@@ -2,7 +2,7 @@
 //!
 //! # 工具从哪来
 //!
-//! **只有 describe**。启动连上前台 UDS 后先发一条 `describe`，把每个方法的
+//! **只有 describe**。启动连上前台控制端点后先发一条 `describe`，把每个方法的
 //! `params_schema` 原样变成 MCP tool 的 `inputSchema`，`summary` 变成
 //! `description`。一方法一工具；没有任何手写的第二份动词表。
 //! `describe` 本身来自 `term_core::surface::METHODS` 的 RPC 投影，所以脚本
@@ -28,12 +28,19 @@ use crate::bridge::client::{Client, ClientError};
 const HOST_TOOL_TIMEOUT_MS: u64 = 10_000;
 const MAX_WAIT_TIMEOUT_MS: u64 = 8_000;
 
-const USAGE: &str = "\
+/// 与 `cli/api` 同一份平台端点描述：unix 是固定 UDS 路径，Windows 是按用户
+/// SID 命名的管道；CLI 侧不硬编码任何具体路径。
+fn usage() -> String {
+    format!(
+        "\
 term-desk mcp
 
   stdio MCP server：工具由前台 describe 的 params_schema 生成，一方法一工具。
-  前台未运行时明确报错退出；不提供推送 / 订阅 / 其它 capability。
-";
+  连前台窗口的 {}；前台未运行时明确报错退出；不提供推送 / 订阅 / 其它 capability。
+",
+        crate::bridge::endpoint_description()
+    )
+}
 
 /// 从 describe 的结果生成 MCP tools。纯函数：便于证明「没有第二份清单」。
 pub fn tools_from_describe(described: &Value) -> Vec<Value> {
@@ -151,11 +158,11 @@ fn handle(client: &mut Client, tools: &[Value], message: &Value) -> Option<Value
 /// 启动即连前台并拉 describe；前台不在就报错退出，不进 stdio 循环。
 pub fn run(rest: &[String]) -> i32 {
     if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
-        print!("{USAGE}");
+        print!("{}", usage());
         return 0;
     }
     if !rest.is_empty() {
-        eprintln!("mcp 不接受参数\n\n{USAGE}");
+        eprintln!("mcp 不接受参数\n\n{}", usage());
         return 2;
     }
     let mut client = match Client::connect_default() {
