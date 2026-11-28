@@ -52,6 +52,13 @@ pub const PREFS_FILE: &str = "prefs.json";
 /// 一次上一台机器」的快捷方式。也是写盘体积的上界（一条几十字节）。
 pub const RECENT_TARGETS_CAP: usize = 20;
 
+/// `command_history_days` 的读取侧上限（天）：100 年。
+///
+/// `prefs.json` 可手改，写成 `u64::MAX` 时下游 `ttl_days * 86_400` 会溢出。
+/// 读取侧先夹到这里，既覆盖「设个大数表示永久保留」的既有用法（见
+/// `command_history_days` 字段注释），又让乘法绝不溢出。盘上字节不动。
+pub const HISTORY_TTL_DAYS_MAX: u64 = 36_500;
+
 /// 终端字号的可选区间（点）。见 [`Prefs::font_size_value`]：必须与渲染层的
 /// `MIN_FONT_SIZE` / `MAX_FONT_SIZE` 一致，否则设置页显示的值会被悄悄改掉。
 pub const FONT_SIZE_MIN: f32 = 6.0;
@@ -193,8 +200,9 @@ pub struct Prefs {
     pub startup_sessions: [String; 4],
     /// 命令行历史 TTL（天）。`0` = 老文件没这项 / 用户未设，由
     /// `command_history_store` 回落出厂默认 30 天（与灰显设置页一致）。
-    /// 不为 `0` 时直接采用该值；`0` 是「未设置」哨兵，不是「永久保留」
-    /// （永久保留请设大数，如 36500）。
+    /// 不为 `0` 时经 [`Prefs::history_ttl_days`] 夹到 [`HISTORY_TTL_DAYS_MAX`]
+    /// 后采用；`0` 是「未设置」哨兵，不是「永久保留」
+    /// （永久保留请设大数，如 36500，正好落在上限上）。
     #[serde(default)]
     pub command_history_days: u64,
     /// 命令行历史容量（条）。`0` = 回落出厂默认 10000（与灰显设置页一致）。
@@ -991,11 +999,15 @@ impl Prefs {
     }
 
     /// `command_history_days` 的生效值：`0` 哨兵回落出厂默认 30 天。
+    ///
+    /// 手改文件写进来的超大值在此夹到 [`HISTORY_TTL_DAYS_MAX`]：下游
+    /// `ttl_days * 86_400` 会溢出，读取侧收敛一次就够了（`CommandHistory` 里
+    /// 还有饱和乘法兜底）。不回写盘，保留用户原字节。
     pub fn history_ttl_days(&self) -> u64 {
         if self.command_history_days == 0 {
             30
         } else {
-            self.command_history_days
+            self.command_history_days.min(HISTORY_TTL_DAYS_MAX)
         }
     }
 
@@ -1743,6 +1755,31 @@ mod tests {
         }
         // 容量 10000 远大于 20，不应裁剪；TTL 默认 30 天、now 远小于，也不裁剪。
         assert_eq!(store.len(), 20);
+    }
+
+    #[test]
+    fn a_hand_edited_ttl_days_is_clamped_before_it_reaches_the_history_store() {
+        // 手改 prefs.json 写 u64::MAX：读取侧必须夹到上限，不能把溢出带进
+        // CommandHistory 的 `ttl_days * 86_400`。
+        let prefs = Prefs {
+            command_history_days: u64::MAX,
+            ..Prefs::default()
+        };
+        assert_eq!(prefs.history_ttl_days(), HISTORY_TTL_DAYS_MAX);
+        let mut store = prefs.command_history_store();
+        store.push("ls", 1);
+        // 用真实的纪元秒：100 年 TTL 下这条记录不该过期；乘法也不该溢出。
+        store.reconfigure(0, prefs.history_ttl_days(), 1_000_000);
+        assert_eq!(store.recent(10), vec!["ls"], "钳位值不该在乘法上溢出");
+
+        // 合法值原样生效；出厂哨兵仍是 30 天。
+        let prefs = Prefs {
+            command_history_days: 7,
+            ..Prefs::default()
+        };
+        assert_eq!(prefs.history_ttl_days(), 7);
+        assert_eq!(Prefs::default().history_ttl_days(), 30);
+        assert_eq!(HISTORY_TTL_DAYS_MAX, 36_500, "永久保留的经典取值仍可用");
     }
 
     #[test]

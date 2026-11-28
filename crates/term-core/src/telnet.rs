@@ -49,6 +49,12 @@ pub const SGA: u8 = 3;
 /// 窗口尺寸选项（RFC 1073）。
 pub const NAWS: u8 = 31;
 
+/// 单条子协商最多保留多少字节；超限即清空整段并丢弃到 `IAC SE`。
+///
+/// 远端可以发一条永不结束的 `IAC SB` 无限灌字节——原实现一路 `push`，内存无上界。
+/// 4 KiB 远大于 NAWS 等合法子协商（十几字节），又不会误伤正常流量。
+pub const MAX_SUBNEGOTIATION_LEN: usize = 4 * 1024;
+
 /// 一次 `feed` 的产物：可以喂给 VT 的纯数据，以及需要写回远端的应答。
 ///
 /// 两者分开是因为调用方要送去的方向不同：`data` 去 `vte`，`reply` 回 socket。
@@ -79,8 +85,11 @@ enum State {
 #[derive(Clone, Debug)]
 pub struct TelnetNegotiator {
     state: State,
-    /// 当前子协商已收集的字节（仅用于跳过，不解释）。
+    /// 当前子协商已收集的字节（仅用于跳过，不解释），长度不超过
+    /// [`MAX_SUBNEGOTIATION_LEN`]。
     sub: Vec<u8>,
+    /// 子协商已超上限：内容已清空，余下字节一律丢弃直到 `IAC SE`。
+    sub_overflow: bool,
     /// 本端已同意的选项（`WILL` 方向）。
     local: [bool; 256],
     /// 对端已声明的选项（`DO` 方向）。
@@ -101,6 +110,7 @@ impl TelnetNegotiator {
         Self {
             state: State::Data,
             sub: Vec::new(),
+            sub_overflow: false,
             local: [false; 256],
             remote: [false; 256],
             window: None,
@@ -116,6 +126,23 @@ impl TelnetNegotiator {
             self.step(b, &mut out);
         }
         out
+    }
+
+    /// 收集一个子协商字节；触到硬上限就清空整段，转入「丢到 `IAC SE`」模式。
+    ///
+    /// 不直接切回 `Data`：超长段余下的字节若被当成数据，会把子协商载荷漏进
+    /// `out.data`，破坏「SB 内容不进数据流」的契约。留在 `Sub` 状态丢弃到 `SE`
+    /// 才能守住它；而未结束的 SB 本来就一直在等 `SE`（见既有单测）。
+    fn push_sub_byte(&mut self, b: u8) {
+        if self.sub_overflow {
+            return;
+        }
+        if self.sub.len() < MAX_SUBNEGOTIATION_LEN {
+            self.sub.push(b);
+        } else {
+            self.sub.clear();
+            self.sub_overflow = true;
+        }
     }
 
     /// 记住窗口尺寸，并返回需要写回远端的 NAWS 子协商字节。
@@ -159,6 +186,7 @@ impl TelnetNegotiator {
                     WILL | WONT | DO | DONT => self.state = State::Negotiate(b),
                     SB => {
                         self.sub.clear();
+                        self.sub_overflow = false;
                         self.state = State::Sub;
                     }
                     // NOP / GA / DM / BRK 等单字节命令：无副作用，直接丢弃。
@@ -173,7 +201,7 @@ impl TelnetNegotiator {
                 if b == IAC {
                     self.state = State::SubIac;
                 } else {
-                    self.sub.push(b);
+                    self.push_sub_byte(b);
                 }
             }
             State::SubIac => {
@@ -182,12 +210,13 @@ impl TelnetNegotiator {
                     SE => {
                         // 内容一律丢弃：本端不消费对端的子协商。
                         self.sub.clear();
+                        self.sub_overflow = false;
                         self.state = State::Data;
                     }
-                    // 子协商内部的 0xFF 同样双写转义。
-                    IAC => self.sub.push(IAC),
+                    // 子协商内部的 0xFF 同样双写转义；溢位后连转义字节也丢弃。
+                    IAC => self.push_sub_byte(IAC),
                     // 畸形序列：保留字节、吞掉 IAC，避免把内容漏进数据流。
-                    other => self.sub.push(other),
+                    other => self.push_sub_byte(other),
                 }
             }
         }
@@ -403,5 +432,57 @@ mod tests {
         );
         assert_eq!(n.feed(&[IAC, DONT, SGA]).reply, vec![IAC, WONT, SGA]);
         assert!(!n.local_enabled(SGA));
+    }
+
+    #[test]
+    fn an_oversized_subnegotiation_is_discarded_with_bounded_memory() {
+        let mut n = TelnetNegotiator::new();
+        let mut wire = vec![b'a'];
+        wire.extend_from_slice(&[IAC, SB, NAWS]);
+        // 两倍以上上限，且全部是普通字节（不会误触 IAC 命令）。
+        wire.extend(std::iter::repeat(b'x').take(MAX_SUBNEGOTIATION_LEN * 2));
+        wire.extend_from_slice(&[IAC, SE, b'b']);
+        let out = n.feed(&wire);
+        assert_eq!(out.data, vec![b'a', b'b'], "超长子协商的内容不得漏进数据流");
+        assert!(out.reply.is_empty());
+        assert!(n.sub.is_empty(), "超限后缓冲区必须清空");
+        assert!(!n.sub_overflow, "IAC SE 之后应复位，后续 SB 还能正常开始");
+        assert!(
+            n.sub.capacity() <= MAX_SUBNEGOTIATION_LEN,
+            "缓冲区容量必须有硬上界：{}",
+            n.sub.capacity()
+        );
+    }
+
+    #[test]
+    fn a_subnegotiation_at_the_cap_is_not_discarded() {
+        let mut n = TelnetNegotiator::new();
+        let mut wire = vec![IAC, SB, NAWS];
+        wire.extend(std::iter::repeat(b'q').take(MAX_SUBNEGOTIATION_LEN));
+        wire.extend_from_slice(&[IAC, SE, b'k']);
+        let out = n.feed(&wire);
+        assert_eq!(out.data, vec![b'k'], "恰好到上限不算超限");
+        assert!(!n.sub_overflow);
+    }
+
+    #[test]
+    fn unterminated_overflow_does_not_panic_and_recovers_at_se() {
+        let mut n = TelnetNegotiator::new();
+        let mut wire = vec![IAC, SB, NAWS];
+        wire.extend(std::iter::repeat(0x7f).take(MAX_SUBNEGOTIATION_LEN + 100));
+        let out = n.feed(&wire);
+        assert!(out.data.is_empty() && out.reply.is_empty());
+        assert!(n.sub.is_empty());
+        assert!(n.sub_overflow, "没有 SE 时继续丢弃，不再累积");
+
+        // SE 复位后常规协商照常应答，不会因之前的溢出而失步。
+        let out = n.feed(&[IAC, SE, b'z', IAC, WILL, SGA]);
+        assert_eq!(out.data, vec![b'z']);
+        assert_eq!(out.reply, vec![IAC, DO, SGA]);
+
+        // 再来一条新的子协商：reset 必须生效，不能一直接着丢弃模式。
+        let out = n.feed(&[IAC, SB, NAWS, 0, 80, IAC, SE, b'.']);
+        assert_eq!(out.data, vec![b'.']);
+        assert!(!n.sub_overflow);
     }
 }

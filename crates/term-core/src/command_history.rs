@@ -115,11 +115,15 @@ impl CommandHistory {
     }
 
     /// 丢弃超龄条目（基于注入的 `now`）。`ttl_days == 0` 不裁剪。
+    ///
+    /// `ttl_days` 来自可手改的 `prefs.json`，可能是 `u64::MAX`；直接相乘会溢出
+    /// （debug panic / release 回绕成很小的值，把历史全删光）。这里用饱和乘法：
+    /// 超大的 TTL 等价于「永久保留」，而不是把自己的条目误判成过期。
     fn trim_ttl(&mut self, now: u64) {
         if self.ttl_days == 0 {
             return;
         }
-        let cutoff = now.saturating_sub(self.ttl_days * 86_400);
+        let cutoff = now.saturating_sub(self.ttl_days.saturating_mul(86_400));
         self.entries.retain(|e| e.ts >= cutoff);
     }
 
@@ -498,6 +502,32 @@ mod tests {
         assert_eq!(restored.recent(10), vec!["pwd", "ls"]);
         assert_eq!(restored.capacity, 100);
         assert_eq!(restored.ttl_days, 30);
+    }
+
+    #[test]
+    fn a_huge_ttl_days_does_not_overflow_into_deleting_everything() {
+        // prefs.json 可手改：ttl_days = u64::MAX 时乘法溢出，release 下会回绕成
+        // 一个很小的 cutoff，把刚写入的历史全判成过期。饱和乘法必须等价永久保留。
+        let mut h = CommandHistory::new(0, u64::MAX);
+        h.push("ancient", 1);
+        h.push("recent", u64::MAX - 1);
+        h.trim_ttl(u64::MAX);
+        assert_eq!(h.len(), 2, "TTL 溢出应按永久保留处理，不应 panic 或误删");
+        assert_eq!(h.recent(10), vec!["recent", "ancient"]);
+
+        // 刚好越过 u64::MAX / 86400 的乘法边界也不能 panic。
+        let mut edge = CommandHistory::new(0, u64::MAX / 86_400 + 1);
+        edge.push("edge", 1);
+        edge.trim_ttl(u64::MAX);
+        assert_eq!(edge.len(), 1);
+    }
+
+    #[test]
+    fn reconfigure_with_an_overflowing_ttl_still_keeps_entries() {
+        let mut h = CommandHistory::new(0, 0);
+        h.push("ls", 100);
+        h.reconfigure(0, u64::MAX, 100);
+        assert_eq!(h.recent(10), vec!["ls"]);
     }
 
     #[test]
