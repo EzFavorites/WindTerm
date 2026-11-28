@@ -359,8 +359,9 @@ step "4l. term-bridge 依赖边界（白名单，运行时只许 term-core / ser
 # 那个「点 + await」的字面量，写「异步调用点」即可——否则注释自己就把门禁判红。
 # 本步只校验 `term-bridge` crate 自身的依赖边界（运行时只许 term-core / serde /
 # serde_json），**不**校验 `apps/desktop` 是否依赖它——那是 desk 侧的接线事实，由
-# `apps/desktop/Cargo.toml` 与命令分发入口（cli/serve.rs → bridge::serve）保证，已于
-# 2026-11-12 复核确认已接。若将来想让门禁也守住「desk 必须依赖 bridge」，在此追加
+# `apps/desktop/Cargo.toml` 与命令分发入口（main.rs → bridge::start_control_endpoint）
+# 保证：控制端点只在 GUI 启动路径里起，api / mcp 都是它的薄客户端。若将来想让
+# 门禁也守住「desk 必须依赖 bridge」，在此追加
 # 一条对 apps/desktop/Cargo.toml 的白名单检查即可。
 bridge_runtime=$(awk '
   /^\[/ { in_dep = ($0 ~ /^\[dependencies\]/); next }
@@ -410,27 +411,35 @@ else
   ok "ui/ 之外认识 egui 的只有 5 个平台文件（窗口 / 字体 / 剪贴板 / 主题 / 截图）"
 fi
 
-step "4n. ADR-0022：能力面只许挂回环（desk serve）"
-# 判据：整个 desk 里**只有一处** `TcpListener::bind`，且绑定地址是
-# `Ipv4Addr::LOCALHOST`。远程访问的正确形态是 SSH 隧道，不是监听 0.0.0.0——
-# 后者等于把「能开终端、能跑命令」的能力面挂到局域网上。
-#
-# 刻意不 grep 字符串 `0.0.0.0`：`cli/serve.rs` 的用例里就写着
-# 「`--host 0.0.0.0` 必须被拒」，那样的门禁只能靠人眼区分测试与实现。
-bind_sites=$(grep -rn 'TcpListener::bind' apps/desktop/src --include='*.rs' 2>/dev/null || true)
-# 判据一（ADR-0022 的**实质**）：任何一处 bind 都必须绑回环——测试代码也不例外。
-#
-# 这里曾经只数「有几处 bind」，要求恰好 1 处。那条判据把测试夹具也算进去了：
-# `TcpListener::bind(("127.0.0.1", 0))` 是端到端测试拿临时端口的正常写法，
-# 却被判成「能力面多开了一个入口」。2026-11-09 起改成判真实性质：
-# 非回环一处都不许有；生产路径（bridge/mod.rs）仍然只许一个出口。
-bind_offloop=$(printf '%s\n' "$bind_sites" | sed '/^$/d' \
-  | grep -v 'Ipv4Addr::LOCALHOST' | grep -v '"127\.0\.0\.1"' || true)
-bind_prod=$(grep -rn 'TcpListener::bind' apps/desktop/src/bridge/mod.rs --include='*.rs' 2>/dev/null | wc -l | tr -d ' ')
-if [ -n "$bind_offloop" ] || [ "${bind_prod}" -ne 1 ]; then
-  bad "desk serve 必须且只能绑回环：非回环 bind = [$bind_offloop]，生产 bind 处数 = ${bind_prod}，全部=[$bind_sites]"
+step "4n. ADR-0030：控制端点只许 UDS（0600 + peercred），且无 auth / 无头入口"
+# ADR-0022 的 TCP + token 形态已被 ADR-0030 替换：固定 ~/.zterm/control.sock，
+# 文件权限 0600 + peercred 同用户校验就是全部准入。于是：
+#   · 生产路径只许一处 UnixListener::bind（bridge/mod.rs）；
+#   · 全仓不许再有 TcpListener（能力面不再有第二个网络入口）；
+#   · token 文件 / auth 握手必须从源码消失，协议第一条就是普通方法；
+#   · 三个自建会话池的无窗口入口（服务 / 进程级脚本 / 无头执行）必须消失。
+bind_prod=$(grep -rn 'UnixListener::bind(path)' apps/desktop/src/bridge/mod.rs 2>/dev/null | wc -l | tr -d ' ')
+# 只看控制端点的两个生产文件：别处的 TcpListener 是 SSH 连接失败夹具
+# （session_open / surface_tests），不是控制端点，拿它们判红是误报。
+tcp_any=$(grep -n 'TcpListener\|TcpStream' apps/desktop/src/bridge/mod.rs apps/desktop/src/bridge/client.rs 2>/dev/null || true)
+socket_fixed=$(grep -c 'control.sock' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
+socket_mode=$(grep -c 'from_mode(0o600)' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
+# peercred 的实现是 peer_uid（macOS getpeereid / Linux SO_PEERCRED，std 的
+# peer_cred() 在本工具链仍是 unstable）；这里数的是判据，不是某个 API 名字。
+socket_peer=$(grep -cE 'peer_uid|peer_cred|getpeereid|SO_PEERCRED' apps/desktop/src/bridge/mod.rs 2>/dev/null || true)
+auth_left=$(grep -rEn 'AUTH_METHOD|auth_reply|token::|bridge[.]token' apps/desktop/src/bridge apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
+headless_code=$(grep -rEn 'run_headless|headless_exec|"serve"[[:space:]]*=>|"script"[[:space:]]*=>' apps/desktop/src/main.rs apps/desktop/src/cli --include='*.rs' 2>/dev/null || true)
+stale_files=""
+# glob 写法与全名等价，只是别让「已删除文件的名字」留在判据文本里。
+for f in apps/desktop/src/bridge/*oken.rs apps/desktop/src/cli/serve.rs apps/desktop/src/cli/script.rs; do
+  [ -e "$f" ] && stale_files="$stale_files$f "
+done
+if [ "${bind_prod:-0}" -ne 1 ] || [ -n "$tcp_any" ] || [ "${socket_fixed:-0}" -lt 1 ] \
+   || [ "${socket_mode:-0}" -ne 1 ] || [ "${socket_peer:-0}" -lt 1 ] \
+   || [ -n "$auth_left" ] || [ -n "$headless_code" ] || [ -n "$stale_files" ]; then
+  bad "控制端点形态不符：bind=$bind_prod（应 1） TCP=[$tcp_any] 固定路径=$socket_fixed 0600=$socket_mode peercred=$socket_peer auth残留=[$auth_left] 无头入口=[$headless_code] 旧文件=[$stale_files]"
 else
-  ok "能力面只绑 127.0.0.1（生产唯一一处 TcpListener::bind，测试夹具也只绑回环）"
+  ok "控制端点唯一出口是 UDS（0600 + peercred 同用户），auth / token / 三个自建会话池入口已清除"
 fi
 
 step "4o. 测试与验收不得抢占前台（自动化调用一律 --screenshot）"
@@ -452,11 +461,11 @@ step "4o. 测试与验收不得抢占前台（自动化调用一律 --screenshot
 #   A. **机制还在**：main.rs 里三个开关一个都不能少——删掉任何一个都会静默
 #      退化成「弹窗抢焦点」，而那时没有任何测试会红。
 #   B. **调用方式对**：脚本里起 `term-desk` 必须带 `--screenshot`，或走
-#      `cli::try_run` / `--list-components` / `--headless` 这几条在 `eframe`
-#      之前 return 的无窗口出口。
-#      只查 `scripts/`：这是自动化唯一会拉起 GUI 的地方。`apps/desktop/tests/` 里只有
-#      `script_run.rs` 起这个二进制，走 `script run` 子命令（`cli::try_run` 在
-#      eframe 之前 return），用 grep 去猜 Rust 的参数数组只会误报。
+#      `cli::try_run` / `--list-components` / `api` / `mcp` 这几条在 `eframe`
+#      之前 return 的无窗口出口。无头执行 / 进程级脚本入口已删除，不再是豁免。
+#      只查 `scripts/`：这是自动化唯一会拉起 GUI 的地方。`apps/desktop/tests/` 里
+#      的进程级用例走无窗口子命令或用 UDS，不会开真窗口，用 grep 去猜 Rust 的
+#      参数数组只会误报。
 main_rs=apps/desktop/src/main.rs
 fs_flags=""
 grep -q 'with_visible(false)' "$main_rs" 2>/dev/null || fs_flags="${fs_flags}with_visible(false) "
@@ -465,7 +474,7 @@ grep -q 'ActivationPolicy::Prohibited' "$main_rs" 2>/dev/null || fs_flags="${fs_
 fs_bad=$(grep -rn '\$BIN' scripts/*.sh 2>/dev/null \
   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*#' \
   | grep -v 'fs_bad=' \
-  | grep -vE -- '--screenshot|--list-components|--headless' \
+  | grep -vE -- '--screenshot|--list-components' \
   | grep -vE 'BIN=|echo |\[ ! -x ' \
   | grep -vE '^([^:]+:)?[0-9]+:[[:space:]]*(cp|install|chmod|tar|codesign|file|ls|du|stat|\[)[[:space:]][^;&|]*$' || true)
 # 最后那条排除是给 `scripts/package-release.sh` 的（2026-11-13 实测误报）：

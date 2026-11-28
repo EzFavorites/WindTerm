@@ -5,10 +5,10 @@
 //!
 //! 分层（每一层只做一件事，规则不重不漏）：
 //!
-//! - `error`：失败分类与 `{code, message, kind}` 三元组（§B.11）。
+//! - `error`：`term_core::surface_error` 的再导出（失败分类与 `{code, message, kind}`）。
 //! - `jsonrpc`：请求/响应/通知的编解码与分派（**协议规则唯一所在地**）。
-//! - `handler`：[`handler::Surface`] 实现接缝，加上 `describe` 的唯一生成处
-//!   ——答案来自 `term_core::surface::METHODS` 这张单一真相表。
+//! - `handler`：`term_core::contract` 的再导出（[`handler::Surface`] 接缝、
+//!   `describe` 生成与参数助手）——契约定义在 `term-core`，这里只留路径兼容。
 //! - `transport`：一行一个 JSON 的 stdio 管道，非法行不中断。
 //! - `stub`：由同一张表生成的 Python 客户端源码（外部脚本的落地形状）。
 //!
@@ -24,7 +24,7 @@
 //!
 //! # 依赖纪律
 //!
-//! 运行时只依赖 `term-core`（描述层 + 会话抽象），外加两个纯数据 crate
+//! 运行时只依赖 `term-core`（契约 + 描述层 + 会话抽象），外加两个纯数据 crate
 //! `serde` / `serde_json`；零 tokio、零异步调用点、零 egui（ADR-0017 笼子；
 //! `scripts/verify.sh` 的 4k 管 tokio 笼子，4l 用白名单逐条核对这里的运行时
 //! 依赖表）。会话控制面 `term-session` 只在 dev-dependencies 里：参考实现
@@ -90,8 +90,9 @@ pub mod jsonrpc;
 pub mod stub;
 pub mod transport;
 
-pub use error::{ErrorKind, SurfaceError};
-pub use handler::Surface;
+// 再导出指向 term-core 类型：`error` / `handler` 模块只为兼容既有路径而留。
+pub use term_core::contract::Surface;
+pub use term_core::surface_error::{ErrorKind, SurfaceError};
 pub use jsonrpc::{dispatch, ErrorObject, Id, Notification, Payload, Request, Response};
 pub use stub::{python_api_shim, python_stub};
 pub use transport::serve_stdio;

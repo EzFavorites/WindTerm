@@ -8,7 +8,7 @@
 //!
 //! - 单请求、批量数组（按序回包；全是通知时**一个字节都不回**）；
 //! - 通知（无 `id`）真实执行，但按规范不回包；
-//! - 错误分十档见 [`crate::error::ErrorKind`]，码与 `kind` 一一对应。
+//! - 错误分十档见 [`term_core::surface_error::ErrorKind`]，码与 `kind` 一一对应。
 //!
 //! 明确**不支持**（不是遗漏，是决定）：`params` 用数组（位置参数）——桥接的
 //! 参数一律按名传，数组形式会让「第 2 个参数是啥」随 schema 演进而静默错位；
@@ -16,8 +16,8 @@
 
 use serde_json::{Map, Value};
 
-use crate::error::SurfaceError;
-use crate::handler::{describe_value, Surface};
+use term_core::contract::Surface;
+use term_core::surface_error::SurfaceError;
 
 /// 本实现说的唯一协议版本。
 pub const JSONRPC_VERSION: &str = "2.0";
@@ -323,30 +323,23 @@ fn handle_one(surface: &dyn Surface, value: &Value) -> Option<Response> {
         return None;
     }
 
-    let outcome = call(surface, &request.method, &request.params);
+    let outcome = surface.invoke(&request.method, &request.params);
     Some(match outcome {
         Ok(value) => Response::result(request.id, value),
         Err(err) => Response::error(request.id, err),
     })
 }
 
-/// 真正落到实现层。`describe` 在**协议层**内建：任何 `Surface` 实现都自动
-/// 具备能力发现，不会因为某个后端忘了写而消失——「我支持什么」不该是可选功能。
-fn call(surface: &dyn Surface, method: &str, params: &Value) -> Result<Value, SurfaceError> {
-    if method == "describe" {
-        return Ok(describe_value());
-    }
-    surface.call(method, params)
-}
-
-/// 执行一条通知。
+/// 执行一条通知。分派只走 [`Surface::invoke`]：内建 `describe` 与后端方法
+/// 分派都在 `term-core` 的契约里收口，本文件不再自己认方法名（也就没有
+/// 第二份清单可漂）。
 ///
 /// 通知没有回包通道（协议规定），失败也无处回告——所以这里**不写日志**：
 /// 桥接的 stdout 是纯 JSON 流，往里写一行人话就会让客户端解析失败。
 /// 需要知道成败的调用方请用带 `id` 的请求。
 fn run_notification(surface: &dyn Surface, notification: Notification) {
     let Notification { method, params } = notification;
-    if let Err(err) = call(surface, &method, &params) {
+    if let Err(err) = surface.invoke(&method, &params) {
         drop(err);
     }
 }
