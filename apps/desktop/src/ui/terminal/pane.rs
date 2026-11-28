@@ -605,6 +605,9 @@ impl TerminalWindow {
             // 只拦 `write` 的话，只读标签上敲的字仍会进命令历史与折叠表，
             // 还会经 `broadcast_input` 漏给别的标签，那就不是只读了。
             if !key_bytes.is_empty() && !tab.local_mode {
+                // ADR-0030 P0：用户按键是抢占信号（不进队列），此前排队的
+                // 规则 / API 写许可作废并被计数留痕，键盘字节随后落地。
+                crate::ui::trigger_intents::user_key_preempt(tab);
                 // ADR-0027：录制器只在这里收字节——设备应答与粘贴都不经过
                 // 这段，所以录到的永远是「人敲的」。
                 super::script::note_recorded_input(&recorder, &key_bytes);

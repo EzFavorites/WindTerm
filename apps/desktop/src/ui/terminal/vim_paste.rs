@@ -61,7 +61,7 @@ pub(in crate::ui) fn finish_actions(
     paste: Option<(String, bool)>,
 ) {
     // `pending_ip_hit` 就是帧间的待触发槽：它按槽位写、帧末在这里取。
-    let mut run_commands: Vec<String> = Vec::new();
+    let mut run_commands: Vec<super::trigger_dispatch::CommandCall> = Vec::new();
     let mut note: Option<String> = None;
     if let Some(hit) = win.pending_ip_hit.take() {
         if let Some(tab) = tab_of(&mut win.tabs, &mut win.shell_tabs, slot) {
@@ -117,8 +117,8 @@ fn flush_trigger_note(win: &mut TerminalWindow, note: &mut Option<String>) {
     win.commit_note(note.take());
 }
 
-fn dispatch_all(win: &mut TerminalWindow, ids: Vec<String>) {
-    for id in ids {
-        win.dispatch(&id);
+fn dispatch_all(win: &mut TerminalWindow, calls: Vec<super::trigger_dispatch::CommandCall>) {
+    for call in calls {
+        win.dispatch_call(&call);
     }
 }

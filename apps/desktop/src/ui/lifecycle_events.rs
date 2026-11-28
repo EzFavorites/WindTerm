@@ -11,7 +11,7 @@ use term_core::automation::{Signal, Target, Ticks};
 pub(in crate::ui) fn poll(
     win: &mut TerminalWindow,
     now: u64,
-    run_commands: &mut Vec<String>,
+    run_commands: &mut Vec<crate::ui::terminal::trigger_dispatch::CommandCall>,
     note: &mut Option<String>,
 ) {
     let events: Vec<term_core::automation::Lifecycle> = match win.lifecycle_events.lock() {

@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use term_core::automation::{Effect, Release, Signal, Target, Ticks};
+use term_core::automation::{Effect, Phase, Priority, Release, Signal, Target, Ticks};
 use term_core::coords::ViewRange;
 use term_core::grid::ScreenImage;
 use term_core::session::{backoff, effective, ReconnectPolicy};
@@ -20,7 +20,10 @@ use term_core::session_runtime::{LogStatus, SessionId, SessionStatus};
 
 use crate::ui::*;
 use crate::ui::dialogs::triggers::model::{self, Rule};
-use crate::ui::terminal::trigger_dispatch::{AppIntent, IntentKind};
+use crate::bridge::surface::{arbiter_session, shared_arbiter};
+use crate::ui::terminal::trigger_dispatch::{
+    AppIntent, CommandCall, DispatchCtx, IntentKind,
+};
 
 /// 宿主注入的「现在」（Unix 秒）。触发器内核不读墙钟，由这里统一提供，
 /// 冷却与空闲判定都用它。`SystemTime` 可能被 NTP 回拨，内核的 `allow()` 已对
@@ -98,7 +101,7 @@ impl Tab {
     pub(in crate::ui) fn poll(
         &mut self,
         rules: &[Rule],
-        run_commands: &mut Vec<String>,
+        run_commands: &mut Vec<CommandCall>,
         auto_reconnect: bool,
     ) -> bool {
         let mut note = None;
@@ -117,7 +120,7 @@ impl Tab {
     pub(in crate::ui) fn poll_with_note(
         &mut self,
         rules: &[Rule],
-        run_commands: &mut Vec<String>,
+        run_commands: &mut Vec<CommandCall>,
         auto_reconnect: bool,
         note: &mut Option<String>,
     ) -> bool {
@@ -130,7 +133,7 @@ impl Tab {
     pub(in crate::ui) fn poll_with_policy(
         &mut self,
         rules: &[Rule],
-        run_commands: &mut Vec<String>,
+        run_commands: &mut Vec<CommandCall>,
         global_policy: &ReconnectPolicy,
         note: &mut Option<String>,
     ) -> bool {
@@ -147,7 +150,7 @@ impl Tab {
     fn poll_with_policy_inner(
         &mut self,
         rules: &[Rule],
-        run_commands: &mut Vec<String>,
+        run_commands: &mut Vec<CommandCall>,
         global_policy: &ReconnectPolicy,
         note: &mut Option<String>,
         output_text: &mut Option<String>,
@@ -236,6 +239,8 @@ impl Tab {
         if self.local_mode {
             self.was_live = live;
         } else if live && !self.was_live {
+            // 连接期结束：仲裁器从 P1 独占切到 Live，规则 / 显式调用才开写。
+            crate::ui::trigger_intents::set_phase(self, Phase::Live);
             // 「刚连上」的边沿：窗口层的自动日志（`Log types`）只认这一处。
             self.just_connected = true;
             self.auto_reconnect_at = None;
@@ -249,6 +254,8 @@ impl Tab {
                 self.dispatch_effect(&effect, run_commands, note, false);
             }
         } else if !live && self.was_live {
+            // 断开边沿把仲裁器收回连接期，残留 owner / 许可一起失效。
+            crate::ui::trigger_intents::set_phase(self, Phase::Connecting);
             // 断开边沿清掉这条会话的运行时凭据：Tab.auth 里只剩引用，没有
             // 密码就再也取不到——凭据不再活完整场会话。重连会重新问保险库。
             crate::ui::dialogs::vault::clear_session_secrets(&self.config.name);
@@ -355,21 +362,52 @@ impl Tab {
     pub(in crate::ui) fn dispatch_effect(
         &mut self,
         effect: &Effect,
-        run_commands: &mut Vec<String>,
-        _note: &mut Option<String>,
+        run_commands: &mut Vec<CommandCall>,
+        note: &mut Option<String>,
         gated: bool,
     ) {
-        let Some(mut intent) = super::trigger_dispatch::intent_from_effect(effect) else {
+        let session = self.session.unwrap_or(self.identity);
+        let key = arbiter_session(&self.pool, session);
+        let Some(mut intent) = super::trigger_dispatch::intent_from_effect(
+            effect,
+            DispatchCtx::for_rule(key, &effect.rule, None, None),
+        ) else {
             return;
         };
+        // 只有写意图（含凭据，它落地后就是一次写）才申请许可。被压制的
+        // 写意图根本不进队列——不是产生后再丢弃；留痕写进本帧 note。
+        if intent.is_write() || matches!(intent.kind, IntentKind::Credential(_)) {
+            let (result, owner) = {
+                let mut arbiter = shared_arbiter().lock().unwrap_or_else(|e| e.into_inner());
+                let result = arbiter.request(key, &effect.rule, Priority::P3Rule, false);
+                let owner = arbiter.owner(key).map(|o| o.source);
+                (result, owner)
+            };
+            match result {
+                Ok(grant) => {
+                    intent.ctx.owner = owner;
+                    intent.ctx.grant = Some(grant);
+                }
+                Err(denied) => {
+                    if note.is_none() {
+                        *note = Some(format!(
+                            "规则 {} 的写入被压制：{}",
+                            effect.rule,
+                            denied.as_message()
+                        ));
+                    }
+                    return;
+                }
+            }
+        }
         if gated && intent.is_write() {
             intent.since = Ticks::from_secs(now_secs());
         } else {
             intent.release = Release::Immediate;
         }
-        // 命令 ID 走既有窗口级分发器，其余意图进队列等待帧末消费。
+        // 命令 ID / 菜单调用走既有窗口级分发器，其余意图进队列等帧末消费。
         if let IntentKind::App(AppIntent::Dispatch(id)) = &intent.kind {
-            run_commands.push(id.clone());
+            run_commands.push(CommandCall::plain(id.clone()));
         }
         self.pending_intents.push(intent);
     }
