@@ -1660,7 +1660,7 @@ fn checked_size(cols: i64, rows: i64) -> Result<(usize, usize), Box<EvalAltResul
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testutil::{fake_session, Manip};
+    use crate::testutil::{fake_session, FakeSessions, Manip};
     use std::collections::BTreeSet;
     use std::thread;
     use std::time::Duration;
@@ -1783,6 +1783,39 @@ mod tests {
             elapsed < Duration::from_millis(1200),
             "sleep 不能按脚本给的 5s 睡满：实际 {elapsed:?}"
         );
+    }
+
+    /// 取消（NoInput）走的是错误通道，绝不能被 `answer_to_dynamic` 变成 `false`
+    /// 喂给脚本：Confirm 上那会让 Esc 与「点了 No」同形，Text/Secret/Choose
+    /// 上还会得到类型错误的 bool。这里从脚本语言层钉死「没人回答 = 显式失败」。
+    #[test]
+    fn a_missing_answer_fails_ask_instead_of_returning_a_bool() {
+        let engine = ScriptEngine::new(fast_sandbox());
+        for source in [
+            r#"ask(#{kind: "confirm", text: "继续？"})"#,
+            r#"ask(#{kind: "text", prompt: "名字？"})"#,
+            r#"ask(#{kind: "secret", prompt: "密码？"})"#,
+            r#"ask(#{kind: "choose", prompt: "选一个", options: ["a", "b"]})"#,
+        ] {
+            let (session, _manip) = fake_session(1);
+            // 假人机端口没预置回答 → NoInput，等价于用户按了 Esc / 关了窗。
+            let fake = FakeSessions::new();
+            let ws = Arc::new(ScriptWorkspace::new(
+                fake.env(),
+                session,
+                Duration::from_secs(5),
+            ));
+            let err = engine
+                .run_in_workspace(source, ws)
+                .expect_err("没人回答必须显式失败，不能悄悄给个 bool");
+            match err {
+                ScriptError::Runtime(msg, _) => assert!(
+                    msg.contains("没有可交互的输入"),
+                    "错误要说清是没人回答：{msg}"
+                ),
+                other => panic!("应是运行时错误：{other:?}"),
+            }
+        }
     }
 
     /// ADR-0023 §决策 3 的脚本侧防线：**注册了什么，就必须等于表上投影出来的**。

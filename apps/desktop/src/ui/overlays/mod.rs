@@ -29,7 +29,7 @@ mod script_editor;
 // 窗口结构体要持有一份预览状态（内容 + 纹理），所以类型要在 `ui` 这一层可见。
 // 只再导出**类型**，`content_of` / `human_bytes` 这些纯函数仍是 `preview` 私有——
 // 它们只属于那个模块，`ui/mod.rs` 不该顺手借来用。
-pub(in crate::ui) use ask::AskModal;
+pub(in crate::ui) use ask::{AskModal, AskOutcome};
 pub(in crate::ui) use modal::draw_backdrop;
 
 /// 取一个待答复的请求（队列空 = `None`）。
@@ -40,18 +40,18 @@ pub(in crate::ui) fn poll_ask(
     ask::poll(asks, picks)
 }
 
-/// 画一帧模态框；`Some(answer)` = 用户答复了。
+/// 画一帧模态框；`Some(outcome)` = 有结论（真实回答或取消）。
 pub(in crate::ui) fn draw_ask(
     ctx: &egui::Context,
     modal: &mut AskModal,
     lang: term_app::i18n::Lang,
-) -> Option<term_script::Answer> {
+) -> Option<AskOutcome> {
     ask::draw(ctx, modal, lang)
 }
 
-/// 答案 + 请求形态 → 真正送回脚本线程的值。
-pub(in crate::ui) fn resolve_ask(modal: &AskModal, answer: term_script::Answer) -> ask::Resolved {
-    ask::resolve(modal, answer)
+/// 画框结局 + 请求形态 → 真正送回脚本线程的值。
+pub(in crate::ui) fn resolve_ask(modal: &AskModal, outcome: AskOutcome) -> ask::Resolved {
+    ask::resolve(modal, outcome)
 }
 pub(in crate::ui) use preview::PreviewState;
 pub(in crate::ui) use profile_choice::ProfileChoiceState;
